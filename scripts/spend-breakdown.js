@@ -110,8 +110,10 @@ async function main() {
     console.log(`\nTOTAL (estimated from list prices): ${usd(total)} across ${rows.length} call(s)`
       + (unpriced ? `  -- ${unpriced} call(s) on a model with no price on file, counted at $0` : ''));
     console.log('Prices assumed, USD per million tokens [in, out, cache read]: ' + Object.entries(Ledger.PRICES).filter(([k]) => k !== 'deepseek').map(([k, v]) => `${k}=${v.join('/')}`).join('  ')
-      + `; web search ${usd(Ledger.USD_PER_SEARCH.anthropic)} each on Anthropic, ${usd(Ledger.USD_PER_SEARCH.deepseek)} each through the search provider on DeepSeek.`);
-    console.log('DeepSeek rates are the DEEPSEEK_PRICE_IN / _OUT / _CACHE_HIT assumptions (defaults are the V3.2-era list prices; set the V4.1 Flash rates from api-docs.deepseek.com to correct every estimate).');
+      + `; web search ${usd(Ledger.USD_PER_SEARCH.anthropic)} each on Anthropic; through the search provider on DeepSeek: Serper ${usd(Ledger.SEARCH_RATES.serper)}, Brave ${usd(Ledger.SEARCH_RATES.brave)}, Tavily ${usd(Ledger.SEARCH_RATES.tavily)} each (the active provider's rate is used; SEARCH_USD_SERPER / _BRAVE / _TAVILY override).`);
+    console.log('DeepSeek rates are the DEEPSEEK_PRICE_IN / _OUT / _CACHE_HIT assumptions per million tokens: '
+      + `$${Ledger.DEEPSEEK_PRICE[0]} in (cache miss), $${Ledger.DEEPSEEK_PRICE[2]} in (cache hit), $${Ledger.DEEPSEEK_PRICE[1]} out. `
+      + 'The defaults are the published V3.2-era list prices; the V4.1 Flash page (api-docs.deepseek.com/quick_start/pricing) is not reachable from the build box, so set the three variables on Railway to its current rates and every estimate follows.');
 
     // ── BY PROVIDER: the Anthropic bill beside the DeepSeek bill ──────────
     {
@@ -173,6 +175,22 @@ async function main() {
           const n = g.names.size || 1;
           console.log(`  ${pad(k, 22)} ${pad(n, 8)} ${pad(g.calls, 6)} ${pad(g.searches, 9)} ${pad(usd(g.usd), 9)} ${pad(usd(g.usd / n), 11)}`);
         }
+      }
+    }
+
+    // ── WRITER RETRIES: how often the pitch had to be written twice ───────
+    // Every writer call carries the athlete and the brand; a second row for
+    // the same pair in the window is the retry. The target is under 10%.
+    {
+      const wr = rows.filter((r) => r.site === 'writer');
+      if (wr.length) {
+        const pairs = new Map();
+        for (const r of wr) { const k = `${r.athlete_id || ''}|${String(r.brand || '').toLowerCase()}`; pairs.set(k, (pairs.get(k) || 0) + 1); }
+        const pitches = pairs.size, retried = [...pairs.values()].filter((n) => n >= 2).length;
+        const rate = pitches ? Math.round(1000 * retried / pitches) / 10 : 0;
+        const wasted = wr.filter((r) => pairs.get(`${r.athlete_id || ''}|${String(r.brand || '').toLowerCase()}`) >= 2).reduce((n, r) => n + (Number(r.est_usd) || 0), 0) / 2;
+        console.log(`\nWRITER RETRIES: ${retried} of ${pitches} pitch(es) written twice (${rate}%; target under 10%), about ${usd(wasted)} of writer spend was the second attempt`);
+        if (rate >= 10) console.log('  over target: the run rows carry writerFirstProblems per attempt; the usual cause is a fact about the athlete that the record does not hold.');
       }
     }
 

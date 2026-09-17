@@ -98,7 +98,9 @@ async function main() {
   ok('a routed site with both keys goes to DeepSeek', DS.route('discovery', { needsSearch: true }).provider === 'deepseek');
   ok('  a sub-site counts by its top level', DS.route('contacts.finalname', { needsSearch: true }).provider === 'deepseek' && DS.route('lookup.pro').provider === 'deepseek');
   ok('  the writer is never routed', DS.route('writer').provider === 'anthropic' && /not routed/.test(DS.route('writer').reason));
-  ok('  an unlabelled call stays on Anthropic', DS.route(undefined).provider === 'anthropic');
+  // Every fast-tier call is routed now, labelled or not: social discovery,
+  // company enrichment, the domain and person email searches, a bio.
+  ok('  an unlabelled fast call is routed too', DS.route(undefined).provider === 'deepseek' && DS.route('social.discovery').provider === 'deepseek' && DS.route('enrichment').provider === 'deepseek');
   process.env.AI_FAST_PROVIDER = 'anthropic';
   ok('  AI_FAST_PROVIDER=anthropic is the kill switch', DS.route('discovery').provider === 'anthropic' && /Haiku for everything/.test(DS.describeRouting()));
   delete process.env.AI_FAST_PROVIDER;
@@ -107,7 +109,7 @@ async function main() {
   ok('  a plain call on the same site still goes to DeepSeek', DS.route('contacts', { needsSearch: false }).provider === 'deepseek');
   ok('  and the startup line says the searches stay on Haiku', /STAY ON HAIKU/.test(DS.describeRouting()), DS.describeRouting());
   process.env.BRAVE_SEARCH_API_KEY = savedBrave;
-  ok('with both keys the startup line names the provider and the sites', /DeepSeek deepseek-v4-flash for discovery, instagram, contacts, lookup, web search through brave/.test(DS.describeRouting()), DS.describeRouting());
+  ok('with both keys the startup line names the provider and the sites', /DeepSeek deepseek-v4-flash for every Haiku call \(discovery, instagram, contacts, lookup, social, enrichment and unlabelled\), never the writer, web search through brave at \$0\.005 a query/.test(DS.describeRouting()), DS.describeRouting());
   process.env.DEEPSEEK_SITES = 'contacts';
   ok('DEEPSEEK_SITES narrows the routed sites', DS.route('discovery').provider === 'anthropic' && DS.route('contacts').provider === 'deepseek');
   delete process.env.DEEPSEEK_SITES;
@@ -136,7 +138,7 @@ async function main() {
   ok('  and a Sonnet call under discovery goes to Anthropic: only the fast tier moves', seen.length === 0 && anthropicCalls === 1);
   seen.length = 0; anthropicCalls = 0;
   await ai.oneShot('bio', 'sys', 100, ai.MODEL_FAST);
-  ok('  an unlabelled fast call (a bio from the app) goes to Anthropic', seen.length === 0 && anthropicCalls === 1);
+  ok('  an unlabelled fast call (a bio from the app) goes to DeepSeek too', seen.length === 1 && anthropicCalls === 0);
 
   // ── 3. A SEARCHED CALL ───────────────────────────────────────────────────
   OUT.push('', '-- a searched call: the loop, the provider, the citations --');

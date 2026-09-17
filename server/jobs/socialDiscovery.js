@@ -24,6 +24,7 @@ const path = require('path');
 const fs = require('fs');
 const store = require('../store');
 const ai = require('../ai');
+const scanMeter = require('../scanMeter');
 const { verifySocialProof, findProgramUrl, summarizeProgram } = require('../services/socialProof');
 
 const QUERIES_PATH = path.join(__dirname, '..', 'data', 'socialDiscoveryQueries.json');
@@ -142,7 +143,10 @@ async function runSocialDiscovery() {
     summary.queriesRun++;
     let raw = '';
     try {
-      raw = await ai.oneShotWebSearch(_searchPrompt(q, MAX_PER_QUERY), SEARCH_SYSTEM, 2500, 4, ai.MODEL_FAST);
+      // Labelled, so the ledger shows social discovery as its own site and the
+      // routing sends it to DeepSeek with the rest of the fast tier.
+      raw = await scanMeter.label({ site: 'social.discovery', brand: '[' + q + ']' },
+        () => ai.oneShotWebSearch(_searchPrompt(q, MAX_PER_QUERY), SEARCH_SYSTEM, 2500, 4, ai.MODEL_FAST));
     } catch (e) {
       console.warn(`[socialDiscovery] search failed q="${q}": ${e.message}`);
       continue;

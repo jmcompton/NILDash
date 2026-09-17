@@ -151,14 +151,18 @@ CRITICAL:
 - "general_email": the best REAL contact email found on their official website (general/info/sales inbox, or owner/manager). Only a real one you actually find; otherwise null.`;
 
   let raw;
+  // Labelled 'enrichment' with the brand, so the ledger shows it as its own
+  // site and the routing sends it to DeepSeek with the rest of the fast tier.
+  const scanMeter = require('../scanMeter');
+  const labelled = (fn) => scanMeter.label({ site: 'enrichment', brand: brandName }, fn);
   try {
-    raw = await oneShotWebSearch(researchPrompt, researchSystem, 2500, 3, MODEL_FAST);
+    raw = await labelled(() => oneShotWebSearch(researchPrompt, researchSystem, 2500, 3, MODEL_FAST));
   } catch (e) {
     console.error('[companyEnrichment] web search failed, falling back to model knowledge:', e.message);
     try {
       // Pinned to the fast model, same as the search above: this is extraction,
       // and a failed web search must not silently upgrade the call to the default.
-      raw = await oneShot(prompt, system, 2000, MODEL_FAST);
+      raw = await labelled(() => oneShot(prompt, system, 2000, MODEL_FAST));
     } catch (e2) {
       console.error('[companyEnrichment] AI call failed:', e2.message);
       return buildFallback(brandName);

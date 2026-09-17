@@ -23,7 +23,7 @@ const DS = require('./deepseek');
 const FETCH_CAP_CHARS = parseInt(process.env.SEARCH_FETCH_CAP_CHARS, 10) || 6000;
 const RESULTS_PER_SEARCH = parseInt(process.env.SEARCH_RESULTS_N, 10) || 6;
 
-function usdPerQuery() { return require('./aiLedger').USD_PER_SEARCH.deepseek; }
+function usdPerQuery() { const sp = provider(); return require('./aiLedger').searchUsd(sp ? sp.name : null); }
 
 async function _getJson(url, init, timeoutMs) {
   const ac = new AbortController();
@@ -70,11 +70,13 @@ const PROVIDERS = {
   },
 };
 
-// The first provider with a key, or null. SEARCH_PROVIDER forces one.
+// The search provider: Serper when its key is set ($1 a thousand, the
+// cheapest of the three), then Brave, then Tavily. SEARCH_PROVIDER forces one.
+const PREFERENCE = ['serper', 'brave', 'tavily'];
 function provider() {
   const forced = String(process.env.SEARCH_PROVIDER || '').trim().toLowerCase();
   if (forced) { const p = PROVIDERS[forced]; return p && p.key() ? p : null; }
-  for (const p of Object.values(PROVIDERS)) if (p.key()) return p;
+  for (const name of PREFERENCE) { const p = PROVIDERS[name]; if (p && p.key()) return p; }
   return null;
 }
 
@@ -183,4 +185,4 @@ async function searchLoop(o = {}) {
   return { text, citations, searches, fetches, outTokens, apiMs, usage, rounds };
 }
 
-module.exports = { searchLoop, provider, fetchPage, htmlToText, usdPerQuery, TOOLS, PROVIDERS };
+module.exports = { searchLoop, provider, fetchPage, htmlToText, usdPerQuery, TOOLS, PROVIDERS, PREFERENCE };

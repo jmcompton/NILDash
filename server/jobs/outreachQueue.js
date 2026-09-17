@@ -48,6 +48,7 @@ const BI = require('../services/brandIdentity');
 const AR = require('../services/athleteRecord');
 const Scout = require('../services/scout');
 const Deepen = require('../services/marketDeepen');
+const Claims = require('../services/nightlyClaims');
 const { resolveSchool } = require('../services/schoolResolver');
 // The last door for a contact name (see the local write site).
 const ONS = require('../services/ownerNameSearch');
@@ -851,6 +852,15 @@ async function fillAthlete(pool, ctx) {
         + `($${budget.discoverySpent().toFixed(2)} of $${budget.discoveryCap().toFixed(2)})`);
       return null;
     }
+    // THE LOOP STOP. However many times this athlete's fill is entered tonight
+    // (the nightly run, a resume, an on-demand fill), each discovery scan runs
+    // at most MAX_DISCOVERY_PER_ATHLETE_NIGHT times for them. Counted in the
+    // database, not in this closure, so a second process cannot restart it.
+    const claim = await Claims.claimDiscovery(pool, athleteId, label, ctx.runDate || today());
+    if (!claim.ok) {
+      say(`${athleteName}: not ${label} — already ran ${claim.n - 1} time(s) for them tonight (cap ${Claims.MAX_DISCOVERY_PER_ATHLETE_NIGHT})`);
+      return null;
+    }
     const scanMeter = require('../scanMeter');
     const { result, meter } = await scanMeter.run(() =>
       scanMeter.label({ site: 'discovery', agentId, athleteId, brand: '[' + label + ']' },
@@ -1100,6 +1110,13 @@ async function fillAthlete(pool, ctx) {
         // that repeats across the roster is searched once. Nothing found means
         // no card, counted on the run row as no_name like any local business.
         let pperson = null;
+        // The same once-per-night rule as the local lane: a program brand
+        // re-drawn for this athlete tonight is not searched for a name again.
+        if (!(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
+          say(`${cand.brand_name}: skipped, already researched for ${athleteName} tonight`);
+          tried.push({ brand: cand.brand_name, result: 'skipped', reason: Claims.RESEARCHED_TONIGHT_REASON, lane: cand.lane, places: { found: false }, risk: 'normal' });
+          continue;
+        }
         if (NAME_REQUIRED) {
           try {
             pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say });
@@ -1220,6 +1237,14 @@ async function fillAthlete(pool, ctx) {
         continue;
       }
 
+      // ONCE PER BUSINESS PER ATHLETE PER NIGHT. A second pass tonight (a
+      // resume, an on-demand fill, a refill that re-drew the same name) does
+      // not research it again: the first pass's answer is on the run row.
+      if (!(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
+        say(`${cand.brand_name}: skipped, already researched for ${athleteName} tonight`);
+        tried.push({ brand: cand.brand_name, result: 'skipped', reason: Claims.RESEARCHED_TONIGHT_REASON, lane: cand.lane, places: facts, risk: pre.risk });
+        continue;
+      }
       say(`looking up ${cand.brand_name}…`);
       let out = null;
       let meter = null;
@@ -1644,7 +1669,7 @@ async function fillAgent(pool, agent, opts) {
     let r = null;
     try {
       r = await fillAthlete(pool, {
-        agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
+        agentId: agent.id, athleteId: ath.id, athleteName: ath.name, runDate,
         athleteProfile: _ctx.profile, agentFirstName: agentFirst,
         // The raw stored athlete, for the widened re-scan only. getDealRecommendations
         // reads school/sport/instagram/tiktok off the record itself.
@@ -1901,7 +1926,7 @@ async function fillOnDemand(pool, ath, opts = {}) {
   try {
     const _ctx = await localContextFor(ath);
     r = await fillAthlete(pool, {
-      agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
+      agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name, runDate,
       athleteProfile: _ctx.profile, agentFirstName: ath.agent_first_name || null,
       signature: SIG.signatureOf(ath),
       // The raw record, same as the nightly path. Without it the on-demand fill
