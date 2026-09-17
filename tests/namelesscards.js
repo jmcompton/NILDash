@@ -149,6 +149,20 @@ const good = (over) => Object.assign({
   ok('the retire script and the admin endpoint use the same audit', /queueAudit/.test(src('scripts/retire-nameless-cards.js')) && /QA\.namelessCards\(P, \{ agentId \}\)/.test(src('scripts/retire-nameless-cards.js')) && /app\.get\('\/api\/admin\/nameless-cards', requireAuth/.test(idx) && /QA\.retireNameless\(store\.pool, bad\.map/.test(idx));
   ok('  the spend report prints the count and says it must be 0', /LIVE CARDS WITH NO NAMED CONTACT/.test(src('scripts/spend-breakdown.js')) && /Must be 0/.test(src('scripts/spend-breakdown.js')) && /namelessLiveCount/.test(src('scripts/spend-breakdown.js')));
 
+  // ── 4b. A NAMED CARD LINKED TO A NAMELESS PREWARM DRAFT ──────────────────
+  // The twelve: each card passed the gate, then linked to the prewarm draft
+  // for the same business, which said "Hi," (or "Hi Jill,") to nobody.
+  OUT.push('', '-- a card that links to an existing draft rewrites a draft that greets nobody --');
+  await P().query(`INSERT INTO outreach_logs (id, agent_id, athlete_id, brand_name, brand_key, subject, body_html, status, source, sent_to_email)
+                   VALUES ('nl-pre-1', $1, $2, 'KSTATE Credit Union', 'name:kstate credit union', 'KSTATE x Messiah', '<div>Hi Jill,</div><div><br></div><div>A prewarm draft to nobody.</div>', 'draft', 'prewarm', 'info@kstate.example')`, [AG, ATH]);
+  const linked = await ins(good({ brandKey: 'name:kstate credit union', brandName: 'KSTATE Credit Union', contactName: 'LaRae Kraemer', contactTitle: 'Marketing Director', channel: 'email', email: 'larae@kstate.example', subject: 'Quick idea for KSTATE Credit Union', emailBody: 'Hi LaRae, an idea for the student account drive.', dmText: null }), 6);
+  const lrow = (await rows()).find((r) => r.brand_name === 'KSTATE Credit Union');
+  const ldraft = (await P().query(`SELECT * FROM outreach_logs WHERE id = 'nl-pre-1'`)).rows[0];
+  ok('the card is written and linked to the existing prewarm draft', linked === true && lrow && lrow.outreach_log_id === 'nl-pre-1', lrow && lrow.outreach_log_id);
+  ok('  and that draft now greets LaRae, not Jill: rewritten to the card\'s own pitch', ldraft && /<p>Hi LaRae, an idea/.test(ldraft.body_html) && !/Jill/.test(ldraft.body_html) && ldraft.subject === 'Quick idea for KSTATE Credit Union', ldraft && ldraft.body_html);
+  ok('  so the rule holds over the stored draft too', Q.cardNameProblem({ contact_name: 'LaRae Kraemer', brand_name: 'KSTATE Credit Union', channel: 'email', body_html: ldraft.body_html }) === null);
+  ok('  the audit sees no problem on it', (await QA.namelessCards(P(), { agentId: AG })).bad.length === 0);
+
   // ── 5. "NOT CHECKED YET" ──────────────────────────────────────────────────
   OUT.push('', '-- the email check on unchecked cards --');
   await P().query(`DELETE FROM email_verification WHERE email IN ('kim@cutsbyk.com')`).catch(() => {});

@@ -550,12 +550,26 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
     // slot. Inserting blindly hits the constraint; the answer is not to force a
     // second draft but to point the card at the one that exists.
     const existing = (await pool.query(
-      `SELECT id, cadence_stopped_at FROM outreach_logs
+      `SELECT id, cadence_stopped_at, source, subject, body_html FROM outreach_logs
         WHERE athlete_id = $1 AND brand_key = $2 AND status = 'draft'
         LIMIT 1`, [athleteId, card.brandKey || identity]).catch(() => ({ rows: [] }))).rows[0];
     if (existing) {
       logId = existing.id;
       linked = true;
+      // ── THE DRAFT WE LINK TO MUST GREET THE PERSON ON THIS CARD ───────────
+      // Twelve cards reached agents saying "Hi," with a contact name on the
+      // card: the card passed the gate above, and then linked to a prewarm
+      // draft written before anyone was known (one greeted "Jill" on a card
+      // naming LaRae Kraemer). The card's own pitch has just been checked, so
+      // when the existing draft fails the same rule its subject and body are
+      // replaced with the card's, and the link keeps the slot rule intact.
+      const oldProblem = Q.cardNameProblem({ ...card, channel: 'email', emailBody: null, body_html: existing.body_html });
+      if (oldProblem && card.emailBody) {
+        await pool.query(
+          `UPDATE outreach_logs SET subject = COALESCE($2, subject), body_html = $3, updated_at = NOW() WHERE id = $1`,
+          [logId, card.subject || null, textToParagraphs(card.emailBody)]).catch((e) => console.error(`[queue] could not rewrite draft ${logId}: ${e.message}`));
+        console.log(`[queue] athlete=${athleteId} "${card.brandName}" existing ${existing.source || 'draft'} ${logId} rewritten to the card's pitch: ${oldProblem}`);
+      }
       // A draft stopped by an earlier undo or a lost slot race is revived when a
       // card claims it again -- otherwise the card would link to something Home
       // will never show.

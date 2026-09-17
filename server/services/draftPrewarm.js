@@ -20,11 +20,22 @@
 //   - No CRM deal. The click path creates one (step 7). Pre-warming ten cards must
 //     not silently create ten pipeline deals out of a scan the agent only looked at.
 //   - No enrichment, no contact discovery, no deck. Those stay on the click path.
-//   - No contact name. At scan time the card usually has a business phone and no
-//     named person, because the deep contact ladder only runs when a card is
-//     expanded. The draft is written contact-agnostic and the click path
-//     personalises the greeting if a name has been found by then. Pre-warming the
-//     ladder as well would cost roughly an order of magnitude more for "Hi Dana".
+//   - No contact search. The deep contact ladder only runs when a card is
+//     expanded. But a card that ALREADY carries a person (the scan's
+//     contactName) is written to that person, by first name, and the same
+//     greeting lint the nightly writer runs (services/outreachQueue.
+//     greetingProblem) rejects and rewrites a draft that opens "Hi," or greets
+//     anyone else. A card with no person is written "Hi," and any name the
+//     model invents is rejected. Twelve nameless drafts reached agents through
+//     this path before the lint was here: the queue linked a named card to the
+//     prewarm draft for the same business, and the draft said "Hi," to nobody
+//     (one said "Hi Jill," to a card naming LaRae Kraemer).
+//
+// ONE CARD, ONE PROMPT. buildPrompt reads the athlete and THIS card only. The
+// batch runs cards through separate calls; no other card's contact, rationale
+// or evidence is ever in a prompt, so a name on a draft can only have come
+// from this card's own facts or from the model, and either way the lint
+// refuses any greeting that is not this card's contact.
 //
 // The pre-warmed draft is a REAL outreach_logs draft, the same row the modal reads
 // and the same row PATCH /logs/:id edits, so an agent's edit saves through the path
@@ -133,7 +144,20 @@ function athleteFacts(athlete) {
   return lines.join('\n');
 }
 
+// The person on THIS card, as the greeting should say it ("Dana" for "Dana
+// Roberts", "Dr. Park" for "Dr. Lee Park"), or '' when the card names nobody
+// real. The same person test the queue's save gate uses, so a card whose
+// "contact" is "Owner" or "Marketing Team" is written "Hi," here and refused
+// there, never greeted as if it were a person.
+function greetNameFor(card) {
+  const Q = require('./outreachQueue');
+  const name = _s(card && (card.contactName || card.contact_name));
+  if (!name || Q.personNameProblem(name, card && (card.brand || card.brand_name))) return '';
+  try { return greetingGuard.salutationName(name); } catch (_) { return ''; }
+}
+
 function buildPrompt(athlete, card, agentName, retryBecause) {
+  const greet = greetNameFor(card);
   // On a retry, the FIRST thing the model reads is what it just got wrong. A bare
   // "try again" with an unchanged prompt mostly reproduces the same draft, which is
   // why the old behaviour of dropping the card outright was not obviously worse.
@@ -154,7 +178,10 @@ STRUCTURE. Three or four sentences TOTAL. A gym owner reads on a phone between c
   3. What is being proposed, in plain words. Deliverables, not jargon. Never a dollar amount, price or rate.
   4. One clear ask, and only one. A short question that can be answered yes or no.
 
-GREETING: exactly "Hi," on its own line. Do NOT invent a name, a title, or "Hi there" - the recipient is not known yet.
+${greet
+    ? `GREETING: exactly "Hi ${greet}," on its own line. ${greet} is the person this card is to; use that name and no other.`
+    : 'GREETING: exactly "Hi," on its own line. Do NOT invent a name, a title, or "Hi there" - the recipient is not known yet.'}
+Any other name that appears in the facts above (a reviewer, a staff member, someone quoted in the rationale) is NOT the recipient. Never greet them and never address the email to them.
 SIGN-OFF: none. Do not write a closing, a name, or a signature. The platform adds those.
 
 BANNED. If the email contains any of these, rewrite it:
@@ -184,12 +211,26 @@ function checkDraft(text, card) {
   if (brand && !lower.includes(brand.toLowerCase().split(/\s+/)[0])) {
     return { ok: false, why: 'never names the business' };
   }
-  // A NAME NOBODY DISCOVERED. The prompt says "Do NOT invent a name" in capitals
-  // and this is the enforcement of it. Pre-warming runs BEFORE any contact is
-  // known, so there is never a verified name to greet at this point -- any
-  // addressee at all is invented, by definition.
-  const who = greetingGuard.addresseeOf(String(body).split('\n')[0]);
-  if (who) return { ok: false, why: `greets "${who}", who has not been discovered` };
+  // THE GREETING, THE SAME LINT THE NIGHTLY WRITER RUNS. With a person on the
+  // card, the first line must open "Hi <their first name>," (services/
+  // outreachQueue.greetingProblem: "Hi," "Hi there," no greeting, or another
+  // name all fail). With nobody on the card, any addressee at all is invented
+  // and refused. Read with greetingWho, which sees an inline greeting ("Hi
+  // Jill, I work with...") as well as one on its own line; the old check only
+  // read a short standalone line, which is how "Hi Jill," got through.
+  {
+    const Q = require('./outreachQueue');
+    const greet = greetNameFor(card);
+    const firstLine = String(body).split('\n').map((x) => x.trim()).find(Boolean) || '';
+    if (greet) {
+      const p = Q.greetingProblem(body, _s(card.contactName || card.contact_name));
+      if (p) return { ok: false, why: p + `; open with exactly "Hi ${greet},"` };
+    } else {
+      const who = Q.greetingWho(firstLine);
+      if (who === null) return { ok: false, why: 'no greeting line; open with exactly "Hi,"' };
+      if (who) return { ok: false, why: `greets "${who}", who has not been discovered; open with exactly "Hi,"` };
+    }
+  }
   // Four sentences was the instruction. Ten means it ignored the shape.
   const sentences = body.replace(/^hi,?\s*/i, '').split(/[.!?]+\s/).filter((s) => s.trim().length > 12);
   if (sentences.length > 7) return { ok: false, why: `${sentences.length} sentences, asked for 3-4` };
@@ -383,6 +424,6 @@ async function prewarmScan({ agentId, athleteId, athlete, cards, agentName, lane
 }
 
 module.exports = {
-  prewarmScan, draftOne, buildPrompt, checkDraft, parse, toHtml, cardFacts, athleteFacts, orderForPrewarm,
+  prewarmScan, draftOne, buildPrompt, checkDraft, parse, toHtml, cardFacts, athleteFacts, orderForPrewarm, greetNameFor,
   BANNED, CONCURRENCY, MAX_CARDS, DRAFT_TIMEOUT_MS,
 };

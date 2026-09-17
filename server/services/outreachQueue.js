@@ -1055,7 +1055,7 @@ module.exports = {
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
   waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf, greetRowOf, ensureGreeting, emailNoteOf,
-  cardNameProblem, personNameProblem, greetingProblem,
+  cardNameProblem, personNameProblem, greetingProblem, greetingWho,
   pauseRelease, pausedUntilNote, PAUSE_RETRY_DAYS,
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,
