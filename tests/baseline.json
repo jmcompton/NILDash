@@ -714,6 +714,11 @@
       "total": null,
       "fault": "no result line"
     },
+    "proadd.js": {
+      "failed": 0,
+      "total": 21,
+      "fault": null
+    },
     "proathlete.js": {
       "failed": 0,
       "total": 124,

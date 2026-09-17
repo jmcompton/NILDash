@@ -150,7 +150,7 @@ async function main() {
   AC._setFillNowForTests(false);
   ok('  a pro is added by city and team, with no school', JSON.stringify(actions.ACTIONS.add_athlete.check({ name: 'Max Murray', sport: 'soccer', athleteType: 'pro', city: 'New York, NY', team: 'NYCFC' }).args) === JSON.stringify({ name: 'Max Murray', sport: 'soccer', athleteType: 'pro', city: 'New York, NY', team: 'NYCFC', school: '' }));
   ok('  and says the city', /near New York, NY/.test(actions.ACTIONS.add_athlete.say({ name: 'Max Murray', sport: 'soccer', athleteType: 'pro', city: 'New York, NY' })));
-  ok('  a college athlete still needs a school, a pro a city', /school is needed/.test(actions.ACTIONS.add_athlete.check({ name: 'X', sport: 'golf' }).error) && /city they play in/.test(actions.ACTIONS.add_athlete.check({ name: 'X', sport: 'golf', athleteType: 'pro' }).error));
+  ok('  a college athlete still needs a school, a pro a city', /school is needed/.test(actions.ACTIONS.add_athlete.check({ name: 'X', sport: 'golf' }).error) && /Which city does X play in, as "City, ST"\? Or name the team/.test(actions.ACTIONS.add_athlete.check({ name: 'X', sport: 'golf', athleteType: 'pro' }).error));
   ok('  an unknown school is "near their school", never a guess', /near their school/.test(actions.ACTIONS.add_athlete.say({ name: 'X', sport: 'golf', athleteType: 'college', school: 'Nowhere Tech' })));
   ok('the route and the tool are the same function', /AthleteCreate\.createAthlete\(user, req\.body \|\| \{\}\)/.test(fs.readFileSync(REPO + 'server/index.js', 'utf8')) && /AC\.createAthlete\(user, body, \{ allowDuplicate/.test(fs.readFileSync(REPO + 'server/services/assistantActions.js', 'utf8')));
 
