@@ -52,7 +52,7 @@ const why = src('tools/briefs/why-no-brief.sh');
 ok('why-no-brief.sh checks sleep, the schedule, the 05:20-06:30 log lines, the keys (masked) and one test call', /pmset -g log/.test(why) && /crontab -l/.test(why) && /launchctl print/.test(why) && /0\(5:\[2-5\]\[0-9\]\|6:\[0-2\]\[0-9\]\)/.test(why) && /deepseekApiKey/.test(why) && /--api-test/.test(why) && /slice\(0, 4\) \+ "\.\.\." \+/.test(why));
 // The leak this guards against: `${KEY:-unset}` prints the KEY when it is
 // set. Presence is reported with a test, never with an expansion of the value.
-ok('  and never prints a whole key', !/console\.log\([^)]*c\.deepseekApiKey\)/.test(why) && !/\$\{(DEEPSEEK|RESEND)_API_KEY:-/.test(why) && !/echo "?\$(DEEPSEEK|RESEND)_API_KEY"?\s*$/m.test(why) && /\[ -n "\$DEEPSEEK_API_KEY" \] && echo set \|\| echo unset/.test(why));
+ok('  and never prints a whole key', !/console\.log\(c\.(deepseekApiKey|resendApiKey)/.test(why) && !/\+ c\.(deepseekApiKey|resendApiKey|serperApiKey|braveSearchApiKey|tavilyApiKey)\b/.test(why) && /m\(c\.deepseekApiKey\)/.test(why) && !/\$\{(DEEPSEEK|RESEND)_API_KEY:-/.test(why) && !/echo "?\$(DEEPSEEK|RESEND)_API_KEY"?\s*$/m.test(why) && /\[ -n "\$DEEPSEEK_API_KEY" \] && echo set \|\| echo unset/.test(why));
 ok('no file in tools/briefs holds a real-looking key', ['launchd.js', 'why-no-brief.sh', 'README.md', 'crontab.example'].every((f) => !/sk-[A-Za-z0-9]{20,}|re_[A-Za-z0-9]{20,}/.test(src('tools/briefs/' + f))));
 
 OUT.push(''); OUT.push('failures: ' + F);
