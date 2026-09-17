@@ -99,9 +99,13 @@ function isHighSchool(school) {
   if (SERVICE_ACADEMY.test(s)) return false;
   if (!HS_WORDS.test(s)) return false;
   try {
-    const { resolveSchool } = require('./schoolResolver');
-    const hit = resolveSchool(s);
-    if (hit && hit.city && (hit.method === 'exact' || hit.method === 'alias' || (hit.confidence || 0) >= 0.95)) return false;
+    const R = require('./schoolResolver');
+    const hit = R.resolveSchool(s);
+    // A school the app LEARNED (services/schoolFind) is on the map because it
+    // was looked up, not because it is a college: a learned "Hoover High
+    // School" is still a high school. Only the curated lists say college.
+    const learned = !!(hit && R.EXTRA_SCHOOLS[hit.matched] && R.EXTRA_SCHOOLS[hit.matched].learned);
+    if (hit && hit.city && !learned && (hit.method === 'exact' || hit.method === 'alias' || (hit.confidence || 0) >= 0.95)) return false;
   } catch (_) { /* the resolver is not the decider; the words are */ }
   return true;
 }

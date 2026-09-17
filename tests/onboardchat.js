@@ -28,6 +28,15 @@ const store = require(REPO + 'server/store.js');
 const ai = require(REPO + 'server/ai.js');
 const actions = require(REPO + 'server/services/assistantActions.js');
 const Onb = require(REPO + 'server/services/assistantOnboarding.js');
+// The school lookup (services/schoolFind) behind add_athlete, faked: the two
+// high schools below are "found" by Places in Hoover, AL; anything else the
+// lists do not carry is not found, which is the one question for the city.
+require(REPO + 'server/services/schoolFind.js')._setDepsForTests({
+  lookupPlaceResult: async (q) => (/^(Hoover High School|Spain Park High)/.test(q)
+    ? { ok: true, place: { name: q.replace(/,.*$/, ''), address: '1000 Buccaneer Dr, Hoover, AL 35244, USA', types: ['school', 'secondary_school'] } }
+    : { ok: true, place: null, reason: 'not-found' }),
+  searchLoop: async () => ({ text: '{"city":null}', results: [], searches: 1 }),
+});
 const router = require(REPO + 'server/routes/assistant.js');
 
 let OUT = [], F = 0;

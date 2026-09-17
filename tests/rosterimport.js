@@ -139,7 +139,7 @@ async function main() {
   ok('Max Murray is a pro placed by the lookup', P('Max Murray').athleteType === 'pro' && P('Max Murray').market === 'New York, NY' && P('Max Murray').team === 'New York City FC', P('Max Murray'));
   ok('  the lookup ran once, for him alone, as a pro', lookups.length === 1 && lookups[0].athleteType === 'pro' && lookups[0].name === 'Max Murray', lookups);
   ok('  and carried his position and known-for', P('Max Murray').lookup.position === 'Defender' && P('Max Murray').lookup.knownFor === 'Homegrown signing');
-  ok('Abby Turnpaugh is college, school not in the map, geocoded later', P('Abby Turnpaugh').athleteType === 'college' && P('Abby Turnpaugh').school === 'University of Manhattan' && P('Abby Turnpaugh').market === null && /geocoded/.test(P('Abby Turnpaugh').marketNote));
+  ok('Abby Turnpaugh is college, school not in the map, and the note asks for the town rather than saying "could not match"', P('Abby Turnpaugh').athleteType === 'college' && P('Abby Turnpaugh').school === 'University of Manhattan' && P('Abby Turnpaugh').market === null && /town not found/.test(P('Abby Turnpaugh').marketNote) && !/could not match/i.test(P('Abby Turnpaugh').marketNote));
   ok('Emma Boulanger is college at UMaine at Augusta', P('Emma Boulanger').athleteType === 'college' && P('Emma Boulanger').school === 'UMaine at Augusta');
   ok('Ella Boerger is college with a known market', P('Ella Boerger').athleteType === 'college' && P('Ella Boerger').market === 'St. Paul, MN');
   ok('five would be created, two skipped', placed.filter((p) => !p.skip).length === 5 && placed.filter((p) => p.skip).length === 2, placed.map((p) => [p.name, p.skip || p.athleteType]));

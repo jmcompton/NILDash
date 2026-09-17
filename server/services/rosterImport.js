@@ -350,8 +350,13 @@ async function placeRow(row, ctx) {
   if (kind === 'school') {
     out.athleteType = 'college'; out.school = row.affiliation;
     const loc = ctx.schoolLocation ? ctx.schoolLocation(row.affiliation) : null;
-    if (loc && loc.city) { out.market = `${loc.city}, ${loc.state || ''}`.replace(/, $/, ''); out.marketNote = 'school on file'; }
-    else { out.market = null; out.marketNote = 'school not in the map; geocoded to its town on the first run'; }
+    // The preview looked up every school the lists do not carry before the
+    // rows were placed (services/schoolFind), so a found town is on file by
+    // now. What is left is a shared name, or a school nothing could place.
+    const found = ctx.schoolOutcome && typeof ctx.schoolOutcome.get === 'function' ? ctx.schoolOutcome.get(row.affiliation) : null;
+    if (loc && loc.city) { out.market = `${loc.city}, ${loc.state || ''}`.replace(/, $/, ''); out.marketNote = found && found.ok && found.learned ? `school looked up and saved (${found.source})` : 'school on file'; }
+    else if (found && found.status === 'ambiguous') { out.market = null; out.marketNote = `which ${row.affiliation}? ` + found.options.map((o) => `${o.city}, ${o.state}`).join(' / ') + ': put the state in the school name'; }
+    else { out.market = null; out.marketNote = 'town not found for this school; add a City column for this row, or set it on the profile'; }
     if (row.city) out.notes.push('city ignored: a college athlete\'s market is the school\'s town');
     return out;
   }

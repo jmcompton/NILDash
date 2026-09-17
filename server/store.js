@@ -3642,7 +3642,9 @@ async function saveBrandEvidence(brandKey, lane, brand, website, evidence, outco
   }
 }
 
-init().catch(console.error);
+// Exported as `ready` so a module that needs the tables (services/schoolFind
+// loading the learned schools at boot) can wait for them.
+const ready = init().catch(console.error);
 
 // ── Local deal outcomes ─────────────────────────────────────────────────────
 // saveComp() already records the ATHLETE side of a closed deal (sport, tier,
@@ -3967,6 +3969,30 @@ async function ensureMarketSightings() {
     )
   `).then(() => console.log('[init] athlete_lookup_cache table ready'))
     .catch(e => console.error('[init] athlete_lookup_cache:', e.message));
+  // ── SCHOOLS THE APP FOUND FOR ITSELF ────────────────────────────────────
+  // One row per school no list carried, with the town the lookup found and
+  // where it came from (services/schoolFind: places, web, or the agent who
+  // typed the city). status 'auto' until the admin page confirms or rejects
+  // it; every row with a town is loaded into the resolver at boot so the next
+  // agent gets it instantly and it never costs twice.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS school_lookups (
+      id          SERIAL PRIMARY KEY,
+      name_key    TEXT UNIQUE NOT NULL,
+      name        TEXT NOT NULL,
+      city        TEXT,
+      state       TEXT,
+      source      TEXT NOT NULL,
+      evidence    JSONB,
+      status      TEXT NOT NULL DEFAULT 'auto',
+      found_by    TEXT,
+      uses        INTEGER NOT NULL DEFAULT 1,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reviewed_at TIMESTAMPTZ,
+      note        TEXT
+    )
+  `).then(() => console.log('[init] school_lookups table ready'))
+    .catch(e => console.error('[init] school_lookups:', e.message));
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_verification (
       email       TEXT PRIMARY KEY,
@@ -4405,6 +4431,7 @@ async function getSocialDepth(athlete) {
 }
 
 module.exports = {
+  ready,
   recordMarketPool,
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers, normEmail,
   getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,

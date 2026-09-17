@@ -150,6 +150,76 @@ a.back:hover{color:#C8F135}
   <div id="funnel-body" style="padding:16px 20px;font-size:12px;color:rgba(240,237,230,0.5)">Loading...</div>
 </div>
 
+<!-- ── Schools the app found for itself (services/schoolFind) ──── -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Auto-found schools</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">Schools no list carried, with the town the lookup found. A wrong town sends an athlete's local lane to the wrong place: confirm, fix, or reject each one. Rejecting removes it everywhere at once.</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="school-lookups-filter" onchange="loadSchoolLookups()" style="font-size:11px;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+        <option value="">All</option><option value="auto" selected>Needs review</option><option value="confirmed">Confirmed</option><option value="rejected">Rejected</option>
+      </select>
+      <button onclick="loadSchoolLookups()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+    </div>
+  </div>
+  <div id="school-lookups-body" style="padding:12px 20px;font-size:12px;color:#f0ede6;line-height:1.6">Loading...</div>
+</div>
+<script>
+async function loadSchoolLookups() {
+  var body = document.getElementById('school-lookups-body');
+  var status = (document.getElementById('school-lookups-filter') || {}).value || '';
+  body.textContent = 'Loading...';
+  try {
+    var r = await fetch('/api/admin/school-lookups' + (status ? '?status=' + encodeURIComponent(status) : ''));
+    var d = await r.json();
+    if (!r.ok) { body.textContent = d.error || ('error ' + r.status); return; }
+    var rows = d.rows || [];
+    if (!rows.length) { body.innerHTML = '<div style="color:rgba(240,237,230,0.5)">' + (status === 'auto' ? 'Nothing waiting for review.' : 'No auto-found schools yet.') + '</div>'; return; }
+    var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.5);text-align:left">'
+      + '<th style="padding:6px 4px">School</th><th style="padding:6px 4px">Town found</th><th style="padding:6px 4px">Source</th><th style="padding:6px 4px">Found by</th><th style="padding:6px 4px">When</th><th style="padding:6px 4px">Uses</th><th style="padding:6px 4px">Athletes</th><th style="padding:6px 4px">Status</th><th style="padding:6px 4px"></th></tr></thead><tbody>';
+    rows.forEach(function (x) {
+      var ev = x.evidence || {};
+      var proof = x.source === 'places' ? (ev.placeName ? ('Places: ' + ev.placeName + (ev.address ? ' — ' + ev.address : '')) : 'Places')
+        : x.source === 'web' ? ('Web: ' + (ev.title || '') + (ev.url ? ' ' + ev.url : ''))
+        : x.source === 'agent' ? ('Typed by the agent: ' + (ev.typed || '')) : x.source;
+      var color = x.status === 'confirmed' ? '#84CC16' : x.status === 'rejected' ? '#ef4444' : '#f59e0b';
+      h += '<tr style="border-top:1px solid rgba(255,255,255,0.06)">'
+        + '<td style="padding:6px 4px;font-weight:600">' + esc(x.name) + '</td>'
+        + '<td style="padding:6px 4px">' + esc((x.city || '?') + (x.state ? ', ' + x.state : '')) + '<div style="font-size:10px;color:rgba(240,237,230,0.45);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(proof) + '">' + esc(proof) + '</div></td>'
+        + '<td style="padding:6px 4px">' + esc(x.source) + '</td>'
+        + '<td style="padding:6px 4px">' + esc(x.found_by_email || x.found_by || '') + '</td>'
+        + '<td style="padding:6px 4px;white-space:nowrap">' + esc(String(x.created_at || '').slice(0, 10)) + '</td>'
+        + '<td style="padding:6px 4px">' + esc(x.uses) + '</td>'
+        + '<td style="padding:6px 4px">' + esc(x.athletes) + '</td>'
+        + '<td style="padding:6px 4px;color:' + color + '">' + esc(x.status) + '</td>'
+        + '<td style="padding:6px 4px;white-space:nowrap">'
+        + '<button onclick="reviewSchoolLookup(' + x.id + ',\'confirmed\')" style="font-size:11px;padding:4px 8px;margin-right:4px;background:rgba(132,204,22,0.15);border:1px solid rgba(132,204,22,0.4);border-radius:4px;color:#f0ede6;cursor:pointer">Confirm</button>'
+        + '<button onclick="fixSchoolLookup(' + x.id + ',' + JSON.stringify(x.name).replace(/"/g, '&quot;') + ')" style="font-size:11px;padding:4px 8px;margin-right:4px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">Fix town</button>'
+        + '<button onclick="reviewSchoolLookup(' + x.id + ',\'rejected\')" style="font-size:11px;padding:4px 8px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:4px;color:#f0ede6;cursor:pointer">Reject</button>'
+        + '</td></tr>';
+    });
+    body.innerHTML = h + '</tbody></table>';
+  } catch (e) { body.textContent = 'Could not load: ' + e.message; }
+}
+async function reviewSchoolLookup(id, status, city) {
+  var payload = { status: status };
+  if (city) payload.city = city;
+  var r = await fetch('/api/admin/school-lookups/' + id + '/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  var d = await r.json().catch(function () { return {}; });
+  if (!r.ok) { alert(d.error || ('error ' + r.status)); return; }
+  loadSchoolLookups();
+}
+function fixSchoolLookup(id, name) {
+  var v = prompt('The right town for ' + name + ', as "City, ST":');
+  if (!v || !v.trim()) return;
+  reviewSchoolLookup(id, 'confirmed', v.trim());
+}
+loadSchoolLookups();
+</script>
+
 <!-- ── Referrals ─────────────────────────────────────────────── -->
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">

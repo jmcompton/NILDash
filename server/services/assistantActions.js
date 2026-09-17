@@ -122,6 +122,7 @@ const ACTIONS = {
         sources: { type: 'object', description: 'Optional: the per-field source URLs from the lookup, passed through as returned', additionalProperties: { type: 'string' } },
         dob: { type: 'string', description: 'Date of birth as YYYY-MM-DD. Asked for when the school is a high school; optional otherwise.' },
         dobUnknown: { type: 'boolean', description: 'true when the agent was asked for a high school athlete\'s date of birth and chose to skip it: add them with age unknown.' },
+        schoolCity: { type: 'string', description: 'The school\'s city and state as "City, ST". Only when the tool asked "What city is the school in?" (needs: school_city) and the agent answered.' },
         confirmDuplicate: { type: 'boolean', description: 'true only after the agent was told an athlete with this name is already on the roster and said to add a second one anyway.' },
       },
       required: ['name', 'sport'],
@@ -142,6 +143,8 @@ const ACTIONS = {
       const args = { name, sport, athleteType: pro ? 'pro' : 'college' };
       if (pro) { args.city = city; if (team) args.team = team; args.school = ''; }
       else args.school = school;
+      const schoolCity = _str(a.schoolCity, 120);
+      if (schoolCity) args.schoolCity = schoolCity;
       const position = _str(a.position, 60), year = _str(a.year, 30), hometown = _str(a.hometown, 120);
       if (position) args.position = position;
       if (year) args.year = year;
@@ -173,6 +176,25 @@ const ACTIONS = {
     run: async (args, ctx) => {
       const AC = require('./athleteCreate');
       const agentId = ctx && ctx.agentId;
+      // THE SCHOOL RESOLVES TO A TOWN BEFORE THE ROW IS SAVED (services/
+      // schoolFind): the lists, then Places, then the web, each found town
+      // saved for the next agent. A shared name is offered with its towns to
+      // tap; nothing found is one question for the city, answered through
+      // schoolCity. Never "could not match".
+      if (args.athleteType !== 'pro') {
+        const f = await require('./schoolFind').findSchool(args.school, { city: args.schoolCity || null, agentId });
+        if (f.status === 'ambiguous') {
+          const opts = f.options.map((o) => ({ label: `${o.name} (${o.city}, ${o.state})`, say: `${args.name}'s school is ${o.name}` }));
+          return { data: { added: false, needs: 'school_choice', name: args.name, school: args.school, options: f.options,
+            ask: `Which ${args.school}: ` + f.options.map((o) => `${o.name} in ${o.city}, ${o.state}`).join('; ') + '? Tap one below or tell me.' },
+            directive: { kind: 'choices', prompt: `Which ${args.school}?`, choices: opts } };
+        }
+        if (f.status === 'unknown') {
+          return { data: { added: false, needs: 'school_city', name: args.name, school: args.school,
+            ask: `What city is ${args.school} in? (City, ST)` } };
+        }
+        if (f.ok) args.schoolMarket = f.market;
+      }
       // A high school athlete's age is what the compliance gate needs most, so
       // the date of birth is asked for once. Skipping is allowed and honest:
       // they are added with age unknown, which holds restricted categories.
@@ -399,6 +421,45 @@ const ACTIONS = {
     // refuse: it will not navigate away from an outreach draft with unsaved edits.
     directive: (args) => ({ kind: 'open_tab', tab: args.tab }),
     say: (args) => `Opening ${TAB_LABELS[args.tab] || args.tab}.`,
+  },
+
+  // ── EVERY SCHOOL HAS A TOWN ────────────────────────────────────────────────
+  // The same lookup the Add Client form and the import use (services/
+  // schoolFind). Instant from the lists (every NCAA division and the NAIA,
+  // plus what was found before); otherwise Places, then the web, and the
+  // town is saved. A shared name comes back as choices to tap; nothing found
+  // comes back as the one question to ask.
+  find_school: {
+    tier: 'direct',
+    description: 'Find the town a school is in: a college of any division, a junior college or a high school. Instant when it is on file; otherwise looked up and saved. Returns the town, or the schools to choose between when the name is shared, or the one question to ask (the city) when nothing was found. Use it whenever an agent asks where a school is or whether it is covered. Never say a school cannot be matched.',
+    input: {
+      type: 'object',
+      properties: {
+        school: { type: 'string' },
+        state: { type: 'string', description: 'Optional two-letter state, when the agent said it' },
+        city: { type: 'string', description: 'Optional: the agent\'s answer to "What city is it in?", as "City, ST"' },
+      },
+      required: ['school'],
+    },
+    check: (a) => {
+      const school = _str(a.school, 120);
+      if (!school) return { error: 'Which school?' };
+      const args = { school };
+      const state = _str(a.state, 20); if (state) args.state = state;
+      const city = _str(a.city, 120); if (city) args.city = city;
+      return { args };
+    },
+    run: async (args, ctx) => {
+      const f = await require('./schoolFind').findSchool(args.school, { state: args.state || null, city: args.city || null, agentId: ctx && ctx.agentId });
+      if (f.status === 'ambiguous') {
+        return { data: { found: false, ambiguous: true, school: args.school, options: f.options,
+          ask: `Which ${args.school}: ` + f.options.map((o) => `${o.name} in ${o.city}, ${o.state}`).join('; ') + '?' },
+          directive: { kind: 'choices', prompt: `Which ${args.school}?`, choices: f.options.map((o) => ({ label: `${o.name} (${o.city}, ${o.state})`, say: `I mean ${o.name}` })) } };
+      }
+      if (f.ok) return { data: { found: true, school: f.matched, city: f.city, state: f.state, market: f.market, source: f.source, saved: !!f.learned } };
+      return { data: { found: false, school: args.school, ask: f.ask || `What city is ${args.school} in? (City, ST)` } };
+    },
+    say: () => null,
   },
 
   lookup_program: {

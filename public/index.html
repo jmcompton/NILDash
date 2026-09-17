@@ -3424,7 +3424,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <option value="pro">Pro</option>
             </select>
           </div>
-          <div class="form-group-sm" id="a_school_wrap"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University" oninput="aSchoolTyped()" onblur="aCheckSchool()">
+          <div class="form-group-sm" id="a_school_wrap"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University" oninput="aSchoolTyped()" onblur="aCheckSchool(true)">
             <!-- THE SCHOOL IS CHECKED AS IT IS TYPED. An athlete whose school does
                  not resolve gets no local businesses, and the form used to accept
                  anything. Same check as onboarding (/api/onboarding/check-school):
@@ -4701,7 +4701,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
              it showed up days later as an athlete who silently got nothing every
              night. Fail at the keyboard, while the agent still knows the answer. -->
         <input class="input-sm" id="ob-athlete-school" placeholder="e.g. Duke University"
-               oninput="obSchoolTyped()" onblur="obCheckSchool()">
+               oninput="obSchoolTyped()" onblur="obCheckSchool(true)">
         <div id="ob-school-status" style="font-size:11px;margin-top:5px;line-height:1.5"></div>
         <div id="ob-school-suggest" style="display:none;margin-top:6px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
@@ -14108,74 +14108,98 @@ window.addEventListener('DOMContentLoaded', checkSession);
       _obSchoolTimer = setTimeout(obCheckSchool, 500);
     }
 
-    async function obCheckSchool() {
-      const el = document.getElementById('ob-athlete-school');
-      const out = document.getElementById('ob-school-status');
-      const sug = document.getElementById('ob-school-suggest');
-      if (!el || !out) return;
-      const v = el.value.trim();
-      sug.style.display = 'none'; sug.innerHTML = '';
-      if (!v) { out.textContent = ''; obSchoolOk = null; return; }
+    // ── FINDING THE SCHOOL (services/schoolFind) ───────────────────────
+    // Two calls per field. The lists answer every keystroke (instant, no
+    // spend); once typing stops the lookup runs (Places, then the web) and
+    // the found town is saved for the next agent. Nothing here ever says
+    // "could not match": a shared name is chips with towns, and nothing found
+    // is one short question, the city, whose answer becomes the town.
+    var _schoolFields = {};
+    var _schoolFieldTimers = {};
+    var _schoolChip = 'background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-size:11px;padding:5px 9px;border-radius:20px;cursor:pointer';
+    async function schoolFieldCheck(f, mode) {
+      var el = document.getElementById(f.input), out = document.getElementById(f.status), sug = document.getElementById(f.suggest);
+      if (!el || !out) return null;
+      var v = el.value.trim();
+      clearTimeout(_schoolFieldTimers[f.input]);
+      if (sug) { sug.style.display = 'none'; sug.innerHTML = ''; }
+      if (!v) { out.textContent = ''; if (f.onResult) f.onResult(null); return null; }
+      var city = mode && typeof mode === 'object' ? mode.city : null;
+      var deep = mode === 'deep' || !!city;
+      var qs = '/api/onboarding/check-school?q=' + encodeURIComponent(v) + (deep ? '&deep=1' : '') + (city ? '&city=' + encodeURIComponent(city) : '');
       out.style.color = 'var(--muted)';
-      out.textContent = 'Checking\u2026';
+      out.textContent = deep ? 'Finding the school\u2026' : 'Checking\u2026';
       try {
-        const r = await fetch(API_BASE + '/api/onboarding/check-school?q=' + encodeURIComponent(v),
-          { credentials: 'same-origin' });
-        const d = await r.json();
-        obSchoolOk = !!d.ok;
-        obSchoolMarket = d.market || null;
-        out.style.color = d.ok ? 'var(--accent)' : '#fbbf24';
-        out.textContent = d.message || '';
-        if (!d.ok && d.suggestions && d.suggestions.length) {
+        var r = await fetch(API_BASE + qs, { credentials: 'same-origin' });
+        var d = await r.json();
+        if (el.value.trim() !== v) return null; // they kept typing; a later check answers
+        if (d.status === 'unresolved') {
+          // The lists had nothing. The lookup follows once they stop typing.
+          out.textContent = 'Finding the school\u2026';
+          if (f.onResult) f.onResult(null);
+          _schoolFieldTimers[f.input] = setTimeout(function () { schoolFieldCheck(f, 'deep'); }, 900);
+          return d;
+        }
+        if (f.onResult) f.onResult(d);
+        if (d.ok) { out.style.color = 'var(--accent)'; out.textContent = d.message || ''; return d; }
+        out.style.color = '#fbbf24';
+        var opts = d.options && d.options.length ? d.options : (d.suggestions || []);
+        if (d.status === 'ambiguous' && sug && opts.length) {
+          out.textContent = d.message || ('Which ' + v + '?');
           sug.style.display = 'flex';
-          sug.innerHTML = d.suggestions.map(function (x) {
-            return '<button type="button" onclick="obPickSchool(' + JSON.stringify(x.name).replace(/"/g, '&quot;') + ')" '
-              + 'style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);'
-              + 'font-size:11px;padding:5px 9px;border-radius:20px;cursor:pointer">'
-              + escHtml(x.name) + '</button>';
+          sug.innerHTML = opts.map(function (x) {
+            var town = (x.city || '') + (x.state ? ', ' + x.state : '');
+            return '<button type="button" onclick="' + f.pick + '(' + JSON.stringify(x.name).replace(/"/g, '&quot;') + ')" title="' + escHtml(town) + '" style="' + _schoolChip + '">'
+              + escHtml(x.name) + (town ? ' <span style="opacity:.7">(' + escHtml(town) + ')</span>' : '') + '</button>';
+          }).join('');
+          return d;
+        }
+        if (d.status === 'unknown' && sug) {
+          out.textContent = d.message || ('What city is ' + v + ' in?');
+          sug.style.display = 'flex';
+          sug.innerHTML = '<input id="' + f.input + '_city" type="text" placeholder="City, ST" autocomplete="off" '
+            + 'style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-size:12px;padding:6px 9px;border-radius:8px" '
+            + 'onkeydown="if(event.key===\'Enter\'){event.preventDefault();schoolFieldCity(\'' + f.input + '\');}">'
+            + '<button type="button" onclick="schoolFieldCity(\'' + f.input + '\')" style="' + _schoolChip + '">Save town</button>';
+          return d;
+        }
+        if (d.status === 'error') { out.style.color = 'var(--muted)'; }
+        out.textContent = d.message || '';
+        if (!d.ok && sug && opts.length) {
+          sug.style.display = 'flex';
+          sug.innerHTML = opts.map(function (x) {
+            return '<button type="button" onclick="' + f.pick + '(' + JSON.stringify(x.name).replace(/"/g, '&quot;') + ')" style="' + _schoolChip + '">' + escHtml(x.name) + '</button>';
           }).join('');
         }
+        return d;
       } catch (e) {
-        // A failed check must not stop onboarding, and must not claim the school
-        // is fine either.
+        // A failed check must not stop the form, and must not claim the
+        // school is fine either.
         out.style.color = 'var(--muted)';
         out.textContent = 'Could not check that school just now.';
-        obSchoolOk = null;
+        if (f.onResult) f.onResult(null);
+        return null;
       }
     }
+    // The agent answered "What city is it in?": the town is saved and the
+    // field turns green.
+    function schoolFieldCity(inputId) {
+      var f = _schoolFields[inputId], c = document.getElementById(inputId + '_city');
+      if (!f || !c || !c.value.trim()) return;
+      schoolFieldCheck(f, { city: c.value.trim() });
+    }
+    _schoolFields['ob-athlete-school'] = { input: 'ob-athlete-school', status: 'ob-school-status', suggest: 'ob-school-suggest', pick: 'obPickSchool',
+      onResult: function (d) { obSchoolOk = d ? !!d.ok : null; obSchoolMarket = (d && d.market) || null; } };
+    _schoolFields['a_school'] = { input: 'a_school', status: 'a_school_status', suggest: 'a_school_suggest', pick: 'aPickSchool' };
+
+    // deep: the wizard's Next and the field's blur run the lookup at once
+    // rather than waiting for the typing pause.
+    async function obCheckSchool(deep) { return schoolFieldCheck(_schoolFields['ob-athlete-school'], deep ? 'deep' : 'instant'); }
 
     // ── The same check on the Add Client / Edit form's school field ──────
     var _aSchoolTimer = null;
     function aSchoolTyped() { clearTimeout(_aSchoolTimer); _aSchoolTimer = setTimeout(aCheckSchool, 500); }
-    async function aCheckSchool() {
-      var el = document.getElementById('a_school');
-      var out = document.getElementById('a_school_status');
-      var sug = document.getElementById('a_school_suggest');
-      if (!el || !out || !sug) return;
-      var v = el.value.trim();
-      sug.style.display = 'none'; sug.innerHTML = '';
-      if (!v) { out.textContent = ''; return; }
-      out.style.color = 'var(--muted)'; out.textContent = 'Checking\u2026';
-      try {
-        var r = await fetch(API_BASE + '/api/onboarding/check-school?q=' + encodeURIComponent(v), { credentials: 'same-origin' });
-        var d = await r.json();
-        if (el.value.trim() !== v) return; // they kept typing; a later check answers
-        out.style.color = d.ok ? 'var(--accent)' : '#fbbf24';
-        out.textContent = d.message || '';
-        if (!d.ok && d.suggestions && d.suggestions.length) {
-          sug.style.display = 'flex';
-          sug.innerHTML = d.suggestions.map(function (x) {
-            return '<button type="button" onclick="aPickSchool(' + JSON.stringify(x.name).replace(/"/g, '&quot;') + ')" '
-              + 'title="' + escHtml((x.city || '') + (x.state ? ', ' + x.state : '')) + '" '
-              + 'style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);'
-              + 'font-size:11px;padding:5px 9px;border-radius:20px;cursor:pointer">'
-              + escHtml(x.name) + '</button>';
-          }).join('');
-        }
-      } catch (e) {
-        out.style.color = 'var(--muted)'; out.textContent = 'Could not check that school just now.';
-      }
-    }
+    async function aCheckSchool(deep) { return schoolFieldCheck(_schoolFields['a_school'], deep ? 'deep' : 'instant'); }
     function aPickSchool(name) {
       var el = document.getElementById('a_school');
       if (el) el.value = name;
@@ -14418,7 +14442,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
 
       // The school warning is shown, not enforced. An agent who means it can
       // proceed; they simply cannot do it unknowingly.
-      if (school && obSchoolOk === null) await obCheckSchool();
+      if (school && obSchoolOk === null) await obCheckSchool(true);
 
       const followers = Number(obPrefill.instagram || (obStats && obStats.followers) || 0) || 0;
       const engagement = (obStats && obStats.engagement_rate) ? Number(obStats.engagement_rate) : null;

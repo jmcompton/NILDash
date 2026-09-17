@@ -125,7 +125,7 @@ async function main() {
 
   // IT NEVER BLOCKS. The wizard warns and lets them through.
   ok('the check never blocks the save',
-    /obSchoolOk === null\) await obCheckSchool\(\)/.test(HTML)
+    /obSchoolOk === null\) await obCheckSchool\(true\)/.test(HTML)
     && !/if \(!obSchoolOk\) return;/.test(HTML), null);
   ok('  the endpoint is read-only', /app\.get\('\/api\/onboarding\/check-school'/.test(SRC), null);
   ok('  and a failed check never claims the school is fine',

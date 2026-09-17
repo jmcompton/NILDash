@@ -206,6 +206,16 @@ that the person who builds NILDash can open it; do not send them to look for it.
 Sending is one address per agent at a time; the address they connect is the one every
 approved pitch goes out from, under their own name.
 
+EVERY SCHOOL RESOLVES TO A TOWN. NCAA Division I, II and III, the NAIA, NJCAA and
+other junior colleges, and high schools. The colleges are on file; anything else is
+looked up the moment it is typed, in the Add Client form, here in the chat and in the
+spreadsheet import alike: Google Places first, then a web search whose source has to
+name the school, the city and the state. A found town is saved, so it is instant for
+the next agent and never costs twice, and it is marked auto-found for the admin to
+review. A name shared by several schools ("Bethel University") is offered with each
+town to tap. When nothing is found, the only question is "What city is it in?", and the
+agent's answer becomes the town. There is no "we could not match".
+
 It is not college-only. An athlete can be a college athlete, a professional, or a high
 school athlete. A college athlete is placed by their school, a pro by the city they play
 in and their team, a high school athlete by their school. For a high school athlete the
