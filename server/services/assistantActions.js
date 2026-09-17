@@ -331,7 +331,7 @@ const ACTIONS = {
 
   run_deal_scan: {
     tier: 'direct',
-    description: 'Run a Deal Scan for one athlete on the agent\'s roster.',
+    description: 'Run a Deal Scan for one athlete on the agent\'s roster. It runs now in the agent\'s page and takes about a minute; when it finishes the page shows the top businesses in this chat with an Open Deal Scan button. After calling it say only "Scanning now, about a minute." Never say you will let them know.',
     // NO LANE ARGUMENT. A scan runs every lane, which is what an agent means when
     // they ask for one, and _dsRunScan never read the lane the assistant passed
     // anyway: it only branches on opts.deepen. Offering an argument the app ignores
@@ -366,7 +366,7 @@ const ACTIONS = {
       session.scans_run[args.athleteId] = (session.scans_run[args.athleteId] || 0) + 1;
     },
     directive: (args) => ({ kind: 'run_deal_scan', athleteId: args.athleteId }),
-    say: () => 'Running the scan now. It takes about a minute.',
+    say: () => 'Running the scan now. It takes about a minute; the results appear in this chat when it finishes. Say only "Scanning now, about a minute."',
   },
 
   open_tab: {
@@ -424,12 +424,66 @@ const ACTIONS = {
 
   connect_gmail: {
     tier: 'direct',
-    description: 'Start the Gmail connect flow so the agent can send outreach.',
+    description: 'Start the Gmail / Google Workspace connect flow so the agent can send outreach. Prefer offer_button with kind connect_email, which gives them a button instead of sending them away at once.',
     input: { type: 'object', properties: {} },
     check: () => ({ args: {} }),
     // Starts an OAuth flow. Connects nothing by itself: Google still asks the human.
     directive: () => ({ kind: 'connect_gmail' }),
     say: () => 'Sending you to Google to connect Gmail. You will come straight back.',
+  },
+
+  // The same door for Outlook / Microsoft 365, when the server has it. The
+  // page checks the door is open before it sends anyone through.
+  connect_email: {
+    tier: 'direct',
+    description: 'Start the connect flow for an email provider so the agent can send outreach: gmail (also Google Workspace) or outlook (Outlook / Microsoft 365). Prefer offer_button with kind connect_email, which gives them a button.',
+    input: { type: 'object', properties: { provider: { type: 'string', enum: ['gmail', 'outlook'] } }, required: ['provider'] },
+    check: (a) => (['gmail', 'outlook'].includes(a.provider) ? { args: { provider: a.provider } } : { error: 'Which provider: gmail or outlook?' }),
+    directive: (args) => ({ kind: 'connect_email', provider: args.provider }),
+    say: (args) => `Sending you to ${args.provider === 'outlook' ? 'Microsoft' : 'Google'} to connect. You will come straight back.`,
+  },
+
+  // ── A BUTTON, NOT DIRECTIONS ───────────────────────────────────────────────
+  // The assistant does the work and brings the result here; when the result is
+  // somewhere else in the app, it hands over a button that goes there. Three
+  // kinds: a tab, an email connection, this athlete's Deal Scan results.
+  offer_button: {
+    tier: 'direct',
+    description: 'Give the agent a button. kind "tab" opens a tab (command, roster, deals, pipeline, programs, outreach, email-inbox, settings); kind "connect_email" starts connecting gmail or outlook; kind "deal_scan" opens Deal Scan with one athlete\'s results selected. Use it every time you mention a page, tab or setting instead of describing where to click.',
+    input: {
+      type: 'object',
+      properties: {
+        label: { type: 'string', description: 'The words on the button, e.g. "Open Settings", "Connect Gmail", "Open Deal Scan"' },
+        kind: { type: 'string', enum: ['tab', 'connect_email', 'deal_scan'] },
+        tab: { type: 'string', enum: ['command', 'roster', 'deals', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'], description: 'kind tab: which tab' },
+        provider: { type: 'string', enum: ['gmail', 'outlook'], description: 'kind connect_email: which provider' },
+        athleteId: { type: 'string', description: 'kind deal_scan: the athlete id from the roster' },
+      },
+      required: ['label', 'kind'],
+    },
+    check: (a) => {
+      const label = _str(a.label, 40);
+      if (!label) return { error: 'The button needs a label.' };
+      if (a.kind === 'tab') {
+        if (!Object.prototype.hasOwnProperty.call(TAB_LABELS, a.tab)) return { error: 'I do not know that tab.' };
+        return { args: { label, kind: 'tab', tab: a.tab } };
+      }
+      if (a.kind === 'connect_email') {
+        if (!['gmail', 'outlook'].includes(a.provider)) return { error: 'Which provider: gmail or outlook?' };
+        return { args: { label, kind: 'connect_email', provider: a.provider } };
+      }
+      if (a.kind === 'deal_scan') {
+        const athleteId = _str(a.athleteId, 80);
+        if (!athleteId) return { error: 'Which athlete? I need one from the roster.' };
+        return { args: { label, kind: 'deal_scan', athleteId } };
+      }
+      return { error: 'I do not know that kind of button.' };
+    },
+    directive: (args) => ({ kind: 'button', label: args.label,
+      action: args.kind === 'tab' ? { kind: 'open_tab', tab: args.tab }
+        : args.kind === 'connect_email' ? { kind: 'connect_email', provider: args.provider }
+        : { kind: 'open_deal_scan', athleteId: args.athleteId } }),
+    say: () => null,
   },
 
   build_media_kit: {

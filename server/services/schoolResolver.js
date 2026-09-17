@@ -22,8 +22,10 @@
 const { lookupSchoolLocation } = require('../ai');
 
 // Schools the shipped map does not carry. Kept here rather than edited into
-// ai.js so the additions are reviewable in one place.
-const EXTRA_SCHOOLS = {
+// ai.js so the additions are reviewable in one place. Merged below with every
+// NCAA Division II, Division III and NAIA school (services/schoolsDivisions), the
+// curated entry winning where both name a school.
+const CURATED_SCHOOLS = {
   'Eastern Kentucky University': { city: 'Richmond', state: 'KY' },
   'Western Kentucky University': { city: 'Bowling Green', state: 'KY' },
   'Louisiana State University': { city: 'Baton Rouge', state: 'LA' },
@@ -165,6 +167,7 @@ const EXTRA_SCHOOLS = {
   'Wofford College': { city: 'Spartanburg', state: 'SC' },
   'Southeastern University': { city: 'Lakeland', state: 'FL' },
 };
+const EXTRA_SCHOOLS = Object.assign({}, require('./schoolsDivisions').SCHOOLS, CURATED_SCHOOLS);
 
 // Abbreviations, nicknames and the misspellings that actually show up. An alias
 // is an EXACT statement of intent, so it outranks anything fuzzy.
@@ -289,10 +292,12 @@ const US_STATES = {
   alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO',
   connecticut: 'CT', delaware: 'DE', florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID',
   illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS', kentucky: 'KY', louisiana: 'LA',
-  maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI', minnesota: 'MN',
-  mississippi: 'MS', missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV',
-  ohio: 'OH', oklahoma: 'OK', oregon: 'OR', pennsylvania: 'PA', tennessee: 'TN', texas: 'TX',
-  utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA', wisconsin: 'WI', wyoming: 'WY',
+  maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI', minnesota: 'MN', mississippi: 'MS',
+  missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ',
+  'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH', oklahoma: 'OK',
+  oregon: 'OR', pennsylvania: 'PA', 'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD', tennessee: 'TN',
+  texas: 'TX', utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA', 'west virginia': 'WV',
+  wisconsin: 'WI', wyoming: 'WY', 'district of columbia': 'DC',
 };
 
 // A parenthetical is usually a NOTE, not part of the name: "Maryland (incoming;
@@ -394,10 +399,31 @@ function resolveSchool(raw, opts = {}) {
   const exact = opts.lookup || lookupSchoolLocation;
   const extra = opts.map || EXTRA_SCHOOLS;
 
+  // A curated key may carry its state in parentheses ("Bethel University
+  // (Tennessee)") when the bare name is shared. The bare name matches every
+  // such key; the parenthetical on the INPUT, or a state hint, narrows; and
+  // two keys still standing with different towns is ambiguity, which is null.
   const fromExtra = (name) => {
     const c = core(name);
-    for (const k of Object.keys(extra)) if (core(k) === c) return { name: k, loc: extra[k] };
-    return null;
+    const hits = [];
+    for (const k of Object.keys(extra)) {
+      const bare = splitParenthetical(k);
+      if (core(k) === c || core(bare.name) === c) hits.push({ name: k, loc: extra[k], keyState: bare.stateHint || null });
+    }
+    if (!hits.length) return null;
+    // A key that is the input exactly (parenthetical and all, or a bare key
+    // for a bare input) is the one meant: "University of St. Thomas" is the
+    // curated St. Paul entry, not a tie with "University of St. Thomas
+    // (Houston)".
+    // A state the agent typed narrows first ("(Texas)" means the Houston one);
+    // then the exact key wins over the parenthetical ones.
+    let pool = hits;
+    if (stateHint) { const inState = hits.filter((h) => (h.loc.state || '').toUpperCase() === stateHint || h.keyState === stateHint); if (inState.length) pool = inState; }
+    const exactHits = pool.filter((h) => core(h.name) === c);
+    if (exactHits.length) pool = exactHits;
+    const towns = new Set(pool.map((h) => h.loc.city + '|' + (h.loc.state || '')));
+    if (towns.size > 1) return null;
+    return { name: pool[0].name, loc: pool[0].loc };
   };
   const hit = (loc, name, method, confidence) => (loc && loc.city
     ? { city: loc.city, state: loc.state || null, matched: name, method, confidence }
@@ -458,7 +484,7 @@ function resolveSchool(raw, opts = {}) {
     if (loc && loc.city) cands.push({ name, loc });
   }
   const inputCore = core(input);
-  let exactCore = cands.filter((c) => core(c.name) === inputCore);
+  let exactCore = cands.filter((c) => core(c.name) === inputCore || core(splitParenthetical(c.name).name) === inputCore);
   if (exactCore.length) {
     // A state hint from the parenthetical breaks a tie that would otherwise be
     // unresolvable -- and only ever narrows, never invents.

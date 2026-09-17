@@ -425,19 +425,35 @@ async function naPerform(directives) {
           continue;
         }
         if (typeof showView === 'function') showView(d.tab, null);
-      } else if (d.kind === 'connect_gmail') {
+      } else if (d.kind === 'connect_gmail' || d.kind === 'connect_email') {
+        // The door for the provider, with the way back. Outlook's door answers
+        // 501 when the server has no Microsoft app; the page checks first so
+        // the agent is not sent to a JSON error.
+        var provider = d.kind === 'connect_email' ? (d.provider || 'gmail') : 'gmail';
         var back = window.location.pathname + window.location.search + window.location.hash;
-        window.location.href = '/api/email/oauth/gmail?returnTo=' + encodeURIComponent(back);
+        var door = '/api/email/oauth/' + provider + '?returnTo=' + encodeURIComponent(back);
+        if (provider === 'outlook') {
+          var probe = await fetch('/api/email/oauth/outlook', { method: 'HEAD', credentials: 'include', redirect: 'manual' }).catch(function () { return null; });
+          if (probe && probe.status === 501) { naSay('assistant', 'Outlook / Microsoft 365 is not switched on for this NILDash yet, so I cannot start that connection. The person who builds NILDash can open it.'); continue; }
+        }
+        window.location.href = door;
+      } else if (d.kind === 'button') {
+        naButtons([d]);
+      } else if (d.kind === 'open_deal_scan') {
+        if (typeof window.nilOpenDealScanFor === 'function') { try { await window.nilOpenDealScanFor(d.athleteId); } catch (e) { console.error('[assistant] open deal scan', e); } }
+        else if (typeof showView === 'function') showView('deals', null);
       } else if (d.kind === 'run_deal_scan') {
-        // NOTHING IS SAID HERE. The server already reported the scan to the model as
-        // a tool result, and the model wrote a sentence about it. A second line from
-        // the client made the assistant say the same thing twice.
+        // NOTHING IS SAID HERE BY THE MODEL'S TURN. The scan is awaited right
+        // here, under "Scanning, about a minute", and what it found is drawn
+        // by naScanFinished: the top businesses, an Open Deal Scan button, the
+        // next step. The model cannot message later; the page does this now.
         if (typeof window.nilRunDealScanFor === 'function') {
-          // AWAITED, so the dots stay up for the whole scan rather than blinking off
-          // while it runs. finally, so a scan that throws still clears them.
-          var run = naRunning(naScanLabel(d.athleteId));
-          try { await window.nilRunDealScanFor(d.athleteId); }
+          var run = naRunning('Scanning, about a minute');
+          var scanOk = false, scanErr = null;
+          try { await window.nilRunDealScanFor(d.athleteId); scanOk = true; }
+          catch (e) { scanErr = e; }
           finally { if (run) run.remove(); }
+          await naScanFinished(d.athleteId, scanOk, scanErr);
         } else {
           if (typeof showView === 'function') showView('deals', null);
           naSay('assistant', 'Deal Scan is open. Press Scan and it will run for them.');
@@ -518,6 +534,98 @@ function naUnsavedOutreach() {
   if (!body && !subj) return false;
   if (typeof window._naOutreachSnapshot !== 'string') return true;  // cannot tell: assume unsaved
   return (String(body ? body.value : '') + ' ' + String(subj ? subj.value : '')) !== window._naOutreachSnapshot;
+}
+
+// ── Buttons ──────────────────────────────────────────────────────────────────
+// A row of buttons the server offered ({ kind: 'button', label, action }).
+// Clicking one performs its action through the same directive path; the row
+// stays, because "Open Settings" is worth pressing twice.
+function naButtons(items) {
+  var log = document.getElementById('na-log');
+  if (!log || !items || !items.length) return null;
+  var row = document.createElement('div');
+  row.className = 'na-choices na-buttons';
+  items.forEach(function (it) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'na-chip';
+    b.textContent = it.label || 'Open';
+    b.addEventListener('click', function () { if (it.action) naPerform([it.action]); });
+    row.appendChild(b);
+  });
+  log.appendChild(row);
+  naScroll();
+  return row;
+}
+
+// What the model should know next turn, written to the transcript without a
+// turn (POST /note): the scan the page ran and what it found.
+function naRecordNote(text) {
+  return fetch(naBase() + '/api/assistant/note', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+    body: JSON.stringify({ sessionId: NA.sessionId, text: text }),
+  }).catch(function () {});
+}
+
+// ── The deal scan, finished ──────────────────────────────────────────────────
+// The page ran it (nilRunDealScanFor) and holds the results; this draws the
+// top few in the chat, names the owner when the contacts have loaded, hands
+// over the Open Deal Scan button, and asks the one next question.
+function naAthleteName(athleteId) {
+  try { var a = (window.athletes || []).find(function (x) { return x && x.id === athleteId; }); return a ? a.name : null; } catch (_) { return null; }
+}
+function naScanTown(d) {
+  var t = d.city || d.location || d.market || d.region || '';
+  return String(t || '').replace(/\s*,\s*USA$/i, '');
+}
+function naScanOwner(d) {
+  var c = (d.contacts && d.contacts[0]) || null;
+  if (c && (c.name || c.fullName)) return (c.name || c.fullName) + (c.title ? ' (' + c.title + ')' : '');
+  if (d.ownerName) return d.ownerName;
+  return null;
+}
+// The contacts load lazily after the cards render. Wait a little for the top
+// few, then draw with whatever has arrived.
+function naWaitContacts(list, ms) {
+  var started = Date.now();
+  return new Promise(function (resolve) {
+    (function tick() {
+      var pending = list.filter(function (d) { return d && d.brand && !d._contactsLoaded; });
+      if (!pending.length || Date.now() - started > ms) return resolve();
+      setTimeout(tick, 400);
+    })();
+  });
+}
+async function naScanFinished(athleteId, ok, err) {
+  var name = naAthleteName(athleteId) || 'them';
+  var results = (window._dealScanResults || []).filter(function (d) { return d && d.brand; });
+  if (!ok || !results.length) {
+    naSay('assistant', !ok
+      ? 'The scan did not finish' + (err && err.message ? ' (' + err.message + ')' : '') + '. Nothing was saved.'
+      : 'The scan finished but found nothing new for ' + name + ' right now.');
+    naChips([{ label: 'Try again', text: 'Run the deal scan again for ' + name + '.' }]);
+    naRecordNote('The deal scan for ' + name + ' ' + (ok ? 'found nothing new' : 'failed') + '; the agent was offered a retry.');
+    return;
+  }
+  var top = results.slice(0, 5);
+  await naWaitContacts(top, 8000);
+  var log = document.getElementById('na-log');
+  var card = document.createElement('div');
+  card.className = 'na-card';
+  var head = document.createElement('div'); head.className = 'na-card-name';
+  head.textContent = 'Deal Scan for ' + name + ': top ' + top.length + ' of ' + results.length;
+  card.appendChild(head);
+  var lines = [];
+  top.forEach(function (d, i) {
+    var row = document.createElement('div'); row.className = 'na-card-line';
+    var town = naScanTown(d), why = d.rationale || d.reason || d.why || '', owner = naScanOwner(d);
+    row.textContent = (i + 1) + '. ' + d.brand + (town ? ' \u00b7 ' + town : '') + (why ? ' \u2014 ' + why : '') + (owner ? ' \u00b7 Owner: ' + owner : '');
+    card.appendChild(row);
+    lines.push((i + 1) + '. ' + d.brand + (town ? ' (' + town + ')' : '') + (why ? ': ' + why : '') + (owner ? '. Owner: ' + owner : ''));
+  });
+  if (log) { log.appendChild(card); naScroll(); }
+  naButtons([{ label: 'Open Deal Scan', action: { kind: 'open_deal_scan', athleteId: athleteId } }]);
+  naSay('assistant', 'Want me to draft pitches for any of these?');
+  naRecordNote('The deal scan for ' + name + ' finished and the agent has seen these results in the chat, with an Open Deal Scan button: ' + lines.join(' ') + ' They were asked whether to draft pitches for any of them; do not repeat the list.');
 }
 
 // ── Profile cards ────────────────────────────────────────────────────────────

@@ -9941,6 +9941,20 @@ window.nilRunDealScanFor = async function (athleteId) {
   }
   return _dsRunScan(false);
 };
+// Open Deal Scan with this athlete's results selected, without running a
+// scan: the assistant's "Open Deal Scan" button. selectAthlete hydrates the
+// cached results once the deals view is the active one, so the view goes
+// first.
+window.nilOpenDealScanFor = async function (athleteId) {
+  if (typeof showView === 'function') {
+    try { await showView('deals', null); } catch (e) { console.error('[assistant] showView(deals)', e); }
+  }
+  if (!athleteId) return;
+  var sel = document.getElementById('activeAthlete');
+  if (sel) sel.value = athleteId;
+  selectedAthleteId = athleteId;
+  if (typeof selectAthlete === 'function') { try { await selectAthlete(athleteId); } catch (_) {} }
+};
 function runDealRefresh() { return _dsRunScan(true); }
 // Deal Scan — Add to Pipeline
 async function addDealToPipeline(brand, dealType, campaign) {

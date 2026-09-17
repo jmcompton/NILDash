@@ -33,6 +33,15 @@
 // is reported and left alone.
 //
 // Read-only otherwise. Safe to run against production.
+//
+//   node scripts/audit-schools.js --verify-map [--state NM] [--limit 50]
+//
+// A different job: check the SHIPPED LIST, not the roster. Every Division II,
+// III and NAIA entry in services/schoolsDivisions was written from memory, so
+// this geocodes each one through Places (services/schoolGeocode, cached in
+// brand_evidence_cache) and prints every entry whose geocoded town disagrees
+// with the town on file. Needs GOOGLE_PLACES_API_KEY; without it every entry
+// is "unverifiable" and nothing is claimed. Writes nothing to the athletes.
 
 const store = require('../server/store');
 const { resolveSchool, MARKET_FLOOR } = require('../server/services/schoolResolver');
@@ -114,7 +123,60 @@ async function applyFix(P, a) {
   return { id: a.id, ok: true, from: a.school, to: a.fix.name };
 }
 
+// ── --verify-map: DOES THE TOWN ON FILE MATCH WHERE PLACES PUTS THE CAMPUS ──
+// One list entry and one geocode answer -> a verdict. Pure, so the test feeds
+// it answers without Places.
+//   agree         same town (case, punctuation and "Saint/St" differences ignored)
+//   disagree      Places puts the campus in another town: the line to check
+//   unverifiable  no answer (no key, an outage, a non-school hit): claims nothing
+function verifyEntry(name, loc, geo) {
+  const town = (s) => String(s || '').toLowerCase().replace(/\bsaint\b/g, 'st').replace(/[^a-z0-9]+/g, ' ').trim();
+  const onFile = `${loc.city}, ${loc.state}`;
+  if (!geo || !geo.city) return { name, onFile, geocoded: null, verdict: 'unverifiable' };
+  const geocoded = `${geo.city}, ${geo.state}`;
+  const same = town(geo.city) === town(loc.city) && String(geo.state || '').toUpperCase() === String(loc.state || '').toUpperCase();
+  return { name, onFile, geocoded, verdict: same ? 'agree' : 'disagree' };
+}
+
+async function verifyMap() {
+  const { SCHOOLS } = require('../server/services/schoolsDivisions');
+  const { geocodeSchool } = require('../server/services/schoolGeocode');
+  const { lookupPlaceResult } = require('../server/services/placesLookup');
+  const onlyState = String(arg('state', '')).toUpperCase();
+  const limit = parseInt(arg('limit', '0'), 10) || 0;
+  let entries = Object.entries(SCHOOLS).filter(([, loc]) => !onlyState || loc.state === onlyState);
+  if (limit) entries = entries.slice(0, limit);
+  console.log(`audit-schools --verify-map: ${entries.length} entries${onlyState ? ' in ' + onlyState : ''}, geocoded through Places${process.env.GOOGLE_PLACES_API_KEY ? '' : ' (GOOGLE_PLACES_API_KEY is not set: every entry will be unverifiable)'}`);
+  await new Promise((r) => setTimeout(r, INIT_WAIT_MS));
+  const out = [];
+  let i = 0;
+  const worker = async () => {
+    while (i < entries.length) {
+      const [name, loc] = entries[i++];
+      // The bare name, without the "(Tennessee)" the resolver uses to tell
+      // twins apart: Places wants the name on the sign.
+      const bare = name.replace(/\s*\([^)]*\)\s*$/, '');
+      let geo = null;
+      try { geo = await geocodeSchool(`${bare}, ${loc.city}, ${loc.state}`, { lookupPlaceResult, store }); } catch (_) { geo = null; }
+      out.push(verifyEntry(name, loc, geo));
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  const n = { agree: 0, disagree: 0, unverifiable: 0 };
+  for (const v of out) n[v.verdict]++;
+  const bad = out.filter((v) => v.verdict === 'disagree').sort((a, b) => a.name.localeCompare(b.name));
+  console.log(`\n${n.agree} agree, ${n.disagree} disagree, ${n.unverifiable} unverifiable\n`);
+  if (bad.length) {
+    console.log(`  ${pad('school', 56)} ${pad('on file', 26)} Places says`);
+    for (const v of bad) console.log(`  ${pad(v.name, 56)} ${pad(v.onFile, 26)} ${v.geocoded}`);
+    console.log('\nCheck each line and correct services/schoolsDivisions.js by hand; nothing is changed here.');
+  } else if (n.agree) console.log('Every verifiable entry agrees with Places.');
+  try { await store.pool.end(); } catch (_) {}
+  process.exit(0);
+}
+
 async function main() {
+  if (flag('verify-map')) return verifyMap();
   const commit = flag('commit');
   const who = arg('agent', null);
   const approve = String(arg('approve', '')).split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
@@ -156,5 +218,5 @@ async function main() {
   await P.end(); process.exit(0);
 }
 
-module.exports = { auditRow, describe, applyFix, loadRows, EXACT_METHODS };
+module.exports = { auditRow, describe, applyFix, loadRows, verifyEntry, EXACT_METHODS };
 if (require.main === module) main().catch((e) => { console.error('audit-schools: FAILED', e && e.message ? e.message : e); process.exit(1); });

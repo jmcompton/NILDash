@@ -340,6 +340,31 @@ router.post('/session', async (req, res) => {
   }
 });
 
+// A bare acknowledgement, and the few words that answer it. null for anything
+// that could be a request.
+const ACK_RE = /^\s*(?:ok(?:ay)?|k|kk|thanks?|thank you|thx|ty|cool|great|got it|sounds good|perfect|nice|awesome|will do|👍)(?:[\s,.!]+(?:ok(?:ay)?|thanks?|thank you|thx|ty|cool|great|got it|sounds good|perfect|nice|awesome))*[\s.!]*$/i;
+function ackReply(text) {
+  if (!ACK_RE.test(String(text || ''))) return null;
+  return /thank|thx|\bty\b/i.test(text) ? "You're welcome. I'm here when you need the next thing." : 'Okay.';
+}
+
+// ── POST /note ───────────────────────────────────────────────────────────────
+// The page records something the model should know next turn, without a
+// turn: the deal scan the page just ran and what it found. Stored as the
+// agent's side of the transcript, in parentheses, the way the import note is.
+router.post('/note', async (req, res) => {
+  try {
+    const text = String((req.body && req.body.text) || '').trim().slice(0, MAX_INPUT_CHARS);
+    if (!text) return res.status(400).json({ error: 'Nothing to note.' });
+    const s = await loadSession(req.principal.id, req.body && req.body.sessionId);
+    await record(s.id, req.principal.id, 'user', text.startsWith('(') ? text : '(' + text + ')');
+    res.json({ ok: true, sessionId: s.id });
+  } catch (e) {
+    console.error('[assistant/note]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── POST /message ────────────────────────────────────────────────────────────
 router.post('/message', async (req, res) => {
   try {
@@ -347,6 +372,18 @@ router.post('/message', async (req, res) => {
     const principal = req.principal;
     const text = String((req.body && req.body.text) || '').trim().slice(0, MAX_INPUT_CHARS);
     if (!text) return res.status(400).json({ error: 'Say something.' });
+    // ── "ok", "thanks", "ok thanks" IS NOT A REQUEST ─────────────────────
+    // An acknowledgement used to reach the model with every tool offered, and
+    // "ok" after a scan ran the scan again. It never reaches the model now: a
+    // few words back, recorded like any turn, nothing run.
+    const ack = ackReply(text);
+    if (ack) {
+      const s = await loadSession(req.principal.id, req.body && req.body.sessionId);
+      await record(s.id, req.principal.id, 'user', text);
+      await record(s.id, req.principal.id, 'assistant', ack);
+      console.log(`[assistant] agent=${req.principal.id} session=${s.id} acknowledgement, no turn`);
+      return res.json({ sessionId: s.id, reply: ack, directives: [], confirms: [], onboarding: false, athletes: null, ack: true });
+    }
     // Same three-at-once as /session. A reply costs the agent this wait too.
     // They replied, so the dismissal streak resets. Two dismissals IN A ROW without
     // replying is what turns auto-open off; a reply breaks the row.
