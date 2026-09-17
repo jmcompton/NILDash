@@ -92,6 +92,10 @@ const CURATED_SCHOOLS = {
   'University of Cincinnati': { city: 'Cincinnati', state: 'OH' },
   'University of Dayton': { city: 'Dayton', state: 'OH' },
   'Miami University': { city: 'Oxford', state: 'OH' },
+  // "Miami (Ohio)" is how the Ohio school is written on schedules and in
+  // recruiting posts. The bare "Miami" stays Coral Gables (a shipped key);
+  // the parenthetical is what picks Oxford.
+  'Miami (Ohio)': { city: 'Oxford', state: 'OH' },
   'University of Toledo': { city: 'Toledo', state: 'OH' },
   'Bowling Green State University': { city: 'Bowling Green', state: 'OH' },
   'Kent State University': { city: 'Kent', state: 'OH' },
@@ -304,6 +308,20 @@ const US_STATES = {
 // Class of 2026 recruit)" is Maryland. But "(Ohio)" in "Miami University (Ohio)"
 // is the thing that tells two real schools apart. So it is removed from the name
 // either way, and kept as a state hint when it names a state.
+// The shipped map spells a state out ("Florida"); the curated list and the
+// hint use the code ("FL"). Same state either way. No hint means no test.
+function stateCode(s) {
+  const t = String(s || '').trim().replace(/[.]/g, '');
+  if (!t) return null;
+  if (/^[A-Za-z]{2}$/.test(t)) return t.toUpperCase();
+  return US_STATES[t.toLowerCase()] || t.toUpperCase();
+}
+function sameState(locState, hint) {
+  if (!hint) return true;
+  const a = stateCode(locState);
+  return !a || a === hint;
+}
+
 function splitParenthetical(raw) {
   const s2 = String(raw || '');
   let hint = null;
@@ -428,6 +446,13 @@ function resolveSchool(raw, opts = {}) {
   const hit = (loc, name, method, confidence) => (loc && loc.city
     ? { city: loc.city, state: loc.state || null, matched: name, method, confidence }
     : null);
+  // A STATE THE AGENT TYPED IS NEVER OVERRULED. "Miami (Ohio)" used to come
+  // back Coral Gables because the bare "Miami" is a shipped key and the key
+  // won before the hint was looked at. Now a candidate whose state disagrees
+  // with the parenthetical is not an answer at any step: it is skipped and
+  // the next step runs, and if nothing in that state fits the result is
+  // null, never a school in another state.
+  const ok = (loc) => !!(loc && loc.city && sameState(loc.state, stateHint));
 
   // 1. An alias is a statement of intent, and it goes first: a DELIBERATELY
   //    ambiguous alias (msu, southern) maps to null and stops here rather
@@ -439,9 +464,9 @@ function resolveSchool(raw, opts = {}) {
     const target = ALIASES[n];
     if (target === null) return null;
     const viaExtra = fromExtra(target);
-    if (viaExtra) return hit(viaExtra.loc, viaExtra.name, 'alias', 1);
+    if (viaExtra && ok(viaExtra.loc)) return hit(viaExtra.loc, viaExtra.name, 'alias', 1);
     const viaExact = exact(target);
-    if (viaExact && viaExact.city) return hit(viaExact, target, 'alias', 1);
+    if (ok(viaExact)) return hit(viaExact, target, 'alias', 1);
   }
 
   // 2. A shipped key typed as-is (case and spacing aside). A bare "Miami" is
@@ -450,7 +475,7 @@ function resolveSchool(raw, opts = {}) {
   const shippedNames = opts.mapNames || SHIPPED_NAMES;
   if (shippedNames.some((k) => foldKey(k) === n)) {
     const asIs = exact(input);
-    if (asIs && asIs.city) return hit(asIs, input, 'exact', 1);
+    if (ok(asIs)) return hit(asIs, input, 'exact', 1);
   }
 
   // 3. The shipped map's scan and the curated list, and which wins when both
@@ -463,14 +488,16 @@ function resolveSchool(raw, opts = {}) {
   //    precedence. The scan runs ONLY for a string that identifies a school:
   //    without that guard "State" resolves to Kennesaw with confidence 1,
   //    the confident wrong answer that sends outreach to the wrong town.
-  const direct = fromExtra(input);
-  const asIs = isIdentityLike(input) ? exact(input) : null;
-  if (direct && asIs && asIs.city) {
+  const directRaw = fromExtra(input);
+  const direct = directRaw && ok(directRaw.loc) ? directRaw : null;
+  const asIsRaw = isIdentityLike(input) ? exact(input) : null;
+  const asIs = ok(asIsRaw) ? asIsRaw : null;
+  if (direct && asIs) {
     const keyInsideInput = shippedNames.some((k) => { const fk = foldKey(k); return fk !== n && fk.length < n.length && n.includes(fk); });
     if (keyInsideInput) return hit(direct.loc, direct.name, 'normalized', 1);
     return hit(asIs, input, 'exact', 1);
   }
-  if (asIs && asIs.city) return hit(asIs, input, 'exact', 1);
+  if (asIs) return hit(asIs, input, 'exact', 1);
   // The curated list on the identity form is also where the suffix problem
   // dies: "Eastern Kentucky University" and "Eastern Kentucky" share a core.
   if (direct) return hit(direct.loc, direct.name, 'normalized', 1);
@@ -485,13 +512,10 @@ function resolveSchool(raw, opts = {}) {
   }
   const inputCore = core(input);
   let exactCore = cands.filter((c) => core(c.name) === inputCore || core(splitParenthetical(c.name).name) === inputCore);
+  // A state hint from the parenthetical narrows, and never invents: with the
+  // hint, only a candidate in that state can answer here.
+  if (stateHint) exactCore = exactCore.filter((c) => ok(c.loc));
   if (exactCore.length) {
-    // A state hint from the parenthetical breaks a tie that would otherwise be
-    // unresolvable -- and only ever narrows, never invents.
-    if (stateHint && exactCore.length > 1) {
-      const narrowed = exactCore.filter((c) => (c.loc.state || '').toUpperCase() === stateHint);
-      if (narrowed.length) exactCore = narrowed;
-    }
     // Same identity form reached from several spellings is not ambiguity as long
     // as they all point at one city.
     const cities = new Set(exactCore.map((c) => (c.loc.city + '|' + (c.loc.state || ''))));
@@ -500,11 +524,9 @@ function resolveSchool(raw, opts = {}) {
   }
 
   // 5. Fuzzy, with a floor and a margin. This is what catches "Virgina Tech".
-  let pool = cands;
-  if (stateHint) {
-    const inState = cands.filter((c) => (c.loc.state || '').toUpperCase() === stateHint);
-    if (inState.length) pool = inState;
-  }
+  // With a state hint the pool is that state's schools only; an empty pool is
+  // null, not a school somewhere else.
+  const pool = stateHint ? cands.filter((c) => ok(c.loc)) : cands;
   const scored = pool.map((c) => ({ ...c, s: similarity(inputCore, core(c.name)) }))
     .sort((a, b) => b.s - a.s);
   const best = scored[0];

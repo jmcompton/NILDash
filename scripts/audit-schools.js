@@ -124,53 +124,17 @@ async function applyFix(P, a) {
 }
 
 // ── --verify-map: DOES THE TOWN ON FILE MATCH WHERE PLACES PUTS THE CAMPUS ──
-// One list entry and one geocode answer -> a verdict. Pure, so the test feeds
-// it answers without Places.
-//   agree         same town (case, punctuation and "Saint/St" differences ignored)
-//   disagree      Places puts the campus in another town: the line to check
-//   unverifiable  no answer (no key, an outage, a non-school hit): claims nothing
-function verifyEntry(name, loc, geo) {
-  const town = (s) => String(s || '').toLowerCase().replace(/\bsaint\b/g, 'st').replace(/[^a-z0-9]+/g, ' ').trim();
-  const onFile = `${loc.city}, ${loc.state}`;
-  if (!geo || !geo.city) return { name, onFile, geocoded: null, verdict: 'unverifiable' };
-  const geocoded = `${geo.city}, ${geo.state}`;
-  const same = town(geo.city) === town(loc.city) && String(geo.state || '').toUpperCase() === String(loc.state || '').toUpperCase();
-  return { name, onFile, geocoded, verdict: same ? 'agree' : 'disagree' };
-}
+// The work lives in services/schoolMapVerify so the admin endpoint on Railway
+// (where the Places key is) runs the same check. Writes nothing.
+const { verifySchoolMap, verifyEntry, formatReport } = require('../server/services/schoolMapVerify');
 
 async function verifyMap() {
-  const { SCHOOLS } = require('../server/services/schoolsDivisions');
-  const { geocodeSchool } = require('../server/services/schoolGeocode');
-  const { lookupPlaceResult } = require('../server/services/placesLookup');
   const onlyState = String(arg('state', '')).toUpperCase();
   const limit = parseInt(arg('limit', '0'), 10) || 0;
-  let entries = Object.entries(SCHOOLS).filter(([, loc]) => !onlyState || loc.state === onlyState);
-  if (limit) entries = entries.slice(0, limit);
-  console.log(`audit-schools --verify-map: ${entries.length} entries${onlyState ? ' in ' + onlyState : ''}, geocoded through Places${process.env.GOOGLE_PLACES_API_KEY ? '' : ' (GOOGLE_PLACES_API_KEY is not set: every entry will be unverifiable)'}`);
+  console.log(`audit-schools --verify-map: geocoding services/schoolsDivisions through Places${onlyState ? ' (' + onlyState + ' only)' : ''}${process.env.GOOGLE_PLACES_API_KEY ? '' : ' (GOOGLE_PLACES_API_KEY is not set: every entry will be unverifiable)'}`);
   await new Promise((r) => setTimeout(r, INIT_WAIT_MS));
-  const out = [];
-  let i = 0;
-  const worker = async () => {
-    while (i < entries.length) {
-      const [name, loc] = entries[i++];
-      // The bare name, without the "(Tennessee)" the resolver uses to tell
-      // twins apart: Places wants the name on the sign.
-      const bare = name.replace(/\s*\([^)]*\)\s*$/, '');
-      let geo = null;
-      try { geo = await geocodeSchool(`${bare}, ${loc.city}, ${loc.state}`, { lookupPlaceResult, store }); } catch (_) { geo = null; }
-      out.push(verifyEntry(name, loc, geo));
-    }
-  };
-  await Promise.all([worker(), worker(), worker(), worker()]);
-  const n = { agree: 0, disagree: 0, unverifiable: 0 };
-  for (const v of out) n[v.verdict]++;
-  const bad = out.filter((v) => v.verdict === 'disagree').sort((a, b) => a.name.localeCompare(b.name));
-  console.log(`\n${n.agree} agree, ${n.disagree} disagree, ${n.unverifiable} unverifiable\n`);
-  if (bad.length) {
-    console.log(`  ${pad('school', 56)} ${pad('on file', 26)} Places says`);
-    for (const v of bad) console.log(`  ${pad(v.name, 56)} ${pad(v.onFile, 26)} ${v.geocoded}`);
-    console.log('\nCheck each line and correct services/schoolsDivisions.js by hand; nothing is changed here.');
-  } else if (n.agree) console.log('Every verifiable entry agrees with Places.');
+  const r = await verifySchoolMap({ state: onlyState, limit });
+  console.log('\n' + formatReport(r));
   try { await store.pool.end(); } catch (_) {}
   process.exit(0);
 }

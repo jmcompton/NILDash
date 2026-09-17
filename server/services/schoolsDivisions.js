@@ -18,8 +18,10 @@
 // here sends the local lane to the wrong town, so the list was written to be
 // omitted rather than guessed where a town was uncertain, and
 // scripts/audit-schools.js --verify-map geocodes every entry (services/
-// schoolGeocode) and prints the ones whose geocoded town disagrees. Run it
-// once from the Mac, fix what it names, and the list is verified.
+// schoolGeocode via services/schoolMapVerify) and prints the ones whose
+// geocoded town disagrees. The same check runs on Railway, where the Places
+// key lives: GET /api/admin/verify-school-map as the admin. Fix what it
+// names by hand, remove what cannot be confirmed, and the list is verified.
 
 const D2 = [
   // California Collegiate Athletic Association
