@@ -121,6 +121,13 @@ AL._setSearchLoopForTests(async (o) => {
   ok('the hint under the name changes for a pro: team or city, not school and sport; and the parent email is hidden', /Enter their team or city for best results/.test(html) && /show\('a_parent_wrap', !pro\)/.test(html) && /id="a_parent_wrap"/.test(html) && /id="a_lookup_hint"/.test(html));
   ok('the hit-rate script exists with ten NFL, ten NBA and ten MLB players and reports per league', (() => { const s = src('scripts/lookup-pro-hitrate.js'); return /NFL: \[/.test(s) && /NBA: \[/.test(s) && /MLB: \[/.test(s) && ['Bo Nix', 'Patrick Mahomes', 'Nikola Jokic', 'Stephen Curry', 'Aaron Judge', 'Shohei Ohtani'].every((n) => s.includes(n)) && (s.match(/\['[^\]]*'\]/g) || []).length >= 30 && /HIT RATE BY LEAGUE/.test(s) && /below the 8 of 10 bar/.test(s); })());
 
+  OUT.push('', '-- 6. the two scripts run from the browser on Railway --');
+  const idx = src('server/index.js');
+  const block = idx.slice(idx.indexOf('const ADMIN_SCRIPTS'), idx.indexOf('// GET /api/admin/verify-school-map'));
+  ok('GET /api/admin/scripts/:name runs only the two named scripts, admin only, as a child process of this node', /app\.get\('\/api\/admin\/scripts\/:name', requireAuth/.test(block) && /'probe-roster-sources': \{ file: 'scripts\/probe-roster-sources\.js'/.test(block) && /'lookup-pro-hitrate': \{ file: 'scripts\/lookup-pro-hitrate\.js'/.test(block) && /user\.email !== ADMIN_EMAIL/.test(block) && /execFile\(process\.execPath/.test(block) && /No such script/.test(block));
+  ok('  the query never reaches a shell: only whitelisted flags, with the value scrubbed', block.includes("['--only', String(q.only).replace(/[^a-z0-9-]/gi, '')") && block.includes("['--league', String(q.league).replace(/[^a-z]/gi, '')") && !/\bexec\(/.test(block) && !/shell: true/.test(block));
+  ok('  it starts in the background and the same URL returns the output, plain with text=1', /Open this URL again in a minute or two for the output/.test(block) && /if \(q\.text\) \{ res\.type\('text\/plain'\)/.test(block) && /timeout: 15 \* 60 \* 1000/.test(block));
+
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));
   process.exit(F ? 1 : 0);
