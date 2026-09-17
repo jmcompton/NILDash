@@ -10276,6 +10276,39 @@ app.get('/api/agent/outreach-queue/fill/:runId', requireAuth, async (req, res) =
   res.json({ lines: run.lines, done: run.done, filled: run.filled, spent: run.spent, error: run.error });
 });
 
+// ── MY BRANDS (services/myBrands): every business found for this agent ─────
+// GET /api/agent/brands?filter=all|replied|pitched|not pitched&athleteId=&q=&sort=newest|business|athlete|status&page=1
+// GET /api/agent/brands.csv?...same filters...   the current view, every row, as a file
+// Read-only over what the queue, the ledger and the Deal Scan already wrote:
+// no search, no model call. Bound to the signed-in agent; there is no
+// parameter that reaches another agent's rows.
+app.get('/api/agent/brands', requireAuth, async (req, res) => {
+  try {
+    const MB = require('./services/myBrands');
+    const q = req.query || {};
+    res.json(await MB.pageFor(store.pool, req.session.userId, { filter: q.filter, athleteId: q.athleteId || null, q: q.q || '', sort: q.sort, page: q.page, pageSize: q.pageSize }));
+  } catch (e) { console.error('[brands]', e.message); res.status(500).json({ error: e.message }); }
+});
+app.get('/api/agent/brands.csv', requireAuth, async (req, res) => {
+  try {
+    const MB = require('./services/myBrands');
+    const q = req.query || {};
+    const csv = await MB.csvForAgent(store.pool, req.session.userId, { filter: q.filter, athleteId: q.athleteId || null, q: q.q || '', sort: q.sort });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="my-brands-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csv);
+  } catch (e) { console.error('[brands.csv]', e.message); res.status(500).json({ error: e.message }); }
+});
+// GET /api/admin/brands-summary — totals across every agent, counts only.
+// No business name, address or contact leaves this route.
+app.get('/api/admin/brands-summary', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    res.json(await require('./services/myBrands').adminSummary(store.pool));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // PATCH /api/agent/outreach-queue/:id — edit the DM before sending it.
 app.patch('/api/agent/outreach-queue/:id', requireAuth, async (req, res) => {
   try {

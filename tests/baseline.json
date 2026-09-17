@@ -574,6 +574,11 @@
       "total": 21,
       "fault": null
     },
+    "mybrands.js": {
+      "failed": 0,
+      "total": 49,
+      "fault": null
+    },
     "namedreply.js": {
       "failed": 0,
       "total": 40,
