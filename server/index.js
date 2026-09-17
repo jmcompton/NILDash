@@ -5348,6 +5348,36 @@ app.post('/api/admin/social-brands/reverify', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/admin/verify-school-map[?state=NM][&limit=50][&restart=1]
+// One-time check of the memory-written D2/D3/NAIA school list against Places
+// (services/schoolMapVerify), run here because the Places key lives on
+// Railway. The first call starts the check in the background and returns
+// {running:true, done, total}; open the same URL again until it returns the
+// mismatches. Read-only: nothing on the list or any athlete is changed, and
+// Places answers are cached in brand_evidence_cache so a rerun is free. Admin
+// only. ?text=1 returns the human-readable lines instead of JSON.
+let _schoolMapVerifyJob = null;
+app.get('/api/admin/verify-school-map', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const { verifySchoolMap, formatReport } = require('./services/schoolMapVerify');
+    const q = req.query || {};
+    if (!_schoolMapVerifyJob || (q.restart && _schoolMapVerifyJob.result)) {
+      const job = { startedAt: new Date().toISOString(), done: 0, total: 0, result: null, error: null, state: String(q.state || '').toUpperCase(), limit: parseInt(q.limit, 10) || 0 };
+      _schoolMapVerifyJob = job;
+      verifySchoolMap({ state: job.state, limit: job.limit, onProgress: (d, t) => { job.done = d; job.total = t; } })
+        .then((r) => { job.result = r; job.finishedAt = new Date().toISOString(); })
+        .catch((e) => { job.error = e && e.message ? e.message : String(e); job.finishedAt = new Date().toISOString(); });
+    }
+    const job = _schoolMapVerifyJob;
+    if (!job.result && !job.error) return res.json({ running: true, startedAt: job.startedAt, done: job.done, total: job.total, message: 'Still checking. Open this URL again in a minute.' });
+    if (job.error) return res.status(500).json({ running: false, error: job.error, startedAt: job.startedAt });
+    if (q.text) { res.type('text/plain'); return res.send(formatReport(job.result) + '\n'); }
+    res.json({ running: false, startedAt: job.startedAt, finishedAt: job.finishedAt, state: job.state || null, limit: job.limit || null, ...job.result, report: formatReport(job.result) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/admin/rebuild-market. Body { school } OR { cacheKey }. Resolves the
 // input to the SAME local market key the scan uses (never a naive slug of the
 // school name), deletes that cached pool, and cold-rebuilds it immediately (full

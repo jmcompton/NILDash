@@ -50,6 +50,15 @@ ok('  with the state it resolves', R.resolveSchool('Bethel University (TN)').cit
 ok('  and the check offers every one with its town, each of which resolves when picked', (() => { const s = SC.checkSchool('Bethel University'); return s.ok === false && s.suggestions.length >= 3 && s.suggestions.every((x) => /Bethel/.test(x.name) && SC.checkSchool(x.name).ok === true); })(), SC.checkSchool('Bethel University').suggestions);
 ok('the old ambiguity still holds: "Miami" is Coral Gables by key, "Miami University" is Oxford', R.resolveSchool('Miami').city === 'Coral Gables' && R.resolveSchool('Miami University').city === 'Oxford');
 
+OUT.push('', '-- a state the agent typed is never overruled --');
+const mo = R.resolveSchool('Miami (Ohio)');
+ok('"Miami (Ohio)" is Oxford, OH, not Coral Gables', mo && mo.city === 'Oxford' && mo.state === 'OH', mo);
+ok('  so is "Miami (OH)"', R.resolveSchool('Miami (OH)').city === 'Oxford');
+ok('  "Miami (Florida)" and "Miami (FL)" stay Coral Gables', R.resolveSchool('Miami (Florida)').city === 'Coral Gables' && R.resolveSchool('Miami (FL)').city === 'Coral Gables');
+ok('  the shipped map spells the state out and still agrees with a code hint', R.resolveSchool('Auburn (Alabama)').city === 'Auburn' && R.resolveSchool('Auburn (AL)').city === 'Auburn');
+ok('  a school in the wrong state is null, never a school somewhere else', R.resolveSchool('Auburn (Georgia)') === null && R.resolveSchool('Western New Mexico University (Texas)') === null);
+ok('  a note in parentheses is still a note', R.resolveSchool('Maryland (incoming; Class of 2026 recruit)').city === 'College Park');
+
 OUT.push('', '-- suggestions share a word, or the state, with what was typed --');
 const sug = (q) => SC.suggestionsFor(q).map((x) => x.name);
 const wnm = sug('Western New Mexic University');   // a typo of the real one
@@ -72,10 +81,32 @@ ok('  it lives in services, not the gitignored data folder', fs.existsSync(REPO 
 
 OUT.push('', '-- --verify-map: the list can be checked against Places --');
 const auditSrc = src('scripts/audit-schools.js');
-ok('the audit script has the --verify-map mode the list header names', /flag\('verify-map'\)/.test(auditSrc) && /async function verifyMap\(\)/.test(auditSrc) && /schoolsDivisions/.test(auditSrc));
-ok('  it geocodes through services/schoolGeocode with the real Places lookup', /require\('\.\.\/server\/services\/schoolGeocode'\)/.test(auditSrc) && /lookupPlaceResult/.test(auditSrc));
-ok('  and it changes nothing: no UPDATE in that mode', !/verifyMap[\s\S]*?UPDATE athletes/.test(auditSrc.slice(auditSrc.indexOf('async function verifyMap'), auditSrc.indexOf('async function main'))));
-ok('  it says when the key is missing rather than reporting agreement', /GOOGLE_PLACES_API_KEY is not set/.test(auditSrc));
+const verifySrc = src('server/services/schoolMapVerify.js');
+ok('the audit script has the --verify-map mode the list header names', /flag\('verify-map'\)/.test(auditSrc) && /async function verifyMap\(\)/.test(auditSrc) && /schoolMapVerify/.test(auditSrc));
+ok('  the check geocodes through services/schoolGeocode with the real Places lookup', /require\('\.\/schoolGeocode'\)/.test(verifySrc) && /lookupPlaceResult/.test(verifySrc));
+ok('  and it changes nothing: no UPDATE, no INSERT, no write to the list', !/UPDATE |INSERT |writeFileSync/.test(verifySrc));
+ok('  it says when the key is missing rather than reporting agreement', /GOOGLE_PLACES_API_KEY is not set/.test(verifySrc));
+ok('  the query is the name and the state, never the town on file (which would confirm itself)', /geocode\(`\$\{bareName\(name\)\}, \$\{loc\.state\}`\)/.test(verifySrc));
+const idx = src('server/index.js');
+ok('the same check runs on Railway: GET /api/admin/verify-school-map, admin only', /app\.get\('\/api\/admin\/verify-school-map', requireAuth/.test(idx) && /verify-school-map[\s\S]{0,400}user\.email !== ADMIN_EMAIL/.test(idx) && /require\('\.\/services\/schoolMapVerify'\)/.test(idx));
+ok('  it runs in the background and the URL is opened again for the result', /running: true/.test(idx) && /Open this URL again/.test(idx));
+// The check itself, with a fake geocoder: no Places, no database.
+const V = require(REPO + 'server/services/schoolMapVerify.js');
+(async () => {
+  const asked = [];
+  const fake = async (q) => { asked.push(q); if (/^Western New Mexico University, NM$/.test(q)) return { city: 'Silver City', state: 'NM' }; if (/^Adams State University, CO$/.test(q)) return { city: 'Pueblo', state: 'CO' }; return null; };
+  const r = await V.verifySchoolMap({ state: 'NM', geocode: fake, concurrency: 2 });
+  ok('verifySchoolMap checks one state when asked, and asks by name and state', r.total === Object.values(D.SCHOOLS).filter((v) => v.state === 'NM').length && asked.every((q) => /, NM$/.test(q)) && asked.includes('Western New Mexico University, NM'), asked);
+  ok('  an agreeing town counts as agree, no answer as unverifiable, and nothing is a mismatch', r.agree >= 1 && r.disagree === 0 && r.unverifiable === r.total - r.agree && r.mismatches.length === 0, r);
+  const r2 = await V.verifySchoolMap({ state: 'CO', geocode: fake, limit: 3 });
+  ok('  a disagreeing town is a mismatch carrying both towns', r2.total === 3 && r2.mismatches.some((m) => m.name === 'Adams State University' && m.onFile === 'Alamosa, CO' && m.geocoded === 'Pueblo, CO'), r2.mismatches);
+  ok('  twins are asked by their bare name', V.bareName('Bethel University (Tennessee)') === 'Bethel University');
+  const rep = V.formatReport(r2);
+  ok('  the report names the mismatch and says nothing is changed', /Adams State University\s+Alamosa, CO\s+Pueblo, CO/.test(rep) && /nothing is changed here/.test(rep), rep);
+  ok('  a run with no key says so instead of reporting agreement', /GOOGLE_PLACES_API_KEY is not set/.test(V.formatReport({ total: 5, agree: 0, disagree: 0, unverifiable: 5, keyPresent: false, mismatches: [], unverified: ['a'] })));
+  finish();
+})();
+function finish() {
 // The verdict is pure; exercised without Places or a database.
 process.env.PGHOST = process.env.PGHOST || '/tmp'; process.env.PGPORT = process.env.PGPORT || '55432';
 const { verifyEntry } = require(REPO + 'scripts/audit-schools.js');
@@ -89,3 +120,4 @@ ok('  no answer is unverifiable, never agreement', verifyEntry('X', loc, null).v
 OUT.push(''); OUT.push('failures: ' + F);
 console.log(OUT.join('\n'));
 process.exit(F ? 1 : 0);
+}
