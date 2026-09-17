@@ -124,6 +124,10 @@ async function readContext(agentId, principal) {
   return {
     agentName: c.agent_name || null,
     role: c.role || null,
+    // Which mailboxes THIS deployment can connect, read from the provider
+    // modules, so the answer to "can I use Outlook" is true here and not a
+    // sentence in the knowledge base.
+    emailProviders: emailProvidersAvailable(),
     athletes: c.athletes || 0,
     scans: c.scans || 0,
     sent: c.sent || 0,
@@ -142,6 +146,13 @@ async function readContext(agentId, principal) {
     // the prompt nor the response.
     _ms: Date.now() - t0,
   };
+}
+
+// { gmail, outlook, imap }: true when that door is configured on this server.
+// Gmail's door serves Google Workspace too (the same Google sign-in).
+function emailProvidersAvailable() {
+  const probe = (p) => { try { return !!require(p).isAvailable(); } catch (_) { return false; } };
+  return { gmail: probe('./providers/gmail'), outlook: probe('./providers/outlook'), imap: probe('./providers/imap') };
 }
 
 /**
@@ -196,6 +207,12 @@ const STATE_BRIEFS = {
   },
 };
 
+function emailProvidersLine(p) {
+  if (!p) return 'unknown';
+  const yn = (v) => (v ? 'YES' : 'NO');
+  return `Gmail and Google Workspace ${yn(p.gmail)}; Outlook / Microsoft 365 ${yn(p.outlook)}; any other mailbox by IMAP/SMTP ${yn(p.imap)}`;
+}
+
 // The context as the model sees it. Every value is labelled and fenced as DATA.
 function contextBlock(ctx, state) {
   const roster = ctx.roster.length
@@ -209,6 +226,7 @@ function contextBlock(ctx, state) {
 - Replies received: ${ctx.replies}
 - Deals in pipeline (not closed or lost): ${ctx.pipeline}
 - Gmail / mailbox connected: ${ctx.gmailConnected ? 'YES (' + (ctx.mailboxAddress || 'address unknown') + ')' : 'NO'}
+- Email providers this NILDash can connect right now: ${emailProvidersLine(ctx.emailProviders)}
 - Last login: ${ctx.lastLogin ? new Date(ctx.lastLogin).toISOString().slice(0, 10) : 'unknown'}
 - Days since their last send: ${ctx.daysSinceSent == null ? 'never sent' : ctx.daysSinceSent}
 - Situation: ${state}
@@ -217,4 +235,4 @@ THEIR ROSTER (use these ids for any athlete action, never invent one):
 ${roster}`;
 }
 
-module.exports = { readContext, routeState, STATE_BRIEFS, contextBlock, NO_REPLY_DAYS };
+module.exports = { readContext, routeState, STATE_BRIEFS, contextBlock, NO_REPLY_DAYS, emailProvidersAvailable, emailProvidersLine };

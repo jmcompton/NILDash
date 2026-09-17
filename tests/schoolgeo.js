@@ -46,8 +46,11 @@ async function main() {
   const P = store.pool;
 
   // ── THE LIST, AND WHAT IT MISSES ──────────────────────────────────────────
-  ok('the shipped map is ~200 names, not a national list',
-    R.SHIPPED_NAMES.length + Object.keys(R.EXTRA_SCHOOLS).length < 400,
+  // The map was ~200 D1 names and the geocoder existed to cover the rest.
+  // It now carries every D2, D3 and NAIA school too (services/schoolsDivisions),
+  // and the geocoder covers what is still missing.
+  ok('the map is a national list now: D1 plus D2, D3 and the NAIA',
+    R.SHIPPED_NAMES.length + Object.keys(R.EXTRA_SCHOOLS).length >= 900,
     R.SHIPPED_NAMES.length + Object.keys(R.EXTRA_SCHOOLS).length);
   // Bentley was added to the shipped map later (one of the fourteen schools
   // with towns), so a name that is genuinely not on it stands in.
@@ -281,7 +284,9 @@ async function main() {
   ok('getTopNilComps RUNS rather than throwing on every athlete', Array.isArray(comps), comps);
 
   // ── THE SCHOOL IS REQUIRED AT SAVE ────────────────────────────────────────
-  const idx = fs.readFileSync(ROOT + 'server/index.js', 'utf8');
+  // The create path is services/athleteCreate now (shared with the
+  // assistant's add_athlete); read with the route as one text.
+  const idx = fs.readFileSync(ROOT + 'server/index.js', 'utf8') + '\n' + fs.readFileSync(ROOT + 'server/services/athleteCreate.js', 'utf8');
   ok('THE API REFUSES AN ATHLETE WITH NO SCHOOL',
     /A school is required\. The nightly run uses it/.test(idx), null);
   ok('  enforced at the API, not only in the form',
