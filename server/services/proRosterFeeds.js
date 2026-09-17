@@ -316,14 +316,40 @@ async function gLeague(q, notes) {
 // searchFeeds({ name, sport, team }) -> { candidates, notes, feedsTried }
 // Every feed for the sport runs at once; the answer is the union, best name
 // match first. A feed that fails is a note.
+// ── WHICH FEEDS RUN FROM PRODUCTION ─────────────────────────────────────────
+// Probed from Railway (scripts/probe-roster-sources.js, GET /api/admin/
+// scripts/probe-roster-sources): ESPN answers 403 on every endpoint, the NHL
+// API redirects, HockeyTech denies the key, and the G League stats host
+// times out. Only MLB StatsAPI answers, and it covers the majors and
+// Triple-A through Single-A. So MLB is the only feed that runs by default;
+// every other league goes straight to the web search, which the lookup
+// accepts only with a source naming the player, the team and the position.
+// A feed that is not run costs nothing and adds no delay. ROSTER_FEEDS
+// (comma-separated: MLB, ESPN, NHL, HOCKEYTECH, GLEAGUE) re-enables one if
+// it ever answers from production; the code for each stays.
+const FEED_FOR = { MLB: ['MLB'], NHL: ['NHL', 'ESPN'], AHL: ['HOCKEYTECH'], ECHL: ['HOCKEYTECH'], 'G League': ['GLEAGUE'] };
+const DEFAULT_FEEDS = ['MLB'];
+let _enabledOverride = null;
+function enabledFeeds() {
+  if (_enabledOverride) return _enabledOverride;
+  const env = String(process.env.ROSTER_FEEDS || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return env.length ? env : DEFAULT_FEEDS;
+}
+function _setEnabledForTests(list) { _enabledOverride = Array.isArray(list) ? list.map((s) => String(s).toUpperCase()) : null; }
+function feedsFor(league) { return FEED_FOR[league] || ['ESPN']; }
+
 async function searchFeeds(q) {
   const notes = [];
   const leagues = leaguesForSport(q.sport);
   if (!q.name) return { candidates: [], notes: ['no name'], feedsTried: [] };
   if (!leagues.length) { notes.push(`no roster feed for sport "${q.sport || 'unknown'}"; web search only`); return { candidates: [], notes, feedsTried: [] }; }
-  const jobs = leagues.map((lg) => {
+  const on = new Set(enabledFeeds());
+  const skipped = leagues.filter((lg) => !feedsFor(lg).some((f) => on.has(f)));
+  if (skipped.length) notes.push(`${skipped.join(', ')}: roster feed not run (not reachable from production; ESPN 403, NHL redirect, HockeyTech denied, G League timeout); web search`);
+  const run = leagues.filter((lg) => !skipped.includes(lg));
+  const jobs = run.map((lg) => {
     if (lg === 'MLB') return mlbStatsApi(q, notes);
-    if (lg === 'NHL') return Promise.all([nhlSearch(q, notes), espnLeague('NHL', q, notes)]).then((a) => a.flat());
+    if (lg === 'NHL') return Promise.all([on.has('NHL') ? nhlSearch(q, notes) : [], on.has('ESPN') ? espnLeague('NHL', q, notes) : []]).then((a) => a.flat());
     if (lg === 'AHL' || lg === 'ECHL') return hockeyTech(lg, q, notes);
     if (lg === 'G League') return gLeague(q, notes);
     return espnLeague(lg, q, notes);
@@ -332,7 +358,7 @@ async function searchFeeds(q) {
   const candidates = [];
   settled.forEach((s, i) => {
     if (s.status === 'fulfilled') candidates.push(...s.value);
-    else notes.push(`${leagues[i]}: ${s.reason && s.reason.message}`);
+    else notes.push(`${run[i]}: ${s.reason && s.reason.message}`);
   });
   // The same player from two feeds (NHL search and ESPN NHL) is one candidate:
   // keep the richer one.
@@ -344,7 +370,7 @@ async function searchFeeds(q) {
     if (!prev || richness(c) > richness(prev)) byKey.set(k, c);
   }
   const out = [...byKey.values()].sort((a, b) => (b._ns || 0) - (a._ns || 0) || (b.confidence || 0) - (a.confidence || 0));
-  return { candidates: out, notes, feedsTried: leagues };
+  return { candidates: out, notes, feedsTried: run, feedsSkipped: skipped };
 }
 
-module.exports = { searchFeeds, leaguesForSport, teamMatches, ESPN_LEAGUES, _setFetchForTests };
+module.exports = { searchFeeds, leaguesForSport, teamMatches, ESPN_LEAGUES, enabledFeeds, feedsFor, DEFAULT_FEEDS, _setFetchForTests, _setEnabledForTests };

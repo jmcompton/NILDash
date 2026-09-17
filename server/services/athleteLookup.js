@@ -385,11 +385,16 @@ ${RULES}
   }
   if (level === 'pro') {
     const known = feedTop ? `A roster feed already confirmed: ${feedTop.name}, ${feedTop.team || ''} (${feedTop.league || ''})${feedTop.position ? ', ' + feedTop.position : ''}. Find what the feed does not carry: Instagram and TikTok handles with approximate follower counts, and a one-line highlight. Do not re-report fields the feed carries unless a page shows them.\n` : '';
+    // THE WEB IS THE PRIMARY PATH FOR A PRO (the roster feeds do not answer
+    // from production; see services/proRosterFeeds). Wikipedia and the team's
+    // official roster page first; the lookup accepts the answer only when a
+    // search result names the player, the team and the position together.
+    const teamQ = q.team ? ' ' + q.team : '';
     return `Find this PROFESSIONAL athlete.
 Name: ${nm}
 Sport: ${q.sport || 'unknown'}
 Team: ${q.team || 'unknown'}${q.city ? '\nCity: ' + q.city : ''}
-${known}Search the league or team roster page first, then "${nm}" instagram and "${nm}" tiktok.
+${known}Search, in this order: "${nm}"${teamQ} wikipedia; "${nm}"${teamQ} roster; "${nm}" ${q.sport || ''}${teamQ} position. PREFER Wikipedia and the team's official roster page (the club's own site, nfl.com, nba.com, mlb.com, nhl.com, mlssoccer.com, wnba.com, gleague.nba.com, theahl.com, echl.com, cfl.ca, theufl.com, uslchampionship.com); ESPN pages are fine to read but not required. Report the sport, the position, the team, the team's home city as "City, ST", and the jersey number, each with the URL it was read from. Then "${nm}" instagram and "${nm}" tiktok if searches remain.
 ${SHAPE}
 ${RULES}
 - A college athlete is NOT a match; if the only person by this name is on a college roster, return found: false and say so.`;
@@ -602,6 +607,13 @@ async function resolveAthlete(ai, q, opts = {}) {
       if (level === 'high_school' && q.school && w.school && !schoolsMatch(w.school, q.school)) continue;
       if (nameMatchScore(name, w.name) < 12) continue;
       candidates.push(Object.assign({}, w, { school: w.school || (level === 'pro' ? null : q.school) || null, team: w.team || q.team || null, city: w.city || q.city || null }));
+    }
+  }
+  // A pro's city comes from the team when no page said it (services/proTeams).
+  if (level === 'pro') {
+    const PT = require('./proTeams');
+    for (const c of candidates) {
+      if (!c.city && c.team) { const t = PT.findTeam(c.team); if (t) { c.city = t.market; c.sources = Object.assign({}, c.sources, { city: 'team-table' }); if (!c.league) c.league = t.league; } }
     }
   }
   candidates = candidates.map((c) => finish(c, level)).sort((a, b) => (b.confidence || 0) - (a.confidence || 0)).slice(0, 3);
