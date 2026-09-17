@@ -150,6 +150,31 @@ a.back:hover{color:#C8F135}
   <div id="funnel-body" style="padding:16px 20px;font-size:12px;color:rgba(240,237,230,0.5)">Loading...</div>
 </div>
 
+<!-- ── Businesses found across every agent (services/myBrands.adminSummary): counts only ── -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Businesses found, all agents</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">Totals only. Each agent's businesses and contacts are visible to that agent alone, on their My Brands tab.</div>
+    </div>
+    <button onclick="loadBrandsSummary()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+  </div>
+  <div id="brands-summary-body" style="padding:16px 20px;font-size:12px;color:#f0ede6;display:flex;gap:28px;flex-wrap:wrap">Loading...</div>
+</div>
+<script>
+async function loadBrandsSummary() {
+  var el = document.getElementById('brands-summary-body');
+  try {
+    var r = await fetch('/api/admin/brands-summary');
+    var d = await r.json();
+    if (!r.ok) { el.textContent = d.error || ('error ' + r.status); return; }
+    var tile = function (n, label) { return '<div><div style="font-size:22px;font-weight:700">' + n + '</div><div style="font-size:11px;color:rgba(240,237,230,0.5)">' + label + '</div></div>'; };
+    el.innerHTML = tile(d.businesses, 'businesses found') + tile(d.owners, 'with an owner identified') + tile(d.cards, 'cards written') + tile(d.agentsWithCards, 'agents with cards');
+  } catch (e) { el.textContent = 'Could not load: ' + e.message; }
+}
+loadBrandsSummary();
+</script>
+
 <!-- ── Schools the app found for itself (services/schoolFind) ──── -->
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">

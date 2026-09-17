@@ -1850,6 +1850,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('deals',this)">
         <span class="nav-dot-item"></span>Deal Scan
       </button>
+      <button class="nav-item" id="brandsNavBtn" onclick="showView('brands',this)">
+        <span class="nav-dot-item"></span>My Brands
+      </button>
       <button class="nav-item" onclick="showView('programs',this)">
         <span class="nav-dot-item"></span>Programs
       </button>
@@ -2284,6 +2287,56 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
 
       <!--  RATE  -->
+      <!--  MY BRANDS: every business NILDash has found for this agent's athletes
+            (read-only over the queue, the ledger and the Deal Scan; /api/agent/brands)  -->
+      <div id="view-brands" class="view">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <div style="font-size:12px;color:var(--muted)">Every business found for your athletes, with the owner, the contact and where the pitch stands. Nothing here runs a search: it is what NILDash already holds.</div>
+          <button id="mb-download" onclick="mbDownload()" style="padding:6px 14px;border-radius:40px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer">&#8595; Download spreadsheet</button>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-label">Businesses found</div><div class="kpi-val" id="mb-k-businesses" style="font-size:18px;color:var(--muted)">—</div></div>
+          <div class="kpi"><div class="kpi-label">Owners identified</div><div class="kpi-val" id="mb-k-owners" style="font-size:18px;color:var(--muted)">—</div></div>
+          <div class="kpi"><div class="kpi-label">Replied</div><div class="kpi-val" id="mb-k-replied" style="font-size:18px;color:var(--muted)">—</div></div>
+          <div class="kpi"><div class="kpi-label">Deals signed</div><div class="kpi-val" id="mb-k-deals" style="font-size:18px;color:var(--muted)">—</div></div>
+        </div>
+        <div id="mb-controls" style="display:flex;align-items:center;gap:8px;margin:12px 0;flex-wrap:wrap">
+          <div id="mb-filters" style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="chip mb-filter" data-filter="all" onclick="mbSetFilter('all')">All</button>
+            <button class="chip mb-filter" data-filter="replied" onclick="mbSetFilter('replied')">Replied</button>
+            <button class="chip mb-filter" data-filter="pitched" onclick="mbSetFilter('pitched')">Pitched</button>
+            <button class="chip mb-filter" data-filter="not pitched" onclick="mbSetFilter('not pitched')">Not pitched yet</button>
+          </div>
+          <select id="mb-athlete" onchange="mbSetAthlete(this.value)" style="font-size:11px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text)"><option value="">All athletes</option></select>
+          <input id="mb-q" type="search" placeholder="Search business, owner, town" oninput="mbTyped()" style="font-size:12px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);min-width:200px">
+          <select id="mb-sort" onchange="mbSetSort(this.value)" style="font-size:11px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-left:auto">
+            <option value="newest">Newest found</option><option value="business">Business A to Z</option><option value="athlete">Athlete A to Z</option><option value="status">Status</option>
+          </select>
+        </div>
+        <div id="mb-empty" style="display:none;padding:40px 20px;text-align:center;border:1px dashed var(--border);border-radius:12px">
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">No businesses yet</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Pitches start appearing after the first nightly run. Add an athlete and the night finds businesses near their school.</div>
+          <button class="run-btn" onclick="resetAthleteForm();showView('add-athlete',document.getElementById('addAthleteNavBtn'))">+ Add an athlete</button>
+        </div>
+        <div id="mb-none" style="display:none;padding:24px;text-align:center;font-size:12px;color:var(--muted)">Nothing matches this filter.</div>
+        <div class="table-wrap" id="mb-table-wrap" style="display:none">
+          <table id="mb-table">
+            <thead><tr>
+              <th onclick="mbSetSort('business')" style="cursor:pointer">Business</th><th>Town</th><th>Owner</th><th>Contact</th><th>Category</th>
+              <th onclick="mbSetSort('athlete')" style="cursor:pointer">Found for</th><th onclick="mbSetSort('status')" style="cursor:pointer">Status</th>
+            </tr></thead>
+            <tbody id="mb-body"></tbody>
+          </table>
+        </div>
+        <div id="mb-pager" style="display:none;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:11px;color:var(--muted)">
+          <span id="mb-pager-text"></span>
+          <span>
+            <button onclick="mbPage(-1)" id="mb-prev" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:11px;cursor:pointer">&#8592; Previous</button>
+            <button onclick="mbPage(1)" id="mb-next" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:11px;cursor:pointer;margin-left:6px">Next &#8594;</button>
+          </span>
+        </div>
+      </div>
+
       <div id="view-rate" class="view">
 
         <div style="display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start">
@@ -7646,7 +7699,7 @@ async function showView(id, btn) {
   if (btn) btn.classList.add('active');
   const labels = { home:'Home', command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
     marketing:'Media Kit',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', 'shift-detail':'What your team did', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
+    negotiate:'Negotiation Intel', brands:'My Brands', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', 'shift-detail':'What your team did', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   // An athlete has one client -- herself -- so the ACTIVE CLIENT bar never applies.
   // Checked HERE as well as at boot because this line runs on every view change and
@@ -7655,6 +7708,7 @@ async function showView(id, btn) {
     && !(typeof isAthleteMode === 'function' && isAthleteMode());
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
+  if (id === 'brands') { try { mbLoad(); } catch (e) {} }
   if (id === 'calendar') { if (window.NILCal) NILCal.initLabel(); loadCalendar(); initAgentGCalStatus(); }
   if (id === 'analytics') loadAnalytics();
   if (id === 'command') setTimeout(updateNilRateKpi, 800);
@@ -14893,6 +14947,98 @@ function exportRosterCSV() {
   _csvDownload('roster-' + new Date().toISOString().slice(0,10) + '.csv', rows);
   showToast('Roster exported');
 }
+
+// ── MY BRANDS ─────────────────────────────────────────────────────────────
+// A read of /api/agent/brands: the businesses found for this agent's athletes,
+// the owner and contact on each, and the status derived from the outreach
+// records. Filter, athlete, search, sort and page all go to the server, and the
+// download is the same view as a file.
+var MB = { filter: 'all', athleteId: '', q: '', sort: 'newest', page: 1, pages: 1, loading: false };
+var _mbTimer = null;
+function mbQuery() {
+  return 'filter=' + encodeURIComponent(MB.filter) + '&athleteId=' + encodeURIComponent(MB.athleteId || '')
+    + '&q=' + encodeURIComponent(MB.q || '') + '&sort=' + encodeURIComponent(MB.sort) + '&page=' + MB.page;
+}
+async function mbLoad() {
+  if (MB.loading) return;
+  MB.loading = true;
+  var body = document.getElementById('mb-body');
+  try {
+    var r = await fetch(API_BASE + '/api/agent/brands?' + mbQuery(), { credentials: 'same-origin' });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('error ' + r.status));
+    mbRender(d);
+  } catch (e) {
+    if (body) body.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Could not load your brands just now: ' + escHtml(e.message) + '</td></tr>';
+    document.getElementById('mb-table-wrap').style.display = '';
+  } finally { MB.loading = false; }
+}
+function mbStatusChip(s) {
+  var cls = s === 'deal signed' ? 'chip-green' : s === 'replied' ? 'chip-blue' : '';
+  var style = s === 'pitched' ? 'background:rgba(255,184,0,0.1);color:#FFB800;border:1px solid rgba(255,184,0,0.2)'
+    : s === 'not pitched' ? 'background:var(--surface2);color:var(--muted);border:1px solid var(--border)' : '';
+  return '<span class="chip ' + cls + '" style="' + style + '">' + escHtml(s) + '</span>';
+}
+function mbRender(d) {
+  var k = d.counts || {};
+  document.getElementById('mb-k-businesses').textContent = k.businesses != null ? k.businesses : '—';
+  document.getElementById('mb-k-owners').textContent = k.owners != null ? k.owners : '—';
+  document.getElementById('mb-k-replied').textContent = k.replied != null ? k.replied : '—';
+  document.getElementById('mb-k-deals').textContent = k.deals != null ? k.deals : '—';
+  document.querySelectorAll('.mb-filter').forEach(function (b) {
+    var on = b.getAttribute('data-filter') === d.filter;
+    b.className = 'chip mb-filter' + (on ? ' chip-green' : '');
+    b.style.cssText = on ? 'cursor:pointer' : 'cursor:pointer;background:var(--surface2);color:var(--muted);border:1px solid var(--border)';
+  });
+  var sel = document.getElementById('mb-athlete');
+  if (sel && sel.options.length <= 1 && d.athletes && d.athletes.length) {
+    d.athletes.forEach(function (a) { var o = document.createElement('option'); o.value = a.id; o.textContent = a.name; sel.appendChild(o); });
+    sel.value = MB.athleteId || '';
+  }
+  var empty = document.getElementById('mb-empty'), none = document.getElementById('mb-none'), wrap = document.getElementById('mb-table-wrap'), pager = document.getElementById('mb-pager');
+  var controls = document.getElementById('mb-controls'), dl = document.getElementById('mb-download');
+  MB.page = d.page || 1; MB.pages = d.pages || 1;
+  if (!d.total) {
+    empty.style.display = ''; none.style.display = 'none'; wrap.style.display = 'none'; pager.style.display = 'none';
+    controls.style.display = 'none'; if (dl) dl.style.display = 'none';
+    return;
+  }
+  controls.style.display = 'flex'; if (dl) dl.style.display = '';
+  empty.style.display = 'none';
+  if (!d.rows.length) { none.style.display = ''; wrap.style.display = 'none'; pager.style.display = 'none'; return; }
+  none.style.display = 'none'; wrap.style.display = '';
+  var body = document.getElementById('mb-body');
+  body.innerHTML = d.rows.map(function (r) {
+    var contact = r.email ? '<a href="mailto:' + escHtml(r.email) + '" style="color:var(--text)">' + escHtml(r.email) + '</a>'
+      : r.phone ? escHtml(r.phone)
+      : r.instagram ? '<a href="https://instagram.com/' + escHtml(String(r.instagram).replace(/^@/, '')) + '" target="_blank" rel="noopener" style="color:var(--text)">@' + escHtml(String(r.instagram).replace(/^@/, '')) + '</a>'
+      : '<span style="color:var(--muted)">—</span>';
+    var owner = r.ownerName ? escHtml(r.ownerName) + (r.ownerTitle ? ' <span style="color:var(--muted);font-size:11px">' + escHtml(r.ownerTitle) + '</span>' : '') : '<span style="color:var(--muted)">not yet</span>';
+    var found = r.foundAt ? new Date(r.foundAt).toLocaleDateString() : '';
+    return '<tr>'
+      + '<td><div style="font-weight:600">' + escHtml(r.brand) + '</div><div style="font-size:10px;color:var(--muted)">found ' + escHtml(found) + '</div></td>'
+      + '<td>' + escHtml(r.town || '') + '</td>'
+      + '<td>' + owner + '</td>'
+      + '<td>' + contact + '</td>'
+      + '<td>' + escHtml(r.category || r.lane || '') + '</td>'
+      + '<td>' + escHtml(r.athlete) + '</td>'
+      + '<td>' + mbStatusChip(r.status) + '</td>'
+      + '</tr>';
+  }).join('');
+  pager.style.display = 'flex';
+  var from = (d.page - 1) * d.pageSize + 1, to = Math.min(d.filtered, d.page * d.pageSize);
+  document.getElementById('mb-pager-text').textContent = 'Showing ' + from + ' to ' + to + ' of ' + d.filtered + (d.filtered !== d.total ? ' (' + d.total + ' in all)' : '');
+  document.getElementById('mb-prev').disabled = d.page <= 1;
+  document.getElementById('mb-next').disabled = d.page >= d.pages;
+}
+function mbSetFilter(f) { MB.filter = f; MB.page = 1; mbLoad(); }
+function mbSetAthlete(id) { MB.athleteId = id || ''; MB.page = 1; mbLoad(); }
+function mbSetSort(s) { MB.sort = s; MB.page = 1; var sel = document.getElementById('mb-sort'); if (sel) sel.value = s; mbLoad(); }
+function mbTyped() { clearTimeout(_mbTimer); _mbTimer = setTimeout(function () { MB.q = (document.getElementById('mb-q') || {}).value || ''; MB.page = 1; mbLoad(); }, 350); }
+function mbPage(delta) { var p = MB.page + delta; if (p < 1 || p > MB.pages) return; MB.page = p; mbLoad(); }
+// The file is the current view: same filter, athlete, search and sort, every
+// row, the same columns plus the date found.
+function mbDownload() { window.location.href = API_BASE + '/api/agent/brands.csv?' + mbQuery(); }
 
 function exportDealsCSV() {
   var deals = window._pipelineDeals || [];

@@ -48,7 +48,7 @@ const SCANS_PER_ATHLETE_PER_SESSION = 1;
 // Spoken names for the view ids, so the assistant says "Opening Deal Scan" rather
 // than "Opening deals". Keys must stay in step with open_tab's enum.
 const TAB_LABELS = {
-  command: 'Command Center', roster: 'My Roster', deals: 'Deal Scan',
+  command: 'Command Center', roster: 'My Roster', deals: 'Deal Scan', brands: 'My Brands',
   pipeline: 'Deal Pipeline', programs: 'Programs', outreach: 'Brand Outreach',
   'email-inbox': 'Email Inbox', settings: 'Settings',
 };
@@ -405,7 +405,7 @@ const ACTIONS = {
       properties: {
         tab: {
           type: 'string',
-          enum: ['command', 'roster', 'deals', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'],
+          enum: ['command', 'roster', 'deals', 'brands', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'],
           description: 'command = Command Center, roster = My Roster, deals = Deal Scan, '
             + 'pipeline = Deal Pipeline, outreach = Brand Outreach',
         },
@@ -413,7 +413,7 @@ const ACTIONS = {
       required: ['tab'],
     },
     check: (a) => {
-      const allowed = ['command', 'roster', 'deals', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'];
+      const allowed = ['command', 'roster', 'deals', 'brands', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'];
       if (!allowed.includes(a.tab)) return { error: 'I do not know that tab.' };
       return { args: { tab: a.tab } };
     },
@@ -516,7 +516,7 @@ const ACTIONS = {
       properties: {
         label: { type: 'string', description: 'The words on the button, e.g. "Open Settings", "Connect Gmail", "Open Deal Scan"' },
         kind: { type: 'string', enum: ['tab', 'connect_email', 'deal_scan'] },
-        tab: { type: 'string', enum: ['command', 'roster', 'deals', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'], description: 'kind tab: which tab' },
+        tab: { type: 'string', enum: ['command', 'roster', 'deals', 'brands', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'], description: 'kind tab: which tab' },
         provider: { type: 'string', enum: ['gmail', 'outlook'], description: 'kind connect_email: which provider' },
         athleteId: { type: 'string', description: 'kind deal_scan: the athlete id from the roster' },
       },

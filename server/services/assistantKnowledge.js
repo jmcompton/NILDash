@@ -206,6 +206,17 @@ that the person who builds NILDash can open it; do not send them to look for it.
 Sending is one address per agent at a time; the address they connect is the one every
 approved pitch goes out from, under their own name.
 
+MY BRANDS (tab: brands) lists every business NILDash has found for the agent's
+athletes: the business, its town, the owner, the contact (email, phone or Instagram),
+the category, which athlete it was found for, and where the pitch stands (not pitched,
+pitched, replied, deal signed, read from the outreach records). Four counts at the
+top, filters, an athlete dropdown, a search box, and a Download spreadsheet button
+that exports the current view. It runs no search and costs nothing; it shows what the
+nightly run and the Deal Scan already found. An agent sees only their own athletes'
+businesses, never another agent's. Offer it with a button (offer_button, kind tab,
+tab brands) when an agent asks what businesses have been found or wants a list to
+download.
+
 EVERY SCHOOL RESOLVES TO A TOWN. NCAA Division I, II and III, the NAIA, NJCAA and
 other junior colleges, and high schools. The colleges are on file; anything else is
 looked up the moment it is typed, in the Add Client form, here in the chat and in the
