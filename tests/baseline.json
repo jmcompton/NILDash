@@ -739,6 +739,11 @@
       "total": 46,
       "fault": null
     },
+    "prolookup.js": {
+      "failed": 0,
+      "total": 19,
+      "fault": null
+    },
     "prompts.js": {
       "failed": 0,
       "total": 14,

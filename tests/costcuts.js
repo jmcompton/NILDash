@@ -110,7 +110,7 @@ async function main() {
   ok('  a held sport is named and the rest are blank', /Plays: softball at Auburn/.test(some) && /sport: say "softball"/.test(some) && /no position on file/.test(some) && /no class year on file/.test(some) && /From: not on file/.test(some), some);
   ok('  no school and nothing else still says so', /Plays: nothing on file/.test(PW.describeAthlete({ name: 'X' })));
   const pro = PW.describeAthlete({ name: 'Bo Nix', athleteType: 'pro', team: 'Denver Broncos', position: 'QB', sport: 'football' });
-  ok('a pro is never told about a class year, and a blank hometown is still named', !/class year on file/.test(pro) && /From: not on file/.test(pro) && /Never call them a student-athlete/.test(pro), pro);
+  ok('a pro is never told about a class year, and the hometown line says not to mention it (a pro leads with the team and the market)', !/class year on file/.test(pro) && /From: not to be mentioned\. Lead with the team and the market/.test(pro) && /Never call them a student-athlete/.test(pro), pro);
   ok('the shared rules say a "not on file" line means never mention the field', /A LINE THAT SAYS "not on file" IS AN INSTRUCTION, NOT A GAP\. Never mention that field at all/.test(src('server/services/pitchWriter.js')));
   ok('the fact-check still refuses each invented field (the retry that this cuts)', PW.verifyAthleteFacts('Ann Lee is a junior shortstop from Hoover.', { name: 'Ann Lee', school: 'Auburn' }).ok === false);
   ok('spend-breakdown reports the retry rate against the 10% target', /WRITER RETRIES: \$\{retried\} of \$\{pitches\} pitch\(es\) written twice/.test(src('scripts/spend-breakdown.js')) && /target under 10%/.test(src('scripts/spend-breakdown.js')));
