@@ -25,6 +25,15 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
 
+// Schools the app found for itself (school_lookups) go into the resolver's
+// map as soon as the tables exist, so the nightly run, compliance and every
+// form see them without a lookup (services/schoolFind).
+if (store.ready && typeof store.ready.then === 'function') {
+  store.ready.then(() => require('./services/schoolFind').ensureLoaded())
+    .then((n) => { if (n) console.log(`[schoolFind] ${n} learned school(s) loaded`); })
+    .catch((e) => console.error('[schoolFind] boot load:', e.message));
+}
+
 // ── BILLING FLAG ──────────────────────────────────────────────────────────
 // The self-managed athlete portal is FREE. Stripe billing code below is kept
 // fully intact but bypassed while this flag is off. To re-enable paid billing
@@ -1909,10 +1918,22 @@ app.get('/api/agent/shift-report', requireAuth, async (req, res) => {
 // school does not resolve has no local market and silently gets nothing every
 // night, and before this the only place that surfaced was an admin page days
 // later.
-app.get('/api/onboarding/check-school', requireAuth, (req, res) => {
+//
+// Now it also FINDS the school (services/schoolFind) when the lists have
+// nothing: Places, then the web, then one question for the city. The form
+// sends deep=1 once the agent has stopped typing; without it the answer is
+// the lists only, so a keystroke never spends. Every found town is saved
+// and learned, so the next agent gets it instantly. With city=... the
+// agent's answer to "What city is it in?" is kept as the town.
+app.get('/api/onboarding/check-school', requireAuth, async (req, res) => {
   try {
-    const { checkSchool } = require('./services/schoolCheck');
-    res.json(checkSchool(req.query.q || ''));
+    const { findSchool } = require('./services/schoolFind');
+    const q = req.query || {};
+    const r = await findSchool(q.q || '', {
+      state: q.state || null, city: q.city || null, agentId: req.session.userId,
+      instantOnly: !q.deep && !q.city,
+    });
+    res.json(r);
   } catch (e) {
     console.error('[onboarding/check-school]', e.message);
     // Never claims the school is fine when it could not check.
@@ -4243,6 +4264,16 @@ async function importPreview(user, body) {
     throw Object.assign(new Error('Map a name (first + last, or full name) and a sport column first.'), { status: 400 });
   }
   const ctx = await importContextFor(user.id);
+  // Schools the lists do not carry are looked up NOW (services/schoolFind:
+  // Places, then the web, each found town saved), so the preview shows the
+  // town and the nightly run never starts blind. Distinct names, a few in
+  // flight, capped so a big sheet does not wait on the web.
+  const unknownSchools = [...new Set(parsed.rows
+    .filter((r) => r.affiliationKind === 'school' && r.affiliation && !(ctx.schoolLocation(r.affiliation) || {}).city)
+    .map((r) => r.affiliation))].slice(0, 40);
+  ctx.schoolOutcome = unknownSchools.length
+    ? await require('./services/schoolFind').findMany(unknownSchools, { agentId: user.id, concurrency: 4 })
+    : new Map();
   const create = [], needsFix = [], skipped = [];
   const seen = [];
   for (const row of parsed.rows) {
@@ -5376,6 +5407,33 @@ app.get('/api/admin/verify-school-map', requireAuth, async (req, res) => {
     if (q.text) { res.type('text/plain'); return res.send(formatReport(job.result) + '\n'); }
     res.json({ running: false, startedAt: job.startedAt, finishedAt: job.finishedAt, state: job.state || null, limit: job.limit || null, ...job.result, report: formatReport(job.result) });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── SCHOOLS THE APP FOUND FOR ITSELF (services/schoolFind) ─────────────────
+// GET  /api/admin/school-lookups[?status=auto]      every auto-found school, newest first
+// POST /api/admin/school-lookups/:id/review         { status: confirmed|rejected|auto, city?, state?, note? }
+// A confirmed or corrected row is learned into the resolver in the same call;
+// a rejected one is unlearned everywhere at once. Admin only.
+app.get('/api/admin/school-lookups', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const { listLookups } = require('./services/schoolFind');
+    const rows = await listLookups({ status: ['auto', 'confirmed', 'rejected'].includes(req.query.status) ? req.query.status : null });
+    res.json({ rows, counts: rows.reduce((m, r) => { m[r.status] = (m[r.status] || 0) + 1; return m; }, {}) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/school-lookups/:id/review', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const { reviewLookup } = require('./services/schoolFind');
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'id' });
+    const row = await reviewLookup(id, req.body || {});
+    if (!row) return res.status(404).json({ error: 'No such lookup' });
+    res.json({ ok: true, row });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
 // POST /api/admin/rebuild-market. Body { school } OR { cacheKey }. Resolves the

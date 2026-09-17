@@ -462,6 +462,13 @@ async function naPerform(directives) {
         if (typeof showView === 'function') showView('programs', null);
         if (typeof progSetSport === 'function' && d.sport) { try { progSetSport(d.sport); } catch (_) {} }
         if (typeof progSelect === 'function') { try { await progSelect(d.school); } catch (_) {} }
+      } else if (d.kind === 'choices') {
+        // A shared school name: each town is a chip, and tapping one says it
+        // for the agent, so the model gets a plain answer to act on.
+        naButtons((d.choices || []).map(function (c) { return { label: c.label, action: { kind: 'say', text: c.say || c.label } }; }));
+      } else if (d.kind === 'say') {
+        var inp = document.getElementById('na-input');
+        if (inp && d.text) { inp.value = d.text; if (window.nilAssistant && typeof nilAssistant.send === 'function') nilAssistant.send(); }
       } else if (d.kind === 'post') {
         var r = await fetch(naBase() + d.url, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',

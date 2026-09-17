@@ -834,6 +834,11 @@
       "total": 60,
       "fault": null
     },
+    "schoolfind.js": {
+      "failed": 0,
+      "total": 66,
+      "fault": null
+    },
     "schoolgeo.js": {
       "failed": 0,
       "total": 75,

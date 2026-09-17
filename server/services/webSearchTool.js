@@ -136,6 +136,11 @@ async function searchLoop(o = {}) {
   let searches = 0, fetches = 0, outTokens = 0, apiMs = 0, rounds = 0;
   const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0 };
   let text = '';
+  // Every search result the loop saw, kept for a caller that checks the
+  // model's answer against what the source actually said (services/schoolFind
+  // accepts a town only when a result names the school, the city and the
+  // state). Titles, URLs and snippets only.
+  const results = [];
 
   for (let round = 0; round < maxRounds; round++) {
     rounds++;
@@ -164,7 +169,7 @@ async function searchLoop(o = {}) {
           searches++;
           try {
             const rs = await sp.search(String(args.query || ''), RESULTS_PER_SEARCH);
-            for (const x of rs) cite(x.url);
+            for (const x of rs) { cite(x.url); results.push({ query: String(args.query || ''), title: x.title || '', url: x.url || '', snippet: x.snippet || '' }); }
             result = { results: rs };
           } catch (e) { result = { error: 'search failed: ' + e.message }; }
         }
@@ -182,7 +187,7 @@ async function searchLoop(o = {}) {
   if (searches && o.ledger !== false) {
     require('./aiLedger').recordUsage({ provider: DS.PROVIDER, model: o.model || DS.model(), usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: searches }, ms: 0, ctx: o.ctx, searchProvider: sp.name });
   }
-  return { text, citations, searches, fetches, outTokens, apiMs, usage, rounds };
+  return { text, citations, searches, fetches, outTokens, apiMs, usage, rounds, results };
 }
 
 module.exports = { searchLoop, provider, fetchPage, htmlToText, usdPerQuery, TOOLS, PROVIDERS, PREFERENCE };

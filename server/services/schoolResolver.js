@@ -173,6 +173,33 @@ const CURATED_SCHOOLS = {
 };
 const EXTRA_SCHOOLS = Object.assign({}, require('./schoolsDivisions').SCHOOLS, CURATED_SCHOOLS);
 
+// ── SCHOOLS THE APP FOUND FOR ITSELF ────────────────────────────────────────
+// A school no list carries (a junior college, a high school, the next D3
+// school we missed) is looked up once (services/schoolFind: Places, then the
+// web), saved in school_lookups, and from then on it is on this map like any
+// curated entry, so the resolver, the nightly run, compliance and the import
+// all see it instantly and synchronously. A curated key is never overwritten:
+// the list is verified, the lookup is not. Rejected on the admin page ->
+// unlearn, and it is gone from every path at once.
+const LEARNED = new Set();
+function learn(name, loc) {
+  const k = String(name || '').trim();
+  if (!k || !loc || !loc.city) return false;
+  if (Object.prototype.hasOwnProperty.call(EXTRA_SCHOOLS, k) && !LEARNED.has(k)) return false;
+  EXTRA_SCHOOLS[k] = { city: String(loc.city).trim(), state: loc.state ? String(loc.state).trim().toUpperCase() : null, learned: true };
+  LEARNED.add(k);
+  return true;
+}
+function unlearn(name) {
+  const k = String(name || '').trim();
+  if (!LEARNED.has(k)) return false;
+  delete EXTRA_SCHOOLS[k];
+  LEARNED.delete(k);
+  return true;
+}
+function learnedNames() { return [...LEARNED]; }
+function _resetLearnedForTests() { for (const k of [...LEARNED]) unlearn(k); }
+
 // Abbreviations, nicknames and the misspellings that actually show up. An alias
 // is an EXACT statement of intent, so it outranks anything fuzzy.
 const ALIASES = {
@@ -540,6 +567,35 @@ function resolveSchool(raw, opts = {}) {
   return hit(best.loc, best.name, 'fuzzy', Math.round(best.s * 100) / 100);
 }
 
+// Every school on file that shares the typed name, one per town: what the
+// form and the chat show when the name alone is not enough ("Bethel
+// University" -> Minnesota, Indiana, Tennessee). Empty when the name is not
+// shared; a single entry when it is not ambiguous at all.
+function candidatesFor(raw, opts = {}) {
+  const { name: input } = splitParenthetical(String(raw || '').trim());
+  const c = core(input);
+  if (!c) return [];
+  const extra = opts.map || EXTRA_SCHOOLS;
+  const exact = opts.lookup || lookupSchoolLocation;
+  const out = [];
+  const seen = new Set();
+  const push = (name, loc) => {
+    if (!loc || !loc.city) return;
+    const key = normalize(loc.city) + '|' + stateCode(loc.state || '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name, city: loc.city, state: stateCode(loc.state || '') || loc.state || null });
+  };
+  for (const k of Object.keys(extra)) {
+    const bare = splitParenthetical(k);
+    if (core(k) === c || core(bare.name) === c) push(k, extra[k]);
+  }
+  for (const k of (opts.mapNames || SHIPPED_NAMES)) {
+    if (core(k) === c) push(k, exact(k));
+  }
+  return out;
+}
+
 // The shipped map's key list. Read once, lazily, so requiring this module does
 // not pull ai.js apart at load time.
 let SHIPPED_NAMES = [];
@@ -558,5 +614,6 @@ module.exports = {
   resolveSchool, normalize, core, similarity, levenshtein,
   EXTRA_SCHOOLS, ALIASES, MIN_CONFIDENCE, MIN_MARGIN, TYPO_MIN_CORE, MARKET_FLOOR,
   GENERIC, isIdentityLike, SHIPPED_NAMES, splitParenthetical, US_STATES,
-  INSTITUTION_WORDS,
+  INSTITUTION_WORDS, stateCode, sameState,
+  learn, unlearn, learnedNames, candidatesFor, _resetLearnedForTests,
 };

@@ -69,9 +69,9 @@ async function main() {
   // ── 4. THE FORM WARNS AT THE KEYBOARD ────────────────────────────────────
   OUT.push('', '-- the form --');
   const html = fs.readFileSync(REPO + 'public/index.html', 'utf8');
-  ok('the school input checks as it is typed and on blur', /id="a_school"[^>]*oninput="aSchoolTyped\(\)" onblur="aCheckSchool\(\)"/.test(html));
+  ok('the school input checks as it is typed, and looks the school up on blur', /id="a_school"[^>]*oninput="aSchoolTyped\(\)" onblur="aCheckSchool\(true\)"/.test(html));
   ok('  with a status line and a suggestions row under it', /id="a_school_status"/.test(html) && /id="a_school_suggest"/.test(html));
-  ok('  calling the same check onboarding uses', /async function aCheckSchool\(\)[\s\S]*?\/api\/onboarding\/check-school\?q=/.test(html));
+  ok('  calling the same check onboarding uses (services/schoolFind behind /api/onboarding/check-school)', /async function aCheckSchool\(deep\)/.test(html) && /function schoolFieldCheck\(f, mode\)[\s\S]*?\/api\/onboarding\/check-school\?q=/.test(html));
   ok('  a suggestion click fills the field and re-checks', /function aPickSchool\(name\)[\s\S]*?el\.value = name;[\s\S]*?aCheckSchool\(\);/.test(html));
   ok('  and the edit form runs the check when it opens', /document\.getElementById\('a_school'\)\.value = a\.school \|\| '';\s*aCheckSchool\(\);/.test(html));
   ok('  it never blocks: no return-false on the school in addAthlete', !/a_school_status[\s\S]{0,200}return;/.test(html.slice(html.indexOf('async function addAthlete'), html.indexOf('async function addAthlete') + 4000)));
