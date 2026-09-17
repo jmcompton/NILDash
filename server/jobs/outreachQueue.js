@@ -68,12 +68,12 @@ const NAME_REQUIRED = true;
 // that was not there an hour ago.
 const _finalNames = new Map();
 const FINAL_NAME_TTL_MS = 24 * 3600000;
-async function finalNameFor(brand, city, { agentId, athleteId, say }) {
-  const key = `${String(brand || '').trim().toLowerCase()}|${String(city || '').trim().toLowerCase()}`;
+async function finalNameFor(brand, city, { agentId, athleteId, say, order }) {
+  const key = `${String(brand || '').trim().toLowerCase()}|${String(city || '').trim().toLowerCase()}|${Array.isArray(order) ? order.join(',') : ''}`;
   const hit = _finalNames.get(key);
   if (hit && Date.now() - hit.at < FINAL_NAME_TTL_MS) return hit.found;
   const found = await scanMeter.label({ site: 'contacts.finalname', agentId, athleteId, brand },
-    () => ONS.findOwnerName({ brand, city, search: ai.webSearchJson, say }));
+    () => ONS.findOwnerName({ brand, city, search: ai.webSearchJson, say, order }));
   _finalNames.set(key, { found: found || null, at: Date.now() });
   return found || null;
 }
@@ -827,6 +827,11 @@ async function fillAthlete(pool, ctx) {
   // together, with a boost for brands that have done a deal at this athlete's
   // school. The lane is a property of a result, not a separate run.
   const profile = ctx.athleteProfile || { id: athleteId, hasLocalMarket: !!region, school: null };
+  // THE PRO LANE (services/proLane): marketing director before owner, and the
+  // writer's pro rules. Read from the record's athleteType; a college athlete
+  // is unchanged.
+  const PL = require('../services/proLane');
+  const proLane = PL.isPro(profile) || PL.isPro(ctx.athleteRow || {});
   let slate = await Scout.assembleSlate(pool, {
     agentId, athlete: profile, store,
     limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
@@ -1151,7 +1156,7 @@ async function fillAthlete(pool, ctx) {
         }
         if (NAME_REQUIRED) {
           try {
-            pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say });
+            pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null });
           } catch (e) { say(`${cand.brand_name}: owner search failed (${e.message})`); pperson = null; }
           if (!pperson) {
             const reason = ONS.NO_NAME_REASON;
@@ -1354,7 +1359,8 @@ async function fillAthlete(pool, ctx) {
         metered: !!touched });
 
       const ladder = buildContactLadder(out, {
-        rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain,
+        // A pro's ladder ranks marketing leadership above the owner (services/proLane).
+        rankOf: proLane ? PL.proRankOf(ai.contactAuthorityRank) : ai.contactAuthorityRank, rootDomain: ai.rootDomain,
         category: null, brand: cand.brand_name, instagramScope: out.instagramScope || null,
       });
       // ── DOES THE ADDRESS TAKE MAIL? ─────────────────────────────────────
@@ -1442,7 +1448,7 @@ async function fillAthlete(pool, ctx) {
       if (NAME_REQUIRED && !Q.greetNameOf(ladder)) {
         let found = null;
         try {
-          found = await finalNameFor(cand.brand_name, region || (facts && facts.city) || '', { agentId, athleteId, say });
+          found = await finalNameFor(cand.brand_name, region || (facts && facts.city) || '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null });
         } catch (e) { say(`${cand.brand_name}: owner search failed (${e.message})`); found = null; }
         if (found) {
           ONS.attachToLadder(ladder, found);
