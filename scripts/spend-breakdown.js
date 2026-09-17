@@ -362,6 +362,20 @@ async function main() {
     }
   }
 
+  // ── LIVE CARDS WITH NO NAMED CONTACT: MUST BE 0 ─────────────────────────
+  // The one rule (services/outreachQueue.cardNameProblem) read back over
+  // every queued card. Any number but zero means a card reached an agent
+  // that insertCard should have refused, and names the first few.
+  try {
+    const QA = require('../server/services/queueAudit');
+    const nl = await QA.namelessLiveCount(P);
+    console.log(`\nLIVE CARDS WITH NO NAMED CONTACT (or a greeting to nobody): ${nl.nameless} of ${nl.live} queued card(s). Must be 0.`);
+    if (nl.nameless) {
+      for (const s of nl.sample) console.log(`  #${String(s.id).padEnd(6)} ${pad(s.agent, 30)} ${pad(s.athlete, 22)} ${pad(String(s.brand).slice(0, 34), 34)} ${s.problem}`);
+      console.log('  Retire them: node scripts/retire-nameless-cards.js --apply   (or GET /api/admin/nameless-cards?apply=1)');
+    }
+  } catch (e) { console.log(`\nLIVE CARDS WITH NO NAMED CONTACT: could not count (${e.message})`); }
+
   console.log('\nDone.\n');
   settled = true;
   await P.end().catch(() => {});

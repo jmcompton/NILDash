@@ -82,7 +82,7 @@ async function seed(P) {
   check('nothing but a phone is a CALL card', Q.channelFor(noInbox(), {}) === 'call');
 
   console.log('\n2. THE OTHER CHANNELS STAY ON THE CARD');
-  const both = Q.buildCard({ brand: 'Trak Shak', pitch: { message: 'Hi — a real idea.\n\nMore.' } },
+  const both = Q.buildCard({ brand: 'Trak Shak', pitch: { message: 'Hi Jeff, a real idea.\n\nMore.' } },
     withInbox('hello@trakshak.com', 'Jeff Martinez'), igOk);
   check('it is an email card', both.channel === 'email', both.channel);
   check('  carrying the address', both.email === 'hello@trakshak.com', both.email);
@@ -111,7 +111,7 @@ async function seed(P) {
   check('the draft exists', !!draft);
   check('  addressed to the same inbox', draft.sent_to_email === 'hello@trakshak.com', draft.sent_to_email);
   check('  with the subject', draft.subject === 'Quick idea for Trak Shak', draft.subject);
-  check('  the pitch as paragraphs', /<p>Hi — a real idea\.<\/p>/.test(draft.body_html), draft.body_html);
+  check('  the pitch as paragraphs', /<p>Hi Jeff, a real idea\.<\/p>/.test(draft.body_html), draft.body_html);
   check('  status draft, so it cannot send until approved', draft.status === 'draft');
   check('  and stamped with where it came from', draft.source === 'nightly-queue', draft.source);
 

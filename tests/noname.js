@@ -79,7 +79,7 @@ async function main() {
   ok('  a person found joins the ladder and is recorded on the attempt', /ONS\.attachToLadder\(ladder, found\)/.test(site) && /_why\.finalName = \{ name: found\.name/.test(site));
   ok('  nothing found: the business is skipped, logged, and counted as no_name', /result: 'no_name', reason/.test(site) && /skipped, no name found/.test(site) && /continue;\s*\}\s*\}\s*tried\.push\(\{ brand: cand\.brand_name, result: 'queued'/.test(site));
   ok('  the reason is one sentence, fixed', ONS.NO_NAME_REASON === 'no contact name found after all sources, including the final owner and marketing-director search');
-  ok('on by default, OUTREACH_NAME_REQUIRED=0 turns it off', /const NAME_REQUIRED = process\.env\.OUTREACH_NAME_REQUIRED !== '0';/.test(job));
+  ok('always on: no environment switch turns the name requirement off any more', /const NAME_REQUIRED = true;/.test(job) && !/OUTREACH_NAME_REQUIRED !== '0'/.test(job));
   const sb = fs.readFileSync(REPO + 'scripts/spend-breakdown.js', 'utf8');
   ok('spend-breakdown reports the skip rate and the rescues', /no name found: \$\{noName\.length\} of \$\{localTried\.length\} local businesses skipped/.test(sb) && /rescued  \$\{t\.brand\}: \$\{t\.why\.finalName\.name\}/.test(sb));
 
@@ -119,7 +119,7 @@ async function main() {
   const c2 = []; const s2 = async (p) => { c2.push(p); return JSON.stringify({ name: 'Lee Park', title: 'Marketing Director' }); };
   await ONS.findOwnerName({ brand: 'RYZE', city: '', search: s2 });
   ok('a brand with no city is searched without a stray space', /Search for: RYZE owner\n/.test(c2[0]) && !/RYZE  owner/.test(c2[0]), c2[0].split('\n')[0]);
-  ok('the two scripts exist: inspect a card, retire the nameless ones', /GREETS NOBODY/.test(fs.readFileSync(REPO + 'scripts/inspect-card.js', 'utf8')) && /outcome = 'no_name'/.test(fs.readFileSync(REPO + 'scripts/retire-nameless-cards.js', 'utf8')) && /cadence_stop_reason = 'retired: no contact name to greet'/.test(fs.readFileSync(REPO + 'scripts/retire-nameless-cards.js', 'utf8')));
+  ok('the two scripts exist: inspect a card, retire the nameless ones (through services/queueAudit)', /GREETS NOBODY/.test(fs.readFileSync(REPO + 'scripts/inspect-card.js', 'utf8')) && /queueAudit/.test(fs.readFileSync(REPO + 'scripts/retire-nameless-cards.js', 'utf8')) && /outcome = 'no_name'/.test(fs.readFileSync(REPO + 'server/services/queueAudit.js', 'utf8')) && /cadence_stop_reason = 'retired: no contact name to greet'/.test(fs.readFileSync(REPO + 'server/services/queueAudit.js', 'utf8')));
 
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));

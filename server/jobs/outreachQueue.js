@@ -53,8 +53,11 @@ const { resolveSchool } = require('../services/schoolResolver');
 // The last door for a contact name (see the local write site).
 const ONS = require('../services/ownerNameSearch');
 const EVAL = require('../services/emailValidation');
-// OUTREACH_NAME_REQUIRED=0 turns the requirement off; on by default.
-const NAME_REQUIRED = process.env.OUTREACH_NAME_REQUIRED !== '0';
+// ALWAYS ON. OUTREACH_NAME_REQUIRED=0 used to turn the requirement off, and a
+// card that greets nobody is not a card whatever the environment says. The
+// constant stays so the pre-writer name search keeps its shape; insertCard
+// refuses a nameless card regardless of it.
+const NAME_REQUIRED = true;
 
 // ── THE LAST DOOR, ONCE PER BUSINESS PER NIGHT ──────────────────────────────
 // services/ownerNameSearch, under the contacts.finalname label and the
@@ -485,9 +488,24 @@ async function matchFor(pool, agentId, athleteId, brandName) {
 // partial unique index on (athlete_id, slot) WHERE state='queued' is what makes
 // a double-fill a no-op rather than a duplicate.
 async function insertCard(pool, { agentId, athleteId, slot, card }) {
-  // THE LAST GATE ON THE NAME. Every path that builds a card refuses a
-  // placeholder before spending; this refuses one that somehow still arrives,
-  // on any lane, so a card can never say "Local ... (independent)" again.
+  // ── NO NAMED PERSON, NO CARD. THE ONE RULE, HERE, FOR EVERY PATH ──────────
+  // The nightly fill, the on-demand fill, the admin button, the seed script:
+  // everything that saves a card comes through this function, and this is
+  // the only place the rule lives (services/outreachQueue.cardNameProblem).
+  // A card whose contact is not a real person, or whose message does not
+  // open "Hi <their first name>,", is not written, on any lane, whatever the
+  // caller believed. No environment switch turns this off. Checked BEFORE the
+  // email draft below, so a refused card leaves no draft behind either.
+  {
+    const problem = Q.cardNameProblem(card);
+    if (problem) {
+      console.log(`[queue] athlete=${athleteId} slot=${slot} "${card && card.brandName}" not written: ${problem}`);
+      return false;
+    }
+  }
+  // THE LAST GATE ON THE BUSINESS NAME. Every path that builds a card refuses
+  // a placeholder before spending; this refuses one that somehow still
+  // arrives, on any lane, so a card can never say "Local ... (independent)".
   {
     const store = require('../store');
     const ph = store.placeholderReason ? store.placeholderReason(card && card.brandName) : null;

@@ -97,8 +97,8 @@ function main() {
   const pw = fs.readFileSync(ROOT + 'server/services/pitchWriter.js', 'utf8');
   ok('the prompt DICTATES the greeting when a name is verified',
     /OPEN THE MESSAGE WITH: "Hi ' \+ b\.greetFirstName/.test(pw), null);
-  ok('  and dictates "Hi," when it is not',
-    /No verified name\. Open with "Hi," exactly/.test(pw), null);
+  ok('  and never dictates "Hi," any more: a business with no named person never reaches the writer, and a draft that opens "Hi," is rejected',
+    !/Open with "Hi," exactly/.test(pw) && /Never open "Hi," or "Hi there,"/.test(pw) && /does not open with "Hi ' \+ opts\.greetFirstName \+ ',"/.test(pw), null);
   ok('  telling the model a name it was not given is one it invented',
     /name you were not given is a name you[\s\n]+invented/.test(pw), null);
   const job = fs.readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8');

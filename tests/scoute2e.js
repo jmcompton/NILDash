@@ -69,6 +69,10 @@ async function main() {
   const clean = async () => {
     await P.query(`DELETE FROM outreach_queue WHERE agent_id=$1`, [AG]).catch(() => {});
     await P.query(`DELETE FROM brand_engagement WHERE agent_id=$1`, [AG]).catch(() => {});
+    // Tonight's research and discovery claims (services/nightlyClaims) for these
+    // athletes, so the suite can run twice in one day.
+    await P.query(`DELETE FROM research_claims WHERE athlete_id IN (SELECT id FROM athletes WHERE agent_id=$1)`, [AG]).catch(() => {});
+    await P.query(`DELETE FROM discovery_nightly WHERE athlete_id IN (SELECT id FROM athletes WHERE agent_id=$1)`, [AG]).catch(() => {});
     await P.query(`DELETE FROM athletes WHERE agent_id=$1 OR id='e2e-sib'`, [AG]).catch(() => {});
     await P.query(`DELETE FROM users WHERE id=$1`, [AG]).catch(() => {});
     await P.query(`DELETE FROM market_business_seen WHERE brand LIKE 'E2E %'`).catch(() => {});

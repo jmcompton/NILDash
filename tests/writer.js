@@ -41,7 +41,7 @@ const BIZ = {
   name: 'Iron Tribe Fitness', category: 'gym', address: '412 University Dr, Auburn, AL',
   rating: 4.8, userRatingCount: 312, ownerName: 'Dana Kessler', ownerTitle: 'Owner',
 };
-const GOOD = 'Saw you have been on University Drive for nine years and still hold 4.8 stars. '
+const GOOD = 'Hi Dana,\n\nSaw you have been on University Drive for nine years and still hold 4.8 stars. '
   + 'I work with Jeremiah Wilkinson, a junior linebacker at Auburn who grew up in Opelika and has '
   + '35,000 followers as of 14 Aug 2026, nearly all of them local. Two feed posts of a training session at your gym '
   + 'with a signup code, so you can count what it brings in. '
@@ -347,7 +347,7 @@ async function main() {
     !V('The athlete is well known locally.', FULL).ok);
 
   // END TO END: a fabricated fact takes the SAME retry-then-refuse path as a price.
-  const CLEAN = 'Saw the gym on Dickson Street. Jeremiah Wilkinson is a junior linebacker at Arkansas '
+  const CLEAN = 'Hi Dana,\n\nSaw the gym on Dickson Street. Jeremiah Wilkinson is a junior linebacker at Arkansas '
     + 'with 35,000 followers as of 14 Aug 2026, nearly all local. Two feed posts of a training session with a signup code. '
     + 'Say no if it is off.\n\nJohnMark';
   const LIES = 'Saw the gym. Jeremiah Wilkinson is a senior quarterback from Montgomery with 200,000 followers. '
