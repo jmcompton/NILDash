@@ -227,6 +227,12 @@ review. A name shared by several schools ("Bethel University") is offered with e
 town to tap. When nothing is found, the only question is "What city is it in?", and the
 agent's answer becomes the town. There is no "we could not match".
 
+A PRO IS ADDED BY NAME AND TEAM. "Bo Nix, QB, Denver Broncos" is enough: the team
+names the league, the sport and the city (Denver, CO), which is the town the local
+lane works in. No school, no class year, no date of birth is asked of a pro. Every
+NFL, NBA, WNBA, MLB, NHL and MLS team is on file; for any other team the agent gives
+the city as "City, ST".
+
 It is not college-only. An athlete can be a college athlete, a professional, or a high
 school athlete. A college athlete is placed by their school, a pro by the city they play
 in and their team, a high school athlete by their school. For a high school athlete the

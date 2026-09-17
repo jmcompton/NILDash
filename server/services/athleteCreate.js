@@ -167,9 +167,19 @@ async function createAthlete(user, body, opts) {
   // The school need not be one we RECOGNISE -- an unmapped school is geocoded to
   // its town (services/schoolGeocode) and the local lane runs there. It must
   // exist, because there is nothing to geocode otherwise.
-  if (!String(b.school || '').trim()) {
+  //
+  // A PRO HAS NO SCHOOL. This gate ran before the athlete type was read, so
+  // every pro the chat added (school '', team and city set) was refused with
+  // "A school is required": that was the error behind "the tool came back
+  // with an error I did not expect". A pro is gated on the city instead.
+  const _pro = String(b.athleteType || '').toLowerCase() === 'pro';
+  if (!_pro && !String(b.school || '').trim()) {
     return { ok: false, status: 400, field: 'school',
       error: 'A school is required. The nightly run uses it to find local businesses, so an athlete saved without one gets no cards.' };
+  }
+  if (_pro && !String(b.city || '').trim()) {
+    return { ok: false, status: 400, field: 'city',
+      error: 'A pro needs the city they play in, as "City, ST", or the team. The nightly run finds local businesses there.' };
   }
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa, over18,
           instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob,

@@ -109,9 +109,9 @@ const ACTIONS = {
         year: { type: 'string', description: 'Optional: class year, e.g. Freshman, Sophomore, Junior, Senior' },
         hometown: { type: 'string', description: 'Optional: hometown as "City, ST"' },
         instagram: { type: 'integer', description: 'Optional: Instagram follower count' },
-        athleteType: { type: 'string', enum: ['college', 'pro'], description: 'college (default, includes high school) or pro' },
-        city: { type: 'string', description: 'Pro only: the city they play in, as "City, ST"' },
-        team: { type: 'string', description: 'Pro only: the team' },
+        athleteType: { type: 'string', enum: ['college', 'pro'], description: 'college (default, includes high school) or pro. A pro team named anywhere in the message (Broncos, Nuggets, Yankees) means pro; never ask a pro for a school.' },
+        city: { type: 'string', description: 'Pro only: the city they play in, as "City, ST". Optional when the team is given: the tool works the city out from the team.' },
+        team: { type: 'string', description: 'Pro only: the team, e.g. "Denver Broncos". Give it whenever the agent named one; it supplies the city and the sport.' },
         jersey: { type: 'string', description: 'Optional: jersey number, from the lookup' },
         height: { type: 'string', description: 'Optional: height as listed' },
         weight: { type: 'string', description: 'Optional: weight as listed' },
@@ -133,13 +133,23 @@ const ACTIONS = {
     // required for the same reason the endpoint requires it: it is the local
     // lane's town, and an athlete without one gets no cards.
     check: (a) => {
-      const name = _str(a.name, 120), sport = _str(a.sport, 60), school = _str(a.school, 120);
-      const pro = a.athleteType === 'pro';
-      const city = _str(a.city, 120), team = _str(a.team, 120);
+      const name = _str(a.name, 120), school = _str(a.school, 120);
+      let sport = _str(a.sport, 60);
+      let city = _str(a.city, 120), team = _str(a.team, 120);
+      // ── A PRO TEAM MEANS A PRO (services/proTeams) ───────────────────────
+      // "Bo Nix, QB, Denver Broncos" is a pro whatever the model marked, and
+      // the team names the city ("Denver, CO") and the sport. The team may
+      // arrive in `team` or, when the model treated it as a school, in
+      // `school`. A pro without a city and without a known team is asked for
+      // the city; nothing here errors on a pro the agent described plainly.
+      const PT = require('./proTeams');
+      const teamHit = PT.findTeam(team || '') || PT.findTeam(school || '');
+      const pro = a.athleteType === 'pro' || !!teamHit;
+      if (teamHit) { team = teamHit.name; if (!city) city = teamHit.market; if (!sport) sport = teamHit.sport; }
       if (!name) return { error: 'A full name is needed.' };
-      if (!sport) return { error: 'A sport is needed. It drives the fit scoring, so it cannot be left out.' };
+      if (!sport) return { error: pro ? 'Which sport do they play? Give the sport, or the team and I will work it out.' : 'A sport is needed. It drives the fit scoring, so it cannot be left out.' };
       if (!pro && !school) return { error: 'A school is needed. The nightly run uses it to find local businesses.' };
-      if (pro && !city) return { error: 'A pro needs the city they play in, as "City, ST". The nightly run finds local businesses there.' };
+      if (pro && !city) return { error: `Which city does ${name} play in, as "City, ST"? Or name the team and I will work it out.` };
       const args = { name, sport, athleteType: pro ? 'pro' : 'college' };
       if (pro) { args.city = city; if (team) args.team = team; args.school = ''; }
       else args.school = school;
