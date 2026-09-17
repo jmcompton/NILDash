@@ -9,8 +9,11 @@
 # is already private. The search cap per call is config.json: maxTurns, and
 # every call also has a wall-clock kill.
 #
-# cron does not fire on a sleeping Mac. Either leave it awake or schedule a
-# wake five minutes early:   sudo pmset repeat wakeorpoweron MTWRFSU 05:25:00
+# cron does not fire on a sleeping Mac: a minute that passes with the lid
+# closed is skipped, and that brief never arrives. PREFER launchd, which runs
+# the missed job on wake:   node tools/briefs/launchd.js --install
+# If you must stay on cron, schedule a wake five minutes early:
+#   sudo pmset repeat wakeorpoweron MTWRFSU 05:25:00
 #
 # Paths: change NODE and REPO to yours (`which node`, where you cloned NILDash).
 NODE=/opt/homebrew/bin/node
