@@ -10286,14 +10286,14 @@ app.get('/api/agent/brands', requireAuth, async (req, res) => {
   try {
     const MB = require('./services/myBrands');
     const q = req.query || {};
-    res.json(await MB.pageFor(store.pool, req.session.userId, { filter: q.filter, athleteId: q.athleteId || null, q: q.q || '', sort: q.sort, page: q.page, pageSize: q.pageSize }));
+    res.json(await MB.pageFor(store.pool, req.session.userId, { filter: q.filter, scope: q.scope, athleteId: q.athleteId || null, q: q.q || '', sort: q.sort, page: q.page, pageSize: q.pageSize }));
   } catch (e) { console.error('[brands]', e.message); res.status(500).json({ error: e.message }); }
 });
 app.get('/api/agent/brands.csv', requireAuth, async (req, res) => {
   try {
     const MB = require('./services/myBrands');
     const q = req.query || {};
-    const csv = await MB.csvForAgent(store.pool, req.session.userId, { filter: q.filter, athleteId: q.athleteId || null, q: q.q || '', sort: q.sort });
+    const csv = await MB.csvForAgent(store.pool, req.session.userId, { filter: q.filter, scope: q.scope, athleteId: q.athleteId || null, q: q.q || '', sort: q.sort });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="my-brands-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(csv);

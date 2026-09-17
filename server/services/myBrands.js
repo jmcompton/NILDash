@@ -35,6 +35,50 @@ const PAGE_SIZE = 50;
 
 const lower = (s) => String(s || '').trim().toLowerCase();
 
+// ── LOCAL, OR SOCIAL AND NATIONAL ───────────────────────────────────────────
+// The list opens on local businesses: a social or DTC brand rarely has an
+// owner and pushes the rows an agent can act on down the page. The lane on
+// the card or the ledger row decides; no lane means local, which is what the
+// nightly job assumed before lanes were recorded.
+const SOCIAL_LANES = new Set(['social', 'national', 'dtc']);
+function scopeOf(lane) { return SOCIAL_LANES.has(lower(lane)) ? 'social' : 'local'; }
+
+// ── A CATEGORY AN AGENT WOULD SAY ───────────────────────────────────────────
+// The card's category_key is the writer's playbook ("local-trust",
+// "local-visibility", "social") and means nothing to an agent. The business
+// type comes from what Places recorded about the place (its primary type and
+// types), then from the Deal Scan's enrichment industry, and when neither
+// says, the plain lane: "Local business" or "Social brand".
+const TYPE_WORDS = [
+  [/barber/, 'Barber'],
+  [/hair|beauty_salon|nail|spa\b|salon|tanning|massage/, 'Salon'],
+  [/gym|fitness|yoga|pilates|crossfit|martial|boxing|climbing|sports_club|swimming/, 'Gym'],
+  [/restaurant|cafe|coffee|bakery|bar\b|pizza|food|meal|diner|sandwich|ice_cream|dessert|brewery|winery|steak|sushi|taco|burger|chicken|bbq|barbecue|juice|smoothie|donut|bagel|deli|grill|pub|tea_house|wine_bar|night_club/, 'Restaurant'],
+  [/car_|auto|tire|vehicle|truck|motorcycle|gas_station|parking|towing/, 'Auto'],
+  [/doctor|dentist|dental|physio|chiropract|hospital|clinic|health|pharmacy|medical|orthodont|optom|optic|therap|wellness|urgent_care|veterinar|counsel/, 'Health'],
+  [/clothing|apparel|shoe|boutique|jewel|fashion|sporting_goods|sports_wear|athletic/, 'Apparel'],
+  [/bank|credit_union|credit union|finance|financial|insurance|accounting|tax|mortgage|loan/, 'Finance'],
+  [/real_estate|realtor|realty|apartment|property|home_builder|moving/, 'Real estate'],
+  [/grocery|supermarket|convenience|market\b|liquor|butcher/, 'Grocery'],
+  [/school|university|college|tutor|education|preschool|academy|driving/, 'School'],
+  [/church|place_of_worship|synagogue|mosque/, 'Church'],
+  [/hotel|lodging|motel|resort|inn\b|bed_and_breakfast/, 'Hotel'],
+  [/lawyer|attorney|legal|law_firm/, 'Legal'],
+  [/entertainment|amusement|bowling|arcade|golf|cinema|theater|theatre|museum|zoo|stadium|park\b|recreation|escape/, 'Entertainment'],
+  [/store|shop|retail|furniture|hardware|electronics|book|florist|pet|gift|department|mall|bicycle|bike/, 'Retail'],
+  [/plumb|electric|roof|contractor|landscap|clean|repair|hvac|painter|construction|home_improvement|storage|laundry|locksmith/, 'Home services'],
+];
+function plainCategory(placeType, placeTypes, industry, lane) {
+  const hay = [placeType, ...(Array.isArray(placeTypes) ? placeTypes : [])].map(lower).filter(Boolean);
+  for (const t of hay) for (const [re, word] of TYPE_WORDS) if (re.test(t)) return word;
+  const ind = String(industry || '').trim();
+  if (ind && ind.length <= 30 && !/^(local|social|national|dtc|unknown|n\/a|other)$/i.test(ind)) {
+    for (const [re, word] of TYPE_WORDS) if (re.test(lower(ind).replace(/\s+/g, '_'))) return word;
+    return ind.charAt(0).toUpperCase() + ind.slice(1);
+  }
+  return scopeOf(lane) === 'social' ? 'Social brand' : 'Local business';
+}
+
 function townOf(address, lane, athleteSchool, athleteHometown) {
   try {
     if (address) {
@@ -58,11 +102,11 @@ function isPerson(name) {
 
 // The raw rows for one agent: cards, ledger rows, contacts, deals, emails.
 async function loadRaw(pool, agentId) {
-  const [cards, ledger, contacts, deals, logs, athletes] = await Promise.all([
+  const [cards, ledger, contacts, deals, logs, athletes, industries] = await Promise.all([
     pool.query(
       `SELECT q.id, q.athlete_id, q.brand_name, q.contact_name, q.contact_title, q.email, q.phone, q.instagram, q.instagram_scope,
               q.category_key, q.lane, q.state, q.outcome, q.replied_at, q.sent_at, q.created_at,
-              p.evidence->>'address' AS address
+              p.evidence->>'address' AS address, p.evidence->>'primaryType' AS place_type, p.evidence->'types' AS place_types
          FROM outreach_queue q
          LEFT JOIN LATERAL (
            SELECT evidence FROM brand_evidence_cache b
@@ -89,8 +133,10 @@ async function loadRaw(pool, agentId) {
     pool.query(
       `SELECT id, data->>'name' AS name, data->>'school' AS school, data->>'hometown' AS hometown, data->>'city' AS city
          FROM athletes WHERE agent_id = $1`, [agentId]),
+    pool.query(
+      `SELECT brand_name, industry FROM company_enrichment WHERE agent_id = $1 AND industry IS NOT NULL AND industry <> ''`, [agentId]).catch(() => ({ rows: [] })),
   ]);
-  return { cards: cards.rows, ledger: ledger.rows, contacts: contacts.rows, deals: deals.rows, logs: logs.rows, athletes: athletes.rows };
+  return { cards: cards.rows, ledger: ledger.rows, contacts: contacts.rows, deals: deals.rows, logs: logs.rows, athletes: athletes.rows, industries: (industries && industries.rows) || [] };
 }
 
 // Rows in, the list out. Pure over the raw rows, so the test can feed it.
@@ -109,7 +155,7 @@ function buildRows(raw) {
     let r = rows.get(k);
     if (!r) {
       r = { athleteId: c.athlete_id, brand: c.brand_name, ownerName: null, ownerTitle: null, email: null, phone: null, instagram: null,
-        category: c.category_key || null, lane: c.lane || null, address: c.address || null, foundAt: c.created_at,
+        placeType: c.place_type || null, placeTypes: c.place_types || null, lane: c.lane || null, address: c.address || null, foundAt: c.created_at,
         pitched: false, replied: false, closed: false, source: 'card' };
       rows.set(k, r);
     }
@@ -118,7 +164,8 @@ function buildRows(raw) {
     if (!r.email && c.email) r.email = c.email;
     if (!r.phone && c.phone) r.phone = c.phone;
     if (!r.instagram && c.instagram && c.instagram_scope !== 'brand') r.instagram = c.instagram;
-    if (!r.category && c.category_key) r.category = c.category_key;
+    if (!r.placeType && c.place_type) { r.placeType = c.place_type; r.placeTypes = c.place_types || null; }
+    if (!r.lane && c.lane) r.lane = c.lane;
     if (!r.address && c.address) r.address = c.address;
     if (c.state === 'sent' || c.sent_at) r.pitched = true;
     if (c.replied_at || c.outcome === 'replied') r.replied = true;
@@ -131,7 +178,7 @@ function buildRows(raw) {
     let r = rows.get(k);
     if (!r) {
       r = { athleteId: e.athlete_id, brand: e.brand_name, ownerName: null, ownerTitle: null, email: null, phone: null, instagram: null,
-        category: null, lane: e.lane || null, address: null, foundAt: e.first_shown_at || e.created_at,
+        placeType: null, placeTypes: null, lane: e.lane || null, address: null, foundAt: e.first_shown_at || e.created_at,
         pitched: false, replied: false, closed: false, source: 'scan' };
       rows.set(k, r);
     }
@@ -152,7 +199,9 @@ function buildRows(raw) {
     const r = rows.get(d.athlete_id + '|' + d.brand);
     if (r && d.stage === 'closed') r.closed = true;
   }
-  // The Deal Scan's contacts fill a row the card left blank.
+  // The Deal Scan's contacts fill a row the card left blank, and its industry
+  // names the business type when Places did not.
+  const industryByBrand = new Map((raw.industries || []).map((x) => [lower(x.brand_name), x.industry]));
   const out = [];
   for (const r of rows.values()) {
     const a = athleteById.get(r.athleteId) || {};
@@ -164,13 +213,18 @@ function buildRows(raw) {
       }
     }
     const status = r.closed ? 'deal signed' : r.replied ? 'replied' : r.pitched ? 'pitched' : 'not pitched';
+    const scope = scopeOf(r.lane);
+    // A social or DTC brand has no town: it is national. A local business
+    // with no town we could place shows a dash, never a guess.
+    const town = scope === 'social' ? '' : townOf(r.address, r.lane, a.school, a.hometown || a.city);
     out.push({
       athleteId: r.athleteId, athlete: a.name || r.athleteId, brand: r.brand,
-      town: townOf(r.address, r.lane, a.school, a.hometown || a.city),
+      town, townLabel: town || (scope === 'social' ? 'National' : '—'),
       ownerName: r.ownerName, ownerTitle: r.ownerTitle,
       contact: r.email || r.phone || (r.instagram ? '@' + String(r.instagram).replace(/^@/, '') : ''),
       email: r.email, phone: r.phone, instagram: r.instagram,
-      category: r.category, lane: r.lane, status, foundAt: r.foundAt,
+      category: plainCategory(r.placeType, r.placeTypes, industryByBrand.get(lower(r.brand)), r.lane),
+      lane: r.lane, scope, status, foundAt: r.foundAt,
     });
   }
   return out;
@@ -187,10 +241,13 @@ function counts(rows) {
 
 const FILTERS = { all: () => true, replied: (r) => r.status === 'replied' || r.status === 'deal signed', pitched: (r) => r.status === 'pitched', 'not pitched': (r) => r.status === 'not pitched', 'deal signed': (r) => r.status === 'deal signed' };
 const STATUS_RANK = { 'deal signed': 0, replied: 1, pitched: 2, 'not pitched': 3 };
+const SCOPES = ['local', 'social', 'all'];
 function applyView(rows, opts = {}) {
   const filter = FILTERS[opts.filter] ? opts.filter : 'all';
+  const scope = SCOPES.includes(opts.scope) ? opts.scope : 'local';
   const q = lower(opts.q);
   let list = rows.filter(FILTERS[filter]);
+  if (scope !== 'all') list = list.filter((r) => r.scope === scope);
   if (opts.athleteId) list = list.filter((r) => r.athleteId === opts.athleteId);
   if (q) list = list.filter((r) => [r.brand, r.town, r.ownerName, r.contact, r.category, r.athlete].some((v) => lower(v).includes(q)));
   const sort = ['newest', 'business', 'athlete', 'status'].includes(opts.sort) ? opts.sort : 'newest';
@@ -201,7 +258,7 @@ function applyView(rows, opts = {}) {
     status: (a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || new Date(b.foundAt || 0) - new Date(a.foundAt || 0),
   }[sort];
   list.sort(cmp);
-  return { list, filter, sort };
+  return { list, filter, scope, sort };
 }
 
 // The page: filtered, sorted, paged, with the counts over EVERYTHING the
@@ -209,14 +266,15 @@ function applyView(rows, opts = {}) {
 async function pageFor(pool, agentId, opts = {}) {
   const raw = await loadRaw(pool, agentId);
   const rows = buildRows(raw);
-  const { list, filter, sort } = applyView(rows, opts);
+  const { list, filter, scope, sort } = applyView(rows, opts);
   const size = Math.max(1, Math.min(200, parseInt(opts.pageSize, 10) || PAGE_SIZE));
   const pages = Math.max(1, Math.ceil(list.length / size));
   const page = Math.max(1, Math.min(pages, parseInt(opts.page, 10) || 1));
   const athletes = raw.athletes.map((a) => ({ id: a.id, name: a.name || a.id })).sort((a, b) => lower(a.name).localeCompare(lower(b.name)));
   return {
     counts: counts(rows), total: rows.length, filtered: list.length,
-    page, pages, pageSize: size, filter, sort, athleteId: opts.athleteId || null, q: opts.q || '',
+    scopeCounts: { local: rows.filter((r) => r.scope === 'local').length, social: rows.filter((r) => r.scope === 'social').length },
+    page, pages, pageSize: size, filter, scope, sort, athleteId: opts.athleteId || null, q: opts.q || '',
     rows: list.slice((page - 1) * size, page * size),
     athletes,
   };
@@ -228,7 +286,7 @@ function csvFor(rows) {
   const cell = (v) => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const lines = [CSV_COLUMNS.join(',')];
   for (const r of rows) {
-    lines.push([r.brand, r.town, r.ownerName, r.contact, r.category, r.athlete, r.status, r.foundAt ? new Date(r.foundAt).toISOString().slice(0, 10) : ''].map(cell).join(','));
+    lines.push([r.brand, r.townLabel === '—' ? '' : (r.townLabel || r.town), r.ownerName, r.contact, r.category, r.athlete, r.status, r.foundAt ? new Date(r.foundAt).toISOString().slice(0, 10) : ''].map(cell).join(','));
   }
   return lines.join('\r\n') + '\r\n';
 }
@@ -260,4 +318,4 @@ async function adminSummary(pool) {
   };
 }
 
-module.exports = { pageFor, csvForAgent, csvFor, buildRows, applyView, counts, loadRaw, adminSummary, townOf, STATUSES, PAGE_SIZE, CSV_COLUMNS };
+module.exports = { pageFor, csvForAgent, csvFor, buildRows, applyView, counts, loadRaw, adminSummary, townOf, scopeOf, plainCategory, STATUSES, SCOPES, PAGE_SIZE, CSV_COLUMNS };
