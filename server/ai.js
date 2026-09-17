@@ -2979,8 +2979,8 @@ async function _topnilFromComps(athlete, excludeBrands) {
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
   const sport = athlete.sport || 'football';
-  const valLow  = tier === 'macro' ? 2500 : tier === 'mid' ? 800 : tier === 'micro' ? 250 : 100;
-  const valHigh = tier === 'macro' ? 15000 : tier === 'mid' ? 4000 : tier === 'micro' ? 1000 : 500;
+  const valLow  = isProAth ? PL.PRO_VALUE.low : tier === 'macro' ? 2500 : tier === 'mid' ? 800 : tier === 'micro' ? 250 : 100;
+  const valHigh = isProAth ? PL.PRO_VALUE.high : tier === 'macro' ? 15000 : tier === 'mid' ? 4000 : tier === 'micro' ? 1000 : 500;
   const ctx2 = { rate, valLow, valHigh, sport };
   const athleteTagSubs = validTagSubs(athlete.tags);
   const _excl = new Set((excludeBrands || []).map((b) => (b || '').toLowerCase().trim()));
@@ -3127,6 +3127,14 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane, opts =
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
   const school = athlete.school || 'Unknown';
+  // ── THE PRO LANE (services/proLane) ─────────────────────────────────
+  // A pro's discovery targets businesses with a marketing budget across the
+  // team's metro, skips single-location small businesses, and asks for
+  // appearance and ambassador deals. A college athlete never enters any of
+  // the branches below.
+  const PL = require('./services/proLane');
+  const isProAth = PL.isPro(athlete);
+  const proTeam = String(athlete.team || '').trim();
   // A pro's market is the city they play in, typed as "Denver, CO". It is read
   // as given rather than geocoded: there is no school to look up, and the city
   // string already carries the town and the state.
@@ -3195,7 +3203,7 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane, opts =
   // wrong school is worse than naming none, so the school/city/state given above are
   // the ONLY ones allowed, and a groundless angle must be dropped, not invented.
   const GROUNDING_RULE = `NEVER name any university, college, campus, city, or landmark other than the exact ones given above for this athlete. Do not guess or substitute a school. If you cannot ground the "why they'd say yes" angle in the facts provided, use a general local angle ("a local business marketing to the same community") instead of inventing a place.`;
-  const WHY_YES_RULE = `Every rationale must include a concrete "why they'd say yes" angle for THIS business and THIS athlete (foot traffic near campus, customer overlap with the sport's fans, owner's community ties, they already market locally). Rank by likelihood this specific business responds to this specific athlete, NOT by brand size.`;
+  const WHY_YES_RULE = isProAth ? PL.PRO_WHY_YES : `Every rationale must include a concrete "why they'd say yes" angle for THIS business and THIS athlete (foot traffic near campus, customer overlap with the sport's fans, owner's community ties, they already market locally). Rank by likelihood this specific business responds to this specific athlete, NOT by brand size.`;
 
   // Athlete interest tags + product wants (validated against the taxonomy).
   // Computed BEFORE the knowledge prompt so BOTH local paths carry them — the
@@ -3212,24 +3220,23 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane, opts =
 
   const marketsLine = hasHometown
     ? `MARKETS (search BOTH):\n1. School market: ${city}, ${state} (near ${school})\n2. Hometown market: ${hometown} — this athlete GREW UP here. Hometown picks get the hometown-hero angle: local recognition, community ties, "local kid makes good".`
-    : `MARKET: ${city}, ${state}`;
+    : isProAth ? `MARKET: ${PL.proGeo(city, state)}${proTeam ? ` (the ${proTeam}'s market)` : ''}` : `MARKET: ${city}, ${state}`;
   const marketFieldRule = hasHometown
     ? `"market" is "school" for ${city} businesses and "hometown" for ${hometown} businesses. Aim for roughly 6 school-market and 3-4 hometown picks.`
     : `"market" is always "school".`;
 
-  const prompt = `Name 8 to 10 REAL, well-known, established LOCAL businesses that would realistically do an NIL deal with this college athlete. Use your own knowledge of these markets — you do NOT have web search, so rely on what you actually know. If you are only confident about fewer businesses, return fewer. NEVER pad with invented ones.
+  const prompt = `${isProAth ? PL.proHeader() : 'Name 8 to 10 REAL, well-known, established LOCAL businesses that would realistically do an NIL deal with this college athlete. Use your own knowledge of these markets — you do NOT have web search, so rely on what you actually know. If you are only confident about fewer businesses, return fewer. NEVER pad with invented ones.'}
 
 MARKET RESOLUTION: If the school market below shows "Unknown City" or "Unknown State", infer the real city and state from the school name "${school}" (you know where major colleges are located) and use THAT market.
 
-ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school}
+ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${isProAth ? (proTeam || 'professional') : school}
 ${marketsLine}
 SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Tier: ${tier}${interestLine}${tagContextLine}${wantsContextLine}
 ${exclusionLine}
 
-THIS IS LOCAL-FIRST. A ${tier}-tier athlete will NOT land Nike or other national giants. They land deals with the local car dealership, the gym down the street, the area franchise owner, the supplement store. Realistic local deal value: $${valLow}-$${valHigh} per post/campaign. Tune every pick to this athlete's sport (${sport}), position (${athlete.position||'N/A'}), and ${tier} follower tier.
+${isProAth ? PL.proFirstRule(sport, athlete.position) : `THIS IS LOCAL-FIRST. A ${tier}-tier athlete will NOT land Nike or other national giants. They land deals with the local car dealership, the gym down the street, the area franchise owner, the supplement store. Realistic local deal value: ${valLow}-${valHigh} per post/campaign. Tune every pick to this athlete's sport (${sport}), position (${athlete.position||'N/A'}), and ${tier} follower tier.`}
 
-Work deliberately across this taxonomy of local business types with a proven NIL / local sponsorship track record, covering several categories rather than clustering in one:
-${LOCAL_TAXONOMY}
+${isProAth ? `Work deliberately across this taxonomy of businesses with a marketing budget, covering several categories rather than clustering in one:\n${PL.PRO_TAXONOMY}\n${PL.PRO_SKIP}` : `Work deliberately across this taxonomy of local business types with a proven NIL / local sponsorship track record, covering several categories rather than clustering in one:\n${LOCAL_TAXONOMY}`}
 Weight toward categories matching the athlete's sport: ${catHint}
 
 ${FRANCHISE_RULE}
@@ -3249,7 +3256,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
   "brand": "Exact Real Business Name",
   "tier": "local",
   "category": "auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local",
-  "dealType": "post|reel|ambassador|appearance",
+  "dealType": "${isProAth ? PL.PRO_DEAL_TYPES : 'post|reel|ambassador|appearance'}",
   "campaign": "Specific 1-sentence campaign concept for this athlete",
   "rationale": "2-3 sentences: why this business fits THIS athlete AND the why-they-would-say-yes angle",
   "estimatedValueLow": ${valLow},
@@ -3382,7 +3389,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // the per-athlete shown-set (rotation) lives on athletes.deal_scan_cache, so
     // the shared pool never collides with per-athlete freshness.
     const normMarket = _normMarket; // shared with resolveLocalMarketKey so keys match
-    const schoolCacheKey = `${normMarket(schoolMarket)}:local`;
+    // A pro's pool is a different pool: big-budget businesses, not the
+    // small ones a college athlete in the same city gets. Its own cache key.
+    const schoolCacheKey = `${normMarket(schoolMarket)}:${isProAth ? 'pro' : 'local'}`;
     const hometownCacheKey = hasHometown ? `${normMarket(hometown)}:local` : null;
     const [schoolCached, hometownCached] = await Promise.all([
       store.getMarketCache(schoolCacheKey),
@@ -3419,6 +3428,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       // model saying it could not name one. Refused at ingest, from every
       // source, so it never reaches the pool, the cache, the ledger or a card.
       if (store.placeholderReason(nm)) { _placeholdersDropped++; return; }
+      // THE PRO LANE carries no single-location small business (services/proLane).
+      if (isProAth) { const why = PL.proSkipReason(it); if (why) { console.log(`[dealScan] pro lane dropped "${nm}": ${why}`); return; } }
       // Dedup by _brandKey (not raw lowercase) so a suffix/case variant of a pool
       // business is not re-added, which is what keeps a deepen batch genuinely new.
       const key = _brandKey(nm);
@@ -3516,7 +3527,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const _placesEnabled = (process.env.DEAL_SCAN_DISCOVERY || 'places') !== 'websearch'
       && !!(process.env.GOOGLE_PLACES_API_KEY || '').trim();
     // A manual add never builds the market pool: the business is already chosen.
-    const _placesEligible = _placesEnabled && schoolWillSearch && !deepen && locationKnown && !_isManual;
+    // The Places pool is the small-business pool; a pro's pool comes from the
+    // pro web-search passes below.
+    const _placesEligible = _placesEnabled && schoolWillSearch && !deepen && locationKnown && !_isManual && !isProAth;
     // #2: log entry visibility, not just success, so a scan that never reaches the
     // build shows WHY (which gate failed).
     console.log(`[dealScan] Places eligible=${_placesEligible} market=${schoolCacheKey} (enabled=${_placesEnabled} schoolWillSearch=${schoolWillSearch} deepen=${deepen} locationKnown=${locationKnown})`);
@@ -3576,6 +3589,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const _geoStd = schoolThin ? _geoThin : _geo;
     const searchDefs = [];
     if (_isManual) { /* manual add: no discovery passes, the business is already known */ }
+    else if (schoolWillSearch && isProAth) {
+      // THE PRO PASSES: budget businesses across the team's metro (services/proLane).
+      for (const d of PL.proSearchDefs(deepen ? _geoWide.replace('the further-out suburbs and neighboring towns', 'the wider metro and neighboring cities') : PL.proGeo(city, state))) {
+        searchDefs.push({ label: d.label, market: 'school', p: timedSearch(oneShotWebSearch(mk(`${d.q}${tagEmphasisQ}${_deepExcl}`, d.cats), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) });
+      }
+    }
     else if (schoolWillSearch && deepen) {
       // Deeper pass: wider radius (_geoWide) and next tier (_tierWide), excluding the
       // whole existing pool (_deepExcl). Since the initial build was widened to 8
@@ -3844,7 +3863,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const wantsLine = productWants
       ? `\nProducts they already use and would take as compensation: ${productWants}. Treat businesses fitting these products as strong matches.`
       : '';
-    const buildScorePrompt = (candList) => `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}${hasHometown ? `, hometown ${hometown}` : ''}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}${tagScoringLine}${wantsLine}
+    const buildScorePrompt = (candList) => `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} ${isProAth ? `with the ${proTeam || 'team'} (a professional athlete; propose appearance days, signings, season-long ambassador deals, commercial and photo shoots, hospitality events; never a post as the whole deal; never the word NIL)` : `at ${school}`}, ${city}, ${state}${hasHometown ? `, hometown ${hometown}` : ''}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}${tagScoringLine}${wantsLine}
 
 These REAL local businesses were just found via web search (with any local-marketing evidence the search surfaced):
 ${compactOf(candList)}
@@ -3856,7 +3875,7 @@ ${FRANCHISE_RULE}
 ${GROUNDING_RULE}
 
 Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} Candidates with real marketing-activity "evidence" (team sponsorships, local ads, prior NIL or athlete partnerships, active promo social) get a STRONG ranking boost: they are proven local marketers, so the outreach makes sense. Rationale is 1-2 tight sentences MAXIMUM. Compact JSON only: no prose fields beyond the template, no commentary before or after the array. When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
-[{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"matchedTags":[],"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
+[{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"${isProAth ? PL.PRO_DEAL_TYPES : 'post|reel|ambassador|appearance'}","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"matchedTags":[],"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
     // ── Phase 2 scoring: NARROW error boundary with layered recovery ──────────
     // A scoring failure must never discard phase 1's good candidates. Recovery

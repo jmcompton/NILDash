@@ -69,11 +69,15 @@ function acceptableTitle(title, fallback) {
 // search: (prompt, sys) => text. Injected so the job passes the labelled,
 // metered primitive and a test passes a stub.
 //   -> { name, title, sourceUrl, query, confidence } | null
-async function findOwnerName({ brand, city, search, say }) {
+// order: the query keys to run, in order. The default asks for the owner
+// first; a pro athlete's job passes ['marketing', 'owner'] so the marketing
+// director is found first and the owner is the fallback (services/proLane).
+async function findOwnerName({ brand, city, search, say, order }) {
   const b = String(brand || '').trim();
   const c = String(city || '').trim();
   if (!b) return null;
-  for (const q of QUERIES) {
+  const queries = Array.isArray(order) && order.length ? order.map((k) => QUERIES.find((q) => q.key === k)).filter(Boolean) : QUERIES;
+  for (const q of queries) {
     const prompt = `Search for: ${q.q(b, c)}\nBusiness: ${b}${c ? `\nCity: ${c}` : ''}\nWho is ${q.ask} of this business? Use only what the pages say.`;
     let out = null;
     try { out = await search(prompt, SYS); }

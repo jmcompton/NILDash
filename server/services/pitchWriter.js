@@ -222,6 +222,11 @@ function lintMessage(msg, opts = {}) {
   if (opts.requireDeliverable === true && !DELIVERABLE_RE.test(t)) {
     problems.push('the message never says what the athlete would actually do');
   }
+  // ── THE PRO RULES (services/proLane) ──────────────────────────────────
+  // A pro deal is an appearance, a signing, an ambassador deal, a shoot or a
+  // hospitality event, never a post alone; it leads with the team and the
+  // market; it never says NIL. A college athlete's lint is untouched.
+  if (opts.pro) for (const p of require('./proLane').proProblems(t, opts.athlete || {})) problems.push(p);
   // The sign-off has to be the agent's own first name.
   // THE SIGN-OFF IS REPAIRED, NOT REJECTED. See repairSignOff: losing a business
   // because a name did not match a regex is not a trade worth making, and this
@@ -954,8 +959,10 @@ function describeAthlete(a) {
   // in. Every one of those refusals was a retry, and most retries were this.
   // So each blank is named as blank, in the block itself, with the one
   // instruction that matters: do not mention it.
-  if (a.hometown) L.push('From: ' + a.hometown);
-  else L.push('From: not on file. Do not say where they are from, grew up or call them a native of anywhere.');
+  // A pro leads with the team and the market: the hometown is withheld from
+  // the block, so it cannot be led with (services/proLane).
+  if (a.hometown && !isPro) L.push('From: ' + a.hometown);
+  else L.push('From: ' + (isPro ? 'not to be mentioned. Lead with the team and the market; do not say where they are from or grew up.' : 'not on file. Do not say where they are from, grew up or call them a native of anywhere.'));
   const ig = Number(a.instagram) || 0, tt = Number(a.tiktok) || 0;
   if (ig || tt) {
     const parts = [];
@@ -1119,11 +1126,15 @@ Follow it in order.
 3. ONE LINE ON WHERE THEY ARE: the ATHLETE block tells you exactly what may be
    said about their existing partnerships. Use its wording. Do not upgrade it.
 4. THE PROPOSAL, IN ONE SHAPE. One sentence saying what the partnership could
-   look like for this business, as a first approach and not a contract: a post
-   from the ballpark, or a night where the team's following meets their door.
-   Pick the ONE that fits this business. Not a list, not a package, no counts,
-   no schedule, no price. Where the prompt gives a fitting ask for this category,
-   let it shape the sentence.
+   look like for this business, as a first approach and not a contract. The
+   shapes a professional offers: an appearance day at their location, an
+   autograph signing, a season-long ambassador deal, a commercial or photo
+   shoot, or a hospitality event for their customers. Pick the ONE that fits
+   this business. NEVER propose a social post, a story or a reel as the whole
+   deal; a post may only accompany one of the shapes above. Not a list, not a
+   package, no counts, no schedule, no price. Where the prompt gives a fitting
+   ask for this category, let it shape the sentence. Never use the word NIL.
+   Lead with the team and the market, never with a hometown or a school.
 5. THE CLOSE, as a question:
    "Would you like to learn more about this endorsement opportunity with [athlete]?"
    When the prompt says a scheduling link is present, the close may point at it:
@@ -1198,7 +1209,9 @@ async function writePitch(ctx, opts = {}) {
   // "Hi," is rejected and rewritten once, then refused.
   const _biz = ctx.business || {};
   const greetFirstName = _biz.greetFirstName || (_biz.ownerName ? firstNameOf(_biz.ownerName) : null) || null;
-  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true, greetFirstName };
+  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true, greetFirstName,
+    // The pro rules (services/proLane): no post-only deal, no hometown or school lead, never NIL.
+    pro: !!(ctx.athlete && ctx.athlete.athleteType === 'pro'), athlete: ctx.athlete || null };
 
   const attempt = async (extra) => {
     const raw = await oneShot(buildPrompt(ctx) + (extra || ''), systemFor(ctx.athlete), 900, opts.model);

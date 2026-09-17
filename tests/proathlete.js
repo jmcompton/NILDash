@@ -263,8 +263,8 @@ async function main() {
   ok('  it is a first approach, not an introduction', /This is not an introduction; it is a first approach/.test(PW.SYSTEM_PRO));
   ok('  the open states the team and the role as a fact', /\[position\] for the \[team\], is looking at partners in \[city\] this season/.test(PW.SYSTEM_PRO));
   ok('  known-for comes from the record only, and is left out when there is none', /leave this line out\. Do not fill it\s+from anything you remember/.test(PW.SYSTEM_PRO));
-  ok('  THE PROPOSAL IS ONE SHAPE, not a list', /THE PROPOSAL, IN ONE SHAPE/.test(PW.SYSTEM_PRO) && /Pick the ONE that fits this business\. Not a list, not a package, no counts,\s+no schedule, no price/.test(PW.SYSTEM_PRO));
-  ok('  and reads as a first approach, not a contract', /as a first approach and not a contract: a post\s+from the ballpark, or a night where the team's following meets their door/.test(PW.SYSTEM_PRO));
+  ok('  THE PROPOSAL IS ONE SHAPE, not a list', /THE PROPOSAL, IN ONE SHAPE/.test(PW.SYSTEM_PRO) && /Pick the ONE that fits\s+this business\. NEVER propose a social post, a story or a reel as the whole\s+deal/.test(PW.SYSTEM_PRO) && /Not a list, not a\s+package, no counts, no schedule, no price/.test(PW.SYSTEM_PRO));
+  ok('  and reads as a first approach, not a contract, in a pro shape: an appearance day, a signing, an ambassador deal, a shoot or a hospitality event (services/proLane)', /as a first approach and not a contract\. The\s+shapes a professional offers: an appearance day at their location, an\s+autograph signing, a season-long ambassador deal, a commercial or photo\s+shoot, or a hospitality event/.test(PW.SYSTEM_PRO));
   ok('  the close is an endorsement opportunity', /endorsement opportunity with \[athlete\]/.test(PW.SYSTEM_PRO) && !/NIL opportunity/.test(PW.SYSTEM_PRO));
   ok('  and it forbids the college framing', /Never describe them as a college athlete/.test(PW.SYSTEM_PRO));
   ok('  every hard rule of the college prompt survives', /NEVER put a dollar amount/.test(PW.SYSTEM_PRO) && /No em dashes/.test(PW.SYSTEM_PRO) && /NEVER invent a fact/.test(PW.SYSTEM_PRO));
