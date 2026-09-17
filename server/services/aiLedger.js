@@ -45,10 +45,34 @@ const PRICES = {
   'deepseek': DEEPSEEK_PRICE,          // any other DeepSeek model id, same assumption
 };
 // Anthropic bills $10 per thousand searches. A search we run ourselves for
-// DeepSeek costs whatever the search provider charges: Brave's list price is
-// $5 per thousand; SEARCH_USD_PER_QUERY overrides.
+// DeepSeek costs whatever the search provider charges: Serper $1 per
+// thousand, Brave $5, Tavily $8. Each rate has an env override
+// (SEARCH_USD_SERPER, SEARCH_USD_BRAVE, SEARCH_USD_TAVILY), and
+// SEARCH_USD_PER_QUERY overrides all three. `deepseek` is the rate of the
+// provider that is actually answering (services/webSearchTool.provider), so a
+// search row written before the provider was named is still priced right.
 const USD_PER_WEB_SEARCH = 0.01;
-const USD_PER_SEARCH = { anthropic: USD_PER_WEB_SEARCH, deepseek: _envNum('SEARCH_USD_PER_QUERY', 0.005) };
+const _perQuery = _envNum('SEARCH_USD_PER_QUERY', NaN);
+const SEARCH_RATES = {
+  serper: Number.isFinite(_perQuery) ? _perQuery : _envNum('SEARCH_USD_SERPER', 0.001),
+  brave: Number.isFinite(_perQuery) ? _perQuery : _envNum('SEARCH_USD_BRAVE', 0.005),
+  tavily: Number.isFinite(_perQuery) ? _perQuery : _envNum('SEARCH_USD_TAVILY', 0.008),
+};
+function activeSearchProvider() {
+  try { const sp = require('./webSearchTool').provider(); return sp ? sp.name : null; } catch (_) { return null; }
+}
+// searchUsd(name) -> the per-query rate for a named provider, or the active one.
+function searchUsd(name) {
+  const n = String(name || activeSearchProvider() || '').toLowerCase();
+  if (n === 'anthropic') return USD_PER_WEB_SEARCH;
+  if (SEARCH_RATES[n] !== undefined) return SEARCH_RATES[n];
+  return Number.isFinite(_perQuery) ? _perQuery : SEARCH_RATES.serper;
+}
+const USD_PER_SEARCH = {
+  anthropic: USD_PER_WEB_SEARCH,
+  serper: SEARCH_RATES.serper, brave: SEARCH_RATES.brave, tavily: SEARCH_RATES.tavily,
+  get deepseek() { return searchUsd(null); },
+};
 
 function priceKey(model) {
   const m = String(model || '').toLowerCase();
@@ -77,12 +101,15 @@ function usageOf(msg) {
   };
 }
 
-function estimateUsd(model, usage, provider) {
+// estimateUsd(model, usage, provider, searchProvider): the searches are priced
+// at the named search provider's rate when the row says which one ran them,
+// else at the active provider's rate for DeepSeek and Anthropic's for Anthropic.
+function estimateUsd(model, usage, provider, searchProvider) {
   const k = priceKey(model);
   if (!k) return null;   // an unpriced model is reported as unknown, not as free
   const [inP, outP, cacheP] = PRICES[k];
   const p = providerOf(model, provider);
-  const searchP = USD_PER_SEARCH[p] !== undefined ? USD_PER_SEARCH[p] : USD_PER_WEB_SEARCH;
+  const searchP = p === 'anthropic' ? USD_PER_WEB_SEARCH : searchUsd(searchProvider || null);
   const usd = (usage.inputTokens * inP + usage.outputTokens * outP
     + usage.cacheReadTokens * (cacheP !== undefined ? cacheP : inP * 0.1) + usage.cacheWriteTokens * inP * 1.25) / 1e6
     + usage.webSearches * searchP;
@@ -166,7 +193,7 @@ function recordUsage(info) {
       inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens, cacheWriteTokens: usage.cacheWriteTokens,
       webSearches: usage.webSearches,
-      estUsd: estimateUsd(model, usage, provider),
+      estUsd: estimateUsd(model, usage, provider, info && info.searchProvider),
       ms: Number(info && info.ms) || null,
     };
     _queue.push(row);
@@ -200,4 +227,4 @@ async function drain() {
   }
 }
 
-module.exports = { callerOf, record, recordUsage, usageOf, estimateUsd, priceKey, providerOf, usePool, drain, PRICES, USD_PER_WEB_SEARCH, USD_PER_SEARCH, DEEPSEEK_PRICE };
+module.exports = { callerOf, record, recordUsage, usageOf, estimateUsd, priceKey, providerOf, usePool, drain, searchUsd, PRICES, USD_PER_WEB_SEARCH, USD_PER_SEARCH, SEARCH_RATES, DEEPSEEK_PRICE };

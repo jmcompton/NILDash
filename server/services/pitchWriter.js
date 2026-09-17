@@ -524,8 +524,15 @@ function sportLabel(s) {
 }
 function _sportRule(a) {
   const label = sportLabel(a.sport);
-  if (!label) return '';
+  if (!label) return a.sport ? '' : ' (no sport on file: do not name one)';
   return ` (sport: say "${label}" or nothing; do not rename or abbreviate it)`;
+}
+// The class year the model may name, or told there is none. A pro never has
+// one and the pro block says so on its own line.
+function _yearRule(a) {
+  if (a.athleteType === 'pro') return '';
+  if (a.year) return ` (class year: say "${String(a.year).trim()}" or nothing)`;
+  return ' (no class year on file: do not call them a freshman, sophomore, junior, senior or graduate)';
 }
 
 // Sport-specific WORD overrides: in football a "guard" or a "tackle" is a
@@ -927,10 +934,18 @@ function describeAthlete(a) {
     else L.push('Known for: nothing on file. Do not draw on what you may remember about this player; pitch on position, team and what they post.');
   } else {
     const bits = [a.year, positionLabel(a.position, a.sport), sportLabel(a.sport)].filter(Boolean).join(' ');
-    if (bits) L.push('Plays: ' + bits + (a.school ? ' at ' + a.school : '') + _positionRule(a) + _sportRule(a));
-    else if (a.school) L.push('School: ' + a.school + _positionRule(a));
+    if (bits) L.push('Plays: ' + bits + (a.school ? ' at ' + a.school : '') + _positionRule(a) + _sportRule(a) + _yearRule(a));
+    else if (a.school) L.push('School: ' + a.school + _positionRule(a) + _sportRule(a) + _yearRule(a));
+    else L.push('Plays: nothing on file' + _positionRule(a) + _sportRule(a) + _yearRule(a));
   }
+  // ── A BLANK FIELD IS SAID TO BE BLANK ────────────────────────────────────
+  // The fact-check refuses a hometown, a position, a sport or a class year we
+  // do not hold, and a model that is simply not told about a field fills it
+  // in. Every one of those refusals was a retry, and most retries were this.
+  // So each blank is named as blank, in the block itself, with the one
+  // instruction that matters: do not mention it.
   if (a.hometown) L.push('From: ' + a.hometown);
+  else L.push('From: not on file. Do not say where they are from, grew up or call them a native of anywhere.');
   const ig = Number(a.instagram) || 0, tt = Number(a.tiktok) || 0;
   if (ig || tt) {
     const parts = [];
@@ -1056,6 +1071,7 @@ HARD RULES FOR THE MESSAGE:
   invented, and it reaches a real business under the agent's own name.
 
 NEVER invent a fact about the athlete. Use only what is listed under THE ATHLETE. If no hometown is listed, do not name one. If no position is listed, do not name one. If no follower count is listed, do not cite one. A missing field is not a gap to fill, and a plausible guess is still a lie told to a real business under this athlete's name.
+A LINE THAT SAYS "not on file" IS AN INSTRUCTION, NOT A GAP. Never mention that field at all: not a guess, not a hedge ("wherever they're from"), not a general version of it ("a talented athlete" for a missing sport is fine; "a talented ballplayer" is not). The message must read as if the field does not exist.
 
 The message must be answerable yes or no without a follow-up question.`;
 

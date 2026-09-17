@@ -83,6 +83,7 @@ const EXPIRE_AFTER_DAYS = parseInt(process.env.OUTREACH_QUEUE_EXPIRE_DAYS, 10) |
 const EXPIRE_COOLDOWN_DAYS = parseInt(process.env.OUTREACH_QUEUE_COOLDOWN_DAYS, 10) || 30;
 // A slot must not burn the whole cap on candidates that all fail the bar.
 const MAX_ATTEMPTS_PER_SLOT = 3;
+
 // Five per athlete per night, and five means five WORTH SENDING. The filler
 // runs out long before the slots do, so a night that produces two strong
 // pitches writes two: the shift report saying "wrote two, both strong" beats

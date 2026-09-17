@@ -1654,6 +1654,30 @@ async function init() {
     )
   `).then(() => console.log('[init] outreach_queue_ondemand table ready'))
     .catch(e => console.error('[init] outreach_queue_ondemand:', e.message));
+  // ── THE NIGHT'S LOOP STOPS ────────────────────────────────────────────────
+  // discovery_nightly: how many times each discovery scan ("market refill",
+  // "widen") ran for an athlete tonight; the job refuses past
+  // MAX_DISCOVERY_PER_ATHLETE_NIGHT (services/outreachQueue.claimDiscovery).
+  // research_claims: one row per business researched for an athlete tonight;
+  // a second attempt the same night is skipped, not re-searched.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS discovery_nightly (
+      athlete_id TEXT NOT NULL,
+      night      DATE NOT NULL,
+      label      TEXT NOT NULL,
+      n          INT  NOT NULL DEFAULT 0,
+      PRIMARY KEY (athlete_id, night, label)
+    )
+  `).catch(e => console.error('[init] discovery_nightly:', e.message));
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS research_claims (
+      athlete_id TEXT NOT NULL,
+      brand_key  TEXT NOT NULL,
+      night      DATE NOT NULL,
+      at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (athlete_id, brand_key, night)
+    )
+  `).catch(e => console.error('[init] research_claims:', e.message));
   // How long each on-demand fill took, so the answer is measured, not guessed.
   await pool.query(`ALTER TABLE outreach_queue_ondemand ADD COLUMN IF NOT EXISTS ms INT`).catch(() => {});
 
