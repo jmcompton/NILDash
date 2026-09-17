@@ -52,7 +52,7 @@ const A1 = 'mb-ath-a1', A2 = 'mb-ath-a2', B1 = 'mb-ath-b1';
      over.category || null, over.lane || 'local', over.channel || 'dm', over.state || 'queued', over.outcome || null, over.replied || null, over.sent || null, over.created || new Date().toISOString(), 'name:' + brand.toLowerCase() + '|' + ath]);
   // Agent A, athlete 1: four businesses at four statuses, found on four days.
   await card(A, A1, 1, 'MB Legion Hair Studio', { contact: 'Dana Roberts', title: 'Owner', email: 'dana@legion.example', category: 'salon', created: '2026-09-10T02:00:00Z' });
-  await card(A, A1, 2, 'MB Trak Shak', { contact: 'Jeff Martinez', title: 'Owner', phone: '205-555-0100', category: 'running', state: 'sent', sent: '2026-09-12T02:00:00Z', created: '2026-09-11T02:00:00Z' });
+  await card(A, A1, 2, 'MB Trak Shak', { contact: 'Jeff Martinez', title: 'Owner', phone: '205-555-0100', category: 'local-trust', state: 'sent', sent: '2026-09-12T02:00:00Z', created: '2026-09-11T02:00:00Z' });
   await card(A, A1, 3, 'MB Hoover Cycles', { contact: 'Kim Ito', instagram: 'hoovercycles', scope: 'business', category: 'bike shop', state: 'sent', sent: '2026-09-13T02:00:00Z', outcome: 'replied', replied: '2026-09-14T02:00:00Z', created: '2026-09-12T02:00:00Z' });
   await card(A, A1, 4, 'MB Iron Tribe', { contact: 'Owner', category: 'gym', state: 'sent', sent: '2026-09-13T02:00:00Z', created: '2026-09-13T02:00:00Z' });
   await P().query(`INSERT INTO deals (id, athlete_id, agent_id, data) VALUES ('mb-deal-1', $1, $2, $3::jsonb)`, [A1, A, JSON.stringify({ brand: 'MB Iron Tribe', stage: 'closed', value: 500 })]);
@@ -66,19 +66,26 @@ const A1 = 'mb-ath-a1', A2 = 'mb-ath-a2', B1 = 'mb-ath-b1';
   await P().query(`INSERT INTO brand_contacts (id, enrichment_id, agent_id, brand_name, name, title, email, priority_rank) VALUES ('mb-ct-1','mb-enr-1',$1,'MB Scan Brand','Sam Cole','Marketing Director','sam@scan.example',1)`, [A]).catch((e) => console.log('brand_contacts insert:', e.message));
   // The town from Places for the salon.
   await P().query(`INSERT INTO brand_evidence_cache (brand_key, lane, brand, evidence, outcome, refreshed_at) VALUES ('mb legion','places','MB Legion Hair Studio',$1::jsonb,'OK',NOW()) ON CONFLICT (brand_key, lane) DO UPDATE SET evidence = EXCLUDED.evidence`,
-    [JSON.stringify({ address: '123 College St, Auburn, AL 36830, USA' })]);
+    [JSON.stringify({ address: '123 College St, Auburn, AL 36830, USA', primaryType: 'hair_care', types: ['hair_care', 'beauty_salon', 'point_of_interest'] })]);
+  // A social brand: no town (national), no owner, and shown only under Social and national.
+  await card(A, A1, 5, 'MB Nike', { lane: 'social', instagram: 'nike', scope: 'brand', category: 'social', created: '2026-09-17T02:00:00Z' });
   // Agent B: one business of their own.
   await card(B, B1, 1, 'MB Secret Bakery', { contact: 'Pat Doe', email: 'pat@secret.example', created: '2026-09-16T02:00:00Z' });
 
   OUT.push('-- the list --');
   const page = await MB.pageFor(P(), A, {});
-  ok('one row per athlete per business, every state included', page.total === 7 && page.rows.length === 7, page.rows.map((r) => [r.athlete, r.brand, r.status]));
+  ok('one row per athlete per business, every state included; the list opens on local businesses only', page.total === 8 && page.scope === 'local' && page.rows.length === 7 && !page.rows.some((r) => r.brand === 'MB Nike'), page.rows.map((r) => [r.athlete, r.brand, r.status]));
+  const soc = await MB.pageFor(P(), A, { scope: 'social' });
+  ok('  the social and national chip shows the rest, with National for the town and no owner', soc.rows.length === 1 && soc.rows[0].brand === 'MB Nike' && soc.rows[0].town === '' && soc.rows[0].townLabel === 'National' && soc.rows[0].ownerName === null && soc.rows[0].category === 'Social brand' && soc.scopeCounts.local === 7 && soc.scopeCounts.social === 1, soc.rows[0]);
+  ok('  and scope all shows everything', (await MB.pageFor(P(), A, { scope: 'all' })).rows.length === 8);
   const row = (brand, athlete) => page.rows.find((r) => r.brand === brand && r.athlete === athlete);
   ok('the same salon found for two athletes is two rows', !!row('MB Legion Hair Studio', 'Messiah Mickens') && !!row('MB Legion Hair Studio', 'Ann Lee'));
-  ok('the columns: business, town, owner, contact, category, athlete, status', (() => { const r = row('MB Legion Hair Studio', 'Messiah Mickens'); return r.town === 'Auburn, AL' && r.ownerName === 'Dana Roberts' && r.contact === 'dana@legion.example' && r.category === 'salon' && r.status === 'not pitched'; })(), row('MB Legion Hair Studio', 'Messiah Mickens'));
+  ok('the columns: business, town, owner, contact, category, athlete, status', (() => { const r = row('MB Legion Hair Studio', 'Messiah Mickens'); return r.town === 'Auburn, AL' && r.ownerName === 'Dana Roberts' && r.contact === 'dana@legion.example' && r.category === 'Salon' && r.status === 'not pitched'; })(), row('MB Legion Hair Studio', 'Messiah Mickens'));
   ok('  the town falls back to the athlete\'s school town when Places has no address', row('MB Trak Shak', 'Messiah Mickens').town === 'Auburn, AL' && row('MB Old Shop', 'Ann Lee').town === 'Silver City, NM');
   ok('  a phone or an Instagram handle is the contact when there is no email', row('MB Trak Shak', 'Messiah Mickens').contact === '205-555-0100' && row('MB Hoover Cycles', 'Messiah Mickens').contact === '@hoovercycles');
   ok('  a role on the card ("Owner") is not an owner name', row('MB Iron Tribe', 'Messiah Mickens').ownerName === null);
+  ok('the category is a plain word: Places type -> Salon; nothing known -> Local business; never the playbook key', row('MB Trak Shak', 'Messiah Mickens').category === 'Local business' && !/local-trust|local-visibility/.test(JSON.stringify(page)) && MB.plainCategory('gym', [], null, 'local') === 'Gym' && MB.plainCategory(null, ['car_dealer'], null, 'local') === 'Auto' && MB.plainCategory(null, null, 'Restaurant chain', 'local') === 'Restaurant' && MB.plainCategory(null, null, null, 'social') === 'Social brand' && MB.plainCategory(null, null, null, null) === 'Local business');
+  ok('  a local business with no town shows a dash, never "not yet"', (() => { const r = MB.buildRows({ cards: [{ athlete_id: A1, brand_name: 'MB Nowhere', lane: 'local', created_at: '2026-09-01' }], ledger: [], contacts: [], deals: [], logs: [], athletes: [{ id: A1, name: 'X' }], industries: [] })[0]; return r.town === '' && r.townLabel === '\u2014'; })() && !/not yet/.test(src('public/index.html').slice(src('public/index.html').indexOf('function mbRender'), src('public/index.html').indexOf('function mbSetFilter'))));
   ok('  a Deal Scan business with no card is listed, with the scan\'s contact', row('MB Scan Brand', 'Ann Lee') && row('MB Scan Brand', 'Ann Lee').ownerName === 'Sam Cole' && row('MB Scan Brand', 'Ann Lee').contact === 'sam@scan.example', row('MB Scan Brand', 'Ann Lee'));
   ok('sorted newest found first by default', page.sort === 'newest' && page.rows[0].brand === 'MB Scan Brand' && page.rows[page.rows.length - 1].brand === 'MB Old Shop');
 
@@ -88,13 +95,13 @@ const A1 = 'mb-ath-a1', A2 = 'mb-ath-a2', B1 = 'mb-ath-b1';
   ok('replied: a card with replied_at', row('MB Hoover Cycles', 'Messiah Mickens').status === 'replied');
   ok('deal signed: a closed deal for that athlete and brand', row('MB Iron Tribe', 'Messiah Mickens').status === 'deal signed');
   ok('  a retired card is still "not pitched", not invented', row('MB Old Shop', 'Ann Lee').status === 'not pitched');
-  ok('the four counts: businesses, owners, replied (includes signed), deals', JSON.stringify(page.counts) === JSON.stringify({ businesses: 7, owners: 6, replied: 2, deals: 1 }), page.counts);
+  ok('the four counts: businesses, owners, replied (includes signed), deals', JSON.stringify(page.counts) === JSON.stringify({ businesses: 8, owners: 6, replied: 2, deals: 1 }), page.counts);
 
   OUT.push('', '-- filters, athlete, search, sort, paging --');
   ok('filter replied shows replied and signed', (await MB.pageFor(P(), A, { filter: 'replied' })).rows.map((r) => r.brand).sort().join('|') === 'MB Hoover Cycles|MB Iron Tribe');
   ok('filter pitched', (await MB.pageFor(P(), A, { filter: 'pitched' })).rows.map((r) => r.brand).join('|') === 'MB Trak Shak');
   ok('filter not pitched', (await MB.pageFor(P(), A, { filter: 'not pitched' })).rows.length === 4);
-  ok('  the counts at the top do not move with the filter', (await MB.pageFor(P(), A, { filter: 'pitched' })).counts.businesses === 7);
+  ok('  the counts at the top do not move with the filter', (await MB.pageFor(P(), A, { filter: 'pitched' })).counts.businesses === 8);
   ok('the athlete dropdown narrows to one athlete', (await MB.pageFor(P(), A, { athleteId: A2 })).rows.every((r) => r.athlete === 'Ann Lee') && (await MB.pageFor(P(), A, { athleteId: A2 })).rows.length === 3);
   ok('  and lists this agent\'s athletes', page.athletes.map((a) => a.name).join('|') === 'Ann Lee|Messiah Mickens');
   ok('search matches business, owner and town', (await MB.pageFor(P(), A, { q: 'legion' })).rows.length === 2 && (await MB.pageFor(P(), A, { q: 'jeff' })).rows.length === 1 && (await MB.pageFor(P(), A, { q: 'silver city' })).rows.every((r) => r.town === 'Silver City, NM') && (await MB.pageFor(P(), A, { q: 'silver city' })).rows.length === 2);
@@ -109,7 +116,7 @@ const A1 = 'mb-ath-a1', A2 = 'mb-ath-a2', B1 = 'mb-ath-b1';
   OUT.push('', '-- the spreadsheet --');
   const csv = await MB.csvForAgent(P(), A, { filter: 'replied' });
   const lines = csv.trim().split(/\r?\n/);
-  ok('the CSV is the current filter: header plus the two replied rows', lines.length === 3 && lines[0] === 'Business,Town,Owner,Contact,Category,Athlete,Status,Date found', lines);
+  ok('the CSV is the current filter: header plus the two replied rows', lines.length === 3 && (await MB.csvForAgent(P(), A, { scope: 'social' })).includes('MB Nike,National,') && lines[0] === 'Business,Town,Owner,Contact,Category,Athlete,Status,Date found', lines);
   ok('  with the same columns plus the date found', lines.slice(1).every((l) => /,(replied|deal signed),2026-09-1\d$/.test(l)), lines.slice(1));
   ok('  a comma in a value is quoted', /"/.test(MB.csvFor([{ brand: 'A, B', town: '', ownerName: '', contact: '', category: '', athlete: 'X', status: 'not pitched', foundAt: null }])));
 
@@ -120,7 +127,7 @@ const A1 = 'mb-ath-a1', A2 = 'mb-ath-a2', B1 = 'mb-ath-b1';
   ok('  the athlete dropdown is theirs alone', pb.athletes.length === 1 && pb.athletes[0].name === 'Other Agents Kid');
   ok('  asking for another agent\'s athlete by id returns nothing', (await MB.pageFor(P(), B, { athleteId: A1 })).rows.length === 0);
   ok('  the CSV is bound the same way', !(await MB.csvForAgent(P(), B, {})).includes('Legion') && (await MB.csvForAgent(P(), B, {})).includes('MB Secret Bakery'));
-  ok('every query in the service is bound to the agent id', (() => { const s = src('server/services/myBrands.js').slice(0, src('server/services/myBrands.js').indexOf('async function adminSummary')); const froms = s.match(/FROM (outreach_queue|brand_engagement|brand_contacts|deals|outreach_logs|athletes)\b/g) || []; const bound = (s.match(/agent_id = \$1/g) || []).length; return froms.length === 6 && bound === 6; })());
+  ok('every query in the service is bound to the agent id', (() => { const s = src('server/services/myBrands.js').slice(0, src('server/services/myBrands.js').indexOf('async function adminSummary')); const froms = s.match(/FROM (outreach_queue|brand_engagement|brand_contacts|deals|outreach_logs|athletes|company_enrichment)\b/g) || []; const bound = (s.match(/agent_id = \$1/g) || []).length; return froms.length === 7 && bound === 7; })());
   const idx = src('server/index.js');
   ok('the routes take the agent from the session, never from a parameter', /app\.get\('\/api\/agent\/brands', requireAuth/.test(idx) && /MB\.pageFor\(store\.pool, req\.session\.userId/.test(idx) && /MB\.csvForAgent\(store\.pool, req\.session\.userId/.test(idx) && !/pageFor\(store\.pool, req\.query/.test(idx));
 
@@ -134,7 +141,7 @@ const A1 = 'mb-ath-a1', A2 = 'mb-ath-a2', B1 = 'mb-ath-b1';
   OUT.push('', '-- the page --');
   const html = src('public/index.html');
   ok('a My Brands tab in the sidebar, right below Deal Scan', /Deal Scan\s*<\/button>\s*<button class="nav-item" id="brandsNavBtn" onclick="showView\('brands',this\)">/.test(html));
-  ok('  a view with the four counts, the filters, the athlete dropdown, the search box and the sort', /id="view-brands"/.test(html) && /id="mb-k-businesses"/.test(html) && /id="mb-k-owners"/.test(html) && /id="mb-k-replied"/.test(html) && /id="mb-k-deals"/.test(html) && /data-filter="not pitched"/.test(html) && /id="mb-athlete"/.test(html) && /id="mb-q"/.test(html) && /id="mb-sort"/.test(html));
+  ok('  a view with the four counts, the filters, the athlete dropdown, the search box and the sort', /id="view-brands"/.test(html) && /id="mb-k-businesses"/.test(html) && /id="mb-k-owners"/.test(html) && /id="mb-k-replied"/.test(html) && /id="mb-k-deals"/.test(html) && /data-filter="not pitched"/.test(html) && /data-scope="social"[^>]*>Social and national/.test(html) && /scope: 'local'/.test(html) && /id="mb-athlete"/.test(html) && /id="mb-q"/.test(html) && /id="mb-sort"/.test(html));
   ok('  the columns', /<th[^>]*>Business<\/th><th>Town<\/th><th>Owner<\/th><th>Contact<\/th><th>Category<\/th>\s*<th[^>]*>Found for<\/th><th[^>]*>Status<\/th>/.test(html));
   ok('  the download button exports the current view', /function mbDownload\(\) \{ window\.location\.href = API_BASE \+ '\/api\/agent\/brands\.csv\?' \+ mbQuery\(\); \}/.test(html));
   ok('  the empty state says pitches come after the first nightly run, with an add-athlete button', /Pitches start appearing after the first nightly run/.test(html) && /id="mb-empty"[\s\S]{0,900}showView\('add-athlete'/.test(html));

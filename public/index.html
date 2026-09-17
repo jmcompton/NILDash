@@ -2301,8 +2301,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="kpi"><div class="kpi-label">Deals signed</div><div class="kpi-val" id="mb-k-deals" style="font-size:18px;color:var(--muted)">—</div></div>
         </div>
         <div id="mb-controls" style="display:flex;align-items:center;gap:8px;margin:12px 0;flex-wrap:wrap">
+          <div id="mb-scopes" style="display:flex;gap:6px;flex-wrap:wrap;margin-right:6px">
+            <button class="chip mb-scope" data-scope="local" onclick="mbSetScope('local')">Local</button>
+            <button class="chip mb-scope" data-scope="social" onclick="mbSetScope('social')">Social and national</button>
+          </div>
           <div id="mb-filters" style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="chip mb-filter" data-filter="all" onclick="mbSetFilter('all')">All</button>
+            <button class="chip mb-filter" data-filter="all" onclick="mbSetFilter('all')">All statuses</button>
             <button class="chip mb-filter" data-filter="replied" onclick="mbSetFilter('replied')">Replied</button>
             <button class="chip mb-filter" data-filter="pitched" onclick="mbSetFilter('pitched')">Pitched</button>
             <button class="chip mb-filter" data-filter="not pitched" onclick="mbSetFilter('not pitched')">Not pitched yet</button>
@@ -14953,10 +14957,10 @@ function exportRosterCSV() {
 // the owner and contact on each, and the status derived from the outreach
 // records. Filter, athlete, search, sort and page all go to the server, and the
 // download is the same view as a file.
-var MB = { filter: 'all', athleteId: '', q: '', sort: 'newest', page: 1, pages: 1, loading: false };
+var MB = { filter: 'all', scope: 'local', athleteId: '', q: '', sort: 'newest', page: 1, pages: 1, loading: false };
 var _mbTimer = null;
 function mbQuery() {
-  return 'filter=' + encodeURIComponent(MB.filter) + '&athleteId=' + encodeURIComponent(MB.athleteId || '')
+  return 'filter=' + encodeURIComponent(MB.filter) + '&scope=' + encodeURIComponent(MB.scope) + '&athleteId=' + encodeURIComponent(MB.athleteId || '')
     + '&q=' + encodeURIComponent(MB.q || '') + '&sort=' + encodeURIComponent(MB.sort) + '&page=' + MB.page;
 }
 async function mbLoad() {
@@ -14990,6 +14994,13 @@ function mbRender(d) {
     b.className = 'chip mb-filter' + (on ? ' chip-green' : '');
     b.style.cssText = on ? 'cursor:pointer' : 'cursor:pointer;background:var(--surface2);color:var(--muted);border:1px solid var(--border)';
   });
+  var sc = d.scopeCounts || {};
+  document.querySelectorAll('.mb-scope').forEach(function (b) {
+    var key = b.getAttribute('data-scope'), on = key === d.scope;
+    b.className = 'chip mb-scope' + (on ? ' chip-blue' : '');
+    b.style.cssText = on ? 'cursor:pointer' : 'cursor:pointer;background:var(--surface2);color:var(--muted);border:1px solid var(--border)';
+    b.textContent = (key === 'local' ? 'Local' : 'Social and national') + (sc[key] != null ? ' (' + sc[key] + ')' : '');
+  });
   var sel = document.getElementById('mb-athlete');
   if (sel && sel.options.length <= 1 && d.athletes && d.athletes.length) {
     d.athletes.forEach(function (a) { var o = document.createElement('option'); o.value = a.id; o.textContent = a.name; sel.appendChild(o); });
@@ -15013,14 +15024,14 @@ function mbRender(d) {
       : r.phone ? escHtml(r.phone)
       : r.instagram ? '<a href="https://instagram.com/' + escHtml(String(r.instagram).replace(/^@/, '')) + '" target="_blank" rel="noopener" style="color:var(--text)">@' + escHtml(String(r.instagram).replace(/^@/, '')) + '</a>'
       : '<span style="color:var(--muted)">—</span>';
-    var owner = r.ownerName ? escHtml(r.ownerName) + (r.ownerTitle ? ' <span style="color:var(--muted);font-size:11px">' + escHtml(r.ownerTitle) + '</span>' : '') : '<span style="color:var(--muted)">not yet</span>';
+    var owner = r.ownerName ? escHtml(r.ownerName) + (r.ownerTitle ? ' <span style="color:var(--muted);font-size:11px">' + escHtml(r.ownerTitle) + '</span>' : '') : '<span style="color:var(--muted)">\u2014</span>';
     var found = r.foundAt ? new Date(r.foundAt).toLocaleDateString() : '';
     return '<tr>'
       + '<td><div style="font-weight:600">' + escHtml(r.brand) + '</div><div style="font-size:10px;color:var(--muted)">found ' + escHtml(found) + '</div></td>'
-      + '<td>' + escHtml(r.town || '') + '</td>'
+      + '<td>' + (r.town ? escHtml(r.town) : '<span style="color:var(--muted)">' + escHtml(r.townLabel || '\u2014') + '</span>') + '</td>'
       + '<td>' + owner + '</td>'
       + '<td>' + contact + '</td>'
-      + '<td>' + escHtml(r.category || r.lane || '') + '</td>'
+      + '<td>' + escHtml(r.category || '') + '</td>'
       + '<td>' + escHtml(r.athlete) + '</td>'
       + '<td>' + mbStatusChip(r.status) + '</td>'
       + '</tr>';
@@ -15032,6 +15043,7 @@ function mbRender(d) {
   document.getElementById('mb-next').disabled = d.page >= d.pages;
 }
 function mbSetFilter(f) { MB.filter = f; MB.page = 1; mbLoad(); }
+function mbSetScope(s) { MB.scope = s; MB.page = 1; mbLoad(); }
 function mbSetAthlete(id) { MB.athleteId = id || ''; MB.page = 1; mbLoad(); }
 function mbSetSort(s) { MB.sort = s; MB.page = 1; var sel = document.getElementById('mb-sort'); if (sel) sel.value = s; mbLoad(); }
 function mbTyped() { clearTimeout(_mbTimer); _mbTimer = setTimeout(function () { MB.q = (document.getElementById('mb-q') || {}).value || ''; MB.page = 1; mbLoad(); }, 350); }
