@@ -5102,6 +5102,10 @@ const REPORT_TICK_MS = 15 * 60 * 1000;
 const REPORT_LATE_HOURS = 4;
 
 async function _sendDueShiftReports() {
+  // OFF. The only reason to email an agent is that new pitches are ready
+  // (services/agentEmail). The report itself still exists for the preview
+  // link and the assistant; it just does not go out.
+  if (!require('./services/agentEmail').enabled('shiftReport')) return;
   const { renderShiftEmail } = require('./services/shiftEmail');
   const sw = require('./services/sendWindow');
   const appUrl = process.env.APP_URL || 'https://mynildash.com';
@@ -5215,6 +5219,8 @@ const DIGEST_TICK_MS = 15 * 60 * 1000;
 const DIGEST_LATE_HOURS = 4;   // same bounded lateness as the shift report
 
 async function _sendDueDeliverableDigests() {
+  // OFF (services/agentEmail). The pinned overdue block on Home carries this.
+  if (!require('./services/agentEmail').enabled('deliverableDigest')) return;
   const digest = require('./services/deliverableDigest');
   const sw = require('./services/sendWindow');
   const appUrl = process.env.APP_URL || 'https://mynildash.com';
@@ -5273,9 +5279,18 @@ async function _sendDueDeliverableDigests() {
 }
 
 if (process.env.NODE_ENV === 'production') {
-  setInterval(() => { _sendDueShiftReports().catch((e) => console.error('[shift-report/tick]', e.message)); }, REPORT_TICK_MS);
+  // The daily report and the deliverable reminders are OFF (services/agentEmail):
+  // the only email an agent gets is the nightly digest, when pitches are ready.
+  // Their tickers are not armed; the functions above also refuse, in case
+  // something else calls them.
+  const AE = require('./services/agentEmail');
+  if (AE.enabled('shiftReport')) {
+    setInterval(() => { _sendDueShiftReports().catch((e) => console.error('[shift-report/tick]', e.message)); }, REPORT_TICK_MS);
+  } else console.log('[shift-report] daily report email is OFF (services/agentEmail)');
   setInterval(() => { _expireStaleDraftsAll(); }, 6 * 60 * 60 * 1000);
-  setInterval(() => { _sendDueDeliverableDigests().catch((e) => console.error('[deliverable-digest/tick]', e.message)); }, DIGEST_TICK_MS);
+  if (AE.enabled('deliverableDigest')) {
+    setInterval(() => { _sendDueDeliverableDigests().catch((e) => console.error('[deliverable-digest/tick]', e.message)); }, DIGEST_TICK_MS);
+  } else console.log('[deliverable-digest] reminder email is OFF (services/agentEmail)');
 }
 
 // Dev endpoint: approve an email for testing (requires X-Dev-Secret header)
@@ -14090,9 +14105,11 @@ try {
 //
 // Off unless WEEKLY_DIGEST_ENABLED=1, so a deploy cannot email everyone by surprise.
 try {
-  const DIGEST_ON = process.env.WEEKLY_DIGEST_ENABLED === '1';
+  // OFF regardless of the env flag (services/agentEmail): the only email an
+  // agent gets is the nightly digest, when pitches are ready.
+  const DIGEST_ON = process.env.WEEKLY_DIGEST_ENABLED === '1' && require('./services/agentEmail').enabled('weeklyDigest');
   if (!DIGEST_ON) {
-    console.log('[digest] weekly digest scheduler is OFF (set WEEKLY_DIGEST_ENABLED=1 to enable)');
+    console.log('[digest] weekly digest scheduler is OFF (services/agentEmail)');
   } else {
     const digestJob = require('./jobs/weeklyDigest');
     const TICK_MS = 15 * 60 * 1000;
@@ -16093,6 +16110,9 @@ function escapeHtml(s) {
 // Deduped on (agent, kit, brand, day) so a brand that reads the page four times
 // in an afternoon produces one email, not four.
 async function notifyKitOpened(mk, brandName) {
+  // OFF (services/agentEmail). The open is still recorded on the kit's own
+  // page; it is not a reason to email the agent.
+  if (!require('./services/agentEmail').enabled('mediaKitOpened')) return;
   await store.pool.query(`
     CREATE TABLE IF NOT EXISTS kit_open_notifications (
       dedupe_key TEXT PRIMARY KEY,

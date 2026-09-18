@@ -92,6 +92,13 @@ async function run(opts = {}) {
   const weekStart = digest.weekStartCentral(now);
   const dryRun = !!opts.dryRun;
 
+  // OFF (services/agentEmail): the only email an agent gets is the nightly
+  // digest, when pitches are ready. The dry run still builds, so the numbers
+  // can be read; a real run sends nothing.
+  if (!dryRun && !require('../services/agentEmail').enabled('weeklyDigest')) {
+    console.log(`[digest] weekly digest is OFF (services/agentEmail); nothing sent for week ${weekStart}`);
+    return { weekStart, sent: 0, skipped: 0, considered: 0, off: true };
+  }
   if (!dryRun && !opts.force && !digest.sendWindowOpen(now)) {
     console.log(`[digest] send window for week ${weekStart} has not opened yet (Monday ${digest.SEND_HOUR_CENTRAL}am Central). Nothing to do.`);
     return { weekStart, sent: 0, skipped: 0, considered: 0 };

@@ -34,7 +34,8 @@ function allowed(email) {
   const set = allowlist();
   return !set || set.has(String(email || '').trim().toLowerCase());
 }
-const SUBJECT = 'Your athletes have new pitches ready';
+const SUBJECT = 'Your athletes have new pitches ready';   // the pre-count wording; rows sent before it carry this
+function subjectFor(n) { return `${n} pitch${n === 1 ? '' : 'es'} ready`; }
 const INTRO = "NILDash found new opportunities for your athletes last night. Here's what's ready.";
 const FOOTER = 'Pitches expire in 14 days. NILDash refills automatically each night.';
 
@@ -54,9 +55,10 @@ function placeOf(a) {
 // every mail client renders it the same way.
 function render({ rows, reviewUrl, unsubUrl, date, tz }) {
   const n = rows.reduce((s, r) => s + (r.count || 0), 0);
-  // Dated: the digest goes out most nights, and one subject for every night
-  // reads as one email sent thirty times.
-  const subject = require('./sendRules').withDate(SUBJECT, date, tz);
+  // THE COUNT AND THE DATE: "3 pitches ready, Fri Sep 18". Never a fixed
+  // subject: one subject for every night reads as one email sent thirty
+  // times, and the count is the one fact the agent opens it for.
+  const subject = require('./sendRules').withDate(subjectFor(n), date, tz);
   const review = esc(reviewUrl);
   const tr = rows.map((r) => `
       <tr>
@@ -132,7 +134,7 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
   if (u.archived === true) return { sent: false, reason: 'archived', athletes: rows.length, cards };
   if (u.digest_unsubscribed === true) return { sent: false, reason: 'unsubscribed', athletes: rows.length, cards };
   // The suppression list stops everything, this included.
-  const rule = await require('./sendRules').check(pool, { email: u.email, subject: SUBJECT, system: 'nightly-digest' });
+  const rule = await require('./sendRules').check(pool, { email: u.email, subject: subjectFor(cards), system: 'nightly-digest' });
   if (!rule.ok) return { sent: false, reason: 'suppressed: ' + rule.reason, athletes: rows.length, cards };
   if (!allowed(u.email)) {
     console.log(`[nightly-digest] HELD ${u.email} night=${runDate} athletes=${rows.length} cards=${cards}: not on NIGHTLY_DIGEST_ALLOWLIST (nothing recorded; sends when the list is lifted)`);
@@ -174,4 +176,4 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
   }
 }
 
-module.exports = { render, rowsFor, placeOf, sendForRun, allowlist, allowed, SUBJECT, INTRO, FOOTER, FROM };
+module.exports = { render, rowsFor, placeOf, sendForRun, allowlist, allowed, subjectFor, SUBJECT, INTRO, FOOTER, FROM };
