@@ -78,9 +78,14 @@ function starveDaysFor(channel) {
 // $1 is always agent_id. Callers append their own athlete filter and columns.
 // These are the whole reason two readers cannot disagree: there is one string.
 
+// A follow-up draft is written the moment the previous touch sends, with its
+// due date on next_follow_up_at. Home does not show it until then: a
+// follow-up the agent can see is one the agent can approve, and approving it
+// early is how three "Re:" emails reached one business inside a week.
 const EMAIL_WHERE = `l.agent_id = $1
     AND l.status = 'draft' AND l.approved_at IS NULL
-    AND l.cadence_stopped_at IS NULL`;
+    AND l.cadence_stopped_at IS NULL
+    AND (l.next_follow_up_at IS NULL OR l.next_follow_up_at <= NOW())`;
 
 // 'program' is excluded HERE rather than at the caller, so nobody can include it
 // by writing their own query and forgetting.

@@ -203,21 +203,15 @@ Return:
     [nextFollowUp, outreach.id]
   );
 
-  // Save as a draft email in email_drafts if agent has a connected account
-  const accountRow = await pool.query(
-    `SELECT id FROM email_accounts WHERE user_id=$1 AND status='active' LIMIT 1`,
-    [outreach.agent_id]
-  );
-
-  if (accountRow.rows[0] && outreach.email_account_id) {
-    const draftId = 'dft_fu_' + Date.now();
-    await pool.query(
-      `INSERT INTO email_drafts (id, user_id, account_id, subject, body_html, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [draftId, outreach.agent_id, outreach.email_account_id, followUpSubject, followUpHtml]
-    ).catch(() => {}); // non-fatal
-  }
+  // ── NO SECOND FOLLOW-UP SYSTEM ───────────────────────────────────────────
+  // This used to drop a "Re: ..." draft into the agent's inbox at day 4 and
+  // again at day 7 -- alongside the Closer's own cadence (services/closer
+  // scheduleNextTouch: touches at 4 and 9 days), which is the follow-up
+  // sequence. Two systems writing follow-ups for one thread is how a contact
+  // gets five emails in a fortnight. The Closer's cadence is the only one now;
+  // this poller keeps the day-4 and day-7 events for the activity log and
+  // writes no drafts. The text is still composed so the event carries it.
+  void followUpHtml; void followUpSubject;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

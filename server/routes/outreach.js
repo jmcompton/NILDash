@@ -446,9 +446,28 @@ router.post('/logs/:id/send', async (req, res) => {
       return res.status(400).json({ error: 'emailAccountId and toEmail required' });
     }
 
+    // ── THE SAME RULES AS THE NIGHTLY RELEASE ─────────────────────────────
+    // A person clicking Send is still one of the systems that can mail this
+    // address. A follow-up is not sent before it is due; nothing is sent to
+    // an address on the suppression list, under a subject it already got, or
+    // inside four days of anything else we sent it.
+    if (log.next_follow_up_at && new Date(log.next_follow_up_at).getTime() > Date.now()) {
+      return res.status(409).json({ error: `This follow-up is not due until ${new Date(log.next_follow_up_at).toISOString().slice(0, 10)}. The cadence is 4 and 9 days after the last touch.`, reason: 'not-due' });
+    }
+    const sendRules = require('../services/sendRules');
+    const rule = await sendRules.check(pool, {
+      email: toEmail, subject: log.subject, refId: log.id,
+      system: Number(log.touch_no || 1) > 1 ? 'follow-up' : 'manual',
+    });
+    if (!rule.ok) return res.status(409).json({ error: 'Not sent: ' + rule.reason, reason: rule.kind });
+
     // Call the existing /api/email/send endpoint logic (reuse without importing — call via fetch)
     // We delegate to the existing email service to avoid any coupling
     const sendResult = await sendViaEmailService(req, emailAccountId, toEmail, log);
+    await sendRules.record(pool, {
+      email: toEmail, subject: log.subject, agentId: req.principal.id, refId: log.id,
+      system: Number(log.touch_no || 1) > 1 ? 'follow-up' : 'manual',
+    });
 
     await pool.query(
       `UPDATE outreach_logs

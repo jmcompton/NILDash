@@ -24,6 +24,7 @@
 const sendGuard = require('./sendGuard');
 const PIPE = require('./pipeline');
 const suppression = require('./suppression');
+const sendRules = require('./sendRules');
 const sendWindow = require('./sendWindow');
 // Namespaced card ids, so a call or DM card can never be mistaken for a draft.
 const A = require('./actionable');
@@ -128,9 +129,17 @@ async function buildBatch(pool, agentId, opts = {}) {
         AND l.status = 'draft'
         AND l.approved_at IS NULL
         AND l.cadence_stopped_at IS NULL
+        -- A FOLLOW-UP IS NOT READY UNTIL IT IS DUE. scheduleNextTouch writes
+        -- touch 2 the moment touch 1 sends, stamped next_follow_up_at four
+        -- days out -- and nothing read that stamp. The draft was in the next
+        -- morning's batch, approved with everything else, and out the door in
+        -- the next window: three "Re:" emails inside a week to a business
+        -- that had not answered the first. The cadence is 4 and 9 days; this
+        -- is where it is held to.
+        AND (l.next_follow_up_at IS NULL OR l.next_follow_up_at <= $3)
         AND l.athlete_id = ANY($2::text[])
       ORDER BY l.created_at ASC`,
-    [agentId, [...wanted.keys()]])).rows;
+    [agentId, [...wanted.keys()], opts.now ? new Date(opts.now) : new Date()])).rows;
 
   // ── THE ADDRESS, FROM THIS ATHLETE'S MARKET ONLY ──────────────────────────
   // The places lane is a GLOBAL cache keyed "<brand> | <canonicalRegion> | <v>".
@@ -397,8 +406,11 @@ async function approveBatch(pool, agentId, opts = {}) {
       WHERE l.agent_id = $1 AND l.id = ANY($2::text[])
         AND ($3::text IS NULL OR l.athlete_id = $3)
         AND l.status = 'draft' AND l.approved_at IS NULL
-        AND l.cadence_stopped_at IS NULL`,
-    [agentId, allowed, athleteId])).rows;
+        AND l.cadence_stopped_at IS NULL
+        -- Same due-date rule as buildBatch: a follow-up posted early is not
+        -- approvable yet, and is reported below as "not due yet".
+        AND (l.next_follow_up_at IS NULL OR l.next_follow_up_at <= $4)`,
+    [agentId, allowed, athleteId, opts.now ? new Date(opts.now) : new Date()])).rows;
 
   // ── THE MEDIA KIT IS A SETTING, NOT A DECISION MADE 45 TIMES A MORNING ────
   // It used to be a per-send toggle in the outreach modal that appended a line
@@ -442,10 +454,23 @@ async function approveBatch(pool, agentId, opts = {}) {
   // number that silently accounts for 36 of them.
   const dropped = [];
   const foundIds = new Set(rows.map((r) => String(r.id)));
-  for (const id of allowed) {
-    if (!foundIds.has(String(id))) {
-      dropped.push({ id, why: 'not an approvable draft any more' });
+  const missing = allowed.filter((id) => !foundIds.has(String(id)));
+  // Say WHICH kind of missing: a follow-up that is not due yet is a different
+  // answer from a draft that was already approved or stopped.
+  const notDue = new Set();
+  if (missing.length) {
+    const early = await pool.query(
+      `SELECT id, next_follow_up_at FROM outreach_logs
+        WHERE agent_id = $1 AND id = ANY($2::text[]) AND status = 'draft'
+          AND next_follow_up_at IS NOT NULL AND next_follow_up_at > $3`,
+      [agentId, missing, opts.now ? new Date(opts.now) : new Date()]).catch(() => ({ rows: [] }));
+    for (const r of early.rows) notDue.add(String(r.id));
+    for (const r of early.rows) {
+      dropped.push({ id: r.id, why: `not due until ${new Date(r.next_follow_up_at).toISOString().slice(0, 10)} (the follow-up cadence is 4 and 9 days)` });
     }
+  }
+  for (const id of missing) {
+    if (!notDue.has(String(id))) dropped.push({ id, why: 'not an approvable draft any more' });
   }
   for (const r of rows) {
     // THE WINDOW IS COMPUTED PER MESSAGE, in the RECIPIENT's timezone, because
@@ -513,7 +538,9 @@ async function approveBatch(pool, agentId, opts = {}) {
   if (dropped.length) {
     const noSlot = dropped.filter((d) => /send slot/.test(d.why)).length;
     if (noSlot) bits.push(`${noSlot} had no send time in the next window and stay as drafts`);
-    const stale = dropped.length - noSlot;
+    const early = dropped.filter((d) => /not due until/.test(d.why)).length;
+    if (early) bits.push(`${early} ${early === 1 ? 'is a follow-up that is' : 'are follow-ups that are'} not due yet (4 and 9 days after the last touch) and stay as drafts`);
+    const stale = dropped.length - noSlot - early;
     if (stale) bits.push(`${stale} were no longer waiting on approval`);
   }
   return {
@@ -715,6 +742,16 @@ async function releaseDue(pool, opts = {}) {
       out.held++; out.detail.push({ id: log.id, result: 'stopped', why: sup.reason });
       continue;
     }
+    // ── NOT BEFORE IT IS DUE ─────────────────────────────────────────────
+    // The batch and the approval already refuse an early follow-up; this is
+    // the late guard for one approved before that rule existed, or one whose
+    // due date was edited after approval.
+    if (log.next_follow_up_at && new Date(log.next_follow_up_at).getTime() > now.getTime()) {
+      out.held++;
+      out.detail.push({ id: log.id, result: 'held',
+        why: `not due until ${new Date(log.next_follow_up_at).toISOString().slice(0, 10)}` });
+      continue;
+    }
     // ── THE COMPLIANCE GATE ──────────────────────────────────────────────
     // BEFORE the reservation, because a held message must not consume the day's
     // allowance. This is the only place the provider is called from, so this is
@@ -736,6 +773,28 @@ async function releaseDue(pool, opts = {}) {
       out.held++;
       out.compliance = (out.compliance || 0) + 1;
       out.detail.push({ id: log.id, result: 'held', why: gate.why, compliance: gate.severity });
+      continue;
+    }
+
+    // ── THE RULES EVERY SYSTEM SHARES ────────────────────────────────────
+    // Never the same subject twice to one address; never two emails to one
+    // address inside four days, whoever sent the first. A window refusal is a
+    // hold (it sends when the window clears); the other two stop the draft.
+    // AFTER the compliance gate, so a hold is on the record whatever these
+    // say: compliance is a fact about the message, this is only about timing
+    // and repetition.
+    const rule = await sendRules.check(pool, {
+      email: log.sent_to_email || log.to_email, subject: log.subject,
+      system: Number(log.touch_no || 1) > 1 ? 'follow-up' : 'closer', now, refId: log.id,
+    });
+    if (!rule.ok) {
+      if (rule.kind === 'window') {
+        out.held++;
+        out.detail.push({ id: log.id, result: 'held', why: rule.reason });
+      } else {
+        await stop(pool, log, rule.reason);
+        out.held++; out.detail.push({ id: log.id, result: 'stopped', why: rule.reason });
+      }
       continue;
     }
 
@@ -784,6 +843,11 @@ async function releaseDue(pool, opts = {}) {
          suppression.normalize(log.sent_to_email || log.to_email), attempt.attempts]);
       out.sent++;
       out.detail.push({ id: log.id, result: 'sent', brand: log.brand_name });
+      await sendRules.record(pool, {
+        email: log.sent_to_email || log.to_email, subject: log.subject,
+        system: Number(log.touch_no || 1) > 1 ? 'follow-up' : 'closer',
+        agentId: log.agent_id, refId: log.id, now,
+      });
       await scheduleNextTouch(pool, log, opts).catch((e) =>
         console.error('[closer] next touch failed:', e.message));
     } else {
@@ -831,16 +895,20 @@ async function scheduleNextTouch(pool, log, opts = {}) {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10,$11,$12,$13,$14,$15,$16,'closer-cadence')
      ON CONFLICT (id) DO NOTHING`,
     [id, log.agent_id, log.athlete_id, log.brand_name, log.brand_key, log.contact_id,
-     log.enrichment_id, followUpSubject(log.subject), null, next.touch, root,
+     log.enrichment_id, followUpSubject(log.subject, next.touch), null, next.touch, root,
      log.sent_to_email, log.angle, log.angle_key, log.category_key, dueAt]
   ).catch((e) => console.error('[closer] could not queue the next touch:', e.message));
   return { id, touch: next.touch, dueAt };
 }
 
-function followUpSubject(subject) {
+// EVERY TOUCH HAS ITS OWN SUBJECT. The global rule (sendRules) never sends one
+// address the same subject twice, so touch 3 cannot reuse touch 2's "Re: ...".
+// It threads the same way and says it is the last one, which is also true.
+function followUpSubject(subject, touch) {
   const s = String(subject || '').trim();
-  if (!s) return 'Following up';
-  return /^re:/i.test(s) ? s : 'Re: ' + s;
+  const base = !s ? 'Following up' : (/^re:/i.test(s) ? s : 'Re: ' + s);
+  if (Number(touch) >= 3) return /\(last note\)$/i.test(base) ? base : base + ' (last note)';
+  return base;
 }
 
 // ── Auto mode, earned ────────────────────────────────────────────────────────

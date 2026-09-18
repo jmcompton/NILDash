@@ -909,6 +909,11 @@
       "total": 33,
       "fault": null
     },
+    "sendrules.js": {
+      "failed": 0,
+      "total": 67,
+      "fault": null
+    },
     "sendscope.js": {
       "failed": 0,
       "total": 44,

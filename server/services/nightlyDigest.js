@@ -128,6 +128,9 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
   if (!u || !u.email) return { sent: false, reason: 'no such agent, or no email', athletes: rows.length, cards };
   if (u.archived === true) return { sent: false, reason: 'archived', athletes: rows.length, cards };
   if (u.digest_unsubscribed === true) return { sent: false, reason: 'unsubscribed', athletes: rows.length, cards };
+  // The suppression list stops everything, this included.
+  const rule = await require('./sendRules').check(pool, { email: u.email, subject: SUBJECT, system: 'nightly-digest' });
+  if (!rule.ok) return { sent: false, reason: 'suppressed: ' + rule.reason, athletes: rows.length, cards };
   if (!allowed(u.email)) {
     console.log(`[nightly-digest] HELD ${u.email} night=${runDate} athletes=${rows.length} cards=${cards}: not on NIGHTLY_DIGEST_ALLOWLIST (nothing recorded; sends when the list is lifted)`);
     return { sent: false, reason: 'not on NIGHTLY_DIGEST_ALLOWLIST', athletes: rows.length, cards };

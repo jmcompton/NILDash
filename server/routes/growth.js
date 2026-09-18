@@ -8,6 +8,7 @@ const store   = require('../store');
 const ai      = require('../ai');
 const { Resend } = require('resend');
 const resend  = new Resend(process.env.RESEND_API_KEY);
+const sendRules = require('../services/sendRules');
 
 const GROWTH_MODEL = 'claude-opus-4-8';
 const FROM_EMAIL   = 'jmcompton04@gmail.com'; // TODO: swap to hello@comptongroupllc.com when Outlook is configured
@@ -419,6 +420,15 @@ router.post('/send-daily', async (req, res) => {
         continue;
       }
 
+      // The growth sequence is outreach and is under the shared rules: not to
+      // a suppressed address, never the same subject twice, never inside four
+      // days of anything else we sent that address (services/sendRules).
+      const rule = await sendRules.check(store.pool, { email: prospect.email, subject, system: 'growth' });
+      if (!rule.ok) {
+        errors.push({ email: prospect.email, error: 'Not sent: ' + rule.reason, reason: rule.kind });
+        continue;
+      }
+
       try {
         const sendResult = await resend.emails.send({
           from: `NILDash Growth <${FROM_EMAIL}>`,
@@ -428,11 +438,21 @@ router.post('/send-daily', async (req, res) => {
           html: `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6;color:#1a1a2e">${body.replace(/\n/g, '<br>')}<br><br><hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"><p style="font-size:11px;color:#6b7280">NILDash · The All-in-One NIL Management Platform · <a href="https://mynildash.com" style="color:#84CC16">mynildash.com</a></p></div>`
         });
 
-        await store.pool.query(
-          `INSERT INTO growth_outreach_log (prospect_id, sequence_step, resend_id)
-           VALUES ($1, $2, $3)`,
-          [prospect.id, step, sendResult?.data?.id || null]
-        );
+        // THE LOG ROW IS WHAT STOPS A RESEND. It was inside the same try as the
+        // send, so a failed insert (and only the insert) was reported as a send
+        // error while the email had already gone -- and with no row, the next
+        // run sent step 1 again. Logged on its own now, and loudly.
+        try {
+          await store.pool.query(
+            `INSERT INTO growth_outreach_log (prospect_id, sequence_step, resend_id)
+             VALUES ($1, $2, $3)`,
+            [prospect.id, step, sendResult?.data?.id || null]
+          );
+        } catch (logErr) {
+          console.error('[growth/send-daily] SENT but could not log step', step, 'for', prospect.email, logErr.message);
+          errors.push({ email: prospect.email, error: 'sent, but the log row failed: ' + logErr.message });
+        }
+        await sendRules.record(store.pool, { email: prospect.email, subject, system: 'growth', refId: 'growth:' + prospect.id + ':' + step });
         sent++;
       } catch (sendErr) {
         console.error('[growth/send-daily] send error for', prospect.email, sendErr.message);

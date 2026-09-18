@@ -26,6 +26,22 @@
       "local_date": "DATE",
       "sent": "INT DEFAULT 0"
     },
+    "ai_call_ledger": {
+      "agent_id": "TEXT",
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "athlete_id": "TEXT",
+      "brand": "TEXT",
+      "cache_read_tokens": "INT DEFAULT 0",
+      "cache_write_tokens": "INT DEFAULT 0",
+      "est_usd": "NUMERIC(10,6)",
+      "id": "BIGSERIAL",
+      "input_tokens": "INT DEFAULT 0",
+      "model": "TEXT",
+      "ms": "INT",
+      "output_tokens": "INT DEFAULT 0",
+      "site": "TEXT",
+      "web_searches": "INT DEFAULT 0"
+    },
     "app_flags": {
       "applied_at": "TIMESTAMPTZ DEFAULT NOW()",
       "key": "TEXT"
@@ -196,6 +212,15 @@
       "id": "TEXT",
       "status": "TEXT DEFAULT 'pending'",
       "token": "TEXT"
+    },
+    "athlete_lookup_cache": {
+      "cache_key": "TEXT",
+      "checked_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "cost_usd": "NUMERIC(10,6)",
+      "found": "BOOLEAN DEFAULT FALSE",
+      "level": "TEXT",
+      "query": "JSONB",
+      "result": "JSONB"
     },
     "athlete_outreach": {
       "agent_id": "TEXT",
@@ -486,6 +511,12 @@
       "subject": "TEXT",
       "week_start": "DATE"
     },
+    "discovery_nightly": {
+      "athlete_id": "TEXT",
+      "label": "TEXT",
+      "n": "INT DEFAULT 0",
+      "night": "DATE"
+    },
     "email_accounts": {
       "access_token_enc": "TEXT",
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
@@ -512,6 +543,16 @@
       "to_addresses": "TEXT[]",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
       "user_id": "TEXT"
+    },
+    "email_sends": {
+      "agent_id": "TEXT",
+      "email": "TEXT",
+      "id": "SERIAL",
+      "ref_id": "TEXT",
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "subject": "TEXT",
+      "subject_key": "TEXT",
+      "system": "TEXT"
     },
     "email_suppression": {
       "agent_id": "TEXT",
@@ -724,6 +765,19 @@
       "twitter_handle": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "nightly_digest_sends": {
+      "agent_id": "TEXT",
+      "athletes": "JSONB DEFAULT '[]'::jsonb",
+      "cards": "INT DEFAULT 0",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "email": "TEXT",
+      "error": "TEXT",
+      "id": "SERIAL",
+      "provider_id": "TEXT",
+      "run_date": "DATE",
+      "sent_at": "TIMESTAMPTZ",
+      "status": "TEXT DEFAULT 'claimed'"
+    },
     "nil_activity_log": {
       "activity_type": "TEXT",
       "athlete_id": "TEXT",
@@ -807,7 +861,6 @@
       "spent_usd": "NUMERIC(10,4) DEFAULT 0"
     },
     "password_resets": {
-      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "email": "TEXT",
       "expires_at": "TIMESTAMPTZ",
       "id": "SERIAL",
@@ -896,6 +949,12 @@
       "email": "TEXT",
       "name": "TEXT"
     },
+    "research_claims": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "athlete_id": "TEXT",
+      "brand_key": "TEXT",
+      "night": "DATE"
+    },
     "roster_discovery_jobs": {
       "athletes_found": "INTEGER DEFAULT 0",
       "completed_at": "TIMESTAMPTZ",
@@ -983,6 +1042,21 @@
       "triggered_by": "TEXT",
       "university_id": "TEXT",
       "user_id": "TEXT"
+    },
+    "school_lookups": {
+      "city": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "evidence": "JSONB",
+      "found_by": "TEXT",
+      "id": "SERIAL",
+      "name": "TEXT",
+      "name_key": "TEXT",
+      "note": "TEXT",
+      "reviewed_at": "TIMESTAMPTZ",
+      "source": "TEXT",
+      "state": "TEXT",
+      "status": "TEXT DEFAULT 'auto'",
+      "uses": "INTEGER DEFAULT 1"
     },
     "shift_report_sends": {
       "agent_id": "TEXT",

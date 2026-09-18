@@ -175,6 +175,115 @@ async function loadBrandsSummary() {
 loadBrandsSummary();
 </script>
 
+<!-- ── Every email to one address, and the suppression list (services/sendRules) ──── -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Email sent to an address</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">Every email any part of NILDash sent to one address: subject, date, and which system sent it. The rules every sender follows: never the same subject twice, never two emails inside 4 days, follow-ups at 4 and 9 days, and nothing at all to a suppressed address.</div>
+    </div>
+    <form onsubmit="loadEmailHistory(); return false;" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="email-history-addr" type="email" placeholder="name@business.com" required style="font-size:12px;padding:6px 8px;width:240px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+      <select id="email-history-days" style="font-size:11px;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+        <option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option>
+      </select>
+      <button type="submit" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">Look up</button>
+    </form>
+  </div>
+  <div id="email-history-body" style="padding:12px 20px;font-size:12px;color:#f0ede6;line-height:1.6;color:rgba(240,237,230,0.5)">Enter an address to see what we sent it.</div>
+  <div style="padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Suppression list</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">An address here gets nothing from any system: no pitch, no follow-up, no digest, no report. Bounces land here on their own; add one by hand when someone asks us to stop. Adding stops every unsent draft to that address at once.</div>
+    </div>
+    <form onsubmit="addSuppression(); return false;" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="suppress-addr" type="email" placeholder="name@business.com" required style="font-size:12px;padding:6px 8px;width:220px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+      <input id="suppress-reason" type="text" placeholder="reason (optional)" style="font-size:12px;padding:6px 8px;width:200px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+      <button type="submit" style="font-size:11px;padding:6px 12px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:4px;color:#f0ede6;cursor:pointer">Stop all email to this address</button>
+      <button type="button" onclick="loadSuppression()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+    </form>
+  </div>
+  <div id="suppression-body" style="padding:12px 20px;font-size:12px;color:#f0ede6;line-height:1.6">Loading...</div>
+</div>
+<script>
+function _escAdmin(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+async function loadEmailHistory() {
+  var body = document.getElementById('email-history-body');
+  var addr = (document.getElementById('email-history-addr').value || '').trim();
+  var days = document.getElementById('email-history-days').value || '30';
+  if (!addr) return;
+  body.style.color = '#f0ede6';
+  body.textContent = 'Looking up ' + addr + '...';
+  try {
+    var r = await fetch('/api/admin/email-history?email=' + encodeURIComponent(addr) + '&days=' + encodeURIComponent(days));
+    var d = await r.json();
+    if (!r.ok) { body.textContent = d.error || ('error ' + r.status); return; }
+    var head = '<div style="margin-bottom:8px"><b>' + _escAdmin(d.email) + '</b>: ' + d.count + ' email' + (d.count === 1 ? '' : 's') + ' in the last ' + d.days + ' days'
+      + (d.suppressed ? ' <span style="color:#ef4444">· suppressed (' + _escAdmin(d.suppressed) + ')</span>' : '')
+      + (d.count ? ' · ' + Object.keys(d.bySystem).map(function (k) { return _escAdmin(k) + ' ' + d.bySystem[k]; }).join(', ') : '') + '</div>';
+    if (!d.rows.length) { body.innerHTML = head + '<div style="color:rgba(240,237,230,0.5)">Nothing sent to this address by any system in that window.</div>'; return; }
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.5);text-align:left">'
+      + '<th style="padding:6px 4px">Sent</th><th style="padding:6px 4px">Subject</th><th style="padding:6px 4px">System</th><th style="padding:6px 4px">Agent</th><th style="padding:6px 4px">Business</th></tr></thead><tbody>';
+    d.rows.forEach(function (x) {
+      h += '<tr style="border-top:1px solid rgba(255,255,255,0.06)">'
+        + '<td style="padding:6px 4px;white-space:nowrap">' + _escAdmin(String(x.sentAt || '').replace('T', ' ').slice(0, 16)) + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.subject || '(no subject)') + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.system) + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.agent || '') + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.brand || '') + '</td></tr>';
+    });
+    body.innerHTML = head + h + '</tbody></table>';
+  } catch (e) { body.textContent = 'Could not load: ' + e.message; }
+}
+async function loadSuppression() {
+  var body = document.getElementById('suppression-body');
+  body.textContent = 'Loading...';
+  try {
+    var r = await fetch('/api/admin/suppression');
+    var d = await r.json();
+    if (!r.ok) { body.textContent = d.error || ('error ' + r.status); return; }
+    if (!d.rows.length) { body.innerHTML = '<div style="color:rgba(240,237,230,0.5)">Nobody is suppressed.</div>'; return; }
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.5);text-align:left">'
+      + '<th style="padding:6px 4px">Address</th><th style="padding:6px 4px">Why</th><th style="padding:6px 4px">How</th><th style="padding:6px 4px">Since</th><th style="padding:6px 4px">Added by</th><th style="padding:6px 4px"></th></tr></thead><tbody>';
+    d.rows.forEach(function (x) {
+      h += '<tr style="border-top:1px solid rgba(255,255,255,0.06)">'
+        + '<td style="padding:6px 4px;font-weight:600">' + _escAdmin(x.email) + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.reason || '') + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.kind === 'manual' ? 'by hand' : (x.kind || 'bounce')) + '</td>'
+        + '<td style="padding:6px 4px;white-space:nowrap">' + _escAdmin(String(x.first_seen_at || '').slice(0, 10)) + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.agent_email || '') + '</td>'
+        + '<td style="padding:6px 4px;white-space:nowrap"><button onclick="removeSuppression(' + JSON.stringify(x.email).replace(/"/g, '&quot;') + ')" style="font-size:11px;padding:4px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">Allow again</button></td></tr>';
+    });
+    body.innerHTML = h + '</tbody></table>';
+  } catch (e) { body.textContent = 'Could not load: ' + e.message; }
+}
+async function addSuppression() {
+  var email = (document.getElementById('suppress-addr').value || '').trim();
+  var reason = (document.getElementById('suppress-reason').value || '').trim();
+  if (!email) return;
+  if (!confirm('Stop every NILDash email to ' + email + '? Unsent drafts to this address stop too.')) return;
+  try {
+    var r = await fetch('/api/admin/suppression', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email, reason: reason }) });
+    var d = await r.json();
+    if (!r.ok) { showToast(d.error || ('error ' + r.status)); return; }
+    showToast(d.email + ' suppressed; ' + d.stopped + ' unsent draft(s) stopped');
+    document.getElementById('suppress-addr').value = ''; document.getElementById('suppress-reason').value = '';
+    loadSuppression();
+  } catch (e) { showToast('Could not add: ' + e.message); }
+}
+async function removeSuppression(email) {
+  if (!confirm('Allow email to ' + email + ' again?')) return;
+  try {
+    var r = await fetch('/api/admin/suppression/' + encodeURIComponent(email), { method: 'DELETE' });
+    var d = await r.json();
+    if (!r.ok) { showToast(d.error || ('error ' + r.status)); return; }
+    showToast(email + ' can be emailed again');
+    loadSuppression();
+  } catch (e) { showToast('Could not remove: ' + e.message); }
+}
+loadSuppression();
+</script>
+
 <!-- ── Schools the app found for itself (services/schoolFind) ──── -->
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">

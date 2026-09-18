@@ -51,12 +51,17 @@ function recorder() {
   const sent = [];
   return { sent, fn: async (log) => { sent.push(log.brand_name); return { providerMessageId: 'm' + sent.length }; } };
 }
+// One address and one subject PER DRAFT. The shared send rules
+// (services/sendRules) never send one address the same subject twice or two
+// emails inside four days, so a fixture that mails "Hi" to x@ah.example three
+// times would be stopped by those before the gate under test is reached.
 async function draft(id, brand, athleteId) {
   await P().query(
     `INSERT INTO outreach_logs (id,agent_id,athlete_id,brand_name,brand_key,subject,body_html,
        status,sent_to_email,touch_no,scheduled_send_at)
-     VALUES ($1,$2,$3,$4,$5,'Hi','<p>x</p>','approved','x@ah.example',1,$6)`,
-    [id, AG, athleteId, brand, brand.toLowerCase(), new Date(WHEN.getTime() - 60000)]);
+     VALUES ($1,$2,$3,$4,$5,$7,'<p>x</p>','approved',$8,1,$6)`,
+    [id, AG, athleteId, brand, brand.toLowerCase(), new Date(WHEN.getTime() - 60000),
+      'Hi from ' + id, id + '@ah.example']);
 }
 async function places(brand, types) {
   await P().query(
@@ -80,6 +85,7 @@ async function main() {
     await P().query(`DELETE FROM agent_send_budget WHERE agent_id=$1`, [AG]).catch(() => {});
     await P().query(`DELETE FROM users WHERE id=$1`, [AG]).catch(() => {});
     await P().query(`DELETE FROM brand_evidence_cache WHERE brand_key LIKE 'ah:%'`).catch(() => {});
+    await P().query(`DELETE FROM email_sends WHERE email LIKE '%@ah.example'`).catch(() => {});
   };
   await clean();
   await P().query(`INSERT INTO users (id,name,email,password,role,report_tz)
