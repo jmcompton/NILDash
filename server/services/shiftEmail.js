@@ -106,6 +106,24 @@ function buildSubject(r, replies, waiting) {
   return 'Your team worked last night — nothing needs you';
 }
 
+// ── IS THERE ANYTHING IN IT? ─────────────────────────────────────────────────
+// An agent with no athletes got 29 daily reports in 30 days, every one of them
+// "nothing needs you". The sender asks this before it claims the day: a report
+// with no item to act on, no batch waiting, no work the team did overnight,
+// no fault to fix and no budget warning is not sent at all.
+function hasSomethingToSay(report) {
+  const r = report || {};
+  const items = (r.needsYou && r.needsYou.items) || [];
+  if (items.length) return true;
+  if (r.closer && Number(r.closer.pendingApproval) > 0) return true;
+  if (r.moving && (Number(r.moving.earnedCount) > 0 || Number(r.moving.inFlightCount) > 0)) return true;
+  const s = r.stat || {};
+  if (['kept', 'contacts', 'drafts', 'sent'].some((k) => Number(s[k]) > 0)) return true;
+  if (r.faults && (Number(r.faults.count) > 0 || (Array.isArray(r.faults.athletes) && r.faults.athletes.length))) return true;
+  if (r.verifyBudget) return true;
+  return false;
+}
+
 function renderShiftEmail(report, opts = {}) {
   const appUrl = opts.appUrl || 'https://mynildash.com';
   const name = opts.agentName ? String(opts.agentName).split(/\s+/)[0] : null;
@@ -134,7 +152,9 @@ function renderShiftEmail(report, opts = {}) {
   // call or a handle.
   const needs = allItems.filter((it) => it.kind !== 'reply');
 
-  const subject = buildSubject(r, replies, waiting);
+  // THE DATE IS IN THE SUBJECT. A daily email under one subject reads as one
+  // email sent 29 times; "..., Fri Sep 18" is a different email each morning.
+  const subject = require('./sendRules').withDate(buildSubject(r, replies, waiting), opts.date, opts.tz);
 
   const P = 'margin:0 0 12px;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#1a2230';
   const MUTED = 'margin:0;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#6b7c99';
@@ -375,4 +395,4 @@ function renderShiftEmail(report, opts = {}) {
   return { subject, html, text: textLines.join('\n') };
 }
 
-module.exports = { renderShiftEmail, deepLink, money };
+module.exports = { renderShiftEmail, hasSomethingToSay, buildSubject, deepLink, money };

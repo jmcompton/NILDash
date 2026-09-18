@@ -224,7 +224,8 @@ function renderSubject(d) {
 
 function renderDigestEmail(d, opts = {}) {
   const appUrl = String(opts.appUrl || 'https://mynildash.com').replace(/\/+$/, '');
-  const subject = renderSubject(d);
+  // Dated, so two mornings with the same counts are not the same email.
+  const subject = require('./sendRules').withDate(renderSubject(d), opts.date, opts.tz);
 
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f9fafb;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:24px 12px;">

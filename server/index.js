@@ -5155,21 +5155,30 @@ async function _sendDueShiftReports() {
       // the claim so the day is not burned on an email that did not go.
       const supRule = await require('./services/sendRules').check(store.pool, { email: u.email, system: 'shift-report' });
       if (!supRule.ok) { console.log(`[shift-report/send] agent=${u.id} skipped: ${supRule.reason}`); continue; }
+      // ── NOTHING TO SAY, NOTHING SENT ─────────────────────────────────────
+      // An agent with no athletes has no team and no morning; an agent whose
+      // report has no item, no batch, no overnight work and no fault gets no
+      // email either. Decided BEFORE the claim, and silently: an empty day is
+      // not a failure and is not logged as one. (One agent with no athletes
+      // received 29 identical "nothing needs you" reports in 30 days.)
+      const roster = await store.pool.query(`SELECT COUNT(*)::int AS n FROM athletes WHERE agent_id = $1`, [u.id]);
+      if (!(roster.rows[0] && roster.rows[0].n > 0)) continue;
+      const rep = await shiftReport.buildShiftReport(store.pool, u.id);
+      if (stillRunning && rep.run) rep.run.inProgress = true;
+      if (!require('./services/shiftEmail').hasSomethingToSay(rep)) continue;
       const claim = await store.pool.query(
         `INSERT INTO shift_report_sends (agent_id, local_date) VALUES ($1,$2)
          ON CONFLICT (agent_id, local_date) DO NOTHING RETURNING agent_id`, [u.id, localDate]);
       if (!claim.rowCount) continue;   // already sent this local day
-      const rep = await shiftReport.buildShiftReport(store.pool, u.id);
-      if (stillRunning && rep.run) rep.run.inProgress = true;
-      const mail = renderShiftEmail(rep, { appUrl, agentName: u.name });
+      const mail = renderShiftEmail(rep, { appUrl, agentName: u.name, date: now, tz });
       // Reply-To is the agent's own address: a reply to the report should reach
       // them, not a noreply black hole.
       await resend.emails.send({
         from: 'NILDash <noreply@mynildash.com>',
         to: u.email, subject: mail.subject, html: mail.html, text: mail.text,
       });
-      await store.pool.query(`UPDATE shift_report_sends SET items=$3 WHERE agent_id=$1 AND local_date=$2`,
-        [u.id, localDate, (rep.needsYou && rep.needsYou.items.length) || 0]).catch(() => {});
+      await store.pool.query(`UPDATE shift_report_sends SET items=$3, subject=$4 WHERE agent_id=$1 AND local_date=$2`,
+        [u.id, localDate, (rep.needsYou && rep.needsYou.items.length) || 0, mail.subject]).catch(() => {});
       console.log(`[shift-report/send] agent=${u.id} local=${localDate} items=${(rep.needsYou && rep.needsYou.items.length) || 0}`);
     } catch (e) {
       console.error('[shift-report/send] agent=' + u.id, e.message);
@@ -5243,14 +5252,14 @@ async function _sendDueDeliverableDigests() {
          ON CONFLICT (agent_id, local_date) DO NOTHING RETURNING agent_id`, [u.id, localDate]);
       if (!claim.rowCount) continue;   // already sent this local day
 
-      const mail = digest.renderDigestEmail(d, { appUrl, agentName: u.name });
+      const mail = digest.renderDigestEmail(d, { appUrl, agentName: u.name, date: now, tz });
       await resend.emails.send({
         from: 'NILDash <noreply@mynildash.com>',
         to: u.email, subject: mail.subject, html: mail.html, text: mail.text,
       });
       await store.pool.query(
-        `UPDATE deliverable_reminder_sends SET items=$3 WHERE agent_id=$1 AND local_date=$2`,
-        [u.id, localDate, d.total]).catch(() => {});
+        `UPDATE deliverable_reminder_sends SET items=$3, subject=$4 WHERE agent_id=$1 AND local_date=$2`,
+        [u.id, localDate, d.total, mail.subject]).catch(() => {});
       console.log(`[deliverable-digest] agent=${u.id} local=${localDate} `
         + `overdue=${d.overdue.length} tomorrow=${d.tomorrow.length} soon=${d.soon.length}`);
     } catch (e) {
@@ -11467,6 +11476,51 @@ app.get('/api/admin/email-history', requireAuth, async (req, res) => {
       email, days, count: rows.length, suppressed: sup.suppressed ? sup.reason : null, bySystem,
       rows: rows.map((r) => ({ sentAt: r.sentAt, subject: r.subject, system: r.label, touch: r.touch || null,
         agent: r.agentId ? ((byId.get(r.agentId) || {}).email || r.agentId) : null, ref: r.ref || null, brand: r.brand || null })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// GET /api/admin/empty-reports
+//   Who is getting a daily report with nothing in it. For every agent with the
+//   report enabled: their athlete count, the reports sent in the last 30 days
+//   and how many of those carried zero items, and whether today's report would
+//   be sent under the rule now in force (no athletes, or nothing to say: not
+//   sent). Read only.
+app.get('/api/admin/empty-reports', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    const agents = (await store.pool.query(
+      `SELECT u.id, u.email, u.name,
+              (SELECT COUNT(*)::int FROM athletes a WHERE a.agent_id = u.id) AS athletes,
+              (SELECT COUNT(*)::int FROM shift_report_sends s WHERE s.agent_id = u.id AND s.local_date >= CURRENT_DATE - 30) AS sends30,
+              (SELECT COUNT(*)::int FROM shift_report_sends s WHERE s.agent_id = u.id AND s.local_date >= CURRENT_DATE - 30 AND COALESCE(s.items,0) = 0) AS empty30,
+              (SELECT MAX(s.local_date) FROM shift_report_sends s WHERE s.agent_id = u.id) AS last_sent
+         FROM users u
+        WHERE COALESCE(u.report_enabled,true) = true AND u.role <> 'athlete'
+          AND COALESCE(u.archived,false) = false AND u.email IS NOT NULL
+        ORDER BY empty30 DESC, u.email`)).rows;
+    const SE = require('./services/shiftEmail');
+    const rows = [];
+    for (const a of agents) {
+      let wouldSend = null, why = null;
+      if (!(a.athletes > 0)) { wouldSend = false; why = 'no athletes'; }
+      else {
+        try {
+          const rep = await shiftReport.buildShiftReport(store.pool, a.id);
+          wouldSend = SE.hasSomethingToSay(rep);
+          if (!wouldSend) why = 'nothing to say';
+        } catch (e) { why = 'could not build: ' + e.message; }
+      }
+      rows.push({ agent: a.email, name: a.name, athletes: a.athletes, sends30: a.sends30, empty30: a.empty30,
+        lastSent: a.last_sent ? String(a.last_sent).slice(0, 10) : null, wouldSendToday: wouldSend, why });
+    }
+    res.json({
+      enabled: rows.length,
+      noAthletes: rows.filter((r) => !(r.athletes > 0)).length,
+      gettingEmptyReports: rows.filter((r) => r.sends30 > 0 && r.empty30 === r.sends30).length,
+      wouldBeSkippedToday: rows.filter((r) => r.wouldSendToday === false).length,
+      note: 'gettingEmptyReports counts agents whose every daily report in the last 30 days had zero items. wouldBeSkippedToday counts agents the new rule would not email this morning.',
+      rows,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

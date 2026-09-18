@@ -32,7 +32,9 @@ function crypto() { return require('crypto'); }
 // Archived accounts and unsubscribes are excluded.
 async function recipients(pool, onlyEmail) {
   const params = [];
-  let where = `role IN ('agent','admin') AND archived IS NOT TRUE AND digest_unsubscribed IS NOT TRUE`;
+  // An agent with no athletes has nothing to digest and gets no email.
+  let where = `role IN ('agent','admin') AND archived IS NOT TRUE AND digest_unsubscribed IS NOT TRUE
+    AND EXISTS (SELECT 1 FROM athletes a WHERE a.agent_id = users.id)`;
   if (onlyEmail) { params.push(String(onlyEmail).toLowerCase()); where += ` AND LOWER(email) = $1`; }
   const r = await pool.query(`
     SELECT id, name, email, comped, plan, subscription_status, last_login,
@@ -119,7 +121,8 @@ async function run(opts = {}) {
       continue;
     }
 
-    const subject = digest.buildSubject(d);
+    // Dated with the week it covers, so two quiet weeks are not one email twice.
+    const subject = require('../services/sendRules').withDate(digest.buildSubject(d), weekStart + 'T12:00:00Z', 'America/Chicago').replace(/, (\w{3} \w{3} \d+)$/, ', week of $1');
     const token = dryRun ? 'DRYRUN' : await unsubToken(pool, user);
     const html = digest.renderHtml(d, { appUrl: APP_URL, unsubToken: token });
     const text = digest.renderText(d);

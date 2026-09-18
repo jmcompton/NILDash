@@ -68,6 +68,27 @@ const NOTICE_SYSTEMS = new Set(['nightly-digest', 'weekly-digest', 'shift-report
 
 function normalize(email) { return suppression.normalize(email); }
 
+// ── THE DATE IN THE SUBJECT ──────────────────────────────────────────────────
+// One agent got 29 daily reports in 30 days under one subject. A recurring
+// email carries its date in the subject ("..., Fri Sep 18") so no two days
+// are the same email, and the history page can tell them apart. In the
+// agent's own timezone, because the report is about their morning.
+function dayLabel(date, tz) {
+  const d = date ? new Date(date) : new Date();
+  const zone = tz && /^[A-Za-z]+\/[A-Za-z_]+$/.test(tz) ? tz : 'America/Chicago';
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'short', month: 'short', day: 'numeric' })
+      .format(d).replace(/,/g, '');
+  } catch (_) {
+    return d.toDateString().replace(/^(\w+) (\w+) (\d+).*$/, (m, w, mo, da) => `${w} ${mo} ${Number(da)}`);
+  }
+}
+function withDate(subject, date, tz) {
+  const s = String(subject || '').trim();
+  const label = dayLabel(date, tz);
+  return s.endsWith(', ' + label) ? s : `${s}, ${label}`;
+}
+
 // Same subject means the same words. Case and spacing do not make a new
 // subject; "Re:" does, because a reply in the thread is a different email to
 // the person reading it. Never strip it here.
@@ -163,16 +184,20 @@ async function history(pool, email, opts = {}) {
              LEFT JOIN growth_sequences s ON s.type = p.type
             WHERE LOWER(p.email) = $1 AND l.sent_at >= $2`, [addr, since],
     (r) => ({ sentAt: r.sent_at, subject: r.subject, system: 'growth', agentId: null, ref: 'growth:' + r.id, touch: r.sequence_step }));
-  await q(`SELECT id, sent_at, agent_id FROM nightly_digest_sends WHERE LOWER(email) = $1 AND status = 'sent' AND sent_at >= $2`, [addr, since],
-    (r) => ({ sentAt: r.sent_at, subject: 'Your athletes have new pitches ready', system: 'nightly-digest', agentId: r.agent_id, ref: 'nd:' + r.id }));
+  await q(`SELECT id, sent_at, agent_id, subject FROM nightly_digest_sends WHERE LOWER(email) = $1 AND status = 'sent' AND sent_at >= $2`, [addr, since],
+    (r) => ({ sentAt: r.sent_at, subject: r.subject || 'Your athletes have new pitches ready', system: 'nightly-digest', agentId: r.agent_id, ref: 'nd:' + r.id }));
   await q(`SELECT id, sent_at, agent_id, subject FROM digest_sends WHERE LOWER(email) = $1 AND status = 'sent' AND sent_at >= $2`, [addr, since],
     (r) => ({ sentAt: r.sent_at, subject: r.subject, system: 'weekly-digest', agentId: r.agent_id, ref: 'wd:' + r.id }));
-  await q(`SELECT s.agent_id, s.local_date, s.sent_at FROM shift_report_sends s JOIN users u ON u.id = s.agent_id
+  // The subject column on these two is new; rows written before it carry the
+  // system's name and the day, which is all that was known about them.
+  await q(`SELECT s.agent_id, s.local_date, s.sent_at, s.subject, s.items FROM shift_report_sends s JOIN users u ON u.id = s.agent_id
             WHERE LOWER(u.email) = $1 AND COALESCE(s.sent_at, s.local_date::timestamptz) >= $2`, [addr, since],
-    (r) => ({ sentAt: r.sent_at || r.local_date, subject: 'Shift report', system: 'shift-report', agentId: r.agent_id, ref: 'sr:' + r.agent_id + ':' + String(r.local_date).slice(0, 10) }));
-  await q(`SELECT s.agent_id, s.local_date, s.sent_at FROM deliverable_reminder_sends s JOIN users u ON u.id = s.agent_id
+    (r) => ({ sentAt: r.sent_at || r.local_date, subject: r.subject || ('Daily report (subject not recorded), ' + String(r.local_date).slice(0, 10)),
+      system: 'shift-report', agentId: r.agent_id, ref: 'sr:' + r.agent_id + ':' + String(r.local_date).slice(0, 10), items: r.items }));
+  await q(`SELECT s.agent_id, s.local_date, s.sent_at, s.subject FROM deliverable_reminder_sends s JOIN users u ON u.id = s.agent_id
             WHERE LOWER(u.email) = $1 AND COALESCE(s.sent_at, s.local_date::timestamptz) >= $2`, [addr, since],
-    (r) => ({ sentAt: r.sent_at || r.local_date, subject: 'Deliverable reminders', system: 'deliverable-digest', agentId: r.agent_id, ref: 'dr:' + r.agent_id + ':' + String(r.local_date).slice(0, 10) }));
+    (r) => ({ sentAt: r.sent_at || r.local_date, subject: r.subject || ('Deliverable reminders (subject not recorded), ' + String(r.local_date).slice(0, 10)),
+      system: 'deliverable-digest', agentId: r.agent_id, ref: 'dr:' + r.agent_id + ':' + String(r.local_date).slice(0, 10) }));
   await q(`SELECT id, subject, sent_at, user_id FROM emails
             WHERE direction = 'sent' AND sent_at >= $2 AND $1::text = ANY(SELECT LOWER(x) FROM unnest(to_addresses) x)`, [addr, since],
     (r) => ({ sentAt: r.sent_at, subject: r.subject, system: 'compose', agentId: r.user_id, ref: 'inbox:' + r.id }));
@@ -285,7 +310,7 @@ async function listSuppressed(pool, opts = {}) {
 
 module.exports = {
   WINDOW_DAYS, SYSTEMS, NOTICE_SYSTEMS,
-  normalize, subjectKey, systemOfLog, labelFor,
+  normalize, subjectKey, systemOfLog, labelFor, dayLabel, withDate,
   ensureTable, record, history, check, lastSend,
   suppressManually, unsuppress, listSuppressed,
 };
