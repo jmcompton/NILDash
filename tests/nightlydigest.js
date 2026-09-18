@@ -64,7 +64,7 @@ async function main() {
   // ── 2. THE EMAIL ─────────────────────────────────────────────────────────
   OUT.push('', '-- the email --');
   const m = D.render({ rows, reviewUrl: 'https://mynildash.com/', unsubUrl: 'https://mynildash.com/api/digest/unsubscribe?token=t' });
-  ok('subject', m.subject === 'Your athletes have new pitches ready', m.subject);
+  ok('subject, dated so no two nights are the same email', /^Your athletes have new pitches ready, \w{3} \w{3} \d{1,2}$/.test(m.subject), m.subject);
   ok('the one line at the top', m.html.includes("NILDash found new opportunities for your athletes last night. Here&#39;s what&#39;s ready.") || m.html.includes("NILDash found new opportunities for your athletes last night. Here's what's ready."));
   ok('  and it is the first thing in the body after the preheader', m.html.indexOf('NILDash found new opportunities') < m.html.indexOf('Peyton Bair'));
   ok('one row per athlete: name, school or city, count, Review link to the dashboard', (m.html.match(/>Review<\/a>/g) || []).length === 3 && (m.html.match(/href="https:\/\/mynildash\.com\/"/g) || []).length === 3 && /Peyton Bair[\s\S]*Auburn University[\s\S]*3 new pitches/.test(m.html) && /Max Murray[\s\S]*New York, NY[\s\S]*1 new pitch</.test(m.html));

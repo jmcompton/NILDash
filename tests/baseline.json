@@ -312,6 +312,11 @@
       "total": 53,
       "fault": null
     },
+    "emptyreports.js": {
+      "failed": 0,
+      "total": 38,
+      "fault": null
+    },
     "engagement.js": {
       "failed": 2,
       "total": 68,

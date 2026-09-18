@@ -494,7 +494,8 @@
       "agent_id": "TEXT",
       "items": "INT DEFAULT 0",
       "local_date": "DATE",
-      "sent_at": "TIMESTAMPTZ DEFAULT NOW()"
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "subject": "TEXT"
     },
     "digest_sends": {
       "agent_id": "TEXT",
@@ -776,7 +777,8 @@
       "provider_id": "TEXT",
       "run_date": "DATE",
       "sent_at": "TIMESTAMPTZ",
-      "status": "TEXT DEFAULT 'claimed'"
+      "status": "TEXT DEFAULT 'claimed'",
+      "subject": "TEXT"
     },
     "nil_activity_log": {
       "activity_type": "TEXT",
@@ -1062,7 +1064,8 @@
       "agent_id": "TEXT",
       "items": "INT DEFAULT 0",
       "local_date": "DATE",
-      "sent_at": "TIMESTAMPTZ DEFAULT NOW()"
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "subject": "TEXT"
     },
     "site_email_jobs": {
       "collapsed": "INT DEFAULT 0",

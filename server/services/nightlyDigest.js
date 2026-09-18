@@ -52,8 +52,11 @@ function placeOf(a) {
 
 // rows: [{ name, place, count }]. Plain, one column on a phone, table-based so
 // every mail client renders it the same way.
-function render({ rows, reviewUrl, unsubUrl }) {
+function render({ rows, reviewUrl, unsubUrl, date, tz }) {
   const n = rows.reduce((s, r) => s + (r.count || 0), 0);
+  // Dated: the digest goes out most nights, and one subject for every night
+  // reads as one email sent thirty times.
+  const subject = require('./sendRules').withDate(SUBJECT, date, tz);
   const review = esc(reviewUrl);
   const tr = rows.map((r) => `
       <tr>
@@ -69,7 +72,7 @@ function render({ rows, reviewUrl, unsubUrl }) {
         </td>
       </tr>`).join('');
   const html = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(SUBJECT)}</title></head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(subject)}</title></head>
 <body style="margin:0;padding:0;background:#f6f6f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#111827">
   <div style="display:none;max-height:0;overflow:hidden;color:#f6f6f4">${esc(rows.length)} athlete${rows.length === 1 ? '' : 's'}, ${n} new pitch${n === 1 ? '' : 'es'}.</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f4">
@@ -87,7 +90,7 @@ function render({ rows, reviewUrl, unsubUrl }) {
   </table>
 </body></html>`;
   const text = [INTRO, '', ...rows.map((r) => `${r.name}${r.place ? ` (${r.place})` : ''}: ${r.count} new pitch${r.count === 1 ? '' : 'es'}. Review: ${reviewUrl}`), '', FOOTER, unsubUrl ? `\nUnsubscribe: ${unsubUrl}` : ''].join('\n');
-  return { subject: SUBJECT, html, text };
+  return { subject, html, text };
 }
 
 // The night's per-athlete results (the run row's details) -> the rows, with
@@ -124,7 +127,7 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
   const cards = rows.reduce((s, r) => s + r.count, 0);
   if (!rows.length || !cards) return { sent: false, reason: 'no new cards', athletes: 0, cards: 0 };
   const u = (await pool.query(
-    `SELECT id, name, email, role, archived, digest_unsubscribed, digest_unsub_token FROM users WHERE id = $1`, [agentId])).rows[0];
+    `SELECT id, name, email, role, archived, digest_unsubscribed, digest_unsub_token, report_tz FROM users WHERE id = $1`, [agentId])).rows[0];
   if (!u || !u.email) return { sent: false, reason: 'no such agent, or no email', athletes: rows.length, cards };
   if (u.archived === true) return { sent: false, reason: 'archived', athletes: rows.length, cards };
   if (u.digest_unsubscribed === true) return { sent: false, reason: 'unsubscribed', athletes: rows.length, cards };
@@ -147,7 +150,8 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
 
   const token = await unsubToken(pool, u);
   const unsubUrl = `${APP_URL()}/api/digest/unsubscribe?token=${encodeURIComponent(token)}`;
-  const msg = render({ rows, reviewUrl: `${APP_URL()}/`, unsubUrl });
+  const msg = render({ rows, reviewUrl: `${APP_URL()}/`, unsubUrl, date: opts.now || new Date(), tz: u.report_tz });
+  await pool.query(`UPDATE nightly_digest_sends SET subject = $2 WHERE id = $1`, [id, msg.subject]).catch(() => {});
   try {
     const send = opts.send || (async (m) => {
       const { Resend } = require('resend');

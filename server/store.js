@@ -374,6 +374,7 @@ async function init() {
     )
   `).then(() => console.log('[init] deliverable_reminder_sends table ready'))
     .catch(e => console.error('[init] deliverable_reminder_sends:', e.message));
+  await pool.query(`ALTER TABLE deliverable_reminder_sends ADD COLUMN IF NOT EXISTS subject TEXT`).catch(() => {});
 
   // The digest and the Home pin both ask "what is due, or overdue, and not done"
   // across a whole roster. Chad's 45 clients with recurring monthly items is
@@ -932,6 +933,7 @@ async function init() {
   `).then(() => console.log('[init] digest_sends table ready'))
     .catch(e => console.error('[init] digest_sends:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_digest_sends_week ON digest_sends (week_start)`).catch(() => {});
+  await pool.query(`ALTER TABLE nightly_digest_sends ADD COLUMN IF NOT EXISTS subject TEXT`).catch(() => {});
 
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_athlete_state ON brand_engagement (athlete_id, state)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_agent_key ON brand_engagement (agent_id, brand_key)`).catch(() => {});
@@ -1797,6 +1799,8 @@ async function init() {
     )
   `).then(() => console.log('[init] shift_report_sends table ready'))
     .catch(e => console.error('[init] shift_report_sends:', e.message));
+  // The subject that went out, so the admin email-history page can show it.
+  await pool.query(`ALTER TABLE shift_report_sends ADD COLUMN IF NOT EXISTS subject TEXT`).catch(() => {});
 
   // ── The same idea for the ATHLETE report ──────────────────────────────────
   // One row per report sent to an athlete's family, which is what
