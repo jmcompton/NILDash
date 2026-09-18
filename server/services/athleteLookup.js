@@ -288,6 +288,7 @@ async function cachePut(key, level, q, result) {
 const FIELDS = ['name', 'school', 'team', 'league', 'city', 'sport', 'position', 'year', 'jersey', 'hometown', 'hometownState',
   'height', 'weight', 'instagramHandle', 'instagram', 'tiktokHandle', 'tiktok', 'highlight', 'college'];
 const NEVER = /birth|dob|\bage\b|born/i;
+const KNOWN_OK = new Set(['team', 'league', 'sport', 'position', 'city', 'jersey']);
 const cleanHandle = (h) => { const s = String(h || '').trim().replace(/^https?:\/\/(www\.)?(instagram|tiktok)\.com\/@?/i, '').replace(/^@+/, '').replace(/[/?#].*$/, '').toLowerCase(); return /^[a-z0-9._]{1,40}$/.test(s) ? s : null; };
 function parseCount(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -323,6 +324,12 @@ function sanitizeWeb(raw, citations, level) {
     // or fetched; a source the search never returned blanks the field. A
     // field with no source of its own inherits the profile page.
     const s = String(srcIn[f] || '').trim();
+    // A PRO IS A PUBLIC FIGURE: the team, league, sport, position, city and
+    // jersey may come from what the model already knows (source
+    // 'knowledge'), the way an agent would say them without looking. What
+    // changes (the season line, the handles, the follower counts, a recent
+    // team change) still has to be read from a page the search returned.
+    if (level === 'pro' && KNOWN_OK.has(f) && /^knowledge$/i.test(s)) { out[f] = v; sources[f] = 'knowledge'; continue; }
     const url = s ? (cited.has(s) ? s : null) : profile;
     if (!url) continue;                 // no source, no field
     out[f] = v; sources[f] = url;
@@ -365,12 +372,19 @@ const SHAPE = `Return ONLY a JSON object, no markdown:
   ],
   "searchNote": "one sentence about what you found or why nothing matched"
 }`;
-const RULES = `RULES:
-- Every field must be read from a page the search returned or you fetched, and its URL must be in "sources". A field you cannot point at a URL for is null. Never guess, never fill from memory.
+const RULES_PRO_HEAD = `RULES:
+- This is a PUBLIC FIGURE. Start with what you already know: the team, the league, the sport, the position, the team's home city as "City, ST" and the jersey number. Put "knowledge" as the source for each of those; do not spend a search on them.
+- Use your searches ONLY for what changes: the current season's stat line and honors (read the official league page or Wikipedia and write one sentence: the current season line plus career highlights, as "highlight"), the Instagram and TikTok handles and follower counts, and whether they changed teams recently (if a page shows a newer team, use it and cite the page).
+- Every field that is NOT team, league, sport, position, city or jersey must be read from a page the search returned or you fetched, with its URL in "sources". A field you cannot point at a URL for is null.`;
+const RULES_COLLEGE_HEAD = `RULES:
+- Every field must be read from a page the search returned or you fetched, and its URL must be in "sources". A field you cannot point at a URL for is null. Never guess, never fill from memory.`;
+const RULES_TAIL = `
 - Follower counts: read the number off the instagram.com or tiktok.com result snippet ("12.3K followers") for the exact handle; approximate is fine; null when no snippet shows one.
 - If more than one athlete could match, list each (up to three) with sport, position and class year so the agent can choose.
 - Never report a birth date, a birthday or an age, under any field name.
 - If nothing matched, return found: false with an empty list.`;
+const RULES = RULES_COLLEGE_HEAD + '\n' + RULES_TAIL;
+const RULES_PRO = RULES_PRO_HEAD + '\n' + RULES_TAIL;
 
 function promptFor(level, q, feedTop) {
   const nm = q.name;
@@ -394,9 +408,9 @@ ${RULES}
 Name: ${nm}
 Sport: ${q.sport || 'unknown'}
 Team: ${q.team || 'unknown'}${q.city ? '\nCity: ' + q.city : ''}
-${known}Search, in this order: "${nm}"${teamQ} wikipedia; "${nm}"${teamQ} roster; "${nm}" ${q.sport || ''}${teamQ} position. PREFER Wikipedia and the team's official roster page (the club's own site, nfl.com, nba.com, mlb.com, nhl.com, mlssoccer.com, wnba.com, gleague.nba.com, theahl.com, echl.com, cfl.ca, theufl.com, uslchampionship.com); ESPN pages are fine to read but not required. Report the sport, the position, the team, the team's home city as "City, ST", and the jersey number, each with the URL it was read from. Then "${nm}" instagram and "${nm}" tiktok if searches remain.
+${known}First, from what you already know, fill the team, league, sport, position, home city and jersey number (source "knowledge"). Then search for what changes: "${nm}"${teamQ} stats (the official league page: nfl.com, nba.com, mlb.com, nhl.com, mlssoccer.com, wnba.com, or Wikipedia; write one sentence with the current season line and career highlights as "highlight"); "${nm}" instagram; "${nm}" tiktok. If a result shows a newer team than you knew, use it and cite the page.
 ${SHAPE}
-${RULES}
+${RULES_PRO}
 - A college athlete is NOT a match; if the only person by this name is on a college roster, return found: false and say so.`;
   }
   const known = feedTop ? `ESPN's roster feed already confirmed: ${feedTop.name}, ${feedTop.school} ${feedTop.sport}${feedTop.position ? ', ' + feedTop.position : ''}${feedTop.year ? ', ' + feedTop.year : ''}. Find what the feed does not carry: Instagram and TikTok handles with approximate follower counts, and a one-line highlight (an award, a stat line, recent news).\n` : '';
@@ -585,15 +599,21 @@ async function resolveAthlete(ai, q, opts = {}) {
   //    THEIR TEAM AND THEIR POSITION. The model's JSON is a claim; a search
   //    result's title or snippet is the evidence. With no such result the
   //    candidate is dropped and the trace says so.
+  // A PRO CANDIDATE STANDS ON A TEAM AND A POSITION, the way a college one
+  // stands on a school: from what the model knows (a public figure) or from a
+  // page. A search result that names the player, the team and the position
+  // together is noted as corroboration; its absence is not a refusal.
   if (level === 'pro' && !feedTop && web.candidates.length) {
     const before = web.candidates.length;
     web.candidates = web.candidates.filter((w) => {
+      if (!w.team || !w.position) { trace.push(`web candidate "${w.name}" dropped: no team or no position (team ${w.team || '?'}, position ${w.position || '?'})`); return false; }
       const ev = proWebEvidence(w, web.results || []);
-      if (!ev) trace.push(`web candidate "${w.name}" dropped: no search result names the player, the team (${w.team || '?'}) and the position (${w.position || '?'}) together`);
-      else { w.sources = Object.assign({}, w.sources, { team: w.sources.team || ev.url, position: w.sources.position || ev.url }); w.evidenceUrl = ev.url; trace.push(`web candidate "${w.name}" accepted: ${ev.url} names the player, ${w.team} and ${w.position}`); }
-      return !!ev;
+      const how = (w.sources && w.sources.team === 'knowledge') ? 'team and position from model knowledge (public figure)' : 'team and position from a cited page';
+      if (ev) { w.evidenceUrl = ev.url; trace.push(`web candidate "${w.name}" kept: ${how}; corroborated by ${ev.url}`); }
+      else trace.push(`web candidate "${w.name}" kept: ${how}; no search result corroborated team and position together`);
+      return true;
     });
-    if (before && !web.candidates.length) trace.push('web search gave up: every candidate lacked a source naming player, team and position');
+    if (before && !web.candidates.length) trace.push('web search gave up: every candidate lacked a team or a position');
   }
 
   let candidates = [];
@@ -704,7 +724,7 @@ async function proSearchStage(normName, team, city, normSport, normPosition) {
 }
 
 module.exports = {
-  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, FIELDS, proWebEvidence,
+  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, FIELDS, proWebEvidence, RULES, RULES_PRO, KNOWN_OK,
   normalizeName, normalizeSchool, normalizeSport, nameMatchScore, schoolsMatch, ESPN_SUPPORTED_SPORTS,
   leagueFor, proSearchStage, _deepseekStage, _setSearchLoopForTests,
   CACHE_DAYS, MISS_CACHE_HOURS,
