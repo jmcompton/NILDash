@@ -310,7 +310,7 @@ async function main() {
   const al = src('server/services/athleteLookup.js');
   ok('resolveAthlete accepts the pro fields', /if \(level === 'pro'\) \{[\s\S]*?Feeds\.searchFeeds\(\{ name, sport: proSport, team/.test(al) && /athleteType === 'pro'\) return 'pro'/.test(al));
   ok('  a pro lookup skips the ESPN college stage', /else if \(level === 'college'\) \{[\s\S]*?espnCollegeStage\(/.test(al) && al.indexOf("level === 'pro'") < al.indexOf('espnCollegeStage(normName'));
-  ok('  and the prompt asks for Wikipedia and the team roster page, not a school', /PREFER Wikipedia and the team's official roster page/.test(al) && /A college athlete is NOT a match/.test(al));
+  ok('  and the prompt starts from what the model knows, searches for what changes, and never a school', /First, from what you already know, fill the team, league, sport, position, home city and jersey number/.test(al) && /A college athlete is NOT a match/.test(al));
   ok('  it asks for position, team, city and what they are known for', /"team":/.test(al) && /"city":/.test(al) && /"highlight":/.test(al) && /knownFor: isPro \? \(c\.highlight \|\| null\) : null/.test(al));
   ok('  and does not carry a class year or a school tier on a pro', /year: isPro \? null : \(c\.year \|\| null\)/.test(al) && /schoolTier: isPro \? null : inferSchoolTier\(c\.school\)/.test(al));
   ok('the route passes the pro fields through', /const \{ name, school, sport, position, year, athleteType, team, city \} = req\.body;/.test(src('server/index.js')));

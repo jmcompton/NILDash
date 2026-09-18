@@ -43,7 +43,7 @@ async function main() {
   const totals = {};
   for (const [league, list] of Object.entries(PLAYERS)) {
     if (only && league !== only) continue;
-    let hits = 0;
+    let hits = 0, stats = 0, handle = 0, count = 0;
     console.log(`\n${league}${noTeam ? ' (name and sport only)' : ' (name, sport and team)'}`);
     for (const [name, team, pos] of list) {
       const t0 = Date.now();
@@ -53,13 +53,17 @@ async function main() {
       const best = r.candidates && r.candidates[0];
       const hit = !!(best && best.team);
       if (hit) hits++;
+      if (best && (best.highlight || best.stats)) stats++;
+      if (best && best.instagramHandle) handle++;
+      if (best && Number(best.instagram) > 0) count++;
       console.log(`  ${hit ? 'HIT ' : 'MISS'} ${name.padEnd(26)} expected ${(team + ', ' + pos).padEnd(34)} got ${best ? `${best.name}, ${best.team || '?'}, ${best.position || '?'} (${best.sourceLabel || best.source || '?'}, ${best.confidence || 0})` : 'nothing'}  ${Date.now() - t0}ms`);
+      if (best) console.log(`       stats: ${best.highlight || best.stats || '(none)'}\n       instagram: ${best.instagramHandle ? '@' + best.instagramHandle : '(no handle)'}${Number(best.instagram) > 0 ? ' ' + Number(best.instagram).toLocaleString() + (best.followersApprox ? ' approx' : '') + (best.followersAsOf ? ' as of ' + best.followersAsOf : '') : ' (no count)'}  tiktok: ${best.tiktokHandle ? '@' + best.tiktokHandle : '(no handle)'}`);
       for (const line of (r.trace || [])) console.log(`       ${line}`);
     }
-    totals[league] = { hits, of: list.length };
+    totals[league] = { hits, stats, handle, count, of: list.length };
   }
-  console.log('\nHIT RATE BY LEAGUE');
-  for (const [lg, t] of Object.entries(totals)) console.log(`  ${lg.padEnd(5)} ${t.hits} of ${t.of}${t.hits >= 8 ? '' : '   (below the 8 of 10 bar)'}`);
+  console.log('\nHIT RATE BY LEAGUE (athlete found / stats filled / Instagram handle / follower count)');
+  for (const [lg, t] of Object.entries(totals)) console.log(`  ${lg.padEnd(5)} athlete ${t.hits} of ${t.of}${t.hits >= t.of ? '' : '  (bar: ' + t.of + ' of ' + t.of + ')'}   stats ${t.stats} of ${t.of}${t.stats >= 8 ? '' : '  (bar: 8)'}   instagram handle ${t.handle} of ${t.of}${t.handle >= 8 ? '' : '  (bar: 8)'}   follower count ${t.count} of ${t.of}`);
   try { await require('../server/store').pool.end(); } catch (_) {}
   process.exit(0);
 }

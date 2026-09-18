@@ -115,7 +115,7 @@ async function main() {
   ok('a high school is read off the school name', AL.levelOf({ name: 'x', school: 'Hoover High School' }) === 'high_school' && AL.levelOf({ name: 'x', school: 'IMG Academy' }) === 'high_school');
   ok('everything else is college, NAIA and JUCO included', AL.levelOf({ name: 'x', school: 'Auburn University' }) === 'college' && AL.levelOf({ name: 'x', school: 'Wallace State Community College' }) === 'college');
   ok('the prompts name the sites per level', /maxpreps/.test(AL.promptFor('high_school', { name: 'x', school: 'Hoover High School' })) && /state high school athletic association/.test(AL.promptFor('high_school', { name: 'x' }))
-    && /naia\.org/.test(AL.promptFor('college', { name: 'x' })) && /njcaa\.org/.test(AL.promptFor('college', { name: 'x' })) && /Division III/.test(AL.promptFor('college', { name: 'x' })) && /PREFER Wikipedia and the team's official roster page/.test(AL.promptFor('pro', { name: 'x' })));
+    && /naia\.org/.test(AL.promptFor('college', { name: 'x' })) && /njcaa\.org/.test(AL.promptFor('college', { name: 'x' })) && /Division III/.test(AL.promptFor('college', { name: 'x' })) && /First, from what you already know, fill the team, league, sport, position, home city and jersey number/.test(AL.promptFor('pro', { name: 'x' })));
   ok('  and every prompt forbids a birth date; the high school one says minor', ['college', 'high_school', 'pro'].every((l) => /Never report a birth date, a birthday or an age/.test(AL.promptFor(l, { name: 'x' }))) && /This athlete is a minor/.test(AL.promptFor('high_school', { name: 'x' })));
 
   // ── 2. COLLEGE: EVERY FIELD FROM A SOURCE ────────────────────────────────
