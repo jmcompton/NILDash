@@ -134,6 +134,12 @@ async function searchLoop(o = {}) {
   const seenUrls = new Set();
   const cite = (u) => { const s = String(u || '').trim(); if (/^https?:\/\//i.test(s) && !seenUrls.has(s)) { seenUrls.add(s); citations.push(s); } };
   let searches = 0, fetches = 0, outTokens = 0, apiMs = 0, rounds = 0;
+  // EVERY QUERY THAT WAS ISSUED, AND HOW MANY RESULTS IT RETURNED. `results`
+  // below only carries results, so a query that came back EMPTY left no trace
+  // at all -- and an empty search is the most useful thing to know when the
+  // model then answers "nothing matched".
+  const queries = [];
+  let finishReason = null;
   const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0 };
   let text = '';
   // Every search result the loop saw, kept for a caller that checks the
@@ -154,6 +160,10 @@ async function searchLoop(o = {}) {
       ledger: o.ledger === false ? false : { ctx: o.ctx },
     });
     outTokens += r.usage.outputTokens; apiMs += r.ms;
+    // The LAST round's stop reason. 'length' means the answer was cut off at
+    // the token limit, which a caller parsing JSON out of it has to know:
+    // truncated JSON does not parse and reads exactly like "found nothing".
+    finishReason = r.finishReason || null;
     for (const k of ['inputTokens', 'outputTokens', 'cacheReadTokens']) usage[k] += r.usage[k];
     text = r.text || text;
     if (!r.toolCalls.length) break;
@@ -167,11 +177,13 @@ async function searchLoop(o = {}) {
         if (searches >= maxSearches) result = { error: 'no searches left; answer from what you have' };
         else {
           searches++;
+          const q = String(args.query || '');
           try {
-            const rs = await sp.search(String(args.query || ''), RESULTS_PER_SEARCH);
-            for (const x of rs) { cite(x.url); results.push({ query: String(args.query || ''), title: x.title || '', url: x.url || '', snippet: x.snippet || '' }); }
+            const rs = await sp.search(q, RESULTS_PER_SEARCH);
+            for (const x of rs) { cite(x.url); results.push({ query: q, title: x.title || '', url: x.url || '', snippet: x.snippet || '' }); }
+            queries.push({ query: q, results: rs.length });
             result = { results: rs };
-          } catch (e) { result = { error: 'search failed: ' + e.message }; }
+          } catch (e) { queries.push({ query: q, results: 0, error: e.message }); result = { error: 'search failed: ' + e.message }; }
         }
       } else if (fn === 'fetch_page') {
         if (fetches >= maxFetches) result = { error: 'no fetches left; answer from what you have' };
@@ -187,7 +199,7 @@ async function searchLoop(o = {}) {
   if (searches && o.ledger !== false) {
     require('./aiLedger').recordUsage({ provider: DS.PROVIDER, model: o.model || DS.model(), usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: searches }, ms: 0, ctx: o.ctx, searchProvider: sp.name });
   }
-  return { text, citations, searches, fetches, outTokens, apiMs, usage, rounds, results };
+  return { text, citations, searches, fetches, outTokens, apiMs, usage, rounds, results, queries, finishReason };
 }
 
 module.exports = { searchLoop, provider, fetchPage, htmlToText, usdPerQuery, TOOLS, PROVIDERS, PREFERENCE };

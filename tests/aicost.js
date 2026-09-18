@@ -156,7 +156,13 @@ async function main() {
   const PW = require(REPO + 'server/services/pitchWriter.js');
   const calls = [];
   const bad = '{"angle":"a","angleKey":"a","ask":"b","confidence":"strong","message":"I hope this finds you well. Pat Surtain, cornerback for the Denver Broncos, posts training. Would you like to learn more?\\n\\nChad"}';
-  const good = '{"angle":"a","angleKey":"a","ask":"b","confidence":"strong","message":"Pat Surtain, cornerback for the Denver Broncos, is looking at partners in Denver this season. He posts training and game days. He is building out his endorsement partnerships for this year. Would you like to learn more about this endorsement opportunity with Pat?\\n\\nChad"}';
+  // A PRO PITCH HAS TO PROPOSE A PRO DEAL. This fixture used to offer nothing
+  // but "he posts training and game days", which the pro lane's lint refuses
+  // (services/proLane.postOnlyProblem: an appearance day, a signing, an
+  // ambassador deal, a shoot or a hospitality event, never a post as the whole
+  // deal). The subject of this test is the retry count, so the draft that is
+  // meant to be clean is written the way a clean pro draft actually reads.
+  const good = '{"angle":"a","angleKey":"a","ask":"b","confidence":"strong","message":"Pat Surtain, cornerback for the Denver Broncos, is looking at partners in Denver this season. We are putting together an appearance day at your shop with an autograph signing for your customers. He is building out his endorsement partnerships for this year. Would you like to learn more about this endorsement opportunity with Pat?\\n\\nChad"}';
   const athlete = { name: 'Pat Surtain', athleteType: 'pro', position: 'Cornerback', sport: 'football', team: 'Denver Broncos', city: 'Denver, CO' };
   const biz = { name: 'Mile High Coffee', category: 'coffee' };
   const p1 = await PW.writePitch({ athlete, business: biz, agentFirstName: 'Chad', channel: 'email' },

@@ -302,6 +302,89 @@ function parseCount(v) {
 }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
+// ── READING THE MODEL'S ANSWER, AND SAYING WHY WHEN IT CANNOT BE READ ────
+//
+// This was one line: match the first `{` to the LAST `}` in the text and
+// JSON.parse it. Three ordinary things defeat that, and all three came out
+// the far end as the same sentence -- "model returned 0 athlete(s)" -- which
+// is indistinguishable from the model genuinely finding nobody:
+//
+//   1. The answer is wrapped in a ```json fence with a sentence after it.
+//   2. The answer is CUT OFF at the token limit (finish_reason 'length').
+//      A truncated object has no closing brace, so the greedy match ends at
+//      some nested brace and parses as nothing.
+//   3. The model wrote a sentence containing a brace before or after it.
+//
+// So: read the fenced block if there is one, take a BALANCED object rather
+// than a greedy one, repair a cut-off object by closing what is open, and
+// return in words which of those happened.
+function openStack(s) {
+  const stack = [];
+  let inStr = false, esc = false;
+  for (const ch of s) {
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { if (inStr) esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ']') { if (stack.pop() !== ch) return null; }
+  }
+  if (inStr) return null;                       // cut off inside a string
+  return stack.reverse().join('');
+}
+// Close a cut-off object, dropping the half-written tail a piece at a time
+// until what is left parses. Bounded, and it never invents a field.
+function closeTruncated(s) {
+  let body = String(s);
+  for (let i = 0; i < 60 && body.length > 2; i++) {
+    const open = openStack(body);
+    if (open !== null) {
+      const closed = body.replace(/[,\s]+$/, '') + open;
+      try { JSON.parse(closed); return closed; } catch (_) { /* chop and retry */ }
+    }
+    const comma = body.lastIndexOf(',');
+    const brace = Math.max(body.lastIndexOf('}'), body.lastIndexOf(']'));
+    let cut = brace > comma ? brace + 1 : comma;
+    if (cut <= 0) return null;
+    if (cut >= body.length) cut = body.length - 1;
+    body = body.slice(0, cut);
+  }
+  return null;
+}
+function firstObject(part) {
+  const start = part.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < part.length; i++) {
+    const ch = part[i];
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { if (inStr) esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') { depth--; if (depth === 0) return part.slice(start, i + 1); }
+  }
+  return part.slice(start);                     // unbalanced: truncated
+}
+// -> { obj, how }. `how` is printed in the trace, so it is written for a
+// person reading a hit-rate run, not for a log parser.
+function parseModelJson(text) {
+  const raw = String(text == null ? '' : text);
+  if (!raw.trim()) return { obj: null, how: 'the model returned no text at all' };
+  const fenced = raw.replace(/```json/gi, '```').split('```').filter((x) => x.indexOf('{') !== -1);
+  for (const part of (fenced.length ? fenced : [raw])) {
+    const slice = firstObject(part);
+    if (!slice) continue;
+    try { return { obj: JSON.parse(slice), how: 'read' }; } catch (_) { /* try to repair */ }
+    const repaired = closeTruncated(slice);
+    if (repaired) {
+      try { return { obj: JSON.parse(repaired), how: 'the answer was cut off and was repaired to the last complete field' }; } catch (_) { /* fall through */ }
+    }
+  }
+  return { obj: null, how: `the answer was not JSON (starts "${raw.trim().replace(/\s+/g, ' ').slice(0, 80)}")` };
+}
+
 // sanitize(raw, citations) -> a candidate with only sourced fields, or null.
 function sanitizeWeb(raw, citations, level) {
   if (!raw || typeof raw !== 'object') return null;
@@ -403,12 +486,30 @@ ${RULES}
     // from production; see services/proRosterFeeds). Wikipedia and the team's
     // official roster page first; the lookup accepts the answer only when a
     // search result names the player, the team and the position together.
+    // ── THE QUERY IS A QUERY, NOT A PARAGRAPH ────────────────────────────
+    // This used to hand the model one fused string: `"Name" Team stats (the
+    // official league page: nfl.com, nba.com, mlb.com, nhl.com,
+    // mlssoccer.com, wnba.com, or Wikipedia; write one sentence with the
+    // current season line...)`. A literal model issues that whole blob as
+    // the search query -- twenty-odd words, a parenthetical and seven
+    // domains -- and a search engine returns little or nothing for it. With
+    // no results the model has nothing to cite, and it answers "nothing
+    // matched" about a player it knows perfectly well.
+    //
+    // So the queries are listed as queries, exactly the words to search,
+    // and what to do with the results is said separately.
     const teamQ = q.team ? ' ' + q.team : '';
     return `Find this PROFESSIONAL athlete.
 Name: ${nm}
 Sport: ${q.sport || 'unknown'}
 Team: ${q.team || 'unknown'}${q.city ? '\nCity: ' + q.city : ''}
-${known}First, from what you already know, fill the team, league, sport, position, home city and jersey number (source "knowledge"). Then search for what changes: "${nm}"${teamQ} stats (the official league page: nfl.com, nba.com, mlb.com, nhl.com, mlssoccer.com, wnba.com, or Wikipedia; write one sentence with the current season line and career highlights as "highlight"); "${nm}" instagram; "${nm}" tiktok. If a result shows a newer team than you knew, use it and cite the page.
+${known}First, from what you already know, fill the team, league, sport, position, home city and jersey number (source "knowledge").
+Then search ONLY for what changes. Run these searches, each exactly as written, nothing added:
+  "${nm}"${teamQ} stats
+  "${nm}" instagram
+  "${nm}" tiktok
+From the stats results, prefer the official league page (nfl.com, nba.com, mlb.com, nhl.com, mlssoccer.com, wnba.com) or Wikipedia, and write one sentence as "highlight": the current season line plus career highlights. If a result shows a newer team than you knew, use it and cite the page.
+A search that comes back empty is not an answer about the player: keep the team, position and the rest you already know, and leave only the fields that page would have carried as null.
 ${SHAPE}
 ${RULES_PRO}
 - A college athlete is NOT a match; if the only person by this name is on a college roster, return found: false and say so.`;
@@ -422,6 +523,29 @@ ${SHAPE}
 ${RULES}`;
 }
 const SYSTEM = 'You are an athlete data lookup assistant. You report only what the pages the search returned actually say, with the URL of the page for every field. You never fabricate athlete data and you never report a birth date or an age.';
+
+// ── THE SECOND ASK: WHAT DO YOU ALREADY KNOW? ────────────────────────────
+// A pro is a public figure. When the search pass comes back with no athlete
+// at all -- the searches returned nothing, the answer was cut off, the model
+// talked itself out of it -- the lookup asks once more, with no searching and
+// nothing to read: name the team, the league, the sport, the position, the
+// home city and the number. That is the same standard the first pass already
+// accepts those six fields on (source "knowledge"), so this adds no new kind
+// of claim; it just asks the question without the search noise on top.
+//
+// College has no equivalent and needs none: it has the school list and the
+// ESPN roster to fall back on. A pro has neither.
+function proKnowledgePrompt(q) {
+  return `You are asked about one PROFESSIONAL athlete.
+Name: ${q.name}
+Sport: ${q.sport || 'unknown'}
+Team: ${q.team || 'unknown'}${q.city ? '\nCity: ' + q.city : ''}
+
+Do not search. Answer from what you already know about this public figure.
+If you know a professional athlete by this name: fill the team they play for, the league, the sport, their position, their team's home city as "City, ST" and their jersey number, with "knowledge" as the source of each. Leave the highlight, the handles and the follower counts null -- those change, and you are not reading a page.
+If you do not know a professional athlete by this name, return found: false with an empty list. Never invent a person.
+${SHAPE}`;
+}
 
 // ── ONE ACCEPTANCE RULE, EVERY LEVEL ─────────────────────────────────────
 // A web candidate is kept when its name matches the name asked for and its
@@ -467,6 +591,28 @@ function anchorNote(level, w) {
   return `${anchor} ${w[anchor] ? '"' + w[anchor] + '"' : 'not given'} from ${from}${w.position ? ', position ' + w.position : ', no position (a field to fill in, not a test)'}`;
 }
 
+// ── WHAT THE WEB STAGE ACTUALLY DID ──────────────────────────────────────
+// One line used to cover every way this can come back empty: "model returned
+// 0 athlete(s)". That sentence is true when the searches returned nothing,
+// when the answer was cut off, when it was not JSON, and when the model
+// genuinely found nobody -- four different faults with four different fixes.
+// Now each query is named with the number of results it brought back, and
+// the answer is described in words.
+function traceWeb(trace, web) {
+  if (web.skipped) { trace.push(`web search: ${web.skipped}`); return; }
+  const qs = (web.queries || []).length
+    // Not wrapped in quotes: a query already carries its own quoted name.
+    ? web.queries.map((x) => `${x.query} -> ${x.error ? 'search failed: ' + x.error : x.results + ' result(s)'}`).join('; ')
+    : 'the model issued no search';
+  trace.push(`searches: ${qs}`);
+  const bits = [`model returned ${web.rawCount || 0} athlete(s)`, `${web.candidates.length} kept with a cited source`];
+  if (!web.parsed) bits.push(`THE ANSWER COULD NOT BE READ: ${web.parseHow}`);
+  else if (/cut off/.test(web.parseHow || '')) bits.push(web.parseHow);
+  if (web.truncated) bits.push('the model stopped at the token limit');
+  if (web.searchNote) bits.push(`the model said: ${web.searchNote}`);
+  trace.push(bits.join('; '));
+}
+
 // ── THE WEB STAGE ────────────────────────────────────────────────────────
 // DeepSeek through the search loop, Serper preferred. Never Anthropic.
 let _searchLoopOverride = null;
@@ -476,7 +622,7 @@ function searchProvider() {
   const serper = WST.PROVIDERS.serper;
   return serper.key() ? serper : WST.provider();
 }
-async function webStage(level, q, feedTop, ctx) {
+async function webStage(level, q, feedTop, ctx, opts = {}) {
   const rt = DS.route('lookup', { needsSearch: true });
   if (rt.provider !== 'deepseek' && !_searchLoopOverride) {
     return { skipped: `web search unavailable: ${rt.reason}`, candidates: [], citations: [], usage: null, ms: 0 };
@@ -487,19 +633,26 @@ async function webStage(level, q, feedTop, ctx) {
   let r;
   try {
     const run = _searchLoopOverride || WST.searchLoop;
-    r = await run({ prompt: promptFor(level, q, feedTop), system: SYSTEM, maxSearches: MAX_SEARCHES, maxFetches: MAX_FETCHES,
-      maxTokens: 1800, temperature: 0, provider: _searchLoopOverride ? undefined : searchProvider(),
+    r = await run({ prompt: opts.prompt || promptFor(level, q, feedTop), system: SYSTEM,
+      maxSearches: opts.maxSearches === undefined ? MAX_SEARCHES : opts.maxSearches,
+      maxFetches: opts.maxFetches === undefined ? MAX_FETCHES : opts.maxFetches,
+      // 1800 was not enough room for three candidates with a URL on every
+      // field: the answer was cut off mid-object and read as "found nobody".
+      maxTokens: 2600, temperature: 0, provider: _searchLoopOverride ? undefined : searchProvider(),
       ctx: { site, brand: q.name, agentId: ctx && ctx.agentId } });
   } catch (e) {
     return { skipped: `web search failed: ${e.message}`, candidates: [], citations: [], usage: null, ms: Date.now() - t0 };
   }
-  let parsed = null;
-  try { const m = String(r.text || '').match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : null; } catch (_) { parsed = null; }
+  const { obj: parsed, how } = parseModelJson(r.text);
   const citations = Array.isArray(r.citations) ? r.citations : [];
   const list = (parsed && Array.isArray(parsed.athletes)) ? parsed.athletes : [];
   const candidates = list.map((a) => sanitizeWeb(a, citations, level)).filter(Boolean);
   return { candidates, citations, usage: r.usage || null, searches: r.searches || 0, ms: Date.now() - t0,
     results: Array.isArray(r.results) ? r.results : [], rawCount: list.length,
+    // WHY, when there is nothing: which searches ran and what each returned,
+    // whether the answer parsed, and whether it was cut off at the limit.
+    queries: Array.isArray(r.queries) ? r.queries : [], parseHow: how, parsed: !!parsed,
+    truncated: r.finishReason === 'length',
     searchNote: parsed && parsed.searchNote ? String(parsed.searchNote).slice(0, 300) : null, parsedFound: !!(parsed && parsed.found) };
 }
 
@@ -612,8 +765,29 @@ async function resolveAthlete(ai, q, opts = {}) {
   // (socials, highlight) when one did.
   const web = await webStage(level, { name, school: q.school, sport: q.sport, team: q.team, city: q.city }, feedTop, { agentId: opts.agentId });
   if (web.skipped) notes.push(web.skipped);
-  const costUsd = web.usage ? (Ledger.estimateUsd(DS.model(), web.usage, 'deepseek') || 0) : 0;
-  trace.push(web.skipped ? `web search: ${web.skipped}` : `web search: ${web.searches || 0} search(es), ${(web.results || []).length} result(s) seen, model returned ${web.rawCount || 0} athlete(s), ${web.candidates.length} kept with a cited source${web.searchNote ? ' (' + web.searchNote + ')' : ''}`);
+  let costUsd = web.usage ? (Ledger.estimateUsd(DS.model(), web.usage, 'deepseek') || 0) : 0;
+  traceWeb(trace, web);
+
+  // ── NOTHING CAME BACK FOR A PRO: ASK WHAT IT ALREADY KNOWS ─────────────
+  // The search pass can come back empty for a player the model knows by
+  // heart -- an empty search, an answer cut off at the limit, or a model
+  // that talked itself out of it. A pro is a public figure and the six
+  // stable fields are already accepted from knowledge, so the question is
+  // asked once more with nothing to read. One extra call, pros only, only
+  // when the first pass produced no athlete at all.
+  if (level === 'pro' && !feedTop && !web.candidates.length && !web.skipped) {
+    const second = await webStage(level, { name, sport: q.sport, team: q.team, city: q.city }, null,
+      { agentId: opts.agentId }, { prompt: proKnowledgePrompt({ name, sport: q.sport, team: q.team, city: q.city }), maxSearches: 1, maxFetches: 0 });
+    costUsd += second.usage ? (Ledger.estimateUsd(DS.model(), second.usage, 'deepseek') || 0) : 0;
+    trace.push(`asked again from knowledge only (no searching), because the search pass returned no athlete`);
+    traceWeb(trace, second);
+    web.searches = (web.searches || 0) + (second.searches || 0);
+    if (second.candidates.length) {
+      web.candidates = second.candidates;
+      web.citations = (web.citations || []).concat(second.citations || []);
+      web.searchNote = web.searchNote || second.searchNote;
+    }
+  }
   let candidates = [];
   if (feedTop) {
     const enrich = web.candidates.find((w) => nameMatchScore(feedTop.name, w.name) >= 25) || null;
@@ -724,7 +898,7 @@ async function proSearchStage(normName, team, city, normSport, normPosition) {
 }
 
 module.exports = {
-  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, FIELDS, webCandidateProblem, anchorsAgree, ANCHOR, RULES, RULES_PRO, KNOWN_OK,
+  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, proKnowledgePrompt, parseModelJson, FIELDS, webCandidateProblem, anchorsAgree, ANCHOR, RULES, RULES_PRO, KNOWN_OK,
   normalizeName, normalizeSchool, normalizeSport, nameMatchScore, schoolsMatch, ESPN_SUPPORTED_SPORTS,
   leagueFor, proSearchStage, _deepseekStage, _setSearchLoopForTests,
   CACHE_DAYS, MISS_CACHE_HOURS,
