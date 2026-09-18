@@ -29,6 +29,7 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
 // map as soon as the tables exist, so the nightly run, compliance and every
 // form see them without a lookup (services/schoolFind).
 if (store.ready && typeof store.ready.then === 'function') {
+  store.ready.then(() => require('./services/sendRules').ensureTable(store.pool)).catch(() => {});
   store.ready.then(() => require('./services/schoolFind').ensureLoaded())
     .then((n) => { if (n) console.log(`[schoolFind] ${n} learned school(s) loaded`); })
     .catch((e) => console.error('[schoolFind] boot load:', e.message));
@@ -2678,10 +2679,17 @@ app.post('/api/athlete-report/send', requireAuth, async (req, res) => {
 
     // Recipients come from the request so the agent can add a parent, a family
     // advisor, or drop someone before sending.
-    const to = (Array.isArray(recipients) ? recipients : [])
+    const wanted = (Array.isArray(recipients) ? recipients : [])
       .map(e => String(e || '').trim())
       .filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
-    if (!to.length) return res.status(400).json({ error: 'No valid recipients' });
+    if (!wanted.length) return res.status(400).json({ error: 'No valid recipients' });
+    // The suppression list stops everything, this included.
+    const to = [];
+    for (const e of wanted) {
+      const rule = await require('./services/sendRules').check(store.pool, { email: e, system: 'report' });
+      if (rule.ok) to.push(e);
+    }
+    if (!to.length) return res.status(409).json({ error: 'Every recipient is on the suppression list, so nothing was sent.' });
     if (to.length > 6) return res.status(400).json({ error: 'Too many recipients' });
 
     const { since, until } = _reportWindow(weeksBack);
@@ -5143,6 +5151,10 @@ async function _sendDueShiftReports() {
         }
         stillRunning = true;
       }
+      // The suppression list stops everything, this included. Checked before
+      // the claim so the day is not burned on an email that did not go.
+      const supRule = await require('./services/sendRules').check(store.pool, { email: u.email, system: 'shift-report' });
+      if (!supRule.ok) { console.log(`[shift-report/send] agent=${u.id} skipped: ${supRule.reason}`); continue; }
       const claim = await store.pool.query(
         `INSERT INTO shift_report_sends (agent_id, local_date) VALUES ($1,$2)
          ON CONFLICT (agent_id, local_date) DO NOTHING RETURNING agent_id`, [u.id, localDate]);
@@ -5223,6 +5235,8 @@ async function _sendDueDeliverableDigests() {
       // tick can still reach them. Claiming first would burn the day on silence.
       const d = await digest.collectDigest(store.pool, u.id, localDate);
       if (!d.actionable) continue;
+      const supRule = await require('./services/sendRules').check(store.pool, { email: u.email, system: 'deliverable-digest' });
+      if (!supRule.ok) { console.log(`[deliverable-digest] agent=${u.id} skipped: ${supRule.reason}`); continue; }
 
       const claim = await store.pool.query(
         `INSERT INTO deliverable_reminder_sends (agent_id, local_date) VALUES ($1,$2)
@@ -10917,6 +10931,12 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
   ).then(r => r.rows[0] || {});
   const gmailRefreshToken = athRow.gmail_refresh_token || null;
 
+  // The athlete's own brand email is outreach to a business contact and is
+  // under the same rules as the agent's (services/sendRules).
+  const sendRules = require('./services/sendRules');
+  const rule = await sendRules.check(store.pool, { email: to, subject, system: 'athlete' });
+  if (!rule.ok) { const err = new Error('Not sent: ' + rule.reason); err.status = 409; err.reason = rule.kind; throw err; }
+
   if (gmailSend && gmailSend.isAvailable() && gmailRefreshToken) {
     await gmailSend.sendEmail({ refreshToken: gmailRefreshToken, to, subject, body, cc: agentEmail || undefined });
     console.log(`[athlete/email] sent via Gmail as ${athRow.gmail_address} to=${to} subject="${subject}" athlete=${athleteId}`);
@@ -10945,6 +10965,7 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
      VALUES ($1,$2,$3,$4,$5,'athlete','sent')`,
     [athleteId, agentId, opts.brand_name || subject, to, body]
   ).catch(() => {});
+  await sendRules.record(store.pool, { email: to, subject, system: 'athlete', agentId, refId: 'athlete:' + athleteId + ':' + Date.now() });
 
   const senderEmail = gmailRefreshToken ? (athRow.gmail_address || athleteEmail) : athleteEmail;
   if (agentId) {
@@ -11411,6 +11432,70 @@ app.get('/api/admin/check-card-emails', requireAuth, async (req, res) => {
     const job = _cardEmailCheckJob;
     if (!job.result && !job.error) return res.json({ running: true, startedAt: job.startedAt, message: 'Still checking. Open this URL again in a minute.' });
     res.json({ running: false, startedAt: job.startedAt, finishedAt: job.finishedAt, error: job.error, ...(job.result || {}) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── EVERY EMAIL TO ONE ADDRESS, AND THE LIST THAT STOPS THEM ALL ─────────────
+// GET  /api/admin/email-history?email=a@b.com[&days=30]
+//   Every email this codebase sent to that address in the window, newest
+//   first, with the subject, the date and which system sent it (Closer batch,
+//   follow-up sequence and touch, manual send, inbox compose, athlete email,
+//   growth sequence, nightly or weekly digest, shift report, deliverable
+//   reminders). Read from every send log plus email_sends (services/sendRules).
+// GET    /api/admin/suppression            the list, newest first
+// POST   /api/admin/suppression            { email, reason } adds one by hand and
+//                                          stops every unsent draft to it
+// DELETE /api/admin/suppression/:email     takes one off
+app.get('/api/admin/email-history', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    const SR = require('./services/sendRules');
+    const email = SR.normalize(req.query.email);
+    if (!email) return res.status(400).json({ error: 'email is required' });
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30));
+    const rows = await SR.history(store.pool, email, { days });
+    const agentIds = [...new Set(rows.map((r) => r.agentId).filter(Boolean))];
+    const agents = agentIds.length
+      ? (await store.pool.query(`SELECT id, email, name FROM users WHERE id = ANY($1::text[])`, [agentIds]).catch(() => ({ rows: [] }))).rows
+      : [];
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const sup = await require('./services/suppression').isSuppressed(store.pool, email);
+    const bySystem = {};
+    for (const r of rows) bySystem[r.label] = (bySystem[r.label] || 0) + 1;
+    res.json({
+      email, days, count: rows.length, suppressed: sup.suppressed ? sup.reason : null, bySystem,
+      rows: rows.map((r) => ({ sentAt: r.sentAt, subject: r.subject, system: r.label, touch: r.touch || null,
+        agent: r.agentId ? ((byId.get(r.agentId) || {}).email || r.agentId) : null, ref: r.ref || null, brand: r.brand || null })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/admin/suppression', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    const rows = await require('./services/sendRules').listSuppressed(store.pool);
+    res.json({ count: rows.length, rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/suppression', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    const out = await require('./services/sendRules').suppressManually(store.pool, (req.body || {}).email, { reason: (req.body || {}).reason, by: user.id });
+    if (!out.ok) return res.status(400).json({ error: out.error });
+    console.log(`[suppression] ${user.email} added ${out.email} (${(req.body || {}).reason || 'by hand'}); stopped ${out.stopped} draft(s)`);
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/suppression/:email', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    const out = await require('./services/sendRules').unsuppress(store.pool, req.params.email);
+    if (!out.ok) return res.status(400).json({ error: out.error });
+    console.log(`[suppression] ${user.email} removed ${out.email}`);
+    res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15976,6 +16061,7 @@ async function notifyKitOpened(mk, brandName) {
       WHERE a.id = $1`, [mk.athlete_id]);
   const row = r.rows[0] || {};
   if (!row.agent_email) return;
+  if (!(await require('./services/sendRules').check(store.pool, { email: row.agent_email, system: 'media-kit' })).ok) return;
 
   const athleteName = row.athlete_name || 'your athlete';
   const agentFirst = String(row.agent_name || '').split(/\s+/)[0] || 'there';
@@ -16635,6 +16721,11 @@ app.post('/api/media-kit/contact', async (req, res) => {
   <p style="text-align:center;font-size:11px;color:#94a3b8;margin-top:16px">Powered by <a href="https://mynildash.com" style="color:#84CC16">NILDash</a></p>
 </div>`;
 
+    const inqRule = await require('./services/sendRules').check(store.pool, { email: toEmail, system: 'inquiry' });
+    if (!inqRule.ok) {
+      console.log(`[media-kit contact] slug=${slug} not forwarded: ${inqRule.reason}`);
+      return res.json({ ok: true });
+    }
     await resend.emails.send({
       from: 'NILDash <noreply@mynildash.com>',
       to: [toEmail],

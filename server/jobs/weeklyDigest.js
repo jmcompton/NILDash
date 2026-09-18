@@ -111,6 +111,13 @@ async function run(opts = {}) {
       skips.push({ email: user.email, reason: digest.skipReason(d) });
       continue;
     }
+    // The suppression list stops everything, this included.
+    const rule = await require('../services/sendRules').check(pool, { email: user.email, system: 'weekly-digest' });
+    if (!rule.ok) {
+      skipped++;
+      skips.push({ email: user.email, reason: 'suppressed: ' + rule.reason });
+      continue;
+    }
 
     const subject = digest.buildSubject(d);
     const token = dryRun ? 'DRYRUN' : await unsubToken(pool, user);

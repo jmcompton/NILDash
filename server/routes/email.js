@@ -386,6 +386,22 @@ router.post('/send', async (req, res) => {
       return res.status(404).json({ error: 'Account not found' });
     }
 
+    // ── THE RULES EVERY SENDER SHARES ──────────────────────────────────────
+    // A new message from the inbox is outreach like any other: not to a
+    // suppressed address, not under a subject that address already got, not
+    // inside four days of anything else we sent it. A reply inside an existing
+    // thread is a conversation, not outreach, so only the suppression list
+    // applies to it.
+    const sendRules = require('../services/sendRules');
+    const { pool } = require('../store');
+    const recipients = (Array.isArray(to) ? to : [to]).map((a) => String(a || '').replace(/^.*<([^>]+)>.*$/, '$1').trim()).filter(Boolean);
+    for (const addr of recipients) {
+      const rule = await sendRules.check(pool, {
+        email: addr, subject, system: threadId ? 'reply' : 'compose',
+      });
+      if (!rule.ok) return res.status(409).json({ error: 'Not sent: ' + rule.reason, reason: rule.kind });
+    }
+
     let result;
     if (account.provider === 'gmail') {
       result = await gmail.sendEmail(account.accessToken, account.refreshToken,
@@ -398,6 +414,11 @@ router.post('/send', async (req, res) => {
       const imapConfig = account.refreshToken ? JSON.parse(account.refreshToken) : {};
       result = await imap.sendEmail(account.email_address, account.accessToken, imapConfig,
         { to, cc, subject, bodyHtml, threadId });
+    }
+
+    for (const addr of recipients) {
+      await sendRules.record(pool, { email: addr, subject, system: threadId ? 'reply' : 'compose',
+        agentId: req.session.userId, refId: null });
     }
 
     // Save sent message locally.
