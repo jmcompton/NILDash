@@ -44,6 +44,7 @@ async function main() {
   const only = String(arg('league', '')).toUpperCase();
   const noTeam = flag('no-team');
   const totals = {};
+  const misses = [];
   for (const [league, list] of Object.entries(PLAYERS)) {
     if (only && league !== only) continue;
     let hits = 0, stats = 0, handle = 0, count = 0;
@@ -56,6 +57,7 @@ async function main() {
       const best = r.candidates && r.candidates[0];
       const hit = !!(best && best.team);
       if (hit) hits++;
+      else misses.push({ league, name, team, trace: r.trace || ['(no trace)'], message: r.message || null });
       if (best && (best.highlight || best.stats)) stats++;
       if (best && best.instagramHandle) handle++;
       if (best && Number(best.instagram) > 0) count++;
@@ -64,6 +66,21 @@ async function main() {
       for (const line of (r.trace || [])) console.log(`       ${line}`);
     }
     totals[league] = { hits, stats, handle, count, of: list.length };
+  }
+
+  // ── WHY THE MISSES MISSED, IN ONE BLOCK ──────────────────────────────────
+  // The per-player traces above are interleaved with thirty players' output.
+  // A miss is the only thing anyone reads this script to understand, so every
+  // miss is reprinted here with its whole trace: which searches ran and what
+  // each returned, whether the answer parsed or was cut off, what the model
+  // said, and which rule dropped the candidate.
+  if (misses.length) {
+    console.log(`\nWHY THE ${misses.length} MISS${misses.length === 1 ? '' : 'ES'} MISSED`);
+    for (const m of misses) {
+      console.log(`\n  ${m.league}  ${m.name} (expected ${m.team})`);
+      for (const line of m.trace) console.log(`      ${line}`);
+      if (m.message) console.log(`      message: ${m.message}`);
+    }
   }
   console.log('\nHIT RATE BY LEAGUE (athlete found / stats filled / Instagram handle / follower count)');
   for (const [lg, t] of Object.entries(totals)) console.log(`  ${lg.padEnd(5)} athlete ${t.hits} of ${t.of}${t.hits >= t.of ? '' : '  (bar: ' + t.of + ' of ' + t.of + ')'}   stats ${t.stats} of ${t.of}${t.stats >= 8 ? '' : '  (bar: 8)'}   instagram handle ${t.handle} of ${t.of}${t.handle >= 8 ? '' : '  (bar: 8)'}   follower count ${t.count} of ${t.of}`);

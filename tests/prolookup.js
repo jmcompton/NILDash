@@ -22,9 +22,12 @@ const fs = require('fs');
 // Only MLB StatsAPI answers. So the lookup no longer asks the others (no
 // request, no delay), searches the web first for NFL, NBA, NHL, MLS, WNBA,
 // the G League, AHL, ECHL, CFL, UFL and USL, prefers Wikipedia and the
-// team's official roster page, and accepts a result only when a source names
-// the player, the team and the position together. Sport, position, team,
-// city and jersey come off the page; the city falls back to the team table.
+// team's official roster page, and accepts a result when a source names
+// the player and confirms the team the agent named -- the same rule the
+// college lookup applies to the school. Position, jersey and the rest are
+// fields to fill in. When the search pass comes back with no athlete at all,
+// a pro is asked once more from knowledge only, and the trace says which
+// searches ran, whether the answer parsed, and whether it was cut off.
 
 const Feeds = require(REPO + 'server/services/proRosterFeeds.js');
 const AL = require(REPO + 'server/services/athleteLookup.js');
@@ -68,12 +71,45 @@ const WEB = {
   'Wrong Team': { citations: ['https://example.com/wrong-team'],
     athletes: [{ name: 'Wrong Team', team: 'Kansas City Chiefs', sport: 'football', sources: { team: 'knowledge', sport: 'knowledge', profile: 'https://example.com/wrong-team' }, confidence: 80 }], results: [] },
   'Nobody Real': { citations: [], athletes: [], results: [], searchNote: 'no page names a pro by this name' },
+  // ── THE THREE WAYS A PLAYER THE MODEL KNOWS CAME BACK AS NOTHING ────────
+  // All three used to print one sentence, "model returned 0 athlete(s)",
+  // which reads exactly like the model finding nobody.
+  //
+  // 1. The answer was CUT OFF at the token limit. It is repaired to the last
+  //    complete field rather than thrown away.
+  'Patrick Mahomes': {
+    raw: '{"found": true, "athletes": [{"name": "Patrick Mahomes", "team": "Kansas City Chiefs", "league": "NFL", "sport": "football", "position": "QB", "jersey": "15", "sources": {"team": "knowledge", "league": "knowledge", "sport": "knowledge", "position": "knowledge", "jersey": "knowledge"}, "highlight": "2025: 4,1',
+    finishReason: 'length', citations: [], results: [],
+    queries: [{ query: '"Patrick Mahomes" Kansas City Chiefs stats', results: 6 }, { query: '"Patrick Mahomes" instagram', results: 4 }] },
+  // 2. The model answered found: false about a player it plainly knows.
+  'Lamar Jackson': {
+    citations: [], athletes: [], results: [], searchNote: 'the stats results were fantasy football pages, so nothing was confirmed',
+    queries: [{ query: '"Lamar Jackson" Baltimore Ravens stats', results: 6 }],
+    second: { citations: [], results: [], athletes: [{ name: 'Lamar Jackson', team: 'Baltimore Ravens', league: 'NFL', sport: 'football', position: 'QB', jersey: '8', city: 'Baltimore, MD', sources: { team: 'knowledge', league: 'knowledge', sport: 'knowledge', position: 'knowledge', jersey: 'knowledge', city: 'knowledge' }, confidence: 85 }] } },
+  // 3. Every search came back empty and the answer was prose, not JSON.
+  'Myles Garrett': {
+    raw: 'I was not able to confirm this player from the search results I received.',
+    citations: [], results: [], queries: [{ query: '"Myles Garrett" Cleveland Browns stats', results: 0 }, { query: '"Myles Garrett" instagram', results: 0 }],
+    second: { citations: [], results: [], athletes: [{ name: 'Myles Garrett', team: 'Cleveland Browns', league: 'NFL', sport: 'football', position: 'DE', jersey: '95', city: 'Cleveland, OH', sources: { team: 'knowledge', league: 'knowledge', sport: 'knowledge', position: 'knowledge', jersey: 'knowledge', city: 'knowledge' }, confidence: 85 }] } },
+  // A fenced answer with a sentence after it: read, not thrown away.
+  'Fenced Player': {
+    raw: 'Here is what I found:\n```json\n{"found": true, "athletes": [{"name": "Fenced Player", "team": "Denver Broncos", "sport": "football", "position": "TE", "sources": {"team": "knowledge", "sport": "knowledge", "position": "knowledge"}, "confidence": 80}]}\n```\nThat is everything the pages carried.',
+    citations: [], results: [] },
 };
 AL._setSearchLoopForTests(async (o) => {
   loopCalls.push(o.prompt);
   const nm = (o.prompt.match(/^Name: (.+)$/m) || [])[1];
-  const w = WEB[nm] || { citations: [], athletes: [], results: [] };
-  return { text: JSON.stringify({ found: w.athletes.length > 0, athletes: w.athletes, searchNote: w.searchNote || null }), citations: w.citations, results: w.results || [], searches: 3, usage: { inputTokens: 800, outputTokens: 300, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 3 } };
+  // The knowledge-only second ask is a different prompt, and a fixture can
+  // answer it differently -- which is the whole point of the retry.
+  const knowledgeOnly = /Do not search\./.test(o.prompt);
+  const base = WEB[nm] || { citations: [], athletes: [], results: [] };
+  const w = (knowledgeOnly && base.second) || base;
+  const text = w.raw !== undefined ? w.raw
+    : JSON.stringify({ found: (w.athletes || []).length > 0, athletes: w.athletes || [], searchNote: w.searchNote || null });
+  return { text, citations: w.citations || [], results: w.results || [],
+    queries: w.queries || [{ query: `"${nm}" stats`, results: (w.results || []).length }],
+    finishReason: w.finishReason || 'stop',
+    searches: knowledgeOnly ? 0 : 3, usage: { inputTokens: 800, outputTokens: 300, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: knowledgeOnly ? 0 : 3 } };
 });
 
 (async () => {
@@ -103,12 +139,22 @@ AL._setSearchLoopForTests(async (o) => {
   ok('  the city comes from the team table when no page said it', nix.candidates[0].city === 'Denver, CO' && nix.candidates[0].sources.city === 'team-table');
   ok('  kept on the team the model knows; the position is a field on the card, not a test', nix.trace.some((t) => /web candidate "Bo Nix" kept: team "Denver Broncos" from model knowledge \(public figure\), position QB/.test(t)), nix.trace);
   ok('  no feed was asked, and the trace says the feeds were not run', feedCalls.length === 0 && nix.trace.some((t) => /roster feed not run/.test(t)), { calls: feedCalls, trace: nix.trace });
-  ok('  the prompt: knowledge first for team, league, sport, position, city and jersey; searches only for the stats line (league page or Wikipedia), the handles and counts, and a team change', /First, from what you already know, fill the team, league, sport, position, home city and jersey number \(source "knowledge"\)/.test(loopCalls[0]) && /"Bo Nix" stats \(the official league page: nfl\.com, nba\.com, mlb\.com, nhl\.com, mlssoccer\.com, wnba\.com, or Wikipedia/.test(loopCalls[0]) && /current season line and career highlights as "highlight"/.test(loopCalls[0]) && /"Bo Nix" instagram; "Bo Nix" tiktok/.test(loopCalls[0]) && /If a result shows a newer team than you knew, use it and cite the page/.test(loopCalls[0]) && /Use your searches ONLY for what changes/.test(loopCalls[0]) && !/Never guess, never fill from memory/.test(loopCalls[0]), loopCalls[0]);
+  ok('  the prompt: knowledge first for team, league, sport, position, city and jersey; searches only for the stats line, the handles and counts, and a team change', /First, from what you already know, fill the team, league, sport, position, home city and jersey number \(source "knowledge"\)/.test(loopCalls[0]) && /current season line plus career highlights/.test(loopCalls[0]) && /If a result shows a newer team than you knew, use it and cite the page/.test(loopCalls[0]) && /Then search ONLY for what changes/.test(loopCalls[0]) && !/Never guess, never fill from memory/.test(loopCalls[0]), loopCalls[0]);
+  // ── A QUERY IS A QUERY, NOT A PARAGRAPH ────────────────────────────────
+  // The searches used to be handed over as one fused string: `"Name" Team
+  // stats (the official league page: nfl.com, nba.com, mlb.com, nhl.com,
+  // mlssoccer.com, wnba.com, or Wikipedia; write one sentence ...)`. A model
+  // that issues that verbatim is searching twenty words and seven domains,
+  // and gets little or nothing back.
+  const queryLines = loopCalls[0].split('\n').filter((l) => /^ {2}"Bo Nix"/.test(l));
+  ok('  the searches are listed as queries, one per line, exactly the words to search', queryLines.length === 3 && queryLines[0].trim() === '"Bo Nix" stats' && queryLines[1].trim() === '"Bo Nix" instagram' && queryLines[2].trim() === '"Bo Nix" tiktok', queryLines);
+  ok('  no instruction is fused into a query: no parenthetical, no domain list inside the words searched', queryLines.every((l) => !/[()]|nfl\.com|Wikipedia|highlight/.test(l)), queryLines);
+  ok('  and an empty search is not an answer about the player', /A search that comes back empty is not an answer about the player/.test(loopCalls[0]));
   ok('  the college rules are untouched: every field from a page, never from memory', /Never guess, never fill from memory/.test(AL.RULES) && /Never guess, never fill from memory/.test(AL.promptFor('college', { name: 'x', school: 'Auburn' })) && !/knowledge/.test(AL.promptFor('college', { name: 'x', school: 'Auburn' })));
   ok('  and the sanitiser takes knowledge only for a pro, only for those six fields', AL.KNOWN_OK.size === 6 && (() => { const c = AL.sanitizeWeb({ name: 'X Y', school: 'Auburn', position: 'QB', highlight: 'h', sources: { school: 'knowledge', position: 'knowledge', highlight: 'knowledge' } }, [], 'college'); return c === null; })() && (() => { const c = AL.sanitizeWeb({ name: 'X Y', team: 'T', position: 'QB', highlight: 'h', sources: { team: 'knowledge', position: 'knowledge', highlight: 'knowledge' } }, [], 'pro'); return c && c.team === 'T' && c.position === 'QB' && c.highlight === undefined; })());
   const jok = await AL.resolveAthlete(null, { name: 'Nikola Jokic', sport: 'basketball', athleteType: 'pro', team: 'Denver Nuggets' }, { force: true });
   ok('NBA: Nikola Jokić, Denver Nuggets, C, #15, the city the model knew, the stats line from NBA.com', jok.found && jok.candidates[0].team === 'Denver Nuggets' && jok.candidates[0].position === 'C' && jok.candidates[0].jersey === '15' && jok.candidates[0].city === 'Denver, CO' && jok.candidates[0].sources.city === 'knowledge' && /three-time MVP/.test(jok.candidates[0].highlight), jok.candidates[0]);
-  ok('  with the team in the query', /"Nikola Jokic" Denver Nuggets stats/.test(loopCalls[loopCalls.length - 1]));
+  ok('  with the team in the query, and the query still only the words to search', /^ {2}"Nikola Jokic" Denver Nuggets stats$/m.test(loopCalls[loopCalls.length - 1]), loopCalls[loopCalls.length - 1].split("\n").filter((l) => /^ {2}"Nikola/.test(l)));
 
   OUT.push('', '-- 4. no team, no candidate; nothing, the trace --');
   const made = await AL.resolveAthlete(null, { name: 'Made Upson', sport: 'football', athleteType: 'pro' }, { force: true });
@@ -131,6 +177,55 @@ AL._setSearchLoopForTests(async (o) => {
   ok('  and a wrong name is dropped at every level', /name "Someone Else" is not "Sam Jones"/.test(AL.webCandidateProblem('pro', { name: 'Sam Jones', team: '' }, { name: 'Someone Else', team: 'Denver Broncos' }) || ''));
   ok('  the old evidence gate is gone from the code', !/proWebEvidence|corroborated by|no search result corroborated/.test(src('server/services/athleteLookup.js')));
   ok('  and the college branch and the pro branch go through webCandidateProblem, once', (src('server/services/athleteLookup.js').match(/webCandidateProblem\(level, anchorQ, w\)/g) || []).length === 1);
+
+  OUT.push('', '-- 4c. the three ways an NFL lookup came back empty, and the second ask --');
+  // A fresh run put NFL at 5 of 10 while NBA and MLB were at 8, on the same
+  // code path. Every miss printed the same sentence -- "model returned 0
+  // athlete(s)" -- which covered four different faults. Each one now says
+  // what actually happened, and a pro the model knows is asked again.
+  loopCalls.length = 0;
+  const mahomes = await AL.resolveAthlete(null, { name: 'Patrick Mahomes', sport: 'football', athleteType: 'pro', team: 'Kansas City Chiefs' }, { force: true });
+  ok('an answer CUT OFF at the token limit is repaired to its last complete field, not thrown away', mahomes.found === true && mahomes.candidates[0].team === 'Kansas City Chiefs' && mahomes.candidates[0].position === 'QB' && mahomes.candidates[0].jersey === '15', { found: mahomes.found, trace: mahomes.trace });
+  ok('  and the trace says so instead of "returned 0 athletes"', mahomes.trace.some((t) => /cut off and was repaired to the last complete field/.test(t)) && mahomes.trace.some((t) => /stopped at the token limit/.test(t)), mahomes.trace);
+  ok('  the trace names every search and how many results it brought back', mahomes.trace.some((t) => /searches: "Patrick Mahomes" Kansas City Chiefs stats -> 6 result\(s\); "Patrick Mahomes" instagram -> 4 result\(s\)/.test(t)), mahomes.trace);
+  ok('  one pass was enough: no second ask when the first returned an athlete', loopCalls.length === 1, loopCalls.length);
+
+  loopCalls.length = 0;
+  const lamar = await AL.resolveAthlete(null, { name: 'Lamar Jackson', sport: 'football', athleteType: 'pro', team: 'Baltimore Ravens' }, { force: true });
+  ok('a model that answers found:false about a player it knows is ASKED AGAIN from knowledge, and the player comes back', lamar.found === true && lamar.candidates[0].team === 'Baltimore Ravens' && lamar.candidates[0].position === 'QB' && lamar.candidates[0].city === 'Baltimore, MD', { found: lamar.found, trace: lamar.trace });
+  ok('  the trace carries the model\'s own reason for the first miss', lamar.trace.some((t) => /the model said: the stats results were fantasy football pages/.test(t)), lamar.trace);
+  ok('  and says it asked again, with no searching', lamar.trace.some((t) => /asked again from knowledge only \(no searching\), because the search pass returned no athlete/.test(t)), lamar.trace);
+  ok('  the second ask is a different prompt: no searching, knowledge only, and it may not invent a person', loopCalls.length === 2 && /Do not search\./.test(loopCalls[1]) && /Never invent a person/.test(loopCalls[1]) && !/Then search ONLY for what changes/.test(loopCalls[1]), loopCalls.map((c) => c.slice(0, 40)));
+
+  loopCalls.length = 0;
+  const garrett = await AL.resolveAthlete(null, { name: 'Myles Garrett', sport: 'football', athleteType: 'pro', team: 'Cleveland Browns' }, { force: true });
+  ok('every search empty and the answer prose, not JSON: the second ask still finds him', garrett.found === true && garrett.candidates[0].team === 'Cleveland Browns' && garrett.candidates[0].position === 'DE', { found: garrett.found, trace: garrett.trace });
+  ok('  the trace says the searches came back empty', garrett.trace.some((t) => /"Myles Garrett" Cleveland Browns stats -> 0 result\(s\)/.test(t)), garrett.trace);
+  ok('  and that the answer could not be read, with what it started with', garrett.trace.some((t) => /THE ANSWER COULD NOT BE READ: the answer was not JSON \(starts "I was not able to confirm/.test(t)), garrett.trace);
+
+  const fenced = await AL.resolveAthlete(null, { name: 'Fenced Player', sport: 'football', athleteType: 'pro', team: 'Denver Broncos' }, { force: true });
+  ok('a JSON answer inside a ```json fence with a sentence after it is read', fenced.found === true && fenced.candidates[0].team === 'Denver Broncos' && fenced.candidates[0].position === 'TE', { found: fenced.found, trace: fenced.trace });
+
+  ok('the reader handles a clean object, a fence, a cut-off object and prose', (() => {
+    const P = AL.parseModelJson;
+    const clean = P('{"found":true,"athletes":[]}');
+    const fence = P('text\n```json\n{"found":false,"athletes":[]}\n```\nmore text');
+    const cut = P('{"found":true,"athletes":[{"name":"A B","team":"T","position":"QB","highlight":"2025: 4,1');
+    const prose = P('I could not confirm this player.');
+    const none = P('');
+    return clean.obj && clean.how === 'read'
+      && fence.obj && fence.obj.found === false
+      && cut.obj && cut.obj.athletes[0].position === 'QB' && /cut off/.test(cut.how)
+      && !prose.obj && /not JSON/.test(prose.how)
+      && !none.obj && /no text at all/.test(none.how);
+  })());
+  ok('  and it never invents a field while repairing: the half-written one is dropped', (() => {
+    const cut = AL.parseModelJson('{"found":true,"athletes":[{"name":"A B","team":"T","highlight":"2025: 4,1');
+    return cut.obj && cut.obj.athletes[0].highlight === undefined && cut.obj.athletes[0].team === 'T';
+  })());
+  ok('the second ask is for pros only, and only when the first pass produced no athlete at all', /if \(level === 'pro' && !feedTop && !web\.candidates\.length && !web\.skipped\)/.test(src('server/services/athleteLookup.js')));
+  ok('  the search loop reports the queries it issued and whether the answer was cut off', /queries\.push\(\{ query: q, results: rs\.length \}\)/.test(src('server/services/webSearchTool.js')) && /finishReason = r\.finishReason \|\| null/.test(src('server/services/webSearchTool.js')));
+  ok('  and the hit-rate script reprints every miss with its whole trace', /WHY THE \$\{misses\.length\} MISS/.test(src('scripts/lookup-pro-hitrate.js')) && /misses\.push\(\{ league, name, team, trace/.test(src('scripts/lookup-pro-hitrate.js')));
 
   OUT.push('', '-- 5. the form, the script, the admin door --');
   const html = src('public/index.html');
