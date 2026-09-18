@@ -423,29 +423,48 @@ ${RULES}`;
 }
 const SYSTEM = 'You are an athlete data lookup assistant. You report only what the pages the search returned actually say, with the URL of the page for every field. You never fabricate athlete data and you never report a birth date or an age.';
 
-// A search result that names the player, their team and their position, in
-// its own title or snippet. The evidence a pro web candidate must have.
-function proWebEvidence(cand, results) {
-  const norm = (s) => String(s || '').toLowerCase().replace(/[’'`.\-]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  const nameParts = norm(cand.name).split(' ').filter((x) => x.length > 1);
-  const last = nameParts[nameParts.length - 1];
-  const team = norm(cand.team);
-  const teamWords = team.split(' ').filter((x) => x.length > 2);
-  const pos = norm(cand.position);
-  if (!last || !teamWords.length || !pos) return null;
-  const POS_WORDS = { qb: ['qb', 'quarterback'], rb: ['rb', 'running back'], wr: ['wr', 'wide receiver'], te: ['te', 'tight end'], ol: ['ol', 'offensive line'], lb: ['lb', 'linebacker'], db: ['db', 'cornerback', 'safety'], cb: ['cb', 'cornerback'], s: ['safety'], k: ['kicker'], p: ['punter', 'pitcher'], de: ['de', 'defensive end'], dt: ['dt', 'defensive tackle'],
-    pg: ['pg', 'point guard', 'guard'], sg: ['sg', 'shooting guard', 'guard'], sf: ['sf', 'small forward', 'forward'], pf: ['pf', 'power forward', 'forward'], c: ['center', 'centre', 'c'], g: ['guard'], f: ['forward'],
-    sp: ['pitcher', 'starting pitcher'], rp: ['pitcher', 'reliever'], '1b': ['first base', 'first baseman', '1b'], '2b': ['second base', 'second baseman', '2b'], '3b': ['third base', 'third baseman', '3b'], ss: ['shortstop', 'ss'], lf: ['left field', 'outfield', 'lf'], cf: ['center field', 'outfield', 'cf'], rf: ['right field', 'outfield', 'rf'], of: ['outfield', 'outfielder', 'of'], dh: ['designated hitter', 'dh'],
-    lw: ['left wing', 'winger', 'lw'], rw: ['right wing', 'winger', 'rw'], d: ['defenseman', 'defence', 'defense'], gk: ['goalkeeper', 'goalie'] };
-  const posWords = [pos, ...(POS_WORDS[pos] || [])].filter(Boolean);
-  for (const r of results) {
-    const text = norm(`${r.title || ''} ${r.snippet || ''}`);
-    if (!new RegExp('(^| )' + last + '( |$)').test(text)) continue;
-    if (!teamWords.some((w) => new RegExp('(^| )' + w + '( |$)').test(text))) continue;
-    if (!posWords.some((w) => new RegExp('(^| )' + w + '( |$)').test(text))) continue;
-    return { url: r.url, title: r.title || '' };
-  }
+// ── ONE ACCEPTANCE RULE, EVERY LEVEL ─────────────────────────────────────
+// A web candidate is kept when its name matches the name asked for and its
+// ANCHOR agrees with the anchor the agent gave: the school for a college or
+// high-school athlete, the team for a pro. That is the whole test. Position,
+// jersey, year, city and the rest are fields to fill in, never tests to pass.
+//
+// The pro lookup used to have a second gate that college never had: one
+// search result had to name the player, the team and the position together,
+// in matching words. It dropped correct answers -- the Packers roster says
+// EDGE where the model said outside linebacker, a page says WR where the
+// model said wide receiver. That gate is gone. A pro is accepted on a name, a
+// team and a source, exactly as a college athlete is accepted on a name, a
+// school and a source.
+//
+// The one asymmetry, stated: a pro candidate must carry a team. A college
+// lookup gets its anchor from the school list before the web is asked; a
+// pro's only anchor is the team, so a pro with no team is not a result.
+const ANCHOR = { college: 'school', high_school: 'school', pro: 'team' };
+function webCandidateProblem(level, q, w) {
+  if (nameMatchScore(q.name, w.name) < 12) return `name "${w.name}" is not "${q.name}"`;
+  const anchor = ANCHOR[level] || 'school';
+  const asked = String((q && q[anchor]) || '').trim();
+  const have = String((w && w[anchor]) || '').trim();
+  if (level === 'pro' && !have) return 'no team';
+  if (asked && have && !anchorsAgree(level, have, asked)) return `${anchor} "${have}" is not "${asked}"`;
   return null;
+}
+function anchorsAgree(level, a, b) {
+  if (level !== 'pro') return schoolsMatch(a, b);
+  const PT = require('./proTeams');
+  const ta = PT.findTeam(a), tb = PT.findTeam(b);
+  if (ta && tb) return ta.name === tb.name;
+  const words = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((x) => x.length > 2);
+  const wb = new Set(words(b));
+  return words(a).some((x) => wb.has(x));
+}
+// What the trace says a kept candidate stood on.
+function anchorNote(level, w) {
+  const anchor = ANCHOR[level] || 'school';
+  const src = w.sources && w.sources[anchor];
+  const from = src === 'knowledge' ? 'model knowledge (public figure)' : src ? 'a cited page' : 'the query';
+  return `${anchor} ${w[anchor] ? '"' + w[anchor] + '"' : 'not given'} from ${from}${w.position ? ', position ' + w.position : ', no position (a field to fill in, not a test)'}`;
 }
 
 // ── THE WEB STAGE ────────────────────────────────────────────────────────
@@ -595,37 +614,18 @@ async function resolveAthlete(ai, q, opts = {}) {
   if (web.skipped) notes.push(web.skipped);
   const costUsd = web.usage ? (Ledger.estimateUsd(DS.model(), web.usage, 'deepseek') || 0) : 0;
   trace.push(web.skipped ? `web search: ${web.skipped}` : `web search: ${web.searches || 0} search(es), ${(web.results || []).length} result(s) seen, model returned ${web.rawCount || 0} athlete(s), ${web.candidates.length} kept with a cited source${web.searchNote ? ' (' + web.searchNote + ')' : ''}`);
-  // ── A PRO FROM THE WEB IS ACCEPTED ONLY WHEN A SOURCE NAMES THE PLAYER,
-  //    THEIR TEAM AND THEIR POSITION. The model's JSON is a claim; a search
-  //    result's title or snippet is the evidence. With no such result the
-  //    candidate is dropped and the trace says so.
-  // A PRO CANDIDATE STANDS ON A TEAM AND A POSITION, the way a college one
-  // stands on a school: from what the model knows (a public figure) or from a
-  // page. A search result that names the player, the team and the position
-  // together is noted as corroboration; its absence is not a refusal.
-  if (level === 'pro' && !feedTop && web.candidates.length) {
-    const before = web.candidates.length;
-    web.candidates = web.candidates.filter((w) => {
-      if (!w.team || !w.position) { trace.push(`web candidate "${w.name}" dropped: no team or no position (team ${w.team || '?'}, position ${w.position || '?'})`); return false; }
-      const ev = proWebEvidence(w, web.results || []);
-      const how = (w.sources && w.sources.team === 'knowledge') ? 'team and position from model knowledge (public figure)' : 'team and position from a cited page';
-      if (ev) { w.evidenceUrl = ev.url; trace.push(`web candidate "${w.name}" kept: ${how}; corroborated by ${ev.url}`); }
-      else trace.push(`web candidate "${w.name}" kept: ${how}; no search result corroborated team and position together`);
-      return true;
-    });
-    if (before && !web.candidates.length) trace.push('web search gave up: every candidate lacked a team or a position');
-  }
-
   let candidates = [];
   if (feedTop) {
     const enrich = web.candidates.find((w) => nameMatchScore(feedTop.name, w.name) >= 25) || null;
     candidates.push(mergeInto(feedTop, enrich));
     for (const c of feedCands.slice(1)) if ((c._ns || 0) >= 15) candidates.push(c);
   } else {
+    // THE SAME RULE FOR EVERY LEVEL. The only thing that differs is the anchor.
+    const anchorQ = { name, school: level === 'college' ? normSchool : (q.school || null), team: q.team || null };
     for (const w of web.candidates) {
-      if (level === 'college' && normSchool && w.school && !schoolsMatch(w.school, normSchool)) continue;
-      if (level === 'high_school' && q.school && w.school && !schoolsMatch(w.school, q.school)) continue;
-      if (nameMatchScore(name, w.name) < 12) continue;
+      const problem = webCandidateProblem(level, anchorQ, w);
+      if (problem) { trace.push(`web candidate "${w.name}" dropped: ${problem}`); continue; }
+      trace.push(`web candidate "${w.name}" kept: ${anchorNote(level, w)}`);
       candidates.push(Object.assign({}, w, { school: w.school || (level === 'pro' ? null : q.school) || null, team: w.team || q.team || null, city: w.city || q.city || null }));
     }
   }
@@ -724,7 +724,7 @@ async function proSearchStage(normName, team, city, normSport, normPosition) {
 }
 
 module.exports = {
-  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, FIELDS, proWebEvidence, RULES, RULES_PRO, KNOWN_OK,
+  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, FIELDS, webCandidateProblem, anchorsAgree, ANCHOR, RULES, RULES_PRO, KNOWN_OK,
   normalizeName, normalizeSchool, normalizeSport, nameMatchScore, schoolsMatch, ESPN_SUPPORTED_SPORTS,
   leagueFor, proSearchStage, _deepseekStage, _setSearchLoopForTests,
   CACHE_DAYS, MISS_CACHE_HOURS,

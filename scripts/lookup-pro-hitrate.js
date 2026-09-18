@@ -5,7 +5,7 @@
 //   railway run node scripts/lookup-pro-hitrate.js            the thirty below
 //   node scripts/lookup-pro-hitrate.js --league NFL           one league
 //   node scripts/lookup-pro-hitrate.js --no-team              name and sport only, no team
-//   node scripts/lookup-pro-hitrate.js --force                ignore the 30-day cache
+//   node scripts/lookup-pro-hitrate.js --fresh                ignore the cache: really run every lookup (--force is the same)
 //
 // Runs the real lookup (services/athleteLookup: the roster feeds, then the
 // web) for each player, prints one line per player with the trace, and the
@@ -17,6 +17,9 @@
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'unused';
 const INIT_WAIT_MS = parseInt(process.env.INIT_WAIT_MS, 10) || 3000;
 const flag = (n) => process.argv.includes('--' + n);
+// A cached miss replays in 2ms and proves nothing. --fresh (or --force) reads
+// past the cache so every lookup actually runs; the result is cached after.
+const FRESH = flag('fresh') || flag('force');
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 
 // Current starters and regulars as of the 2025-26 seasons, written from
@@ -44,11 +47,11 @@ async function main() {
   for (const [league, list] of Object.entries(PLAYERS)) {
     if (only && league !== only) continue;
     let hits = 0, stats = 0, handle = 0, count = 0;
-    console.log(`\n${league}${noTeam ? ' (name and sport only)' : ' (name, sport and team)'}`);
+    console.log(`\n${league}${noTeam ? ' (name and sport only)' : ' (name, sport and team)'}${FRESH ? ', fresh: cache bypassed' : ', cached results replay (add --fresh to run every lookup)'}`);
     for (const [name, team, pos] of list) {
       const t0 = Date.now();
       let r;
-      try { r = await AL.resolveAthlete(null, { name, sport: SPORT[league], athleteType: 'pro', team: noTeam ? '' : team }, { force: flag('force') }); }
+      try { r = await AL.resolveAthlete(null, { name, sport: SPORT[league], athleteType: 'pro', team: noTeam ? '' : team }, { force: FRESH }); }
       catch (e) { r = { found: false, candidates: [], trace: ['threw: ' + e.message] }; }
       const best = r.candidates && r.candidates[0];
       const hit = !!(best && best.team);
@@ -56,7 +59,7 @@ async function main() {
       if (best && (best.highlight || best.stats)) stats++;
       if (best && best.instagramHandle) handle++;
       if (best && Number(best.instagram) > 0) count++;
-      console.log(`  ${hit ? 'HIT ' : 'MISS'} ${name.padEnd(26)} expected ${(team + ', ' + pos).padEnd(34)} got ${best ? `${best.name}, ${best.team || '?'}, ${best.position || '?'} (${best.sourceLabel || best.source || '?'}, ${best.confidence || 0})` : 'nothing'}  ${Date.now() - t0}ms`);
+      console.log(`  ${hit ? 'HIT ' : 'MISS'} ${r.cached ? '(cached) ' : ''}${name.padEnd(26)} expected ${(team + ', ' + pos).padEnd(34)} got ${best ? `${best.name}, ${best.team || '?'}, ${best.position || '?'} (${best.sourceLabel || best.source || '?'}, ${best.confidence || 0})` : 'nothing'}  ${Date.now() - t0}ms`);
       if (best) console.log(`       stats: ${best.highlight || best.stats || '(none)'}\n       instagram: ${best.instagramHandle ? '@' + best.instagramHandle : '(no handle)'}${Number(best.instagram) > 0 ? ' ' + Number(best.instagram).toLocaleString() + (best.followersApprox ? ' approx' : '') + (best.followersAsOf ? ' as of ' + best.followersAsOf : '') : ' (no count)'}  tiktok: ${best.tiktokHandle ? '@' + best.tiktokHandle : '(no handle)'}`);
       for (const line of (r.trace || [])) console.log(`       ${line}`);
     }
