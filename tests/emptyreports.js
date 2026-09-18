@@ -64,7 +64,7 @@ const FRI = Date.parse('2026-09-18T14:00:00Z');   // Friday 9am Central
   ok('  so two mornings are two different emails', mail.subject !== mail2.subject && /, Sat Sep 19$/.test(mail2.subject), mail2.subject);
   ok('  and the content still leads', /^Your team worked last night/.test(mail.subject), mail.subject);
   const nd = ND.render({ rows: [{ name: 'A', place: 'B', count: 1 }], reviewUrl: 'https://x.test/', unsubUrl: 'https://x.test/u', date: FRI, tz: 'America/Chicago' });
-  ok('the nightly digest subject carries the date', nd.subject === 'Your athletes have new pitches ready, Fri Sep 18', nd.subject);
+  ok('the nightly digest subject is the count and the date', nd.subject === '1 pitch ready, Fri Sep 18', nd.subject);
   const dd = DD.renderDigestEmail({ overdue: [{ id: 1 }], tomorrow: [], soon: [], total: 1, actionable: 1 }, { appUrl: 'https://x.test', date: FRI, tz: 'America/Chicago' });
   ok('the deliverable reminders subject carries the date', dd.subject === '1 deliverable overdue, Fri Sep 18', dd.subject);
   const wk = src('server/jobs/weeklyDigest.js');
@@ -97,11 +97,12 @@ const FRI = Date.parse('2026-09-18T14:00:00Z');   // Friday 9am Central
   await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ('er-a1',$1,'{"name":"Er One","school":"Auburn University"}'::jsonb)`, [AG]);
   let sentMsg = null;
   const r = await ND.sendForRun(P, { agentId: AG, runDate: '2026-09-18', details: [{ athleteId: 'er-a1', filled: 2 }] }, { now: FRI, send: async (m) => { sentMsg = m; return { data: { id: 'x' } }; } });
-  ok('the nightly digest goes out dated', r.sent === true && sentMsg && sentMsg.subject === 'Your athletes have new pitches ready, Fri Sep 18', sentMsg && sentMsg.subject);
+  ok('the nightly digest goes out with the count and the date', r.sent === true && sentMsg && sentMsg.subject === '2 pitches ready, Fri Sep 18', sentMsg && sentMsg.subject);
   const rec = (await P.query(`SELECT subject FROM nightly_digest_sends WHERE agent_id=$1`, [AG])).rows[0];
-  ok('  and the subject is on its send row', rec && rec.subject === 'Your athletes have new pitches ready, Fri Sep 18', rec);
-  const hist = await SR.history(P, 'er@er.example', { days: 30, now: FRI + 3600000 });
-  ok('  so the email-history page shows it by that subject', hist.some((h) => h.system === 'nightly-digest' && h.subject === 'Your athletes have new pitches ready, Fri Sep 18'), hist);
+  ok('  and the subject is on its send row', rec && rec.subject === '2 pitches ready, Fri Sep 18', rec);
+  // The send row is stamped with the database clock, so the lookback is anchored on the real clock too.
+  const hist = await SR.history(P, 'er@er.example', { days: 30, now: Date.now() + 60000 });
+  ok('  so the email-history page shows it by that subject', hist.some((h) => h.system === 'nightly-digest' && h.subject === '2 pitches ready, Fri Sep 18'), hist);
   await P.query(`DELETE FROM nightly_digest_sends WHERE agent_id=$1`, [AG]).catch(() => {});
   await P.query(`DELETE FROM athletes WHERE agent_id=$1`, [AG]).catch(() => {});
   await P.query(`DELETE FROM users WHERE id=$1`, [AG]).catch(() => {});
