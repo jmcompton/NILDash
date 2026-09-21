@@ -824,12 +824,29 @@ function slotsToFill(rows) {
 
 // The cap, as an object rather than a number, so "can I afford this" is asked
 // BEFORE the money is spent rather than discovered after.
-function newBudget(capUsd, discoveryCapUsd) {
+function newBudget(capUsd, discoveryCapUsd, opts = {}) {
   const cap = typeof capUsd === 'number' ? capUsd : DEFAULT_AGENT_NIGHTLY_USD;
   let used = 0;
-  // The discovery pot, sized separately (see DISCOVERY_CAP_USD).
-  const discoveryCap = typeof discoveryCapUsd === 'number' ? discoveryCapUsd : DISCOVERY_CAP_USD;
+  // ── THE DISCOVERY POT IS SIZED BY THE ROSTER, AND SHARED LIKE THE OTHER ──
+  //
+  // A 30-athlete agent got 113 cards one night and 2 the next, and 28 of his
+  // 30 athletes reported "0 tried". The lookup cap has had a per-athlete
+  // share since the ordering bug was fixed (openFor, below); the discovery
+  // pot shipped later WITHOUT one, as a flat $2 spent first-come. Two
+  // athletes' cold-market scans drained it and the other twenty-eight were
+  // told "the discovery pot is spent" before they were attempted at all.
+  //
+  // Two changes, and both are needed. The pot is sized from the roster, so a
+  // 30-athlete agent is not handed a 3-athlete budget; and it is SHARED the
+  // same way the lookup cap is, so the order of the roster query stops
+  // deciding who gets a market. Every athlete on every roster is attempted.
+  const rosterSize = Math.max(1, Number(opts.rosterSize) || 1);
+  const discoveryCap = typeof discoveryCapUsd === 'number'
+    ? discoveryCapUsd
+    : Math.max(DISCOVERY_CAP_USD, rosterSize * DISCOVERY_PER_ATHLETE_USD);
   let discoveryUsed = 0;
+  let discoveryShare = Infinity;
+  let discoveryShareUsed = 0;
   // Per-athlete share, so the ordering of the roster stops deciding who eats.
   let share = Infinity;
   let sharedUsed = 0;
@@ -852,6 +869,11 @@ function newBudget(capUsd, discoveryCapUsd) {
       const n = Math.max(1, Number(athletesRemaining) || 1);
       share = Math.max(0, cap - used) / n;
       sharedUsed = 0;
+      // The discovery pot is shared on exactly the same terms, and for the
+      // same reason: whoever the roster query happens to return first must
+      // not be able to spend the night's discovery on their own market.
+      discoveryShare = Math.max(0, discoveryCap - discoveryUsed) / n;
+      discoveryShareUsed = 0;
       return share;
     },
     shareLeft: () => Math.max(0, share - sharedUsed),
@@ -875,8 +897,20 @@ function newBudget(capUsd, discoveryCapUsd) {
     // morning. Booked, so it is on the run row and the shift report.
     discoveryCap: () => discoveryCap,
     discoverySpent: () => discoveryUsed,
-    canSpendDiscovery: (amount) => discoveryUsed + (amount || 0) <= discoveryCap + 1e-9,
-    spendDiscovery: (amount) => { discoveryUsed += (amount || 0); return discoveryUsed; },
+    discoveryShareLeft: () => Math.max(0, discoveryShare - discoveryShareUsed),
+    // Affordable against BOTH the night's pot and THIS athlete's share of it.
+    // A share is not a reservation: an athlete who scans cheaply leaves the
+    // rest in the pot, and the next openFor recomputes against what is really
+    // left, so a thin first half genuinely funds the second.
+    canSpendDiscovery: (amount) => {
+      const a = amount || 0;
+      if (discoveryUsed + a > discoveryCap + 1e-9) return false;
+      return discoveryShareUsed + a <= discoveryShare + 1e-9;
+    },
+    // The pot is a hard stop; the share is not. The last athletes may use what
+    // the roster left behind rather than leave it unspent on principle.
+    canSpendDiscoveryFromPot: (amount) => discoveryUsed + (amount || 0) <= discoveryCap + 1e-9,
+    spendDiscovery: (amount) => { discoveryUsed += (amount || 0); discoveryShareUsed += (amount || 0); return discoveryUsed; },
   };
   return b;
 }
@@ -935,6 +969,11 @@ const RATE_WINDOW = 8;
 // businesses never competes with reaching them. Per agent per night, alongside
 // the $8 lookup cap, not inside it.
 const DISCOVERY_CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_DISCOVERY_USD) || 2.00;
+// What one athlete is guaranteed to be able to spend finding a market. The
+// night's pot is the larger of the flat cap and this times the roster, so a
+// big roster is not handed a small roster's budget -- which is what left 28
+// of 30 athletes untried on a single night.
+const DISCOVERY_PER_ATHLETE_USD = parseFloat(process.env.OUTREACH_QUEUE_DISCOVERY_PER_ATHLETE_USD) || 0.12;
 
 // Only attempts that SAY SOMETHING ABOUT THE MARKET count toward the rate. A
 // routing skip (no lane, program cap, brand cap) costs nothing and reveals
@@ -1051,7 +1090,7 @@ module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
-  passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD,
+  passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
   waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf, greetRowOf, ensureGreeting, emailNoteOf,

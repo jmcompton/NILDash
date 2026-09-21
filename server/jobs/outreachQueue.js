@@ -1651,7 +1651,9 @@ async function fillAgent(pool, agent, opts) {
     console.log(`[queue] agent=${agent.id} already filled for ${runDate}, skipping (use --force to re-run)`);
     return { filled: 0, spent: 0, claimed: false };
   }
-  const budget = Q.newBudget(CAP_USD);
+  // The budget is built AFTER the roster is read, so the discovery pot can be
+  // sized from how many athletes it has to cover (services/outreachQueue).
+  let budget = null;
   // ── ONE TALLY FOR THE WHOLE ROSTER ────────────────────────────────────────
   // Built once and threaded through every athlete, so a brand that has already
   // taken its allowance of program slots tonight is skipped for the rest of the
@@ -1669,6 +1671,13 @@ async function fillAgent(pool, agent, opts) {
   // ONCE PER RUN. The signature is the same for every card this agent gets, so
   // reading it per business would be 45 identical queries a night.
   const signature = SIG.signatureOf(agent);
+  // ── THE POT IS SIZED BY THE ROSTER IT HAS TO COVER ──────────────────────
+  // A flat discovery pot handed a 30-athlete agent the same budget as a
+  // 3-athlete agent, and the first two athletes spent it. Sized here, where
+  // the roster length is finally known, and shared per athlete by openFor.
+  budget = Q.newBudget(CAP_USD, undefined, { rosterSize: athletes.length });
+  console.log(`[queue] agent=${agent.id} roster=${athletes.length} discovery pot ${budget.discoveryCap().toFixed(2)} `
+    + `(${Q.DISCOVERY_PER_ATHLETE_USD.toFixed(2)} an athlete, floor ${Q.DISCOVERY_CAP_USD.toFixed(2)})`);
   let filled = 0;
   // Banked per athlete, settled once at the end. See the note at the push.
   const attempts = [];

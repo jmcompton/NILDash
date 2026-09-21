@@ -534,10 +534,49 @@ function sportLabel(s) {
   const bare = _words(raw).replace(/[\u2019']/g, '').replace(/^(mens|womens|men|women|boys|girls)\s+/, '').trim();
   return bare === k ? raw : k;
 }
+// ── THE RECORD'S SPORT WINS, AND A WRONG WORD IS REPAIRED, NOT REFUSED ─────
+//
+// One agent's night: 12 of 13 writes needed a second call and 11 were refused
+// twice, almost all "says X but the stored sport is Y". Every one of those
+// refusals turned a wording slip into a card that was never written. The
+// model had been told to say the stored sport; it said a neighbouring one
+// (the position, the school or the stat line pulled it), and the lint threw
+// the whole draft away.
+//
+// So a sport the record disagrees with is now REPAIRED first: the offending
+// word is replaced with the value on the record, exactly as stored, and the
+// repaired text is linted again. The record is the authority -- that is the
+// rule -- and a draft that named the wrong sport becomes a draft that names
+// the right one instead of becoming nothing.
+//
+// It only ever rewrites TOWARD the stored value. It cannot invent a sport for
+// an athlete who has none on file: with no stored sport there is nothing to
+// rewrite to, and naming one stays a refusal.
+function alignSport(text, a) {
+  const stored = sportLabel(a && a.sport);
+  const storedKey = sportKey(a && a.sport);
+  if (!stored || !storedKey) return { text: String(text || ''), changed: false, from: null };
+  let out = String(text || '');
+  let from = null;
+  for (const w of SPORT_WORDS.slice().sort((x, y) => y.length - x.length)) {
+    if (sportKey(w) === storedKey) continue;             // already the right sport
+    const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\function _sportRule(a) {') + '\\b', 'gi');
+    if (!re.test(out)) continue;
+    // Only inside a sentence about the athlete, the same scope the lint used
+    // to find it: "the basketball court down the road" is about the town.
+    if (!_findVocab(out, [w], a).length) continue;
+    from = from || w;
+    // Keep the casing the draft used: "a basketball player" becomes "a
+    // baseball player", not "a Baseball player" in the middle of a sentence.
+    out = out.replace(re, (m) => (/^[a-z]/.test(m) ? stored.charAt(0).toLowerCase() + stored.slice(1) : stored));
+  }
+  return { text: out, changed: out !== String(text || ''), from };
+}
+
 function _sportRule(a) {
   const label = sportLabel(a.sport);
   if (!label) return a.sport ? '' : ' (no sport on file: do not name one)';
-  return ` (sport: say "${label}" or nothing; do not rename or abbreviate it)`;
+  return ` (sport: this record says "${label}". Say "${label}" or name no sport at all. Do not say any other sport, even if the position or the stats suggest one)`;
 }
 // The class year the model may name, or told there is none. A pro never has
 // one and the pro block says so on its own line.
@@ -1245,7 +1284,23 @@ async function writePitch(ctx, opts = {}) {
   // RECORDED, so "how often does the retry fire" is a count and not a guess.
   // A retry is a second model call on the writer's model; the ledger shows it
   // as a repeat, the run row carries it on the attempt, and this line says why.
-  let retried = false, firstProblems = null;
+  let retried = false, firstProblems = null, sportRepaired = null;
+  // THE CHEAP FIX FIRST. A sport the record disagrees with does not need a
+  // second model call: the record's value is the answer, so the word is
+  // rewritten and the draft re-linted. Only then is a retry worth a call.
+  if (!lint.ok && lint.problems.some((x) => /but the stored sport is/.test(x))) {
+    const al = alignSport(message, ctx.athlete || {});
+    if (al.changed) {
+      const mFixed = repairSignOff(autoRepair(al.text), agentFirst);
+      const lFixed = lintMessage(mFixed, lintOpts);
+      const fFixed = factsOf(mFixed);
+      if (lFixed.ok && fFixed.ok) {
+        sportRepaired = { from: al.from, to: sportLabel((ctx.athlete || {}).sport) };
+        console.log(`[writer] sport repaired for ${(ctx.business && ctx.business.name) || 'business'}: "${al.from}" -> "${sportRepaired.to}" (the record's value)`);
+        message = mFixed; lint = lFixed; facts = fFixed;
+      }
+    }
+  }
   if (!lint.ok) {
     retried = true; firstProblems = lint.problems.slice();
     console.log(`[writer] retry for ${(ctx.business && ctx.business.name) || 'business'}: ${lint.problems.join('; ')}`);
@@ -1260,14 +1315,25 @@ async function writePitch(ctx, opts = {}) {
       const l2 = lintMessage(m2, lintOpts);
       const f2 = factsOf(m2);
       if (l2.ok && f2.ok) { j = j2; message = m2; lint = l2; }
-      else lint = { ok: false, problems: l2.problems.concat(f2.problems) };
+      else {
+        // The second draft got the sport wrong too: repair rather than lose
+        // the card, on the same terms as the first.
+        const al2 = alignSport(m2, ctx.athlete || {});
+        const m3 = al2.changed ? repairSignOff(autoRepair(al2.text), agentFirst) : null;
+        const l3 = m3 ? lintMessage(m3, lintOpts) : null;
+        const f3 = m3 ? factsOf(m3) : null;
+        if (l3 && l3.ok && f3 && f3.ok) {
+          sportRepaired = { from: al2.from, to: sportLabel((ctx.athlete || {}).sport) };
+          j = j2; message = m3; lint = l3; facts = f3;
+        } else lint = { ok: false, problems: l2.problems.concat(f2.problems) };
+      }
     }
   }
   if (!lint.ok) {
     // Twice rejected. NOT sent as-is: a message that breaks the voice rules is
     // the failure this rewrite exists to remove.
     return { skipped: true, reason: 'could not write it in voice: ' + lint.problems.join('; '), lintFailed: true,
-      retried, firstProblems };
+      retried, firstProblems, sportRepaired };
   }
   if (!facts.ok && (facts = factsOf(message)) && !facts.ok) {
     return { skipped: true, reason: 'invented a fact about the athlete: ' + facts.problems.join('; '), factsFailed: true,
@@ -1277,7 +1343,7 @@ async function writePitch(ctx, opts = {}) {
   const play = playbookFor(ctx.business && ctx.business.category);
   return {
     skipped: false,
-    retried, firstProblems,
+    retried, firstProblems, sportRepaired,
     message,
     angle: String(j.angle || '').trim() || null,
     angleKey: String(j.angleKey || play.key).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40),
@@ -1327,5 +1393,5 @@ module.exports = {
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
   DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, SYSTEM_PRO, systemFor, MIN_SAMPLE,
   POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
-  positionKey, sportKey, sportLabel, SPORT_ABBR, positionLabel, sportFamily, POSITION_GROUPS, POSITION_ABBR, SOFT_WORDS,
+  positionKey, sportKey, sportLabel, alignSport, SPORT_ABBR, positionLabel, sportFamily, POSITION_GROUPS, POSITION_ABBR, SOFT_WORDS,
 };

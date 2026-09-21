@@ -107,7 +107,7 @@ async function main() {
   const bare = PW.describeAthlete({ name: 'Ann Lee', school: 'Auburn' });
   ok('with nothing on file: each blank is named as blank, with the instruction', /no position on file: do not name, guess or imply one/.test(bare) && /no sport on file: do not name one/.test(bare) && /no class year on file: do not call them a freshman, sophomore, junior, senior or graduate/.test(bare) && /From: not on file\. Do not say where they are from/.test(bare), bare);
   const some = PW.describeAthlete({ name: 'Ann Lee', sport: 'softball', school: 'Auburn' });
-  ok('  a held sport is named and the rest are blank', /Plays: softball at Auburn/.test(some) && /sport: say "softball"/.test(some) && /no position on file/.test(some) && /no class year on file/.test(some) && /From: not on file/.test(some), some);
+  ok('  a held sport is named and the rest are blank', /Plays: softball at Auburn/.test(some) && /sport: this record says "softball"\. Say "softball" or name no sport at all/.test(some) && /no position on file/.test(some) && /no class year on file/.test(some) && /From: not on file/.test(some), some);
   ok('  no school and nothing else still says so', /Plays: nothing on file/.test(PW.describeAthlete({ name: 'X' })));
   const pro = PW.describeAthlete({ name: 'Bo Nix', athleteType: 'pro', team: 'Denver Broncos', position: 'QB', sport: 'football' });
   ok('a pro is never told about a class year, and the hometown line says not to mention it (a pro leads with the team and the market)', !/class year on file/.test(pro) && /From: not to be mentioned\. Lead with the team and the market/.test(pro) && /Never call them a student-athlete/.test(pro), pro);
