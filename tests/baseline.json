@@ -237,6 +237,11 @@
       "total": 69,
       "fault": null
     },
+    "deals.js": {
+      "failed": 0,
+      "total": 59,
+      "fault": null
+    },
     "deeprow.js": {
       "failed": 0,
       "total": 16,

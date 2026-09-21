@@ -8752,6 +8752,16 @@ async function _applyLedgerToResponse(agentId, athleteId, lane, opportunities, o
       opps.filter((o) => o.brandKey).map((o) => ({ brandKey: o.brandKey, brandName: o.brand || o.brand_name || null }))
     );
   } catch (e) { console.warn('[dealScan] shown upsert failed:', e.message); }
+  // ── WHAT THIS BUSINESS HAS DONE WITH ATHLETES, ACROSS EVERY AGENT ────────
+  // Two booleans a card (services/brandFlags), matched on Place ID or root
+  // domain and never on a name. Deliberately the LAST thing attached and
+  // deliberately only `nilFlags`: no agent, no athlete, no value and no
+  // contact from another agent's book can ride along.
+  try {
+    const BF = require('./services/brandFlags');
+    const flags = await BF.flagsFor(store.pool, opps);
+    opps.forEach((o, i) => { const f = flags[i]; if (f && (f.nilActive || f.responded)) o.nilFlags = f; });
+  } catch (e) { console.warn('[dealScan] brand flags failed:', e.message); }
   if (agentId) {
     try {
       const badges = await store.getCrossAthleteContacted(agentId, opps.map((o) => o.brandKey), athleteId);
@@ -11456,6 +11466,57 @@ app.get('/api/admin/check-card-emails', requireAuth, async (req, res) => {
     const job = _cardEmailCheckJob;
     if (!job.result && !job.error) return res.json({ running: true, startedAt: job.startedAt, message: 'Still checking. Open this URL again in a minute.' });
     res.json({ running: false, startedAt: job.startedAt, finishedAt: job.finishedAt, error: job.error, ...(job.result || {}) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── THE DEAL IS SIGNED ───────────────────────────────────────────────────────
+// POST /api/deals/log    { athleteId, brand, brandKey?, value?, deliverable? }
+//   One button on a sent pitch, a My Brands row or a Pipeline card. Both
+//   answers are optional. Moves the deal to the existing Closed stage, writes
+//   the deal_outcomes row the fit model learns from, and marks the brand
+//   ledger closed -- which is what makes the business NIL-active for everyone
+//   (services/dealLog, services/brandFlags).
+// POST /api/deals/undo   { id }         a deal logged by mistake, agent-scoped
+// GET  /api/deals/recent                what this agent has logged
+app.post('/api/deals/log', requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const out = await require('./services/dealLog').logDeal(store.pool, {
+      agentId: req.session.userId, athleteId: b.athleteId, brandName: b.brand || b.brandName,
+      brandKey: b.brandKey || null, value: b.value, deliverable: b.deliverable,
+      category: b.category || null, contactEmail: b.contactEmail || null, source: b.source || 'deal-button',
+    });
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/deals/undo', requireAuth, async (req, res) => {
+  try {
+    const out = await require('./services/dealLog').undoDeal(store.pool, { agentId: req.session.userId, id: (req.body || {}).id });
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get('/api/deals/recent', requireAuth, async (req, res) => {
+  try { res.json({ rows: await require('./services/dealLog').recentFor(store.pool, req.session.userId, req.query.limit) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/admin/deal-counter — total deals, total value, deals this month.
+// Admin only, and nothing reads it from a customer page.
+app.get('/api/admin/deal-counter', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    res.json(await require('./services/dealLog').counts(store.pool));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// GET /api/admin/brand-flags — how many businesses sit at each level.
+app.get('/api/admin/brand-flags', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    res.json(await require('./services/brandFlags').counts(store.pool));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

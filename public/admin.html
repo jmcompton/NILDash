@@ -175,6 +175,1001 @@ async function loadBrandsSummary() {
 loadBrandsSummary();
 </script>
 
+<!-- ── Deals logged, and what businesses have done with athletes ──── -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Deals logged</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">Every deal an agent has logged, across all agents. A deal can be logged without a value, so the total is the value of the priced ones only and the unpriced count is shown beside it. Admin only: nothing on a customer page reads this.</div>
+    </div>
+    <button onclick="loadDealCounter()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+  </div>
+  <div id="deal-counter-body" style="padding:16px 20px;font-size:12px;color:#f0ede6;display:flex;gap:28px;flex-wrap:wrap">Loading...</div>
+  <div style="padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08)">
+    <div style="font-size:14px;font-weight:600;color:#f0ede6">Businesses flagged</div>
+    <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">A business earns a flag from real activity: NIL-active once a deal with it has been logged, Responded once someone there replied to a pitch. Only a business with a Google Place ID or a website can carry one, because a flag is matched across agents on those and never on a name.</div>
+  </div>
+  <div id="brand-flags-body" style="padding:0 20px 18px;font-size:12px;color:#f0ede6;display:flex;gap:28px;flex-wrap:wrap">Loading...</div>
+</div>
+<script>
+function _tileAdmin(n, label, sub) {
+  return '<div><div style="font-size:22px;font-weight:700">' + n + '</div><div style="font-size:11px;color:rgba(240,237,230,0.5)">' + label + '</div>'
+    + (sub ? '<div style="font-size:10px;color:rgba(240,237,230,0.35);margin-top:2px">' + sub + '</div>' : '') + '</div>';
+}
+function _money(n) { return '
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Email sent to an address</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">Every email any part of NILDash sent to one address: subject, date, and which system sent it. The rules every sender follows: never the same subject twice, never two emails inside 4 days, follow-ups at 4 and 9 days, and nothing at all to a suppressed address.</div>
+    </div>
+    <form onsubmit="loadEmailHistory(); return false;" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="email-history-addr" type="email" placeholder="name@business.com" required style="font-size:12px;padding:6px 8px;width:240px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+      <select id="email-history-days" style="font-size:11px;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+        <option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option>
+      </select>
+      <button type="submit" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">Look up</button>
+    </form>
+  </div>
+  <div id="email-history-body" style="padding:12px 20px;font-size:12px;color:#f0ede6;line-height:1.6;color:rgba(240,237,230,0.5)">Enter an address to see what we sent it.</div>
+  <div style="padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Suppression list</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">An address here gets nothing from any system: no pitch, no follow-up, no digest, no report. Bounces land here on their own; add one by hand when someone asks us to stop. Adding stops every unsent draft to that address at once.</div>
+    </div>
+    <form onsubmit="addSuppression(); return false;" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="suppress-addr" type="email" placeholder="name@business.com" required style="font-size:12px;padding:6px 8px;width:220px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+      <input id="suppress-reason" type="text" placeholder="reason (optional)" style="font-size:12px;padding:6px 8px;width:200px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+      <button type="submit" style="font-size:11px;padding:6px 12px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:4px;color:#f0ede6;cursor:pointer">Stop all email to this address</button>
+      <button type="button" onclick="loadSuppression()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+    </form>
+  </div>
+  <div id="suppression-body" style="padding:12px 20px;font-size:12px;color:#f0ede6;line-height:1.6">Loading...</div>
+</div>
+<script>
+function _escAdmin(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+async function loadEmailHistory() {
+  var body = document.getElementById('email-history-body');
+  var addr = (document.getElementById('email-history-addr').value || '').trim();
+  var days = document.getElementById('email-history-days').value || '30';
+  if (!addr) return;
+  body.style.color = '#f0ede6';
+  body.textContent = 'Looking up ' + addr + '...';
+  try {
+    var r = await fetch('/api/admin/email-history?email=' + encodeURIComponent(addr) + '&days=' + encodeURIComponent(days));
+    var d = await r.json();
+    if (!r.ok) { body.textContent = d.error || ('error ' + r.status); return; }
+    var head = '<div style="margin-bottom:8px"><b>' + _escAdmin(d.email) + '</b>: ' + d.count + ' email' + (d.count === 1 ? '' : 's') + ' in the last ' + d.days + ' days'
+      + (d.suppressed ? ' <span style="color:#ef4444">· suppressed (' + _escAdmin(d.suppressed) + ')</span>' : '')
+      + (d.count ? ' · ' + Object.keys(d.bySystem).map(function (k) { return _escAdmin(k) + ' ' + d.bySystem[k]; }).join(', ') : '') + '</div>';
+    if (!d.rows.length) { body.innerHTML = head + '<div style="color:rgba(240,237,230,0.5)">Nothing sent to this address by any system in that window.</div>'; return; }
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.5);text-align:left">'
+      + '<th style="padding:6px 4px">Sent</th><th style="padding:6px 4px">Subject</th><th style="padding:6px 4px">System</th><th style="padding:6px 4px">Agent</th><th style="padding:6px 4px">Business</th></tr></thead><tbody>';
+    d.rows.forEach(function (x) {
+      h += '<tr style="border-top:1px solid rgba(255,255,255,0.06)">'
+        + '<td style="padding:6px 4px;white-space:nowrap">' + _escAdmin(String(x.sentAt || '').replace('T', ' ').slice(0, 16)) + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.subject || '(no subject)') + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.system) + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.agent || '') + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.brand || '') + '</td></tr>';
+    });
+    body.innerHTML = head + h + '</tbody></table>';
+  } catch (e) { body.textContent = 'Could not load: ' + e.message; }
+}
+async function loadSuppression() {
+  var body = document.getElementById('suppression-body');
+  body.textContent = 'Loading...';
+  try {
+    var r = await fetch('/api/admin/suppression');
+    var d = await r.json();
+    if (!r.ok) { body.textContent = d.error || ('error ' + r.status); return; }
+    if (!d.rows.length) { body.innerHTML = '<div style="color:rgba(240,237,230,0.5)">Nobody is suppressed.</div>'; return; }
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.5);text-align:left">'
+      + '<th style="padding:6px 4px">Address</th><th style="padding:6px 4px">Why</th><th style="padding:6px 4px">How</th><th style="padding:6px 4px">Since</th><th style="padding:6px 4px">Added by</th><th style="padding:6px 4px"></th></tr></thead><tbody>';
+    d.rows.forEach(function (x) {
+      h += '<tr style="border-top:1px solid rgba(255,255,255,0.06)">'
+        + '<td style="padding:6px 4px;font-weight:600">' + _escAdmin(x.email) + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.reason || '') + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.kind === 'manual' ? 'by hand' : (x.kind || 'bounce')) + '</td>'
+        + '<td style="padding:6px 4px;white-space:nowrap">' + _escAdmin(String(x.first_seen_at || '').slice(0, 10)) + '</td>'
+        + '<td style="padding:6px 4px">' + _escAdmin(x.agent_email || '') + '</td>'
+        + '<td style="padding:6px 4px;white-space:nowrap"><button onclick="removeSuppression(' + JSON.stringify(x.email).replace(/"/g, '&quot;') + ')" style="font-size:11px;padding:4px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">Allow again</button></td></tr>';
+    });
+    body.innerHTML = h + '</tbody></table>';
+  } catch (e) { body.textContent = 'Could not load: ' + e.message; }
+}
+async function addSuppression() {
+  var email = (document.getElementById('suppress-addr').value || '').trim();
+  var reason = (document.getElementById('suppress-reason').value || '').trim();
+  if (!email) return;
+  if (!confirm('Stop every NILDash email to ' + email + '? Unsent drafts to this address stop too.')) return;
+  try {
+    var r = await fetch('/api/admin/suppression', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email, reason: reason }) });
+    var d = await r.json();
+    if (!r.ok) { showToast(d.error || ('error ' + r.status)); return; }
+    showToast(d.email + ' suppressed; ' + d.stopped + ' unsent draft(s) stopped');
+    document.getElementById('suppress-addr').value = ''; document.getElementById('suppress-reason').value = '';
+    loadSuppression();
+  } catch (e) { showToast('Could not add: ' + e.message); }
+}
+async function removeSuppression(email) {
+  if (!confirm('Allow email to ' + email + ' again?')) return;
+  try {
+    var r = await fetch('/api/admin/suppression/' + encodeURIComponent(email), { method: 'DELETE' });
+    var d = await r.json();
+    if (!r.ok) { showToast(d.error || ('error ' + r.status)); return; }
+    showToast(email + ' can be emailed again');
+    loadSuppression();
+  } catch (e) { showToast('Could not remove: ' + e.message); }
+}
+loadSuppression();
+</script>
+
+<!-- ── Schools the app found for itself (services/schoolFind) ──── -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Auto-found schools</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">Schools no list carried, with the town the lookup found. A wrong town sends an athlete's local lane to the wrong place: confirm, fix, or reject each one. Rejecting removes it everywhere at once.</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="school-lookups-filter" onchange="loadSchoolLookups()" style="font-size:11px;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6">
+        <option value="">All</option><option value="auto" selected>Needs review</option><option value="confirmed">Confirmed</option><option value="rejected">Rejected</option>
+      </select>
+      <button onclick="loadSchoolLookups()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+    </div>
+  </div>
+  <div id="school-lookups-body" style="padding:12px 20px;font-size:12px;color:#f0ede6;line-height:1.6">Loading...</div>
+</div>
+<script>
+async function loadSchoolLookups() {
+  var body = document.getElementById('school-lookups-body');
+  var status = (document.getElementById('school-lookups-filter') || {}).value || '';
+  body.textContent = 'Loading...';
+  try {
+    var r = await fetch('/api/admin/school-lookups' + (status ? '?status=' + encodeURIComponent(status) : ''));
+    var d = await r.json();
+    if (!r.ok) { body.textContent = d.error || ('error ' + r.status); return; }
+    var rows = d.rows || [];
+    if (!rows.length) { body.innerHTML = '<div style="color:rgba(240,237,230,0.5)">' + (status === 'auto' ? 'Nothing waiting for review.' : 'No auto-found schools yet.') + '</div>'; return; }
+    var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.5);text-align:left">'
+      + '<th style="padding:6px 4px">School</th><th style="padding:6px 4px">Town found</th><th style="padding:6px 4px">Source</th><th style="padding:6px 4px">Found by</th><th style="padding:6px 4px">When</th><th style="padding:6px 4px">Uses</th><th style="padding:6px 4px">Athletes</th><th style="padding:6px 4px">Status</th><th style="padding:6px 4px"></th></tr></thead><tbody>';
+    rows.forEach(function (x) {
+      var ev = x.evidence || {};
+      var proof = x.source === 'places' ? (ev.placeName ? ('Places: ' + ev.placeName + (ev.address ? ' — ' + ev.address : '')) : 'Places')
+        : x.source === 'web' ? ('Web: ' + (ev.title || '') + (ev.url ? ' ' + ev.url : ''))
+        : x.source === 'agent' ? ('Typed by the agent: ' + (ev.typed || '')) : x.source;
+      var color = x.status === 'confirmed' ? '#84CC16' : x.status === 'rejected' ? '#ef4444' : '#f59e0b';
+      h += '<tr style="border-top:1px solid rgba(255,255,255,0.06)">'
+        + '<td style="padding:6px 4px;font-weight:600">' + esc(x.name) + '</td>'
+        + '<td style="padding:6px 4px">' + esc((x.city || '?') + (x.state ? ', ' + x.state : '')) + '<div style="font-size:10px;color:rgba(240,237,230,0.45);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(proof) + '">' + esc(proof) + '</div></td>'
+        + '<td style="padding:6px 4px">' + esc(x.source) + '</td>'
+        + '<td style="padding:6px 4px">' + esc(x.found_by_email || x.found_by || '') + '</td>'
+        + '<td style="padding:6px 4px;white-space:nowrap">' + esc(String(x.created_at || '').slice(0, 10)) + '</td>'
+        + '<td style="padding:6px 4px">' + esc(x.uses) + '</td>'
+        + '<td style="padding:6px 4px">' + esc(x.athletes) + '</td>'
+        + '<td style="padding:6px 4px;color:' + color + '">' + esc(x.status) + '</td>'
+        + '<td style="padding:6px 4px;white-space:nowrap">'
+        + '<button onclick="reviewSchoolLookup(' + x.id + ',\'confirmed\')" style="font-size:11px;padding:4px 8px;margin-right:4px;background:rgba(132,204,22,0.15);border:1px solid rgba(132,204,22,0.4);border-radius:4px;color:#f0ede6;cursor:pointer">Confirm</button>'
+        + '<button onclick="fixSchoolLookup(' + x.id + ',' + JSON.stringify(x.name).replace(/"/g, '&quot;') + ')" style="font-size:11px;padding:4px 8px;margin-right:4px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">Fix town</button>'
+        + '<button onclick="reviewSchoolLookup(' + x.id + ',\'rejected\')" style="font-size:11px;padding:4px 8px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:4px;color:#f0ede6;cursor:pointer">Reject</button>'
+        + '</td></tr>';
+    });
+    body.innerHTML = h + '</tbody></table>';
+  } catch (e) { body.textContent = 'Could not load: ' + e.message; }
+}
+async function reviewSchoolLookup(id, status, city) {
+  var payload = { status: status };
+  if (city) payload.city = city;
+  var r = await fetch('/api/admin/school-lookups/' + id + '/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  var d = await r.json().catch(function () { return {}; });
+  if (!r.ok) { alert(d.error || ('error ' + r.status)); return; }
+  loadSchoolLookups();
+}
+function fixSchoolLookup(id, name) {
+  var v = prompt('The right town for ' + name + ', as "City, ST":');
+  if (!v || !v.trim()) return;
+  reviewSchoolLookup(id, 'confirmed', v.trim());
+}
+loadSchoolLookups();
+</script>
+
+<!-- ── Referrals ─────────────────────────────────────────────── -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
+    <div style="font-size:14px;font-weight:600;color:#f0ede6">Referrals</div>
+    <button onclick="loadReferrals()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+  </div>
+  <div id="referrals-body" style="padding:16px 20px;font-size:12px;color:#f0ede6;line-height:1.6">Loading...</div>
+</div>
+
+<div class="sub">Access request management</div>
+<div class="stats">
+  <div class="stat"><div class="stat-val" id="total">—</div><div class="stat-lbl">Total</div></div>
+  <div class="stat"><div class="stat-val" id="pending" style="color:#f59e0b">—</div><div class="stat-lbl">Pending</div></div>
+  <div class="stat"><div class="stat-val" id="approved">—</div><div class="stat-lbl">Approved</div></div>
+  <div class="stat"><div class="stat-val" id="denied" style="color:#ef4444">—</div><div class="stat-lbl">Denied</div></div>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Email</th>
+      <th>Agency</th>
+      <th>Athletes</th>
+      <th>Date</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody id="requests-body">
+    <tr><td colspan="7" class="empty">Loading...</td></tr>
+  </tbody>
+</table>
+<script>
+// Auth check — redirect to login if not authenticated
+async function checkAdminAuth() {
+  try {
+    const r = await fetch('/api/auth/me');
+    const data = await r.json();
+    if (!data.email || data.email !== 'johnmarkcompton@gmail.com') {
+      window.location.href = '/';
+      return false;
+    }
+    return true;
+  } catch(e) {
+    window.location.href = '/';
+    return false;
+  }
+}
+async function load() {
+  const r = await fetch('/api/admin/requests');
+  const data = await r.json();
+  if (data.error) { document.getElementById('requests-body').innerHTML = '<tr><td colspan="7" class="empty">' + data.error + '</td></tr>'; return; }
+  const reqs = data.requests || [];
+  document.getElementById('total').textContent = reqs.length;
+  document.getElementById('pending').textContent = reqs.filter(r=>r.status==='pending').length;
+  document.getElementById('approved').textContent = reqs.filter(r=>r.status==='approved').length;
+  document.getElementById('denied').textContent = reqs.filter(r=>r.status==='denied').length;
+  if (!reqs.length) {
+    document.getElementById('requests-body').innerHTML = '<tr><td colspan="7" class="empty">No requests yet</td></tr>';
+    return;
+  }
+  document.getElementById('requests-body').innerHTML = reqs.map(r => {
+    const date = new Date(r.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const badgeClass = r.status==='approved'?'badge-approved':r.status==='denied'?'badge-denied':'badge-pending';
+    return '<tr>' +
+      '<td>' + r.first_name + ' ' + r.last_name + '</td>' +
+      '<td>' + r.email + '</td>' +
+      '<td>' + (r.agency||'—') + '</td>' +
+      '<td>' + (r.athletes||'—') + '</td>' +
+      '<td>' + date + '</td>' +
+      '<td><span class="badge ' + badgeClass + '">' + r.status + '</span></td>' +
+      '<td><div class="actions">' +
+        '<button class="btn btn-approve" onclick="approve(' + r.id + ',this)" ' + (r.status!=='pending'?'disabled':'') + '>Approve</button>' +
+        '<button class="btn btn-deny" onclick="deny(' + r.id + ',this)" ' + (r.status!=='pending'?'disabled':'') + '>Deny</button>' +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+}
+async function approve(id, btn) {
+  btn.disabled = true; btn.textContent = '...';
+  await fetch('/api/admin/requests/' + id + '/approve', {method:'POST'});
+  load();
+}
+async function deny(id, btn) {
+  btn.disabled = true; btn.textContent = '...';
+  await fetch('/api/admin/requests/' + id + '/deny', {method:'POST'});
+  load();
+}
+load();
+</script>
+<script>
+// Load users
+// 'free' is the actual default plan for new signups. It must be in the plan
+// list: with it missing, a free user's dropdown displayed the first option
+// ('beta'), which both looked like an auto-granted beta and made it impossible
+// to change a free user TO beta (selecting the shown value fires no change).
+var PLANS = ['free','beta','trial','starter','pro','suspended'];
+var _usersById = {};
+
+function planColorFor(plan) {
+  return plan === 'free' ? '#64748b'
+    : plan === 'beta' ? '#4ade80'
+    : plan === 'trial' ? '#f59e0b'
+    : plan === 'starter' ? '#60a5fa'
+    : plan === 'pro' ? '#a78bfa'
+    : '#6b7280';
+}
+
+function userRowHtml(u) {
+  const plan = u.plan || 'free';
+  const trialDays = u.trial_ends_at ? Math.ceil((new Date(u.trial_ends_at) - new Date()) / 86400000) : null;
+  const planColor = planColorFor(plan);
+  const sub = u.subscription_status || 'inactive';
+  const subColor = (sub === 'active' || sub === 'trialing') ? '#4ade80' : (sub === 'past_due' ? '#f59e0b' : '#6b7280');
+  const comped = u.comped === true;
+  return '<tr id="urow-' + u.id + '" style="border-bottom:1px solid rgba(255,255,255,0.06)">' +
+    '<td style="padding:10px 12px;font-size:12px;color:#f0ede6">' + (u.name||'—') + '</td>' +
+    '<td style="padding:10px 12px;font-size:12px;color:rgba(240,237,230,0.5)">' + u.email + '</td>' +
+    '<td style="padding:10px 12px">' +
+      '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + planColor + '20;color:' + planColor + ';font-weight:700;text-transform:uppercase">' + plan + '</span>' +
+      (trialDays !== null ? '<span style="font-size:10px;color:rgba(240,237,230,0.4);margin-left:6px">' + trialDays + 'd left</span>' : '') +
+      '<br><span style="font-size:9px;color:' + subColor + ';text-transform:uppercase;letter-spacing:0.05em">' + sub + '</span>' +
+      (comped ? '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:#a78bfa20;color:#a78bfa;font-weight:700;margin-left:6px;text-transform:uppercase">Comped</span>' : '') +
+    '</td>' +
+    '<td style="padding:10px 12px">' +
+      '<select onchange="setPlan(\'' + u.id + '\', this.value)" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;font-size:11px;padding:4px 8px">' +
+        PLANS.map(p => '<option value="' + p + '"' + (plan===p?' selected':'') + '>' + p + '</option>').join('') +
+      '</select>' +
+      '<button onclick="setComp(\'' + u.id + '\', ' + (comped ? 'false' : 'true') + ')" style="margin-left:8px;background:' + (comped ? '#a78bfa30' : '#1a1a18') + ';border:1px solid ' + (comped ? '#a78bfa' : 'rgba(255,255,255,0.1)') + ';border-radius:4px;color:' + (comped ? '#a78bfa' : '#f0ede6') + ';font-size:11px;padding:4px 8px;cursor:pointer">' + (comped ? 'Un-comp' : 'Comp') + '</button>' +
+    '</td>' +
+    '<td style="padding:10px 12px;white-space:nowrap">' + seatCellHtml(u) + '</td>' +
+    '<td style="padding:10px 12px;font-size:11px;color:rgba(240,237,230,0.4)">' + new Date(u.created_at).toLocaleDateString() + '</td>' +
+  '</tr>';
+}
+
+// ── SEATS: the plan's limit, or an admin override for this one account ──────
+// seat_override NULL = the plan decides; 0 = no limit; N = that many. The
+// server computes seat_limit / seat_source / seats from it, and the cell
+// shows "taken / limit" with the source, so a comped agent on an unlimited
+// override reads as exactly that and not as a plan they never bought.
+var SEAT_CHOICES = [['plan', 'Plan default'], ['0', 'No limit'], ['10', '10'], ['20', '20'], ['30', '30'], ['50', '50'], ['100', '100']];
+function seatCellHtml(u) {
+  var isOverride = u.seat_source === 'override';
+  var taken = (u.athletes === null || u.athletes === undefined) ? '?' : u.athletes;
+  var limit = (u.seat_limit === null || u.seat_limit === undefined) ? '∞' : u.seat_limit;
+  var full = u.seat_limit !== null && u.seat_limit !== undefined && u.athletes >= u.seat_limit;
+  var color = isOverride ? '#a78bfa' : 'rgba(240,237,230,0.5)';
+  var current = u.seat_override === null || u.seat_override === undefined ? 'plan' : String(u.seat_override);
+  if (current !== 'plan' && !SEAT_CHOICES.some(function (c) { return c[0] === current; })) SEAT_CHOICES.push([current, current]);
+  return '<span style="font-size:12px;color:' + (full ? '#f59e0b' : '#f0ede6') + ';font-weight:600">' + taken + ' / ' + limit + '</span>' +
+    '<span style="font-size:9px;margin-left:6px;padding:1px 6px;border-radius:4px;background:' + color + '20;color:' + color + ';font-weight:700;text-transform:uppercase">' + (isOverride ? 'override' : 'plan') + '</span>' +
+    '<br><select onchange="setSeatOverride(\'' + u.id + '\', this.value)" title="Athlete limit for this account" style="margin-top:4px;background:#1a1a18;border:1px solid ' + (isOverride ? '#a78bfa' : 'rgba(255,255,255,0.1)') + ';border-radius:4px;color:#f0ede6;font-size:11px;padding:3px 6px">' +
+      SEAT_CHOICES.map(function (c) { return '<option value="' + c[0] + '"' + (current === c[0] ? ' selected' : '') + '>' + c[1] + '</option>'; }).join('') +
+    '</select>';
+}
+
+async function setSeatOverride(userId, value) {
+  var seatOverride = value === 'plan' ? null : parseInt(value, 10);
+  var r = await fetch('/api/admin/set-seat-override', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ userId: userId, seatOverride: seatOverride })
+  });
+  var data = await r.json();
+  if (data.ok) {
+    showToast('Seats: ' + data.seats);
+    var u = _usersById[userId];
+    var row = document.getElementById('urow-' + userId);
+    if (u && row) {
+      u.seat_override = data.seatOverride; u.seat_limit = data.seatLimit; u.seat_source = data.seatSource; u.seats = data.seats;
+      row.outerHTML = userRowHtml(u);
+    }
+  } else {
+    showToast('Error: ' + (data.error || 'seat override failed'));
+  }
+}
+
+async function setComp(userId, comped) {
+  const r = await fetch('/api/admin/set-comp', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ userId, comped })
+  });
+  const data = await r.json();
+  if (data.ok) {
+    showToast(comped ? 'User comped (free access, no card)' : 'Comp removed');
+    const u = _usersById[userId];
+    const row = document.getElementById('urow-' + userId);
+    if (u && row) { u.comped = comped; row.outerHTML = userRowHtml(u); }
+  } else {
+    showToast('Error: ' + (data.error || 'comp update failed'));
+  }
+}
+
+// Mirrors createCompedAgent, with one difference: the name is run through refEsc
+// before being put in innerHTML. The agent version interpolates it raw.
+async function createCompedAthlete() {
+  var nameEl = document.getElementById('ccath-name');
+  var emailEl = document.getElementById('ccath-email');
+  var schoolEl = document.getElementById('ccath-school');
+  var sportEl = document.getElementById('ccath-sport');
+  var btn = document.getElementById('ccath-btn');
+  var out = document.getElementById('ccath-result');
+  var name = (nameEl.value || '').trim();
+  var email = (emailEl.value || '').trim();
+  if (!name || !email) { showToast('Name and email are required'); return; }
+  btn.disabled = true; var label = btn.textContent; btn.textContent = 'Creating...';
+  try {
+    var r = await fetch('/api/admin/create-comped-athlete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name, email: email,
+        school: (schoolEl.value || '').trim(),
+        sport: (sportEl.value || '').trim()
+      })
+    });
+    var data = await r.json();
+    if (!r.ok || !data.ok) { showToast('Error: ' + (data.error || 'could not create account')); return; }
+    showToast('Comped athlete created' + (data.emailed ? ' and emailed' : ''));
+    var escAttr = function (s) { return String(s).replace(/"/g, '&quot;'); };
+    out.style.display = 'block';
+    out.innerHTML =
+      '<div style="background:#0f130a;border:1px solid rgba(167,139,250,0.4);border-radius:8px;padding:12px 14px">' +
+        '<div style="color:#a78bfa;font-weight:700;margin-bottom:6px">' + refEsc(data.name || name) + ' is ready (comped, full access, no card)</div>' +
+        '<div style="color:rgba(240,237,230,0.6);margin-bottom:8px">' +
+          (data.emailed
+            ? 'A set-password link was emailed to ' + refEsc(data.email) + '. You can also copy it below.'
+            : 'Email was not sent (delivery not configured). Copy this set-password link and send it to them:') +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<input id="ccath-link" readonly value="' + escAttr(data.resetUrl) + '" style="flex:1;padding:7px 10px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;outline:none">' +
+          '<button onclick="(function(){var i=document.getElementById(\'ccath-link\');i.select();document.execCommand(\'copy\');showToast(\'Link copied\');})()" style="padding:7px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;cursor:pointer">Copy</button>' +
+        '</div>' +
+        '<div style="color:rgba(240,237,230,0.35);font-size:10px;margin-top:6px">Link expires in 7 days. After setting a password they sign in at /athlete-login.html</div>' +
+      '</div>';
+    nameEl.value = ''; emailEl.value = ''; schoolEl.value = ''; sportEl.value = '';
+    if (typeof _loadAthleteCompsNow === 'function') _loadAthleteCompsNow();
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+// ── Athlete comps ────────────────────────────────────────────────────────────
+// Mirrors userRowHtml / setComp / loadUsers above: same purple COMPED pill, same
+// button that flips label, same in-place row re-render after a toggle.
+var _athletesById = {};
+var _athSearchTimer = null;
+
+function athleteRowHtml(a) {
+  var comped = a.comped === true;
+  var sub = a.subscription_status || 'inactive';
+  // What the athlete's access actually rests on, in the same order athleteHasAccess
+  // checks it, so the column explains WHY rather than just showing a status.
+  // When comped, show what the athlete would fall back TO rather than the word
+  // "comped" -- the badge beside it already says that, and printing both gave
+  // every comped row a redundant "COMPED  Comped". This way the column answers
+  // "what happens if I un-comp them", which is the question you have while
+  // looking at an un-comp button.
+  var basis = comped ? [(a.athlete_type !== 'self_managed' ? 'their agent pays'
+      : a.free_before_billing ? 'grandfathered' : sub), '#a78bfa']
+    : a.athlete_type !== 'self_managed' ? ['their agent pays', '#60a5fa']
+    : a.free_before_billing ? ['grandfathered', '#4ade80']
+    : (sub === 'active' || sub === 'trialing' || sub === 'free') ? [sub, '#4ade80']
+    : [sub, '#6b7280'];
+  return '<tr id="arow-' + refEsc(a.id) + '" style="border-bottom:1px solid rgba(255,255,255,0.06)">' +
+    '<td style="padding:8px;color:#f0ede6">' + refEsc(a.name || '—') +
+      (a.school ? '<div style="font-size:10px;color:rgba(240,237,230,0.4)">' + refEsc(a.school) + (a.sport ? ' · ' + refEsc(a.sport) : '') + '</div>' : '') +
+    '</td>' +
+    '<td style="padding:8px;color:rgba(240,237,230,0.5)">' + refEsc(a.email || '—') + '</td>' +
+    '<td style="padding:8px;font-size:10px;color:rgba(240,237,230,0.5);text-transform:uppercase;letter-spacing:0.05em">' +
+      refEsc((a.athlete_type || 'unknown').replace('_', ' ')) + '</td>' +
+    '<td style="padding:8px">' +
+      '<span style="font-size:9px;color:' + basis[1] + ';text-transform:uppercase;letter-spacing:0.05em">' + refEsc(basis[0]) + '</span>' +
+      (comped ? '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:#a78bfa20;color:#a78bfa;font-weight:700;margin-left:6px;text-transform:uppercase">Comped</span>' : '') +
+    '</td>' +
+    '<td style="padding:8px">' +
+      '<button onclick="setAthleteComp(\'' + refEsc(a.id) + '\', ' + (comped ? 'false' : 'true') + ')" ' +
+      'style="background:' + (comped ? '#a78bfa30' : '#1a1a18') + ';border:1px solid ' + (comped ? '#a78bfa' : 'rgba(255,255,255,0.1)') +
+      ';border-radius:4px;color:' + (comped ? '#a78bfa' : '#f0ede6') + ';font-size:11px;padding:4px 8px;cursor:pointer">' +
+      (comped ? 'Un-comp' : 'Comp') + '</button>' +
+    '</td>' +
+  '</tr>';
+}
+
+async function setAthleteComp(athleteId, comped) {
+  try {
+    var r = await fetch('/api/admin/set-athlete-comp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: athleteId, comped: comped })
+    });
+    var data = await r.json();
+    if (data.ok) {
+      showToast(comped ? 'Athlete comped (free access, no card)' : 'Comp removed');
+      var a = _athletesById[athleteId];
+      var row = document.getElementById('arow-' + athleteId);
+      if (a && row) { a.comped = comped; row.outerHTML = athleteRowHtml(a); }
+      // The header count is now stale; refresh just that number.
+      var el = document.getElementById('ath-comp-count');
+      if (el) {
+        var n = Object.keys(_athletesById).filter(function (k) { return _athletesById[k].comped; }).length;
+        el.textContent = n + ' comped';
+      }
+    } else {
+      showToast('Error: ' + (data.error || 'comp update failed'));
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+async function loadAthleteComps() {
+  // Debounced: this runs on every keystroke in the search box.
+  clearTimeout(_athSearchTimer);
+  _athSearchTimer = setTimeout(_loadAthleteCompsNow, 200);
+}
+
+async function _loadAthleteCompsNow() {
+  var el = document.getElementById('athlete-comp-table');
+  if (!el) return;
+  var q = (document.getElementById('ath-search') || {}).value || '';
+  try {
+    var r = await fetch('/api/admin/athletes?q=' + encodeURIComponent(q.trim()));
+    if (!r.ok) { el.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Failed to load</td></tr>'; return; }
+    var data = await r.json();
+    var list = data.athletes || [];
+    _athletesById = {};
+    list.forEach(function (a) { _athletesById[a.id] = a; });
+
+    var badge = document.getElementById('ath-comp-count');
+    if (badge) badge.textContent = (data.comped_total || 0) + ' comped';
+
+    var note = document.getElementById('ath-comp-note');
+    if (note) {
+      note.innerHTML = data.capped
+        ? 'Showing the first 50 matches. Narrow the search to see the rest.'
+        : (q.trim() ? list.length + ' match' + (list.length === 1 ? '' : 'es') + '.' : 'Most recent athletes, comped first. Search to find a specific one.')
+          + ' A comp grants full access with no card and survives anything Stripe writes.';
+    }
+
+    if (!list.length) {
+      el.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">'
+        + (q.trim() ? 'No athlete matches &ldquo;' + refEsc(q.trim()) + '&rdquo;' : 'No athletes yet') + '</td></tr>';
+      return;
+    }
+    el.innerHTML = list.map(athleteRowHtml).join('');
+  } catch (e) {
+    el.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">' + refEsc(e.message) + '</td></tr>';
+  }
+}
+
+async function createCompedAgent() {
+  const nameEl = document.getElementById('cca-name');
+  const emailEl = document.getElementById('cca-email');
+  const btn = document.getElementById('cca-btn');
+  const out = document.getElementById('cca-result');
+  const name = (nameEl.value || '').trim();
+  const email = (emailEl.value || '').trim();
+  if (!name || !email) { showToast('Name and email are required'); return; }
+  btn.disabled = true; const label = btn.textContent; btn.textContent = 'Creating...';
+  try {
+    const r = await fetch('/api/admin/create-comped-agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email })
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) { showToast('Error: ' + (data.error || 'could not create account')); return; }
+    showToast('Comped agent created' + (data.emailed ? ' and emailed' : ''));
+    const escAttr = s => String(s).replace(/"/g, '&quot;');
+    out.style.display = 'block';
+    out.innerHTML =
+      '<div style="background:#0f130a;border:1px solid rgba(167,139,250,0.4);border-radius:8px;padding:12px 14px">' +
+        '<div style="color:#a78bfa;font-weight:700;margin-bottom:6px">' + (data.name || name) + ' is ready (comped, full access, no card)</div>' +
+        '<div style="color:rgba(240,237,230,0.6);margin-bottom:8px">' +
+          (data.emailed
+            ? 'A set-password link was emailed to ' + data.email + '. You can also copy it below.'
+            : 'Email was not sent (delivery not configured). Copy this set-password link and send it to them:') +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<input id="cca-link" readonly value="' + escAttr(data.resetUrl) + '" style="flex:1;padding:7px 10px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;outline:none">' +
+          '<button onclick="(function(){var i=document.getElementById(\'cca-link\');i.select();document.execCommand(\'copy\');showToast(\'Link copied\');})()" style="padding:7px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;cursor:pointer">Copy</button>' +
+        '</div>' +
+        '<div style="color:rgba(240,237,230,0.35);font-size:10px;margin-top:6px">Link expires in 7 days.</div>' +
+      '</div>';
+    nameEl.value = ''; emailEl.value = '';
+    if (typeof loadUsers === 'function') loadUsers();
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+async function loadUsers() {
+  const r = await fetch('/api/admin/users');
+  if (!r.ok) return;
+  const users = await r.json();
+  const el = document.getElementById('users-table');
+  if (!el) return;
+  _usersById = {};
+  users.forEach(u => { _usersById[u.id] = u; });
+  el.innerHTML = users.map(userRowHtml).join('');
+}
+
+// Human relative time: "2h ago", "9d ago", or "never" when null.
+function relTime(ts) {
+  if (!ts) return 'never';
+  var then = new Date(ts).getTime();
+  if (isNaN(then)) return 'never';
+  var s = Math.floor((Date.now() - then) / 1000);
+  if (s < 60) return s + 's ago';
+  var m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
+  var h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
+  var d = Math.floor(h / 24); if (d < 30) return d + 'd ago';
+  var mo = Math.floor(d / 30); if (mo < 12) return mo + 'mo ago';
+  return Math.floor(mo / 12) + 'y ago';
+}
+
+async function loadAgentActivity() {
+  const el = document.getElementById('agent-activity-table');
+  if (!el) return;
+  try {
+    var inc = document.getElementById('show-archived') && document.getElementById('show-archived').checked;
+    const r = await fetch('/api/admin/agent-activity' + (inc ? '?includeArchived=1' : ''));
+    if (!r.ok) { el.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Failed to load</td></tr>'; return; }
+    const rows = await r.json();
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">No agents</td></tr>'; return; }
+    el.innerHTML = rows.map(function(u) {
+      var name = refEsc(u.name || u.email || '-');
+      var plan = u.comped ? 'comp' : refEsc(u.plan || '-');
+      var cell = 'padding:6px 8px;color:rgba(240,237,230,0.7)';
+      var lbl = u.archived ? 'Unarchive' : 'Archive';
+      return '<tr style="border-top:1px solid rgba(255,255,255,0.06)' + (u.archived ? ';opacity:0.45' : '') + '">' +
+        '<td style="padding:6px 8px;color:#f0ede6">' + name + '</td>' +
+        '<td style="' + cell + '">' + plan + '</td>' +
+        '<td style="' + cell + '">' + relTime(u.last_login) + '</td>' +
+        '<td style="' + cell + '">' + (u.scans || 0) + '</td>' +
+        '<td style="' + cell + '">' + (u.athletes || 0) + '</td>' +
+        '<td style="' + cell + '">' + (u.outreach || 0) + '</td>' +
+        mailboxCell(u) +
+        '<td style="' + cell + '">' + relTime(u.last_activity) + '</td>' +
+        '<td style="padding:6px 8px"><button onclick="archiveUser(\'' + u.id + '\', ' + (!u.archived) + ')" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.12);color:rgba(240,237,230,0.7);padding:3px 10px;border-radius:5px;font-size:11px;cursor:pointer">' + lbl + '</button></td>' +
+      '</tr>';
+    }).join('');
+  } catch (e) {
+    el.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">' + refEsc(e.message) + '</td></tr>';
+  }
+}
+
+// Does this agent have a send path, and since when.
+//
+// Three states worth telling apart, because they need different answers:
+//   no mailbox        nothing they wrote could ever have gone out
+//   mailbox, erroring connected once, not working now (sync marked it 'error')
+//   mailbox, active   the send path exists, so silence is a choice not a blocker
+//
+// The red case is deliberately "ran scans AND has no mailbox". An agent with no
+// mailbox and no scans has simply not started; an agent who scanned and had no way
+// to send is the one the question is about.
+function mailboxCell(u) {
+  var cell = 'padding:6px 8px;color:rgba(240,237,230,0.7)';
+  var scans = Number(u.scans || 0);
+  if (!u.n_accounts) {
+    // Red only when they actually got as far as scanning.
+    var colour = scans > 0 ? '#f87171' : 'rgba(240,237,230,0.35)';
+    var label = scans > 0 ? 'none, ' + scans + ' scan' + (scans === 1 ? '' : 's') : 'none';
+    return '<td style="padding:6px 8px;color:' + colour + '" title="No connected mailbox now. '
+      + 'Disconnecting deletes the record, so this cannot rule out that they once had one.">' + label + '</td>';
+  }
+  var broken = u.status && u.status !== 'active';
+  var when = u.connected_at ? relTime(u.connected_at) : 'unknown';
+  var provider = u.provider === 'gmail' ? 'Gmail' : refEsc(u.provider || 'mailbox');
+  var extra = u.n_accounts > 1 ? ' +' + (u.n_accounts - 1) : '';
+  var tip = refEsc((u.email_address || '') + ' · ' + (u.provider || '') + ' · status ' + (u.status || 'unknown')
+    + (u.connected_at ? ' · connected ' + new Date(u.connected_at).toISOString().slice(0, 10) : '')
+    + (u.n_accounts > 1 ? ' · ' + u.n_accounts + ' accounts total' : ''));
+  if (broken) {
+    return '<td style="padding:6px 8px;color:#fbbf24" title="' + tip + '">'
+      + provider + ' ' + refEsc(u.status) + extra + ', ' + when + '</td>';
+  }
+  return '<td style="' + cell + '" title="' + tip + '">'
+    + '<span style="color:#84CC16">' + provider + '</span>' + extra + ', ' + when + '</td>';
+}
+
+async function archiveUser(id, archived) {
+  try {
+    const r = await fetch('/api/admin/archive-user', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id, archived: archived }) });
+    if (!r.ok) { alert('Failed to update'); return; }
+    loadAgentActivity();
+  } catch (e) { alert('Failed to update'); }
+}
+
+async function setPlan(userId, plan) {
+  const r = await fetch('/api/admin/set-plan', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ userId, plan })
+  });
+  const data = await r.json();
+  if (data.ok) {
+    showToast('Plan updated to ' + plan);
+    // Update the row in place. Exception: setting 'trial' may change
+    // trial_ends_at server-side, so reload to pick up the fresh date.
+    const u = _usersById[userId];
+    const row = document.getElementById('urow-' + userId);
+    if (u && row && plan !== 'trial') {
+      u.plan = plan;
+      row.outerHTML = userRowHtml(u);
+    } else {
+      setTimeout(loadUsers, 500);
+    }
+  } else {
+    showToast('Error: ' + (data.error || 'plan update failed'));
+    setTimeout(loadUsers, 500); // restore the dropdown to the real value
+  }
+}
+
+function showToast(msg) {
+  var t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#4ade80;color:#000;padding:10px 16px;border-radius:6px;font-size:12px;font-weight:600;z-index:999';
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, 3000);
+}
+
+setTimeout(loadUsers, 500);
+setTimeout(loadAgentActivity, 700);
+setTimeout(loadFunnel, 900);
+// Straight to the loader, not the debounced wrapper: nothing has been typed yet.
+setTimeout(_loadAthleteCompsNow, 1100);
+
+var _funnelOpen = null;
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+async function loadFunnel() {
+  var el = document.getElementById('funnel-body');
+  if (!el) return;
+  el.textContent = 'Loading...';
+  var r = await fetch('/api/admin/signup-funnel');
+  if (!r.ok) { el.textContent = 'Failed to load (' + r.status + ')'; return; }
+  var d = await r.json();
+  window._funnel = d;
+  var total = d.total || 0;
+  var html = '';
+
+  html += '<table style="width:100%;border-collapse:collapse">';
+  html += '<thead><tr style="color:rgba(240,237,230,0.4);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">'
+        + '<th style="padding:6px 8px">Step</th><th style="padding:6px 8px">Reached</th>'
+        + '<th style="padding:6px 8px">Of total</th><th style="padding:6px 8px">Lost here</th>'
+        + '<th style="padding:6px 8px"></th></tr></thead><tbody>';
+  (d.steps || []).forEach(function(s, i) {
+    var pct = total ? Math.round(s.reached / total * 100) : 0;
+    var open = _funnelOpen === s.key;
+    html += '<tr style="border-top:1px solid rgba(255,255,255,0.06)">'
+      + '<td style="padding:8px">' + esc(s.label) + '</td>'
+      + '<td style="padding:8px;font-weight:700;color:#f0ede6">' + s.reached + '</td>'
+      + '<td style="padding:8px;color:rgba(240,237,230,0.5)">' + pct + '%'
+      + '<span style="display:inline-block;width:80px;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;margin-left:8px;vertical-align:middle">'
+      + '<span style="display:block;height:5px;border-radius:3px;background:#a78bfa;width:' + pct + '%"></span></span></td>'
+      + '<td style="padding:8px;color:' + (s.stuck.length ? '#f59e0b' : 'rgba(240,237,230,0.3)') + '">' + s.stuck.length + '</td>'
+      + '<td style="padding:8px">' + (s.stuck.length
+          ? '<button onclick="toggleFunnel(\'' + s.key + '\')" style="font-size:11px;padding:3px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">'
+            + (open ? 'Hide' : 'Show names') + '</button>'
+          : '') + '</td></tr>';
+    if (open && s.stuck.length) {
+      html += '<tr><td colspan="5" style="padding:0 8px 12px 8px">'
+        + '<div style="background:#0d0d0c;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:10px">';
+      s.stuck.forEach(function(p) {
+        html += '<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
+          + '<span style="color:#f0ede6;font-weight:600">' + esc(p.name || '(no name)') + '</span> '
+          + '<span style="color:rgba(240,237,230,0.4)">' + esc(p.email) + '</span>'
+          + (p.role && p.role !== 'agent' ? ' <span style="color:#f59e0b">role=' + esc(p.role) + '</span>' : '')
+          + (p.note ? '<div style="color:rgba(240,237,230,0.45);font-size:11px;margin-top:2px">' + esc(p.note) + '</div>' : '')
+          + '</div>';
+      });
+      html += '</div></td></tr>';
+    }
+  });
+  html += '</tbody></table>';
+
+  // The Bryce case: accounts the Agent Activity table cannot show, and why.
+  if ((d.missingFromAgentActivity || []).length) {
+    html += '<div style="margin-top:16px;padding:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px">'
+      + '<div style="color:#f59e0b;font-weight:600;font-size:12px;margin-bottom:6px">'
+      + d.missingFromAgentActivity.length + ' account(s) do NOT appear in Agent Activity</div>'
+      + '<div style="color:rgba(240,237,230,0.5);font-size:11px;margin-bottom:8px">That table only shows role agent or admin, and only when not archived.</div>';
+    d.missingFromAgentActivity.forEach(function(u) {
+      html += '<div style="padding:3px 0;font-size:12px">'
+        + '<span style="color:#f0ede6">' + esc(u.name || '(no name)') + '</span> '
+        + '<span style="color:rgba(240,237,230,0.4)">' + esc(u.email) + '</span> '
+        + '<span style="color:#f59e0b">role=' + esc(u.role || 'null') + (u.archived ? ' archived' : '') + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+  if ((d.anomalies || []).length) {
+    html += '<div style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px">'
+      + '<div style="color:#f0ede6;font-weight:600;font-size:12px;margin-bottom:6px">Out of order (' + d.anomalies.length + ')</div>'
+      + '<div style="color:rgba(240,237,230,0.5);font-size:11px;margin-bottom:8px">Stuck at one step but has already done a later one. Counted at the earlier step, listed here so the number is not quietly wrong.</div>';
+    d.anomalies.forEach(function(u) {
+      html += '<div style="padding:3px 0;font-size:12px"><span style="color:#f0ede6">' + esc(u.name || u.email) + '</span> '
+        + '<span style="color:rgba(240,237,230,0.4)">stuck at ' + esc(u.stuckAt) + ', already did ' + esc((u.laterStepsDone || []).join(', ')) + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+  if (d.note) {
+    html += '<div style="margin-top:12px;font-size:11px;color:rgba(240,237,230,0.35)">' + esc(d.note) + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function toggleFunnel(key) {
+  _funnelOpen = (_funnelOpen === key) ? null : key;
+  loadFunnel();
+}
+
+async function seedDemo() {
+  if (!confirm('Create or reset the demo account? This wipes and rebuilds only the demo data, nothing else is touched.')) return;
+  const btn = document.querySelector('button[onclick="seedDemo()"]');
+  const out = document.getElementById('seed-result');
+  btn.textContent = 'Seeding...'; btn.disabled = true;
+  out.style.display = 'block';
+  out.innerHTML = 'Working, this takes a few seconds...';
+  try {
+    const r = await fetch('/api/admin/seed-demo', { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Seeding failed');
+    out.innerHTML =
+      '<div style="font-weight:700;color:#C8F135;margin-bottom:8px">Demo account is ready</div>' +
+      '<div><b>Login email:</b> ' + data.email + '</div>' +
+      '<div><b>Login password:</b> ' + data.password + '</div>' +
+      '<div style="margin-top:6px"><b>Jordan Blake media kit:</b> <a href="' + data.mediaKitUrl + '" target="_blank" style="color:#84CC16">' + data.mediaKitUrl + '</a></div>' +
+      '<div style="margin-top:8px;font-size:12px;color:rgba(240,237,230,0.55)">Log out, then sign in with the email and password above to record the demo.</div>';
+  } catch (e) {
+    out.innerHTML = '<span style="color:#ef4444">Error: ' + e.message + '</span>';
+  }
+  btn.textContent = 'Seed / Reset Demo Account'; btn.disabled = false;
+}
+
+async function runIngestion() {
+  if (!confirm('Run NIL deal comp ingestion now? This will search the web for recent disclosed deals and may take a few minutes.')) return;
+  const btn = document.querySelector('button[onclick="runIngestion()"]');
+  btn.textContent = 'Running...'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/admin/run-ingestion', { method: 'POST' });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('Ingestion job started — check server logs for results');
+    } else {
+      showToast('Error: ' + (data.error || 'Unknown error'));
+    }
+  } catch(e) {
+    showToast('Connection error');
+  }
+  setTimeout(() => { btn.textContent = 'Run Deal Comp Ingestion'; btn.disabled = false; }, 3000);
+}
+
+// ── Referrals ────────────────────────────────────────────────
+function refMoney(cents) { return '$' + (Number(cents || 0) / 100).toFixed(2); }
+function refEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+function refStat(label, val) {
+  return '<div><div style="font-size:16px;font-weight:700;color:#f0ede6">' + refEsc(val) + '</div>' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:rgba(240,237,230,0.4)">' + refEsc(label) + '</div></div>';
+}
+function refMonthVal(code) { var el = document.getElementById('refmonth-' + code); return el ? el.value : ''; }
+function dlRefCsv(code) {
+  window.open('/api/admin/referrals/export?code=' + encodeURIComponent(code) + '&month=' + encodeURIComponent(refMonthVal(code)), '_blank');
+  return false;
+}
+
+async function loadReferrals() {
+  var body = document.getElementById('referrals-body');
+  body.innerHTML = 'Loading...';
+  try {
+    var r = await fetch('/api/admin/referrals');
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'Failed');
+    if (!data.partners || !data.partners.length) { body.innerHTML = 'No referral partners.'; return; }
+    body.innerHTML = data.partners.map(renderPartner).join('');
+  } catch (e) { body.innerHTML = '<span style="color:#ef4444">Error: ' + refEsc(e.message) + '</span>'; }
+}
+
+function renderPartner(p) {
+  var conv = (p.conversionRate * 100).toFixed(0) + '%';
+  var users = p.referredUsers.map(function(u) {
+    return '<tr>' +
+      '<td style="padding:6px 10px">' + refEsc(u.name || '') + '</td>' +
+      '<td style="padding:6px 10px">' + refEsc(u.email || '') + '</td>' +
+      '<td style="padding:6px 10px">' + (u.signupDate ? new Date(u.signupDate).toLocaleDateString() : '') + '</td>' +
+      '<td style="padding:6px 10px">' + refEsc(u.subscriptionStatus || '') + (u.comped ? ' (comped)' : '') + '</td></tr>';
+  }).join('') || '<tr><td colspan="4" style="padding:10px;color:rgba(240,237,230,0.4)">No referred users yet.</td></tr>';
+  var nowMonth = new Date().toISOString().slice(0, 7);
+  return '<div style="border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 16px;margin-bottom:16px">' +
+    '<div style="font-weight:700;color:#C8F135;font-size:14px">' + refEsc(p.name) +
+      ' <span style="color:rgba(240,237,230,0.5);font-weight:400">(' + refEsc(p.code) + ', ' + (p.commissionRate * 100).toFixed(0) + '%' + (p.active ? '' : ', INACTIVE') + ')</span></div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:18px;margin:10px 0 4px">' +
+      refStat('Signups', p.totalSignups) + refStat('Converted', p.convertedToPaid) + refStat('Conversion', conv) +
+      refStat('Earned all time', refMoney(p.earnedAllTimeCents)) + refStat('Owed (unpaid)', refMoney(p.owedUnpaidCents)) + refStat('Paid out', refMoney(p.paidOutCents)) +
+    '</div>' +
+    '<div style="margin-top:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:rgba(240,237,230,0.4)">Referred users</div>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px"><tbody>' + users + '</tbody></table>' +
+    '<div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<span style="font-size:11px;color:rgba(240,237,230,0.5)">Monthly report:</span>' +
+      '<input type="month" id="refmonth-' + p.code + '" value="' + nowMonth + '" style="background:#0d0d0c;border:1px solid rgba(255,255,255,0.15);border-radius:5px;color:#f0ede6;padding:5px 8px;font-size:12px">' +
+      '<button onclick="loadRefReport(\'' + p.code + '\')" style="font-size:12px;padding:6px 12px;background:#84CC16;color:#000;border:none;border-radius:5px;cursor:pointer;font-weight:600">Load report</button>' +
+      '<a href="#" onclick="return dlRefCsv(\'' + p.code + '\')" style="font-size:12px;color:#84CC16">Download CSV</a>' +
+    '</div>' +
+    '<div id="refreport-' + p.code + '" style="margin-top:10px"></div>' +
+  '</div>';
+}
+
+async function loadRefReport(code) {
+  var el = document.getElementById('refreport-' + code);
+  var month = refMonthVal(code);
+  el.innerHTML = 'Loading...';
+  try {
+    var r = await fetch('/api/admin/referrals/report?code=' + encodeURIComponent(code) + '&month=' + encodeURIComponent(month));
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Failed');
+    if (!d.rows.length) { el.innerHTML = '<div style="color:rgba(240,237,230,0.4)">No paid invoices in ' + refEsc(month) + '.</div>'; return; }
+    var rows = d.rows.map(function(row) {
+      return '<tr>' +
+        '<td style="padding:6px 8px">' + (row.paidOut ? '' : '<input type="checkbox" class="refchk-' + code + '" value="' + row.id + '">') + '</td>' +
+        '<td style="padding:6px 8px">' + new Date(row.paymentDate).toLocaleDateString() + '</td>' +
+        '<td style="padding:6px 8px">' + refEsc(row.userName || row.userEmail || row.userId) + '</td>' +
+        '<td style="padding:6px 8px">' + refMoney(row.paymentAmountCents) + '</td>' +
+        '<td style="padding:6px 8px">' + refMoney(row.commissionAmountCents) + '</td>' +
+        '<td style="padding:6px 8px">' + (row.paidOut ? '<span style="color:#4ade80">paid</span>' : '<span style="color:#f59e0b">unpaid</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+    el.innerHTML =
+      '<div style="font-size:12px;margin-bottom:6px">' + d.paidInvoices + ' paid invoice(s), owed ' + refMoney(d.commissionOwedCents) + ', already paid ' + refMoney(d.commissionPaidCents) + '</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.4);text-align:left">' +
+      '<th style="padding:6px 8px"></th><th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Referred user</th><th style="padding:6px 8px">Payment</th><th style="padding:6px 8px">Commission</th><th style="padding:6px 8px">Status</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<button onclick="markRefPaid(\'' + code + '\')" style="margin-top:10px;font-size:12px;padding:6px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:5px;color:#f0ede6;cursor:pointer">Mark selected as paid</button>';
+  } catch (e) { el.innerHTML = '<span style="color:#ef4444">Error: ' + refEsc(e.message) + '</span>'; }
+}
+
+async function markRefPaid(code) {
+  var ids = Array.prototype.slice.call(document.querySelectorAll('.refchk-' + code + ':checked')).map(function(c){ return Number(c.value); });
+  if (!ids.length) { showToast('Select at least one row'); return; }
+  if (!confirm('Mark ' + ids.length + ' commission(s) as paid? Do this AFTER you have sent the Stripe transfer.')) return;
+  try {
+    var r = await fetch('/api/admin/referrals/mark-paid', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids }) });
+    var d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || 'Failed');
+    showToast('Marked ' + d.updated + ' as paid');
+    loadRefReport(code); loadReferrals();
+  } catch (e) { showToast('Error: ' + e.message); }
+}
+
+setTimeout(loadReferrals, 600);
+</script>
+</body>
+</html>
+ + (Number(n) || 0).toLocaleString(); }
+async function loadDealCounter() {
+  var el = document.getElementById('deal-counter-body');
+  try {
+    var r = await fetch('/api/admin/deal-counter');
+    var d = await r.json();
+    if (!r.ok) { el.textContent = d.error || ('error ' + r.status); return; }
+    el.innerHTML = _tileAdmin(d.deals, 'deals logged', d.unpriced ? d.unpriced + ' with no value given' : null)
+      + _tileAdmin(_money(d.totalValue), 'total value', d.priced + ' priced deal' + (d.priced === 1 ? '' : 's'))
+      + _tileAdmin(d.dealsThisMonth, 'deals this month', 'since ' + d.monthStart)
+      + _tileAdmin(_money(d.valueThisMonth), 'value this month')
+      + _tileAdmin(d.agents, 'agents logging deals')
+      + _tileAdmin(d.athletes, 'athletes with a deal');
+  } catch (e) { el.textContent = 'Could not load: ' + e.message; }
+}
+async function loadBrandFlags() {
+  var el = document.getElementById('brand-flags-body');
+  try {
+    var r = await fetch('/api/admin/brand-flags');
+    var d = await r.json();
+    if (!r.ok) { el.textContent = d.error || ('error ' + r.status); return; }
+    el.innerHTML = _tileAdmin(d.nilActive, 'NIL-active', 'a deal has been logged with them')
+      + _tileAdmin(d.respondedOnly, 'responded, no deal yet', 'someone there replied to a pitch')
+      + _tileAdmin(d.responded, 'responded or better')
+      + _tileAdmin(d.matchable, 'businesses that could carry a flag', 'they have a Place ID or a domain')
+      + _tileAdmin(d.noIdentity, 'cannot carry one', 'no Place ID and no website: never matched on a name');
+  } catch (e) { el.textContent = 'Could not load: ' + e.message; }
+}
+loadDealCounter(); loadBrandFlags();
+</script>
+
 <!-- ── Every email to one address, and the suppression list (services/sendRules) ──── -->
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">

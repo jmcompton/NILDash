@@ -456,6 +456,25 @@ async function assembleSlate(pool, ctx) {
       signalCount: signals.size, localExhausted: local.exhausted, lanes, dropped };
   }
 
+  // ── A BUSINESS THAT HAS DONE THIS BEFORE IS THE BETTER TARGET ────────────
+  // Across every agent: one that has signed a deal logged on NILDash outranks
+  // one that has answered a pitch, which outranks one that has done neither
+  // (services/brandFlags). Matched on Place ID or root domain only, so a
+  // same-named business in another state earns nothing from it.
+  //
+  // IT IS A NUDGE, NOT AN OVERRIDE. The bonus sits on top of fit, so a
+  // NIL-active business that does not suit this athlete's market still loses
+  // to one that does -- which is the whole point of ranking on fit first.
+  // Nothing about whose deal it was travels with it: the slate sees two
+  // booleans.
+  const BF = require('./brandFlags');
+  let flagIndex = new Map();
+  try {
+    const keys = [];
+    for (const c of all) keys.push(...BF.crossAgentKeys(c));
+    flagIndex = await BF.loadFlagIndex(pool, keys);
+  } catch (e) { console.error('[slate] brand flags:', e.message); }
+
   // Rank. The sponsorship boost applies across ALL lanes: a brand that has done
   // a deal at this school is the better target whether it is the coffee shop
   // down the road or a national program.
@@ -470,7 +489,9 @@ async function assembleSlate(pool, ctx) {
     if (c.lane === 'local') fit += 6;          // proximity is real, and modest
     if (c.pool === 'shown') fit += 4;          // a scan already thought so
     if (sig) fit += sig.weight;
-    return { ...c, fit, sponsorSignal: sig };
+    const nilFlags = BF.flagsFrom(flagIndex, c);
+    fit += BF.rankBonus(nilFlags);
+    return { ...c, fit, sponsorSignal: sig, nilFlags };
   }).sort((a, b) => b.fit - a.fit);
 
   // ONE BUSINESS, ONE SLOT. A brand can legitimately reach us down two lanes at

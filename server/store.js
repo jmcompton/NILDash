@@ -3680,6 +3680,16 @@ async function ensureDealOutcomes() {
     .catch(e => console.error('[init] deal_outcomes:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outcomes_cat ON deal_outcomes(business_category)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outcomes_tier ON deal_outcomes(school_tier)`).catch(() => {});
+  // ── WHICH BUSINESS, AND WHO LOGGED IT (services/dealLog) ─────────────────
+  // deal_outcomes carried a brand NAME and nothing else, so a deal could not
+  // be matched to the same business on another agent's roster -- which is
+  // exactly what the NIL-active flag needs (services/brandFlags matches on a
+  // Place ID or a root domain, never on a name).
+  await pool.query(`ALTER TABLE deal_outcomes ADD COLUMN IF NOT EXISTS brand_key TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE deal_outcomes ADD COLUMN IF NOT EXISTS logged_by TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE deal_outcomes ADD COLUMN IF NOT EXISTS undone_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outcomes_brand_key ON deal_outcomes(brand_key)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outcomes_agent ON deal_outcomes(agent_id)`).catch(() => {});
 }
 
 function followerBand(n) {

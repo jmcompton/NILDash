@@ -106,6 +106,8 @@ async function loadRaw(pool, agentId) {
     pool.query(
       `SELECT q.id, q.athlete_id, q.brand_name, q.contact_name, q.contact_title, q.email, q.phone, q.instagram, q.instagram_scope,
               q.category_key, q.lane, q.state, q.outcome, q.replied_at, q.sent_at, q.created_at,
+              q.brand_key, q.identity_key,
+              p.evidence->>'placeId' AS place_id, e.website,
               p.evidence->>'address' AS address, p.evidence->>'primaryType' AS place_type, p.evidence->'types' AS place_types
          FROM outreach_queue q
          LEFT JOIN LATERAL (
@@ -113,10 +115,15 @@ async function loadRaw(pool, agentId) {
             WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(q.brand_name)
             ORDER BY b.refreshed_at DESC LIMIT 1
          ) p ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT website FROM company_enrichment ce
+            WHERE ce.agent_id = $1 AND LOWER(ce.brand_name) = LOWER(q.brand_name)
+              AND ce.website IS NOT NULL AND ce.website <> '' LIMIT 1
+         ) e ON TRUE
         WHERE q.agent_id = $1 AND q.brand_name IS NOT NULL AND q.brand_name <> ''
         ORDER BY q.created_at DESC`, [agentId]),
     pool.query(
-      `SELECT athlete_id, brand_name, lane, state, outcome, first_shown_at, created_at, contacted_at
+      `SELECT athlete_id, brand_name, brand_key, lane, state, outcome, first_shown_at, created_at, contacted_at
          FROM brand_engagement
         WHERE agent_id = $1 AND brand_name IS NOT NULL AND brand_name <> ''`, [agentId]),
     pool.query(
@@ -155,6 +162,10 @@ function buildRows(raw) {
     let r = rows.get(k);
     if (!r) {
       r = { athleteId: c.athlete_id, brand: c.brand_name, ownerName: null, ownerTitle: null, email: null, phone: null, instagram: null,
+        // The cross-agent identity, carried so services/brandFlags can match
+        // this business to the same business on another roster by Place ID or
+        // domain. Never shown, and never a name (see brandFlags).
+        brandKey: c.brand_key || c.identity_key || null, placeId: c.place_id || null, website: c.website || null,
         placeType: c.place_type || null, placeTypes: c.place_types || null, lane: c.lane || null, address: c.address || null, foundAt: c.created_at,
         pitched: false, replied: false, closed: false, source: 'card' };
       rows.set(k, r);
@@ -167,6 +178,9 @@ function buildRows(raw) {
     if (!r.placeType && c.place_type) { r.placeType = c.place_type; r.placeTypes = c.place_types || null; }
     if (!r.lane && c.lane) r.lane = c.lane;
     if (!r.address && c.address) r.address = c.address;
+    if (!r.brandKey && (c.brand_key || c.identity_key)) r.brandKey = c.brand_key || c.identity_key;
+    if (!r.placeId && c.place_id) r.placeId = c.place_id;
+    if (!r.website && c.website) r.website = c.website;
     if (c.state === 'sent' || c.sent_at) r.pitched = true;
     if (c.replied_at || c.outcome === 'replied') r.replied = true;
     if (c.outcome === 'closed') r.closed = true;
@@ -178,12 +192,14 @@ function buildRows(raw) {
     let r = rows.get(k);
     if (!r) {
       r = { athleteId: e.athlete_id, brand: e.brand_name, ownerName: null, ownerTitle: null, email: null, phone: null, instagram: null,
+        brandKey: e.brand_key || null, placeId: null, website: null,
         placeType: null, placeTypes: null, lane: e.lane || null, address: null, foundAt: e.first_shown_at || e.created_at,
         pitched: false, replied: false, closed: false, source: 'scan' };
       rows.set(k, r);
     }
     const at = e.first_shown_at || e.created_at;
     if (at && (!r.foundAt || new Date(at) < new Date(r.foundAt))) r.foundAt = at;
+    if (!r.brandKey && e.brand_key) r.brandKey = e.brand_key;
     if (e.state === 'contacted' || e.contacted_at) r.pitched = true;
     if (e.state === 'responded') r.replied = true;
     if (e.state === 'closed' || e.outcome === 'closed') r.closed = true;
@@ -225,6 +241,10 @@ function buildRows(raw) {
       email: r.email, phone: r.phone, instagram: r.instagram,
       category: plainCategory(r.placeType, r.placeTypes, industryByBrand.get(lower(r.brand)), r.lane),
       lane: r.lane, scope, status, foundAt: r.foundAt,
+      // The cross-agent identity, carried so the badge can be matched by
+      // Place ID or domain (services/brandFlags). It is this agent's own key
+      // for their own card: nothing about anyone else rides on it.
+      brandKey: r.brandKey || null, placeId: r.placeId || null, website: r.website || null,
     });
   }
   return out;
@@ -271,11 +291,22 @@ async function pageFor(pool, agentId, opts = {}) {
   const pages = Math.max(1, Math.ceil(list.length / size));
   const page = Math.max(1, Math.min(pages, parseInt(opts.page, 10) || 1));
   const athletes = raw.athletes.map((a) => ({ id: a.id, name: a.name || a.id })).sort((a, b) => lower(a.name).localeCompare(lower(b.name)));
+  // ── THE BADGE, ON THIS PAGE'S ROWS ONLY ────────────────────────────────
+  // Fifty rows, one query. What comes back is two booleans a row: never an
+  // agent, an athlete, a value or a contact from anyone else's book
+  // (services/brandFlags).
+  const pageRows = list.slice((page - 1) * size, page * size);
+  try { await require('./brandFlags').attachFlags(pool, pageRows); } catch (e) { console.error('[myBrands] flags:', e.message); }
+  const loggedDeals = await require('./dealLog').loggedFor(pool, agentId, pageRows).catch(() => new Map());
+  for (const r of pageRows) {
+    const id = loggedDeals.get(r.athleteId + '|' + lower(r.brand));
+    r.dealLoggedId = id == null ? null : id;
+  }
   return {
     counts: counts(rows), total: rows.length, filtered: list.length,
     scopeCounts: { local: rows.filter((r) => r.scope === 'local').length, social: rows.filter((r) => r.scope === 'social').length },
     page, pages, pageSize: size, filter, scope, sort, athleteId: opts.athleteId || null, q: opts.q || '',
-    rows: list.slice((page - 1) * size, page * size),
+    rows: pageRows,
     athletes,
   };
 }

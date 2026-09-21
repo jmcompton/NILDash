@@ -62,6 +62,14 @@
                 '→ ' + STAGES[STAGES.indexOf(stage)+1] + '</button>' :
                 '<span style="font-size:10px;color:var(--muted)">✓ Closed</span>'
               ) +
+              // ── THE DEAL IS SIGNED ────────────────────────────────────────
+              // The same one-tap log as My Brands and a sent pitch: it asks
+              // the two optional questions and moves the card to Closed
+              // through services/dealLog, so the deal is RECORDED rather than
+              // only dragged. A card already in Closed does not offer it again.
+              (stage !== 'Closed' && typeof dealSignedOpen === 'function' ?
+                '<button onclick="dealSignedOpen(\'' + String(d.athleteId || '').replace(/'/g, "\\'") + '\',\'' + String(d.brand || '').replace(/'/g, "\\'") + '\')" ' +
+                'style="font-size:10px;padding:2px 8px;border-radius:999px;background:transparent;color:var(--muted);border:1px solid var(--border);cursor:pointer">Deal signed</button>' : '') +
               '<button onclick="NILPipeline.deleteCard(\'' + d.id + '\',\'' + d.athleteId + '\')" ' +
               'style="font-size:11px;color:#ef4444;background:transparent;border:none;cursor:pointer;padding:0">✕</button>' +
             '</div>' +

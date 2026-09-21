@@ -127,7 +127,11 @@ const A1 = 'mb-ath-a1', A2 = 'mb-ath-a2', B1 = 'mb-ath-b1';
   ok('  the athlete dropdown is theirs alone', pb.athletes.length === 1 && pb.athletes[0].name === 'Other Agents Kid');
   ok('  asking for another agent\'s athlete by id returns nothing', (await MB.pageFor(P(), B, { athleteId: A1 })).rows.length === 0);
   ok('  the CSV is bound the same way', !(await MB.csvForAgent(P(), B, {})).includes('Legion') && (await MB.csvForAgent(P(), B, {})).includes('MB Secret Bakery'));
-  ok('every query in the service is bound to the agent id', (() => { const s = src('server/services/myBrands.js').slice(0, src('server/services/myBrands.js').indexOf('async function adminSummary')); const froms = s.match(/FROM (outreach_queue|brand_engagement|brand_contacts|deals|outreach_logs|athletes|company_enrichment)\b/g) || []; const bound = (s.match(/agent_id = \$1/g) || []).length; return froms.length === 7 && bound === 7; })());
+  ok('every query in the service is bound to the agent id', (() => { const s = src('server/services/myBrands.js').slice(0, src('server/services/myBrands.js').indexOf('async function adminSummary')); const froms = s.match(/FROM (outreach_queue|brand_engagement|brand_contacts|deals|outreach_logs|athletes|company_enrichment)\b/g) || []; const bound = (s.match(/agent_id = \$1/g) || []).length; // EVERY table read is bound, however many there are. A fixed count of 7
+    // broke the moment a legitimately agent-bound query was added, which is a
+    // test that fights the code rather than the risk; the risk is an UNBOUND
+    // read, so that is what is counted.
+    return froms.length >= 7 && froms.length === bound; })());
   const idx = src('server/index.js');
   ok('the routes take the agent from the session, never from a parameter', /app\.get\('\/api\/agent\/brands', requireAuth/.test(idx) && /MB\.pageFor\(store\.pool, req\.session\.userId/.test(idx) && /MB\.csvForAgent\(store\.pool, req\.session\.userId/.test(idx) && !/pageFor\(store\.pool, req\.query/.test(idx));
 

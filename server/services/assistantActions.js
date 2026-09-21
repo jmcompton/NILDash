@@ -96,6 +96,115 @@ const ACTIONS = {
   // None of these stops the turn: with several athletes in one message the
   // rest are still added and every answer is reported together. The browser
   // is told to reload the roster on a real add.
+  // ── "KALEB SIGNED WITH RAMA JAMA'S FOR $500" ──────────────────────────────
+  // The same log the Deal signed button writes (services/dealLog): the
+  // Pipeline row moves to the existing Closed stage, deal_outcomes gets the
+  // row the fit model learns from, and the brand ledger is marked closed,
+  // which is what makes the business NIL-active for every agent. The value
+  // and the deliverable are both optional here for the same reason they are
+  // optional on the button: a deal nobody logged is worth less than a deal
+  // logged without a price.
+  log_deal: {
+    tier: 'direct',
+    description: 'Log a deal an athlete has signed with a business. Use when the agent says a deal is signed, closed or done ("Kaleb signed with Rama Jama\'s for $500", "we closed Legion Hair Studio for Messiah"). The value and what the athlete will do are both optional. Returns logged:true once it is recorded, or a question when the athlete cannot be identified.',
+    input: {
+      type: 'object',
+      properties: {
+        athlete: { type: 'string', description: 'The athlete\'s name as the agent said it' },
+        brand: { type: 'string', description: 'The business that signed' },
+        value: { type: 'number', description: 'Optional: what the deal is worth in dollars. Leave out when the agent did not say.' },
+        deliverable: { type: 'string', description: 'Optional: what the athlete will do, e.g. "two Instagram posts", "an appearance day". Leave out when the agent did not say.' },
+      },
+      required: ['athlete', 'brand'],
+    },
+    check: (a) => {
+      const athlete = _str(a.athlete, 120), brand = _str(a.brand, 200);
+      if (!athlete) return { error: 'Which athlete signed the deal?' };
+      if (!brand) return { error: 'Which business signed the deal?' };
+      const out = { athlete, brand };
+      // A value the model read out of "for $500". Nonsense is dropped rather
+      // than stored: a deal with no price is a fine record, a wrong one is not.
+      const v = a.value === undefined || a.value === null || a.value === '' ? null : Number(a.value);
+      if (Number.isFinite(v) && v >= 0 && v <= 100000000) out.value = v;
+      const d = _str(a.deliverable, 300);
+      if (d) out.deliverable = d;
+      return { args: out };
+    },
+    run: async (args, ctx) => {
+      const agentId = ctx && ctx.agentId;
+      const AC = require('./athleteCreate');
+      const who = await AC.findDuplicate(agentId, args.athlete);
+      if (!who) {
+        return { data: { logged: false, needs: 'athlete', name: args.athlete,
+          ask: `I could not find ${args.athlete} on your roster. Who signed with ${args.brand}?` },
+          say: `I could not find ${args.athlete} on your roster, so nothing was logged. Who signed with ${args.brand}?` };
+      }
+      const out = await require('./dealLog').logDeal(require('../store').pool, {
+        agentId, athleteId: who.id, brandName: args.brand,
+        value: args.value === undefined ? null : args.value,
+        deliverable: args.deliverable || null, source: 'assistant',
+      });
+      if (!out.ok) return { data: { logged: false, error: out.error }, say: out.error };
+      const said = `Logged: ${who.name || args.athlete} signed with ${out.brand}`
+        + (out.value ? ` for $${out.value.toLocaleString()}` : '')
+        + (out.deliverable ? `, ${out.deliverable}` : '')
+        + '. It is on the Pipeline as closed. Say undo if that was wrong.';
+      return {
+        data: { logged: true, id: out.id, brand: out.brand, athlete: who.name || args.athlete,
+          value: out.value, deliverable: out.deliverable, undoWith: 'undo_deal' },
+        directive: { kind: 'reload_athletes', athleteId: who.id },
+        say: said,
+      };
+    },
+    say: (a) => `Logging ${a.athlete}'s deal with ${a.brand}...`,
+  },
+
+  // Undo the last deal this agent logged, or one named by id. The button has
+  // an undo and so does the chat: a deal logged on the wrong card should take
+  // one sentence to take back.
+  undo_deal: {
+    tier: 'direct',
+    description: 'Undo a deal that was logged by mistake. Use when the agent says undo, that was wrong, or remove that deal, right after a deal was logged. Removes the deal record, moves the Pipeline row back off Closed, and takes the business off NIL-active for this athlete.',
+    input: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Optional: the deal id returned when it was logged. Leave out to undo the most recent one.' },
+        brand: { type: 'string', description: 'Optional: the business, when the agent named it rather than saying "the last one".' },
+      },
+      required: [],
+    },
+    check: (a) => {
+      const out = {};
+      if (Number.isInteger(a.id) && a.id > 0) out.id = a.id;
+      const b = _str(a.brand, 200);
+      if (b) out.brand = b;
+      return { args: out };
+    },
+    run: async (args, ctx) => {
+      const agentId = ctx && ctx.agentId;
+      const DL = require('./dealLog');
+      const pool = require('../store').pool;
+      let id = args.id || null;
+      if (!id) {
+        const recent = await DL.recentFor(pool, agentId, 25);
+        const match = args.brand
+          ? recent.find((r) => String(r.brand || '').toLowerCase() === String(args.brand).toLowerCase())
+          : recent[0];
+        if (!match) {
+          return { data: { undone: false, error: 'no deal to undo' },
+            say: args.brand ? `I do not see a logged deal with ${args.brand} to undo.` : 'There is no logged deal to undo.' };
+        }
+        id = match.id;
+      }
+      const out = await DL.undoDeal(pool, { agentId, id });
+      if (!out.ok) return { data: { undone: false, error: out.error }, say: out.error };
+      return { data: { undone: true, id: out.id, brand: out.brand },
+        directive: { kind: 'reload_athletes', athleteId: null },
+        say: `Undone. The deal with ${out.brand} is off the record and the Pipeline row is back to ${out.stage || 'where it was'}.` };
+    },
+    say: (a) => (a.brand ? `Undoing the ${a.brand} deal...` : 'Undoing the last deal...'),
+  },
+
   add_athlete: {
     tier: 'direct',
     description: 'Add a new athlete to the agent\'s roster. Requires name, sport and school (or, for a pro, the city they play in and the team). Position, class year, hometown and Instagram followers are optional. College, pro and high school athletes are all fine. Returns added:true only once the athlete is saved; otherwise it returns a question to put to the agent (needs: dob or duplicate_confirmation) or the reason it could not be saved.',
