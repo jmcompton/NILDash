@@ -498,7 +498,12 @@ ${RULES}
     //
     // So the queries are listed as queries, exactly the words to search,
     // and what to do with the results is said separately.
-    const teamQ = q.team ? ' ' + q.team : '';
+    // THE LEAGUE GOES IN THE QUERY. "Patrick Mahomes Kansas City Chiefs
+    // stats" competes with a decade of college and fantasy pages; adding NFL
+    // puts the professional pages first, which is where the season line is.
+    let league = q.league || null;
+    if (!league && q.team) { try { const t = require('./proTeams').findTeam(q.team); if (t) league = t.league; } catch (_) { league = null; } }
+    const teamQ = (q.team ? ' ' + q.team : '') + (league ? ' ' + league : '');
     return `Find this PROFESSIONAL athlete.
 Name: ${nm}
 Sport: ${q.sport || 'unknown'}
@@ -512,7 +517,8 @@ From the stats results, prefer the official league page (nfl.com, nba.com, mlb.c
 A search that comes back empty is not an answer about the player: keep the team, position and the rest you already know, and leave only the fields that page would have carried as null.
 ${SHAPE}
 ${RULES_PRO}
-- A college athlete is NOT a match; if the only person by this name is on a college roster, return found: false and say so.`;
+- YOU ALREADY KNOW THIS PERSON OR YOU DO NOT. If you know a professional athlete by this name, return them, even when the searches came back thin or unhelpful: the team and position are yours to state from knowledge and the rest can be null.
+- ALMOST EVERY PROFESSIONAL PLAYED COLLEGE, and college pages about them -- recruiting profiles, college stat pages, a Heisman or a national title -- will come back in the search. Those pages are NOT a reason to refuse: a player now on a professional roster is a match, whatever their college pages say. Return found: false only when the person by this name has never played professionally and is on a college roster today.`;
   }
   const known = feedTop ? `ESPN's roster feed already confirmed: ${feedTop.name}, ${feedTop.school} ${feedTop.sport}${feedTop.position ? ', ' + feedTop.position : ''}${feedTop.year ? ', ' + feedTop.year : ''}. Find what the feed does not carry: Instagram and TikTok handles with approximate follower counts, and a one-line highlight (an award, a stat line, recent news).\n` : '';
   return `Find this COLLEGE athlete.

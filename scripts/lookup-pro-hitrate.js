@@ -41,6 +41,16 @@ const SPORT = { NFL: 'football', NBA: 'basketball', MLB: 'baseball' };
 async function main() {
   await new Promise((r) => setTimeout(r, INIT_WAIT_MS));
   const AL = require('../server/services/athleteLookup');
+  // ── WHICH BUILD IS THIS? ─────────────────────────────────────────────────
+  // Two runs came back with identical numbers across a deploy, and there was
+  // no way to tell a fix that did not work from a fix that never shipped.
+  // These are the two behaviours the football work added; if either says NO,
+  // the running code is older than this script's fixes and the numbers below
+  // are about the old build.
+  const hasSecondAsk = typeof AL.proKnowledgePrompt === 'function';
+  const leagueInQuery = /"X" Denver Broncos NFL stats/.test(AL.promptFor('pro', { name: 'X', team: 'Denver Broncos', sport: 'football' }));
+  console.log(`build: second ask from knowledge ${hasSecondAsk ? 'yes' : 'NO'}; league in the search query ${leagueInQuery ? 'yes' : 'NO'}`
+    + `${hasSecondAsk && leagueInQuery ? '' : '  <-- this deploy does NOT have the football fixes'}`);
   const only = String(arg('league', '')).toUpperCase();
   const noTeam = flag('no-team');
   const totals = {};

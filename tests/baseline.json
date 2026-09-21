@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-09-18",
+  "recordedAt": "2026-09-21",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_idx.js": {
@@ -751,7 +751,7 @@
     },
     "prolookup.js": {
       "failed": 0,
-      "total": 57,
+      "total": 65,
       "fault": null
     },
     "prompts.js": {
