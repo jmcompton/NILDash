@@ -453,6 +453,7 @@
       "agent_id": "TEXT",
       "athlete_id": "TEXT",
       "brand": "TEXT",
+      "brand_key": "TEXT",
       "business_category": "TEXT",
       "closed_at": "TIMESTAMPTZ DEFAULT NOW()",
       "days_to_close": "INTEGER",
@@ -461,9 +462,11 @@
       "deliverable": "TEXT",
       "follower_band": "TEXT",
       "id": "SERIAL",
+      "logged_by": "TEXT",
       "school": "TEXT",
       "school_tier": "TEXT",
-      "sport": "TEXT"
+      "sport": "TEXT",
+      "undone_at": "TIMESTAMPTZ"
     },
     "deal_scan_feedback": {
       "action": "TEXT",
