@@ -8753,14 +8753,15 @@ async function _applyLedgerToResponse(agentId, athleteId, lane, opportunities, o
     );
   } catch (e) { console.warn('[dealScan] shown upsert failed:', e.message); }
   // ── WHAT THIS BUSINESS HAS DONE WITH ATHLETES, ACROSS EVERY AGENT ────────
-  // Two booleans a card (services/brandFlags), matched on Place ID or root
-  // domain and never on a name. Deliberately the LAST thing attached and
-  // deliberately only `nilFlags`: no agent, no athlete, no value and no
-  // contact from another agent's book can ride along.
+  // One boolean a card (services/brandFlags): this business has completed an
+  // NIL deal on NILDash. Matched on Place ID or root domain, never on a name,
+  // and never derived from anyone's mailbox. Deliberately the LAST thing
+  // attached and deliberately only `nilFlags`: no agent, no athlete, no
+  // value and no contact from another agent's book can ride along.
   try {
     const BF = require('./services/brandFlags');
     const flags = await BF.flagsFor(store.pool, opps);
-    opps.forEach((o, i) => { const f = flags[i]; if (f && (f.nilActive || f.responded)) o.nilFlags = f; });
+    opps.forEach((o, i) => { const f = flags[i]; if (f && f.nilActive) o.nilFlags = f; });
   } catch (e) { console.warn('[dealScan] brand flags failed:', e.message); }
   if (agentId) {
     try {

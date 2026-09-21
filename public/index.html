@@ -9146,10 +9146,8 @@ function _dsCardHtml(d, i, lane, isTop) {
   // Two booleans off the server (services/brandFlags), matched across agents
   // by Place ID or domain. It says the business has done NIL before and
   // nothing else: never whose deal, never which athlete, never a number.
-  if (d.nilFlags && (d.nilFlags.nilActive || d.nilFlags.responded)) {
-    extraChips += d.nilFlags.nilActive
-      ? '<span class="ds-lane-chip" title="This business has signed at least one NIL deal through NILDash." style="background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35)">NIL-active</span>'
-      : '<span class="ds-lane-chip" title="Someone at this business has replied to a NILDash pitch." style="background:rgba(59,130,246,0.14);color:#60a5fa;border:1px solid rgba(59,130,246,0.32)">Responded to athletes</span>';
+  if (d.nilFlags && d.nilFlags.nilActive) {
+    extraChips += '<span class="ds-lane-chip" title="This business has completed an NIL deal on NILDash." style="background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35)">NIL-active</span>';
   }
   if (d.isNew === true) {
     extraChips += '<span class="ds-lane-chip" style="background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35)">New here</span>';
@@ -15052,8 +15050,10 @@ function nilBadgeHtml(flags) {
   if (!flags) return '';
   // A flag says only that the business has done this before. Never who, never
   // for whom, never for how much (services/brandFlags).
-  if (flags.nilActive) return '<span title="This business has signed at least one NIL deal through NILDash." style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35);margin-left:6px;vertical-align:middle">NIL-active</span>';
-  if (flags.responded) return '<span title="Someone at this business has replied to a NILDash pitch." style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(59,130,246,0.14);color:#60a5fa;border:1px solid rgba(59,130,246,0.32);margin-left:6px;vertical-align:middle">Responded to athletes</span>';
+  // ONE FLAG, AND IT COMES FROM A LOGGED DEAL. Never from a reply: a reply
+  // is read out of the agent's own mailbox and stays with that agent
+  // (services/brandFlags).
+  if (flags.nilActive) return '<span title="This business has completed an NIL deal on NILDash." style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35);margin-left:6px;vertical-align:middle">NIL-active</span>';
   return '';
 }
 function dealSignedOpen(athleteId, brand, brandKey) {

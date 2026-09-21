@@ -21,12 +21,13 @@ const fs = require('fs');
 // brand_engagement ledger closed. No second deal store, and an agent can take
 // it back.
 //
-// Part 2. That ledger is what earns a business its flag, across every agent:
-// NIL-active once a deal has been logged with it, Responded once someone
-// there wrote back. Matched by Google Place ID, then by root domain, NEVER by
-// name -- there are four Mellow Mushrooms in one state. The badge says the
-// business has done NIL and nothing else: no agent, no athlete, no value, no
-// contact.
+// Part 2. A logged deal, and ONLY a logged deal, makes a business NIL-active
+// for every agent. An email reply never does: a reply is read out of one
+// agent's connected mailbox, and a badge derived from it would disclose that
+// agent's mail to everyone else. Matched by Google Place ID, then by root
+// domain, NEVER by name -- there are four Mellow Mushrooms in one state. The
+// badge says the business has completed an NIL deal on NILDash and nothing
+// else: no agent, no athlete, no value, no deliverable, no contact.
 
 const store = require(REPO + 'server/store.js');
 const DL = require(REPO + 'server/services/dealLog.js');
@@ -167,7 +168,11 @@ const DOMAIN = 'dom:merchco.com';
   // from the domain-keyed one.
   const shared = await DL.logDeal(P, { agentId: A1, athleteId: ATH1, brandName: "Rama Jama's", brandKey: PLACE, value: 1500, deliverable: 'an appearance day' });
   ok('agent one logs a deal with the shared business', shared.ok === true, shared);
+  // A real reply, captured from agent one's mailbox the way replyCapture does
+  // it. It moves the ledger, and it must move nothing anyone else can see.
   await store.markBrandResponded(ATH1, { agentId: A1, brandKey: DOMAIN, brandName: 'MerchCo', source: 'reply' });
+  const repliedLedger = (await P.query(`SELECT state FROM brand_engagement WHERE athlete_id = $1 AND brand_key = $2`, [ATH1, DOMAIN])).rows[0];
+  ok('  the reply is recorded on agent one\'s own ledger, as it always was', repliedLedger && repliedLedger.state === 'responded', repliedLedger);
 
   const flags = await BF.flagsFor(P, [
     { brand_name: "Rama Jama's", place_id: 'ChIJdl-rama-jamas' },
@@ -175,12 +180,26 @@ const DOMAIN = 'dom:merchco.com';
     { brand_name: 'Never Heard Of', place_id: 'place:dl-nobody' },
     { brand_name: "Rama Jama's" },
   ]);
-  ok('a business a deal was logged with is NIL-active', flags[0].nilActive === true && flags[0].responded === true, flags[0]);
-  ok('  one that only replied is Responded, not NIL-active', flags[1].responded === true && flags[1].nilActive === false, flags[1]);
-  ok('  one that has done neither carries nothing', flags[2].nilActive === false && flags[2].responded === false, flags[2]);
-  ok('  AND THE SAME NAME WITH NO PLACE ID CARRIES NOTHING: the name is not the business', flags[3].nilActive === false && flags[3].responded === false, flags[3]);
-  ok('the badge is the stronger of the two, in words', BF.badgeFor(flags[0]).label === 'NIL-active' && BF.badgeFor(flags[1]).label === 'Responded to athletes' && BF.badgeFor(flags[2]) === null);
-  ok('  a NIL-active business outranks one that replied, which outranks the rest', BF.rankBonus(flags[0]) > BF.rankBonus(flags[1]) && BF.rankBonus(flags[1]) > BF.rankBonus(flags[2]));
+  ok('a business a deal was logged with is NIL-active', flags[0].nilActive === true, flags[0]);
+  // ── AN EMAIL REPLY IS NOT A FLAG ──────────────────────────────────────
+  // MerchCo replied to agent one's pitch and the ledger says so. That reply
+  // came out of agent one's own mailbox, so it earns nothing that agent two
+  // can see.
+  ok('A BUSINESS THAT ONLY REPLIED CARRIES NOTHING: inbox data never becomes a badge', flags[1].nilActive === false, flags[1]);
+  ok('  one that has done neither carries nothing', flags[2].nilActive === false, flags[2]);
+  ok('  AND THE SAME NAME WITH NO PLACE ID CARRIES NOTHING: the name is not the business', flags[3].nilActive === false, flags[3]);
+  ok('the flag is ONE boolean, named for what it means', JSON.stringify(Object.keys(flags[0])) === '["nilActive"]', Object.keys(flags[0]));
+  ok('the badge says what it means, in words', BF.badgeFor(flags[0]).label === 'NIL-active' && /completed an NIL deal on NILDash/.test(BF.badgeFor(flags[0]).title) && BF.badgeFor(flags[1]) === null);
+  ok('  a NIL-active business outranks one that is not', BF.rankBonus(flags[0]) > 0 && BF.rankBonus(flags[1]) === 0);
+  // ── THE MODULE CANNOT REACH INBOX DATA AT ALL ─────────────────────────
+  // Not "does not today": the source names none of the tables or columns
+  // that record what arrived in a mailbox, so a flag cannot be built from
+  // one without that being a visible change here.
+  const bfSrc = src('server/services/brandFlags.js');
+  const bfCode = bfSrc.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  ok('the flags module reads deal_outcomes and nothing else', /FROM deal_outcomes/.test(bfCode)
+    && !/outreach_logs|brand_engagement|replied_at|last_inbound_kind|FROM emails|email_sends/.test(bfCode), bfCode.match(/FROM \w+/g));
+  ok('  and an undone deal takes the flag with it', /undone_at IS NULL/.test(bfCode));
 
   // ── THE PRIVACY TEST ──────────────────────────────────────────────────
   OUT.push('', '-- part 2: agent two sees the badge and nothing else --');
@@ -197,7 +216,7 @@ const DOMAIN = 'dom:merchco.com';
   ok('  not the athlete who signed', dump.indexOf('Kaleb') === -1 && dump.indexOf(ATH1) === -1);
   ok('  not the deal value', dump.indexOf('1500') === -1 && dump.indexOf('an appearance day') === -1);
   ok('  not a contact anyone else found', dump.indexOf('x@r.example') === -1);
-  ok('  the flag really is two booleans and nothing more', !!row && JSON.stringify(Object.keys(row.flags).sort()) === '["nilActive","responded"]', row && row.flags);
+  ok('  the flag really is one boolean and nothing more', !!row && JSON.stringify(Object.keys(row.flags)) === '["nilActive"]', row && row.flags);
   ok('  and the same page shows agent two their OWN athlete, so the page is not simply empty', page.rows.length > 0 && page.rows.every((r) => r.athleteId === ATH2), page.rows.map((r) => r.athleteId));
 
   // Ranking, and the admin count.
@@ -206,9 +225,13 @@ const DOMAIN = 'dom:merchco.com';
   ok('the nightly slate ranks a NIL-active business higher when it fits the market', /BF\.flagsFrom\(flagIndex, c\)/.test(scout) && /fit \+= BF\.rankBonus\(nilFlags\)/.test(scout));
   ok('  as a nudge on top of fit, never an override', /nudge, not an override/i.test(scout) && /BF\.rankBonus/.test(scout));
   const counts = await BF.counts(P);
-  ok('the admin count reports each level', counts.nilActive >= 1 && counts.responded >= counts.nilActive && counts.respondedOnly === counts.responded - counts.nilActive, counts);
-  ok('  and says how many businesses can never carry a flag, which is the ceiling on coverage', typeof counts.noIdentity === 'number', counts);
-  ok('the admin page shows the flag counts', /loadBrandFlags\(\)/.test(src('public/admin.html')) && /NIL-active/.test(src('public/admin.html')));
+  ok('the admin count reports NIL-active businesses and the deals behind them', counts.nilActive >= 1 && counts.deals >= counts.nilActive, counts);
+  ok('  and how many logged deals can never flag a business, which is the ceiling on coverage', typeof counts.noIdentity === 'number', counts);
+  ok('the admin page shows the count, and says a reply never earns the flag', /loadBrandFlags\(\)/.test(src('public/admin.html')) && /NIL-active businesses/.test(src('public/admin.html')) && /an email reply never does/.test(src('public/admin.html')));
+  // ── THE DISCLOSURE IS WRITTEN DOWN ────────────────────────────────────
+  const legal = src('public/privacy.html');
+  ok('the legal page states the disclosure in the words it was asked for', /NILDash may show that a business has completed an NIL deal on the platform, without revealing the agent, athlete, or deal terms/.test(legal));
+  ok('  and says the mailbox stays with the agent it came from', /Your mailbox stays yours/.test(legal) && /never creates or contributes to anything\s*\n?\s*another NILDash user can see/.test(legal.replace(/\s+/g, ' ')) || /never creates or contributes to anything another NILDash user can see/.test(legal.replace(/\s+/g, ' ')));
   ok('Deal Scan results carry the badge, attached last and alone', /o\.nilFlags = f/.test(idx) && /nilFlags/.test(html));
   ok('My Brands carries it too', /nilBadgeHtml\(r\.flags\)/.test(html) && /attachFlags\(pool, pageRows\)/.test(src('server/services/myBrands.js')));
 
