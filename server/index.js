@@ -5427,6 +5427,11 @@ app.post('/api/admin/social-brands/reverify', async (req, res) => {
 // the query reaches a shell. Admin only.
 const ADMIN_SCRIPTS = {
   'probe-roster-sources': { file: 'scripts/probe-roster-sources.js', args: (q) => (q.only ? ['--only', String(q.only).replace(/[^a-z0-9-]/gi, '').slice(0, 20)] : []) },
+  // What last night's fill actually did for one agent, athlete by athlete,
+  // with the reason every untried athlete was skipped.
+  'nightly-run-report': { file: 'scripts/nightly-run-report.js', args: (q) => [].concat(
+    q.agent ? ['--agent', String(q.agent).replace(/[^a-z0-9@._+-]/gi, '').slice(0, 120)] : [],
+    q.nights ? ['--nights', String(parseInt(q.nights, 10) || 4)] : []) },
   'lookup-pro-hitrate': { file: 'scripts/lookup-pro-hitrate.js', args: (q) => [].concat(q.league ? ['--league', String(q.league).replace(/[^a-z]/gi, '').slice(0, 10)] : [], q.noTeam ? ['--no-team'] : [], (q.fresh || q.force) ? ['--fresh'] : []) },
 };
 const _adminScriptJobs = new Map();
