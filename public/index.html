@@ -3437,9 +3437,18 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
           <div class="form-row" style="margin-bottom:12px">
             <div><label class="form-label-sm">Sport *</label>
+              <!-- ══ A SPORT IS CHOSEN, NEVER INHERITED FROM THE ALPHABET ══
+                   resetAddAthlete sets every select to selectedIndex 0, so the
+                   first option is what a fresh Add Client form shows. That was
+                   Baseball, and a football player saved without touching this
+                   field was stored as a baseball player -- which picks the
+                   wrong ESPN feed, the wrong lookup and the wrong pitch. The
+                   first option is now a placeholder with no value, and the
+                   save refuses until a sport is picked. ══ -->
               <select class="select-sm" id="a_sport">
+                <option value="" selected>— choose a sport —</option>
                 <option value="baseball">Baseball</option>
-                <option value="basketball" selected>Basketball</option>
+                <option value="basketball">Basketball</option>
                 <option value="cheer">Cheer</option>
                 <option value="cross country">Cross Country</option>
                 <option value="dance">Dance</option>
@@ -6626,7 +6635,9 @@ async function editAthlete(id) {
   // Switch to Add Client view and pre-fill
   showView('add-athlete', document.getElementById('addAthleteNavBtn'));
   document.getElementById('a_name').value = a.name || '';
-  document.getElementById('a_sport').value = a.sport || 'Basketball';
+  // Option values are lower case; 'Basketball' matched none of them and blanked
+  // the select. An athlete with no sport on file opens on the placeholder.
+  document.getElementById('a_sport').value = (a.sport || '').toLowerCase();
   document.getElementById('a_pos').value = a.position || '';
   document.getElementById('a_school').value = a.school || '';
   aCheckSchool(); // an edit is the moment to notice a school that never resolved
@@ -6703,6 +6714,24 @@ function acYearChanged() {
 // Nothing is cleared here: switching back and forth while filling the form
 // must not lose what was typed. The payload builders send only the fields
 // that apply to the chosen type.
+// ── "City, ST", NOT "Denver" ─────────────────────────────────────────────────
+// The two-letter state is not decoration: services/compliance resolves a pro's
+// state from this field and it decides which state's endorsement rules apply,
+// and sendWindow reads it to pick the recipient's timezone. A city with no
+// state silently loses both. Returns the sentence to show, or null.
+function acCityProblem(city) {
+  const s = String(city || '').trim();
+  if (!s) return 'A city is required for a pro. Enter it as "City, ST": the nightly run finds local businesses there, and the state decides which endorsement rules apply.';
+  if (!/^[A-Za-z][A-Za-z.'\u2019\-]*(?:[ ][A-Za-z.'\u2019\-]+)*,\s*[A-Za-z]{2}$/.test(s)) {
+    return 'Enter the city as "City, ST", for example "Denver, CO". The two-letter state decides which endorsement rules apply, so the city on its own is not enough.';
+  }
+  return null;
+}
+function acSportProblem() {
+  const el = document.getElementById('a_sport');
+  if (!el || !el.value) return 'Choose a sport. It decides which roster the lookup reads and how the pitch is written.';
+  return null;
+}
 function acAthleteType() {
   const t = document.getElementById('a_type');
   return t && t.value === 'pro' ? 'pro' : 'college';
@@ -6757,11 +6786,15 @@ async function updateAthlete(id) {
   const name = document.getElementById('a_name').value.trim();
   if (!name) return;
   const _pro = acAthleteType() === 'pro';
-  if (_pro && !(document.getElementById('a_city') ? document.getElementById('a_city').value.trim() : '')) {
-    const err = document.getElementById('addAthleteError');
-    if (err) err.textContent = 'A city is required for a pro. Enter it as "City, ST": the local lane searches it and the state decides which rules apply.';
-    const c = document.getElementById('a_city'); if (c) c.focus();
-    return;
+  {
+    const problem = acSportProblem() || (_pro ? acCityProblem(document.getElementById('a_city') ? document.getElementById('a_city').value : '') : null);
+    if (problem) {
+      const err = document.getElementById('addAthleteError');
+      if (err) err.textContent = problem;
+      const focusEl = document.getElementById(acSportProblem() ? 'a_sport' : 'a_city');
+      if (focusEl) focusEl.focus();
+      return;
+    }
   }
   const data = {
     name,
@@ -6952,7 +6985,7 @@ async function impPreview() {
 }
 function impSportOptions(current) {
   var sel = document.getElementById('a_sport');
-  var opts = sel ? Array.prototype.map.call(sel.options, function (o) { return [o.value, o.textContent]; }) : [];
+  var opts = sel ? Array.prototype.map.call(sel.options, function (o) { return [o.value, o.textContent]; }).filter(function (o) { return !!o[0]; }) : [];
   return '<option value="">\u2014 pick a sport \u2014</option>' + opts.map(function (o) {
     return '<option value="' + escHtml(o[0]) + '"' + (o[0] === current ? ' selected' : '') + '>' + escHtml(o[1]) + '</option>';
   }).join('');
@@ -7073,13 +7106,22 @@ async function addAthlete() {
     if (schoolEl) { schoolEl.focus(); schoolEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
+  const sportProblem = acSportProblem();
+  if (sportProblem) {
+    err.textContent = sportProblem;
+    const sp = document.getElementById('a_sport');
+    if (sp) { sp.focus(); sp.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    return;
+  }
   const cityEl = document.getElementById('a_city');
   const city = _pro && cityEl ? cityEl.value.trim() : '';
-  if (_pro && !city) {
-    err.textContent = 'A city is required for a pro. Enter it as "City, ST": Deal Scan and the '
-      + 'nightly run find local businesses there, and the state decides which endorsement rules apply.';
-    if (cityEl) { cityEl.focus(); cityEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
-    return;
+  if (_pro) {
+    const cityProblem = acCityProblem(city);
+    if (cityProblem) {
+      err.textContent = cityProblem;
+      if (cityEl) { cityEl.focus(); cityEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      return;
+    }
   }
   err.textContent = '';
   // Disable the Save button for the duration of the request so a slow save can't

@@ -154,7 +154,7 @@ AL._setSearchLoopForTests(async (o) => {
   ok('  and the sanitiser takes knowledge only for a pro, only for those six fields', AL.KNOWN_OK.size === 6 && (() => { const c = AL.sanitizeWeb({ name: 'X Y', school: 'Auburn', position: 'QB', highlight: 'h', sources: { school: 'knowledge', position: 'knowledge', highlight: 'knowledge' } }, [], 'college'); return c === null; })() && (() => { const c = AL.sanitizeWeb({ name: 'X Y', team: 'T', position: 'QB', highlight: 'h', sources: { team: 'knowledge', position: 'knowledge', highlight: 'knowledge' } }, [], 'pro'); return c && c.team === 'T' && c.position === 'QB' && c.highlight === undefined; })());
   const jok = await AL.resolveAthlete(null, { name: 'Nikola Jokic', sport: 'basketball', athleteType: 'pro', team: 'Denver Nuggets' }, { force: true });
   ok('NBA: Nikola Jokić, Denver Nuggets, C, #15, the city the model knew, the stats line from NBA.com', jok.found && jok.candidates[0].team === 'Denver Nuggets' && jok.candidates[0].position === 'C' && jok.candidates[0].jersey === '15' && jok.candidates[0].city === 'Denver, CO' && jok.candidates[0].sources.city === 'knowledge' && /three-time MVP/.test(jok.candidates[0].highlight), jok.candidates[0]);
-  ok('  with the team in the query, and the query still only the words to search', /^ {2}"Nikola Jokic" Denver Nuggets stats$/m.test(loopCalls[loopCalls.length - 1]), loopCalls[loopCalls.length - 1].split("\n").filter((l) => /^ {2}"Nikola/.test(l)));
+  ok('  with the team AND the league in the query, and the query still only the words to search', /^ {2}"Nikola Jokic" Denver Nuggets NBA stats$/m.test(loopCalls[loopCalls.length - 1]), loopCalls[loopCalls.length - 1].split("\n").filter((l) => /^ {2}"Nikola/.test(l)));
 
   OUT.push('', '-- 4. no team, no candidate; nothing, the trace --');
   const made = await AL.resolveAthlete(null, { name: 'Made Upson', sport: 'football', athleteType: 'pro' }, { force: true });
@@ -230,6 +230,25 @@ AL._setSearchLoopForTests(async (o) => {
   OUT.push('', '-- 5. the form, the script, the admin door --');
   const html = src('public/index.html');
   ok('the hint under the name changes for a pro: team or city, not school and sport; and the parent email is hidden', /Enter their team or city for best results/.test(html) && /show\('a_parent_wrap', !pro\)/.test(html) && /id="a_parent_wrap"/.test(html) && /id="a_lookup_hint"/.test(html));
+  // ── THE ADD CLIENT FORM DOES NOT CHOOSE A SPORT FOR THE AGENT ──────────
+  // resetAddAthlete sets every select to selectedIndex 0, so the first option
+  // is what a fresh form shows. It was Baseball, and a football player saved
+  // without touching the field was stored as a baseball player: wrong feed,
+  // wrong lookup, wrong pitch.
+  const sportSelect = html.slice(html.indexOf('<select class="select-sm" id="a_sport">'), html.indexOf('</select>', html.indexOf('id="a_sport"')));
+  const firstOption = (sportSelect.match(/<option value="([^"]*)"/) || [])[1];
+  ok('the sport list opens on a placeholder, never on Baseball', firstOption === '' && /<option value="" selected>. choose a sport ./.test(sportSelect), firstOption);
+  ok('  and no sport is pre-selected behind it', !/selected>Baseball|value="basketball" selected/.test(sportSelect), sportSelect.slice(0, 200));
+  ok('  a reset lands on that placeholder, because it is index 0', /\['a_tier', 'a_sport', 'a_year', 'a_type'\][\s\S]{0,120}selectedIndex = 0/.test(html));
+  ok('  and the save refuses until a sport is picked, on both the add and the edit path', /function acSportProblem\(\)/.test(html) && /Choose a sport\. It decides which roster the lookup reads/.test(html) && (html.match(/acSportProblem\(\)/g) || []).length >= 4);
+  ok('  the edit path no longer fills a value no option carries', /document\.getElementById\('a_sport'\)\.value = \(a\.sport \|\| ''\)\.toLowerCase\(\)/.test(html) && !/a\.sport \|\| 'Basketball'/.test(html));
+  // A pro's city carries its state or it is not a city: compliance resolves
+  // the state from it and sendWindow reads the timezone off it.
+  const cityFn = html.slice(html.indexOf('function acCityProblem'), html.indexOf('function acSportProblem'));
+  const acCityProblem = eval('(' + cityFn.slice(cityFn.indexOf('function acCityProblem')).replace(/\n\s*$/, '') + ')');
+  ok('a pro city must be "City, ST": "Denver, CO" passes, "Denver" does not', !acCityProblem('Denver, CO') && !acCityProblem('Kansas City, MO') && !acCityProblem('St. Louis, MO') && !acCityProblem('Winston-Salem, NC'), null);
+  ok('  a bare city, a missing comma, a spelled-out state and a blank are all refused, each saying what to type', ['Denver', 'Denver CO', 'Denver, Colorado', ''].every((c) => /City, ST/.test(acCityProblem(c) || '')), ['Denver', 'Denver CO', 'Denver, Colorado', ''].map((c) => acCityProblem(c)));
+  ok('  and both save paths use that one rule', (html.match(/acCityProblem\(/g) || []).length === 3 && /const cityProblem = acCityProblem\(city\)/.test(html) && /acSportProblem\(\) \|\| \(_pro \? acCityProblem\(/.test(html), (html.match(/acCityProblem\(/g) || []).length);
   ok('the hit-rate script exists with ten NFL, ten NBA and ten MLB players and reports the athlete, stats, Instagram handle and follower count rates per league', (() => { const s = src('scripts/lookup-pro-hitrate.js'); return /NFL: \[/.test(s) && /NBA: \[/.test(s) && /MLB: \[/.test(s) && ['Bo Nix', 'Patrick Mahomes', 'Nikola Jokic', 'Stephen Curry', 'Aaron Judge', 'Shohei Ohtani'].every((n) => s.includes(n)) && (s.match(/\['[^\]]*'\]/g) || []).length >= 30 && /const FRESH = flag\('fresh'\) \|\| flag\('force'\)/.test(s) && /force: FRESH/.test(s) && /HIT RATE BY LEAGUE \(athlete found \/ stats filled \/ Instagram handle \/ follower count\)/.test(s) && /stats \$\{t\.stats\} of/.test(s) && /instagram handle \$\{t\.handle\} of/.test(s); })());
   const idx = src('server/index.js');
   const block = idx.slice(idx.indexOf('const ADMIN_SCRIPTS'), idx.indexOf('// GET /api/admin/verify-school-map'));
