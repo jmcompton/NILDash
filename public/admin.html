@@ -187,7 +187,7 @@ loadBrandsSummary();
   <div id="deal-counter-body" style="padding:16px 20px;font-size:12px;color:#f0ede6;display:flex;gap:28px;flex-wrap:wrap">Loading...</div>
   <div style="padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08)">
     <div style="font-size:14px;font-weight:600;color:#f0ede6">Businesses flagged</div>
-    <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">A business earns a flag from real activity: NIL-active once a deal with it has been logged, Responded once someone there replied to a pitch. Only a business with a Google Place ID or a website can carry one, because a flag is matched across agents on those and never on a name.</div>
+    <div style="font-size:11px;color:rgba(240,237,230,0.5);margin-top:2px">A business is NIL-active once an agent has logged a signed deal with it on NILDash. Nothing else earns the flag: an email reply never does, because a reply is read from that agent's own mailbox and stays with them. Only a business with a Google Place ID or a website can carry a flag, because it is matched across agents on those and never on a name.</div>
   </div>
   <div id="brand-flags-body" style="padding:0 20px 18px;font-size:12px;color:#f0ede6;display:flex;gap:28px;flex-wrap:wrap">Loading...</div>
 </div>
@@ -1160,11 +1160,9 @@ async function loadBrandFlags() {
     var r = await fetch('/api/admin/brand-flags');
     var d = await r.json();
     if (!r.ok) { el.textContent = d.error || ('error ' + r.status); return; }
-    el.innerHTML = _tileAdmin(d.nilActive, 'NIL-active', 'a deal has been logged with them')
-      + _tileAdmin(d.respondedOnly, 'responded, no deal yet', 'someone there replied to a pitch')
-      + _tileAdmin(d.responded, 'responded or better')
-      + _tileAdmin(d.matchable, 'businesses that could carry a flag', 'they have a Place ID or a domain')
-      + _tileAdmin(d.noIdentity, 'cannot carry one', 'no Place ID and no website: never matched on a name');
+    el.innerHTML = _tileAdmin(d.nilActive, 'NIL-active businesses', 'a signed deal has been logged with them')
+      + _tileAdmin(d.deals, 'logged deals behind them')
+      + _tileAdmin(d.noIdentity, 'deals that cannot flag a business', 'no Place ID and no website: never matched on a name');
   } catch (e) { el.textContent = 'Could not load: ' + e.message; }
 }
 loadDealCounter(); loadBrandFlags();

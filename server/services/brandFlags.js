@@ -1,38 +1,44 @@
 'use strict';
-// ── WHAT A BUSINESS HAS DONE WITH ATHLETES, ACROSS EVERY AGENT ──────────────
+// ── NIL-ACTIVE: THIS BUSINESS HAS DONE AN NIL DEAL ON NILDASH ───────────────
 //
-// Two flags, earned only by something that really happened:
+// One flag, and it is earned one way: an agent logged a signed deal with that
+// business on NILDash (services/dealLog writes the deal_outcomes row). That is
+// the whole definition. A business with no logged deal carries nothing.
 //
-//   responded   a person at that business wrote back to a NILDash pitch.
-//   nilActive   a deal with that business was logged on NILDash.
+// ── WHAT THIS DELIBERATELY DOES NOT READ ───────────────────────────────────
 //
-// Both are read from the ledgers that already record those events --
-// brand_engagement (state 'responded' and 'closed') and deal_outcomes -- so
-// there is no second store to keep in step. services/dealLog writes the
-// 'closed' state; services/followUpAutomation.markReplied writes 'responded'.
+// AN EMAIL REPLY IS NOT A FLAG, AND INBOX DATA NEVER LEAVES THE AGENT IT CAME
+// FROM. An earlier version of this file also flagged a business that had
+// replied to a pitch, read out of brand_engagement's 'responded' state -- and
+// that state is written by services/followUpAutomation.markReplied, which is
+// fed by reply capture over an agent's connected Gmail or Outlook mailbox.
+// Showing a second agent a badge derived from the first agent's inbox is a
+// disclosure of the first agent's mail, however small the badge. So:
 //
-// ── "REPLIED POSITIVELY" IS NOT SENTIMENT, AND THIS DOES NOT PRETEND ────────
-// Nothing in this codebase reads the tone of a reply. What it can tell apart
-// is a PERSON writing back from a bounce or an out-of-office
-// (services/replyCapture.classifyInbound), and only a person's reply ever
-// reaches markReplied. So `responded` means a human at that business answered
-// a pitch. That is the honest claim, and it is the one the badge makes.
+//   - this module reads deal_outcomes and nothing else;
+//   - it never reads outreach_logs, emails, replied_at, last_inbound_kind,
+//     brand_engagement, or any other record of what arrived in a mailbox;
+//   - the only thing that can create a flag is a person deciding to log a
+//     deal, which is an act of their own, not a message somebody sent them.
+//
+// A test in tests/deals.js proves a reply creates no flag, and another proves
+// this file names none of those tables.
 //
 // ── MATCHING ACROSS AGENTS: PLACE ID, THEN DOMAIN, NEVER A NAME ────────────
 // Two agents who both pitch "Rama Jama's" are talking about the same business
 // only when the same Google Place ID or the same root domain says so. A name
 // is not an identity: there are four Mellow Mushrooms in one state and a
-// hundred "Main Street Barbers" in the country, and flagging one of them
-// because another agent closed a different one would be a lie with a badge on
-// it. A business whose key is name-derived carries NO flag, and that is the
-// correct answer rather than a missing feature.
+// hundred "Main Street Barbers" in the country, and flagging one because
+// another agent closed a different one would be a lie with a badge on it. A
+// business whose key is name-derived carries NO flag, and that is the correct
+// answer rather than a missing feature.
 //
 // ── PRIVACY IS THE WHOLE POINT ─────────────────────────────────────────────
-// A flag is two booleans. This module never returns, and no caller can obtain
+// A flag is one boolean. This module never returns, and no caller can obtain
 // from it, which agent worked the business, which athlete, what a deal was
-// worth, who the contact was, or when. An agent learns only that the business
-// has done this before -- which is a fact about the business, not about
-// another agent's book.
+// worth, what the athlete agreed to do, who the contact was, or when. An
+// agent learns only that the business has done an NIL deal on NILDash --
+// which is a fact about the business, not about another agent's book.
 
 // The key prefixes brandIdentity / ai.resolveBrandKey mint for a real
 // identity. Everything else ('name:', 'localname:') is a display name in key
@@ -73,60 +79,42 @@ function crossAgentKeys(b) {
   return out;
 }
 
-// ── THE FLAGS THEMSELVES ────────────────────────────────────────────────────
-// One query per level over the whole ledger, not one per business: a My
+// ── THE FLAG ITSELF ─────────────────────────────────────────────────────────
+// One query over deal_outcomes for the whole page, not one per business: a My
 // Brands page is fifty rows and fifty round trips is a page that hangs.
-// Returns a Map from cross-agent key to { responded, nilActive }.
+// Returns a Set of the cross-agent keys that have a logged deal against them.
+//
+// deal_outcomes.brand_key is written by services/dealLog when an agent logs a
+// deal. A deal recorded by an older path carries no key, so it cannot be
+// matched across agents and earns no flag -- which is the same rule as a
+// business with no Place ID and no domain, and it is stated in the admin
+// count rather than hidden.
 async function loadFlagIndex(pool, keys) {
   const wanted = [...new Set((keys || []).filter(isCrossAgentKey))];
-  const index = new Map();
-  if (!wanted.length) return index;
-  const set = (k, field) => {
-    const cur = index.get(k) || { responded: false, nilActive: false };
-    cur[field] = true;
-    index.set(k, cur);
-  };
+  if (!wanted.length) return new Set();
   try {
-    // A deal logged on NILDash. 'closed' is what services/dealLog writes to
-    // the ledger, and deal_outcomes.brand_key is the deal's own record of the
-    // same identity; either one earns the flag.
-    const closed = await pool.query(
-      `SELECT DISTINCT brand_key FROM brand_engagement
-        WHERE state = 'closed' AND brand_key = ANY($1::text[])`, [wanted]);
-    for (const r of closed.rows) set(r.brand_key, 'nilActive');
-    const dealt = await pool.query(
+    const r = await pool.query(
       `SELECT DISTINCT brand_key FROM deal_outcomes
-        WHERE brand_key = ANY($1::text[])`, [wanted]).catch(() => ({ rows: [] }));
-    for (const r of dealt.rows) set(r.brand_key, 'nilActive');
-    // A person at the business wrote back. 'closed' outranks 'responded' in
-    // the ledger, so a business that replied and then signed carries both.
-    const replied = await pool.query(
-      `SELECT DISTINCT brand_key FROM brand_engagement
-        WHERE state IN ('responded', 'closed') AND brand_key = ANY($1::text[])`, [wanted]);
-    for (const r of replied.rows) set(r.brand_key, 'responded');
+        WHERE brand_key = ANY($1::text[]) AND undone_at IS NULL`, [wanted]);
+    return new Set(r.rows.map((x) => x.brand_key));
   } catch (e) {
-    // A flag is decoration on a page that has to render. Never fail the page.
+    // A badge is decoration on a page that has to render. Never fail the page,
+    // and never guess: an error means no flag, not a flag.
     console.error('[brandFlags] loadFlagIndex:', e.message);
-    return new Map();
+    return new Set();
   }
-  return index;
 }
 
-// The flags for one business, given a loaded index.
+// The flag for one business, given a loaded index.
 function flagsFrom(index, business) {
-  const out = { responded: false, nilActive: false };
-  for (const k of crossAgentKeys(business)) {
-    const f = index.get(k);
-    if (!f) continue;
-    if (f.responded) out.responded = true;
-    if (f.nilActive) out.nilActive = true;
-  }
-  return out;
+  const keys = crossAgentKeys(business);
+  const on = keys.some((k) => index && index.has && index.has(k));
+  return { nilActive: !!on };
 }
 
 // Flags for a list of businesses, in one pass. Returns an array parallel to
 // the input -- never a joined object, so a caller cannot accidentally carry a
-// key back to a page.
+// key or anything else back to a page.
 async function flagsFor(pool, businesses) {
   const list = Array.isArray(businesses) ? businesses : [];
   const keys = [];
@@ -145,55 +133,43 @@ async function attachFlags(pool, rows) {
 }
 
 // ── THE BADGE ───────────────────────────────────────────────────────────────
-// One badge, the stronger of the two, in words an agent can act on. Null when
-// the business has earned neither, so a page renders nothing rather than an
-// empty chip.
-const BADGES = {
-  nilActive: { key: 'nil-active', label: 'NIL-active', title: 'This business has signed at least one NIL deal through NILDash.' },
-  responded: { key: 'responded', label: 'Responded to athletes', title: 'Someone at this business has replied to a NILDash pitch.' },
+// One badge, in words an agent can act on, and null when the business has not
+// earned it -- so a page renders nothing rather than an empty chip.
+const BADGE = {
+  key: 'nil-active',
+  label: 'NIL-active',
+  title: 'This business has completed an NIL deal on NILDash.',
 };
 function badgeFor(flags) {
-  const f = flags || {};
-  if (f.nilActive) return BADGES.nilActive;
-  if (f.responded) return BADGES.responded;
-  return null;
+  return (flags && flags.nilActive) ? BADGE : null;
 }
 
-// How much a flag is worth when the nightly fill is choosing between
+// How much the flag is worth when the nightly fill is choosing between
 // businesses that all fit the athlete's market. A business that has signed
-// before is the best lead in the pile; one that has answered is next. The
-// numbers are a nudge, not an override: fit still decides first.
-const RANK_BONUS = { nilActive: 30, responded: 12 };
+// before is the best lead in the pile. The number is a nudge, not an
+// override: fit still decides first.
+const RANK_BONUS = 30;
 function rankBonus(flags) {
-  const f = flags || {};
-  if (f.nilActive) return RANK_BONUS.nilActive;
-  if (f.responded) return RANK_BONUS.responded;
-  return 0;
+  return (flags && flags.nilActive) ? RANK_BONUS : 0;
 }
 
-// Admin only: how many businesses sit at each level, across everyone.
+// Admin only: how many businesses are NIL-active, across everyone.
 async function counts(pool) {
-  const out = { nilActive: 0, responded: 0, respondedOnly: 0, unflagged: null };
+  const out = { nilActive: 0, deals: 0, noIdentity: 0 };
   try {
     const r = await pool.query(
-      `SELECT
-         COUNT(DISTINCT brand_key) FILTER (WHERE state = 'closed')::int AS nil_active,
-         COUNT(DISTINCT brand_key) FILTER (WHERE state IN ('responded','closed'))::int AS responded
-       FROM brand_engagement
-      WHERE brand_key LIKE 'place:%' OR brand_key LIKE 'dom:%'`);
-    out.nilActive = (r.rows[0] && r.rows[0].nil_active) || 0;
-    out.responded = (r.rows[0] && r.rows[0].responded) || 0;
-    out.respondedOnly = Math.max(0, out.responded - out.nilActive);
-    const total = await pool.query(
-      `SELECT COUNT(DISTINCT brand_key)::int AS n FROM brand_engagement
-        WHERE brand_key LIKE 'place:%' OR brand_key LIKE 'dom:%'`);
-    out.matchable = (total.rows[0] && total.rows[0].n) || 0;
-    const unmatchable = await pool.query(
-      `SELECT COUNT(DISTINCT brand_key)::int AS n FROM brand_engagement
-        WHERE brand_key IS NOT NULL AND brand_key NOT LIKE 'place:%' AND brand_key NOT LIKE 'dom:%'`);
-    // Businesses with no Place ID and no domain can never carry a flag. The
-    // number is reported rather than hidden: it is the ceiling on coverage.
-    out.noIdentity = (unmatchable.rows[0] && unmatchable.rows[0].n) || 0;
+      `SELECT COUNT(DISTINCT brand_key)::int AS businesses, COUNT(*)::int AS deals
+         FROM deal_outcomes
+        WHERE undone_at IS NULL AND (brand_key LIKE 'place:%' OR brand_key LIKE 'dom:%')`);
+    out.nilActive = (r.rows[0] && r.rows[0].businesses) || 0;
+    out.deals = (r.rows[0] && r.rows[0].deals) || 0;
+    // Deals whose business has neither a Place ID nor a domain can never
+    // carry a flag. Reported rather than hidden: it is the ceiling on
+    // coverage, and the reason is that a name is not an identity.
+    const noKey = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM deal_outcomes
+        WHERE undone_at IS NULL AND (brand_key IS NULL OR (brand_key NOT LIKE 'place:%' AND brand_key NOT LIKE 'dom:%'))`);
+    out.noIdentity = (noKey.rows[0] && noKey.rows[0].n) || 0;
   } catch (e) {
     console.error('[brandFlags] counts:', e.message);
   }
@@ -201,7 +177,7 @@ async function counts(pool) {
 }
 
 module.exports = {
-  CROSS_AGENT_PREFIXES, BADGES, RANK_BONUS,
+  CROSS_AGENT_PREFIXES, BADGE, RANK_BONUS,
   isCrossAgentKey, normDomain, crossAgentKeys,
   loadFlagIndex, flagsFrom, flagsFor, attachFlags, badgeFor, rankBonus, counts,
 };
