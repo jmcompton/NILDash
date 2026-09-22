@@ -503,6 +503,12 @@ router.post('/logs/:id/send', async (req, res) => {
     // through sendGuard and produced a sentence a person could act on. One
     // classifier now serves both. Our own pre-send refusal is already written
     // for a human, so it passes through unchanged.
+    // An unconfigured mailing address is our own setup problem, not the mail
+    // provider's, and it is fixed in Railway rather than by reconnecting a
+    // mailbox. It gets its own answer so the page says the right thing.
+    if (e && e.code === 'CANSPAM_UNCONFIGURED') {
+      return res.status(400).json({ error: e.message, reason: 'can-spam' });
+    }
     const sendGuard = require('../services/sendGuard');
     const c = sendGuard.classifyError(e);
     const mine = /^SCOPE_MISSING: /.test(e.message || '');
@@ -756,22 +762,36 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   // This is the exact anchor the named address no longer provides.
   const messageId = replyCapture.ENABLED ? replyCapture.buildMessageId(log.id) : null;
 
+  // ── THE CAN-SPAM FOOTER, ON THE WIRE ──────────────────────────────────
+  // Appended HERE rather than in the draft, so it is on the message that
+  // actually ships no matter which screen wrote it, and so an agent editing
+  // the draft cannot delete it. Throws when BUSINESS_MAILING_ADDRESS is unset,
+  // and the route's catch turns that into a sentence naming the variable.
+  // req.principal carries an id and a kind, not a name, so the name for the
+  // "why you got this" line is read here. Absent is fine: the line falls back
+  // to wording that names nobody rather than printing "undefined" at a
+  // business owner.
+  const canSpam = require('../services/canSpam');
+  const senderName = await pool.query(`SELECT name FROM users WHERE id = $1`, [log.agent_id])
+    .then((r) => (r.rows[0] && r.rows[0].name) || null).catch(() => null);
+  const bodyHtml = canSpam.appendHtml(log.body_html, toEmail, { senderName });
+
   let result;
   if (account.provider === 'gmail') {
     const gmail = require('../services/providers/gmail');
     result = await gmail.sendEmail(accessToken, refreshToken, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments, replyTo, messageId,
+      to: [toEmail], subject: log.subject, bodyHtml, attachments, replyTo, messageId,
     });
   } else if (account.provider === 'outlook' || account.provider === 'microsoft365') {
     const outlook = require('../services/providers/outlook');
     result = await outlook.sendEmail(accessToken, refreshToken, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments, replyTo, messageId,
+      to: [toEmail], subject: log.subject, bodyHtml, attachments, replyTo, messageId,
     });
   } else {
     const imapProvider = require('../services/providers/imap');
     const imapConfig = refreshToken ? JSON.parse(refreshToken) : {};
     result = await imapProvider.sendEmail(account.email_address, accessToken, imapConfig, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, replyTo, messageId,
+      to: [toEmail], subject: log.subject, bodyHtml, replyTo, messageId,
     });
   }
   // messageId travels back so the caller stores exactly what went on the wire --

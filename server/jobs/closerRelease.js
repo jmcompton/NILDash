@@ -21,6 +21,7 @@ const store = require('../store');
 const Closer = require('../services/closer');
 const sendGuard = require('../services/sendGuard');
 const replyCapture = require('../services/replyCapture');
+const canSpam = require('../services/canSpam');
 
 const ENABLED = process.env.CLOSER_RELEASE_ENABLED === '1';
 
@@ -43,8 +44,11 @@ async function senderFor(pool, agentId, cache) {
         // own inbox where nothing watches for them -- which would have broken
         // the stop-on-reply condition the whole cadence depends on.
         const u = await pool.query(
-          `SELECT reply_local_part FROM users WHERE id = $1`, [agentId]);
+          `SELECT reply_local_part, name FROM users WHERE id = $1`, [agentId]);
         full.replyLocalPart = (u.rows[0] && u.rows[0].reply_local_part) || null;
+        // Named in the CAN-SPAM footer's "why you got this" line. Absent is
+        // fine: the line falls back to wording that names no one.
+        full.senderName = (u.rows[0] && u.rows[0].name) || null;
         if (!full.replyLocalPart && replyCapture.ENABLED) {
           console.warn(`[closer] agent=${agentId} has no reply address, so replies to `
             + 'this mail will not be captured; sending anyway');
@@ -92,8 +96,17 @@ function buildSend(pool, cache, { dry }) {
     }
 
     const provider = providerFor(account);
+    // ── THE CAN-SPAM FOOTER ───────────────────────────────────────────
+    // On the message that ships, not on the draft: this is the path that
+    // sends in volume without a human looking at it, which is exactly the
+    // path that must never put a commercial email in front of a business
+    // with no postal address and no way to opt out. Throws when
+    // BUSINESS_MAILING_ADDRESS is unset, and sendGuard classifies the throw
+    // like any other send failure, so the tick reports it rather than
+    // sending anyway.
     const args = {
-      to: [to], subject: log.subject, bodyHtml: log.body_html,
+      to: [to], subject: log.subject,
+      bodyHtml: canSpam.appendHtml(log.body_html, to, { senderName: account.senderName || null }),
       attachments: [], replyTo, messageId,
     };
     const res = account.provider === 'imap'
@@ -111,6 +124,14 @@ function buildSend(pool, cache, { dry }) {
 
 async function runOnce(opts = {}) {
   const pool = store.pool;
+  // ── REFUSE THE WHOLE TICK, NOT EACH MESSAGE ───────────────────────────────
+  // Without the mailing address every send in this tick would fail the same
+  // way, two hundred times, and the reason would be buried in two hundred
+  // identical lines. Say it once, at the top, and send nothing.
+  if (!canSpam.configured()) {
+    console.error('[closer] ' + canSpam.problem());
+    return { considered: 0, sent: 0, held: 0, failed: 0, stoppedAgents: [], blocked: canSpam.problem() };
+  }
   await sendGuard.ensureTable(pool);
   const cache = new Map();
   const out = await Closer.releaseDue(pool, {

@@ -269,11 +269,16 @@ async function lastSend(pool, email, opts = {}) {
 }
 
 // ── THE SUPPRESSION LIST, BY HAND ────────────────────────────────────────────
-async function suppressManually(pool, email, { reason, by } = {}) {
+// `kind` is how the suppression list explains itself on the admin page, and an
+// unsubscribe is not a hand-added row: one is a person saying stop and the
+// other is us deciding. They must never be confused, because removing an
+// unsubscribed address from the list is unlawful and removing one we added by
+// hand is routine.
+async function suppressManually(pool, email, { reason, by, kind } = {}) {
   const addr = normalize(email);
   if (!addr || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) return { ok: false, error: 'that is not an email address' };
   const done = await suppression.suppress(pool, addr, {
-    reason: reason ? String(reason).slice(0, 300) : 'added by hand', kind: 'manual', agentId: by || null,
+    reason: reason ? String(reason).slice(0, 300) : 'added by hand', kind: kind || 'manual', agentId: by || null,
   });
   if (!done) return { ok: false, error: 'could not write the suppression list' };
   // Every unsent message to this address stops now, on every agent's roster.
@@ -288,10 +293,21 @@ async function suppressManually(pool, email, { reason, by } = {}) {
   return { ok: true, email: addr, stopped };
 }
 
+// ── AN OPT-OUT IS NOT OURS TO UNDO ───────────────────────────────────────────
+// Taking a bounced address off the list is routine: the mailbox may have been
+// fixed. Taking off an address whose owner clicked Unsubscribe is resuming
+// mail to somebody who told us to stop, which CAN-SPAM 7704(a)(4) forbids and
+// which no admin should be able to do by misreading a row. So this refuses,
+// and says why, rather than quietly doing it.
 async function unsuppress(pool, email) {
   const addr = normalize(email);
   if (!addr) return { ok: false, error: 'no address' };
   try {
+    const cur = await pool.query(`SELECT kind FROM email_suppression WHERE email = $1`, [addr]);
+    if (cur.rows[0] && cur.rows[0].kind === 'unsubscribe') {
+      return { ok: false, error: `${addr} unsubscribed. An opt-out cannot be undone from here: `
+        + 'mailing an address again after it asked to stop is what CAN-SPAM forbids.' };
+    }
     const r = await pool.query(`DELETE FROM email_suppression WHERE email = $1`, [addr]);
     return { ok: true, email: addr, removed: r.rowCount || 0 };
   } catch (e) { return { ok: false, error: e.message }; }
