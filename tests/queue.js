@@ -143,8 +143,24 @@ const CAND = (over) => Object.assign({
     ok('  a DM is written', !!card.dmText && card.dmText.length > 40, card.dmText);
     ok('    naming the athlete', /Amari Allen/.test(card.dmText), card.dmText);
     ok('    and the business', /Pack Rat Outdoor Center/.test(card.dmText), card.dmText);
-    ok('  NO email field exists on the card', !('email' in card) && !/email/i.test(JSON.stringify(card)),
-      Object.keys(card));
+    // ── EMAIL IS A CHANNEL NOW, BUT IT IS STILL NOT A GUESS ────────────────
+    // This asserted the card had no email field at all, which was right when
+    // the measurement behind this file said personal email was ~0%: a card was
+    // a DM or a call, full stop. 788c5e4 made email a nightly channel and
+    // aeddb7a put a syntax-then-MX check in front of it, so the fields exist
+    // by design and the header above says so.
+    //
+    // What still has to hold is the half that was never about the field
+    // existing: this ladder offers no address, so nothing may appear in one,
+    // and a card with a handle is still a DM rather than an email. An invented
+    // or inferred address on a card is the failure this was guarding against,
+    // and it is asserted directly now instead of through the field's absence.
+    ok('  with no address on the ladder, every email field stays empty',
+      card.email === null && card.emailKind === null && card.emailNote === null
+      && card.subject === null && card.emailBody === null,
+      { email: card.email, emailKind: card.emailKind, subject: card.subject });
+    ok('    and the card is still a DM, not quietly re-routed to email',
+      card.channel === 'dm', card.channel);
   }
 
   console.log('\n-- DM CARDS SORT ABOVE CALL-ONLY --');

@@ -63,7 +63,13 @@ const _safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u.tr
 const _normalizePhone = (p) => (p == null ? null : String(p));
 const _validEmail = (e) => (typeof e === 'string' && e.includes('@') ? e : null);
 const _isGenericInbox = (e) => /^(info|contact|hello|sales|admin|office)@/i.test(String(e || ''));
-const rankOf = new Function(liftFn(AI, 'function _contactAuthorityRank(title) {') + '\n return _contactAuthorityRank;')();
+// _contactAuthorityRank is a one-line delegate to services/contactRank, so the
+// sandbox has to be handed that module or the lifted copy throws "_CR is not
+// defined" the first time the ladder ranks anybody -- which is what it has been
+// doing here since this suite moved into tests/. It THREW rather than failed,
+// so the four assertions after it never ran either.
+const _CR = require(R + 'server/services/contactRank');
+const rankOf = new Function('_CR', liftFn(AI, 'function _contactAuthorityRank(title) {') + '\n return _contactAuthorityRank;')(_CR);
 const labelTitle = new Function(liftFn(AI, 'function _labelTitle(source, title) {') + '\n return _labelTitle;')(); // eslint-disable-line
 
 // ── the shipped per-source extractor, with the model's answer injected ───────

@@ -34,6 +34,7 @@ async function main() {
     await P.query(`DELETE FROM athletes WHERE agent_id=$1`, [AG]).catch(() => {});
     await P.query(`DELETE FROM users WHERE id=$1`, [AG]).catch(() => {});
     await P.query(`DELETE FROM brand_evidence_cache WHERE brand LIKE 'Audit %'`).catch(() => {});
+    await P.query(`DELETE FROM email_verification WHERE email LIKE '%.example'`).catch(() => {});
   };
   await clean();
   await P.query(`INSERT INTO users (id,name,email,password,role,report_tz)
@@ -75,6 +76,26 @@ async function main() {
     `SELECT COUNT(*)::int n FROM outreach_logs WHERE agent_id=$1 AND sent_to_email IS NOT NULL`,
     [AG])).rows[0].n;
   ok('the drafts start with NO address, which is the bug', before === 0, before);
+
+  // ── THE VERDICT IS SEEDED, BECAUSE .example CAN NEVER RESOLVE ────────────
+  // aeddb7a put a syntax-then-MX check in front of every address before it is
+  // stored or offered. These fixtures address .example, which is reserved by
+  // IANA precisely so that it never resolves -- on this machine, on Railway,
+  // anywhere, forever -- so both were refused as "the domain does not exist"
+  // and the backfill attached 0 of 2. That is the gate working; the fixture
+  // was written before it existed.
+  //
+  // Seeding email_verification is how the suite stays about the BACKFILL. A
+  // real domain would make this file depend on DNS and on somebody else's mail
+  // records, which is a flake, not a test. The cache is the documented way in
+  // (emailVerify.cached), the rows are the verdicts a working check would
+  // return, and the refusal path keeps its own coverage further down.
+  await P.query(`DELETE FROM email_verification WHERE email LIKE '%.example'`).catch(() => {});
+  await P.query(
+    `INSERT INTO email_verification (email, result, detail, source, checked_at)
+     VALUES ('dana@kessler.example','valid','the verifier confirmed the mailbox','test',NOW()),
+            ('hq@franchise.example','valid','the verifier confirmed the mailbox','test',NOW())
+     ON CONFLICT (email) DO UPDATE SET result = EXCLUDED.result, checked_at = NOW()`);
 
   const att = await DA.attach(P, { agentId: AG });
   ok('THE BACKFILL ATTACHES THE ADDRESSES THAT EXIST', att.attached === 2, att);
@@ -159,15 +180,30 @@ async function main() {
   ok('  counting cached lookups separately', sum.cachedLookups === 1, sum);
 
   const JOB = fs.readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8');
+  // ── THE PRICE COMES OFF THE METER NOW, NOT OFF A BOOLEAN ────────────────
+  // These three pinned `out.cached ? 0 : Q.priceOf(meter)` and the guard built
+  // on it. That form was the bug, not the fix: getBrandContacts never returned
+  // `cached`, so the flag was undefined on every lookup, a full cache hit took
+  // the paid branch, priced at $0 from an empty meter, tripped the guard and
+  // was charged the $0.06 CEILING -- making cache hits the most expensive
+  // lookups in the system. The job reads the meter unconditionally now, which
+  // also describes a PARTIAL hit correctly, since one lookup makes several
+  // cache reads and no per-brand boolean can express that.
+  //
+  // So the assertions move with it: priced from the meter with no boolean in
+  // the way, and the route to the ceiling is the one case that really is a
+  // broken measurement -- nothing touched at all, not even a cache read.
   ok('the job charges the MEASURED cost, not the ceiling',
-    /let realCost = out\.cached \? 0 : Q\.priceOf\(meter\)/.test(JOB), null);
-  // A zero on an UNCACHED lookup means the meter failed, not that the lookup was
-  // free. Charging it as free would silently switch off both the cap and the
+    /let realCost = Q\.priceOf\(meter\);/.test(JOB)
+    && !/realCost = out\.cached \? 0 :/.test(JOB), null);
+  // Zero cache reads AND zero calls means the meter failed, not that the lookup
+  // was free. Charging it as free would silently switch off both the cap and the
   // backoff, which only records a night that actually spent.
-  ok('  but an uncached lookup is never treated as free',
-    /if \(!out\.cached && realCost <= 0\)[\s\S]{0,120}realCost = LOOKUP_CEILING_USD/.test(JOB), null);
+  ok('  but a lookup that touched nothing at all is never treated as free',
+    /const touched = meter\s*\n?\s*&& \(meter\.cacheHits \|\| meter\.cacheMisses \|\| meter\.webSearches \|\| meter\.aiCalls\)/.test(JOB)
+    && /if \(!touched\) \{[\s\S]{0,120}realCost = LOOKUP_CEILING_USD/.test(JOB), null);
   ok('  and it says the measurement failed rather than going quiet',
-    /the meter[\s\S]{0,80}recorded no calls/.test(JOB), null);
+    /the meter recorded no cache reads and no[\s\S]{0,40}calls; charging the ceiling/.test(JOB), null);
   ok('  while still reserving at the ceiling before spending',
     /canSpend\(LOOKUP_CEILING_USD\)/.test(JOB), null);
   ok('  and one athlete\'s share no longer ends the night',
