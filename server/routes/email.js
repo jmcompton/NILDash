@@ -402,18 +402,41 @@ router.post('/send', async (req, res) => {
       if (!rule.ok) return res.status(409).json({ error: 'Not sent: ' + rule.reason, reason: rule.kind });
     }
 
+    // ── THE CAN-SPAM FOOTER ────────────────────────────────────────────────
+    // A new message composed in the inbox is outreach: a business contact who
+    // did not ask for it is about to receive commercial email, so it carries
+    // the postal address and the opt-out link like every other pitch. A reply
+    // inside an existing thread is a conversation the other side started, so
+    // it does not -- the same line services/sendRules already draws.
+    //
+    // The link is per-address and there can be several recipients; the footer
+    // is built for the first, because one unsubscribe link cannot mean two
+    // addresses. Cold outreach is one recipient in practice.
+    const canSpam = require('../services/canSpam');
+    let outHtml = bodyHtml;
+    if (canSpam.required(threadId ? 'reply' : 'compose') && recipients.length) {
+      try {
+        outHtml = canSpam.appendHtml(bodyHtml, recipients[0]);
+      } catch (e) {
+        if (e && e.code === 'CANSPAM_UNCONFIGURED') {
+          return res.status(400).json({ error: e.message, reason: 'can-spam' });
+        }
+        throw e;
+      }
+    }
+
     let result;
     if (account.provider === 'gmail') {
       result = await gmail.sendEmail(account.accessToken, account.refreshToken,
-        { to, cc, subject, bodyHtml, threadId });
+        { to, cc, subject, bodyHtml: outHtml, threadId });
     } else if (account.provider === 'outlook' || account.provider === 'microsoft365') {
       result = await outlook.sendEmail(account.accessToken, account.refreshToken,
-        { to, cc, subject, bodyHtml, threadId });
+        { to, cc, subject, bodyHtml: outHtml, threadId });
     } else {
       // IMAP — password in accessToken, config in refreshToken
       const imapConfig = account.refreshToken ? JSON.parse(account.refreshToken) : {};
       result = await imap.sendEmail(account.email_address, account.accessToken, imapConfig,
-        { to, cc, subject, bodyHtml, threadId });
+        { to, cc, subject, bodyHtml: outHtml, threadId });
     }
 
     for (const addr of recipients) {

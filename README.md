@@ -14,8 +14,17 @@ Create a `.env` file:
 ```
 ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 SESSION_SECRET=any-random-string-here
+BUSINESS_MAILING_ADDRESS=Your Company LLC, 123 Main St, City, ST 00000
 PORT=3000
 ```
+
+`BUSINESS_MAILING_ADDRESS` is REQUIRED before any outreach can be sent. It is
+printed in the footer of every email that goes to a business, because CAN-SPAM
+(15 U.S.C. 7704(a)(5)) requires a valid physical mailing address in every
+commercial message. When it is unset, outreach refuses to send rather than
+sending an unlawful message — the nightly release logs the reason once and
+sends nothing, and a manual Send answers with the same sentence. Notices to
+your own agents (digests, password resets) are unaffected either way.
 
 ### 3. Run locally
 ```bash
@@ -32,6 +41,7 @@ Open http://localhost:3000
 4. Add environment variables in Railway dashboard:
    - `ANTHROPIC_API_KEY`
    - `SESSION_SECRET`
+   - `BUSINESS_MAILING_ADDRESS` — required before outreach sends (see above)
 5. Deploy — Railway gives you a live URL automatically
 
 ## Connect your domain (mynildash.com)

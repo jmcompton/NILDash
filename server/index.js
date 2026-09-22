@@ -2981,10 +2981,33 @@ async function fetchInstagramStatsViaSearch(handle) {
   const empty = { followers: null, engagement_rate: null, source: null, confidence: 'low', found: false };
   let raw = '';
   try {
-    raw = await Promise.race([
-      ai.oneShotWebSearch(prompt, system, 900, 4, ai.MODEL_STANDARD),
+    // ── THE MODEL: THE CHEAP TIER, BECAUSE THIS IS EXTRACTION ────────────
+    // This ran on MODEL_STANDARD (Opus) and was the most expensive line in the
+    // 9/18 spend report: 7 calls, $1.02 -- about 15 cents to read a follower
+    // count off a search snippet, while the whole night's discovery pot is $2.
+    //
+    // Nothing here needs the reasoning tier. The job is: run a search, find
+    // the profile result, copy the number out of "X Followers", return JSON or
+    // nulls. That is the definition of the extraction work ai.js already
+    // reserves for MODEL_FAST, and the sibling Instagram lane in ai.js
+    // (contacts.instagram, services/instagramLookup) has always run on it.
+    //
+    // ACCURACY IS NOT THE MODEL'S JOB HERE. What stops an invented follower
+    // count is the prompt's null rule plus the checks below -- exact handle
+    // match, toNum, and `found` -- and those are unchanged. A cheaper model
+    // that cannot find the number returns null, which is the answer we want
+    // from it anyway.
+    //
+    // AND IT IS LABELLED. The row on the spend report said "unlabelled,
+    // index.js:2976", which is a line number that moves every deploy and told
+    // nobody what the money bought. 'instagram' is the name the meter already
+    // uses for this work in ai.js, so the two lanes add up on one line -- and
+    // it is a routed site, so the call can also answer from the fast provider
+    // when one is configured.
+    raw = await scanMeter.label({ site: (scanMeter.ctx().site || 'social') + '.instagram' }, () => Promise.race([
+      ai.oneShotWebSearch(prompt, system, 900, 4, ai.MODEL_FAST),
       new Promise((resolve) => setTimeout(() => resolve(''), 15000)),
-    ]);
+    ]));
   } catch (e) {
     console.warn(`[social-stats] lane2 web search failed for @${handle}:`, e.message);
     return empty;
@@ -10977,22 +11000,32 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
   const rule = await sendRules.check(store.pool, { email: to, subject, system: 'athlete' });
   if (!rule.ok) { const err = new Error('Not sent: ' + rule.reason); err.status = 409; err.reason = rule.kind; throw err; }
 
+  // ── THE CAN-SPAM FOOTER ────────────────────────────────────────────────────
+  // An athlete writing to a brand is still commercial email from NILDash to a
+  // business that did not ask for it. Same postal address, same opt-out link,
+  // and the same global suppression list behind it. Appended to the text the
+  // sender actually puts on the wire, below, rather than to the stored copy --
+  // what we record is what the athlete wrote.
+  const canSpam = require('./services/canSpam');
+  if (!canSpam.configured()) { const err = new Error(canSpam.problem()); err.status = 400; err.reason = 'can-spam'; throw err; }
+  const sendBody = canSpam.appendText(body, to, { senderName: athleteName || null });
+
   if (gmailSend && gmailSend.isAvailable() && gmailRefreshToken) {
-    await gmailSend.sendEmail({ refreshToken: gmailRefreshToken, to, subject, body, cc: agentEmail || undefined });
+    await gmailSend.sendEmail({ refreshToken: gmailRefreshToken, to, subject, body: sendBody, cc: agentEmail || undefined });
     console.log(`[athlete/email] sent via Gmail as ${athRow.gmail_address} to=${to} subject="${subject}" athlete=${athleteId}`);
   } else {
     const fromDisplay = athleteName ? `${athleteName} via NILDash` : 'NILDash Athlete';
     // Escape, then auto-linkify any http(s) URL (e.g. the appended Media Kit
     // link) so it renders as a clickable link in the HTML email. The Gmail
     // path sends text/plain, where Gmail auto-links bare URLs on its own.
-    const _escHtml = body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const _escHtml = sendBody.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const _linkedHtml = _escHtml.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#2563eb">$1</a>');
     const emailPayload = {
       from:    `${fromDisplay} <noreply@mynildash.com>`,
       replyTo: athleteEmail || undefined,
       to:      [to],
       subject,
-      text: body,
+      text: sendBody,
       html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${_linkedHtml.replace(/\n/g,'<br>')}</div>`,
     };
     if (agentEmail) emailPayload.cc = [agentEmail];
@@ -11392,6 +11425,87 @@ app.get('/reset', (req, res) => {
 // ── Privacy policy ───────────────────────────────────────────
 app.get('/privacy', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'));
+});
+
+// ── Unsubscribe ──────────────────────────────────────────────
+//
+// The CAN-SPAM opt-out mechanism, linked from the footer of every outreach
+// email (services/canSpam). PUBLIC ON PURPOSE: the person clicking it is a
+// business owner who has never had an account here and never will, so it takes
+// no session, no login and no lookup -- the signed token in the link carries
+// the address.
+//
+// TWO STEPS, NOT ONE. A GET shows the address and a button; the POST is what
+// suppresses. Mail scanners and link previewers fetch every URL in a message
+// before a human sees it, and a GET that unsubscribed on sight would quietly
+// opt out businesses that never clicked anything.
+//
+// It writes to email_suppression through sendRules.suppressManually, which is
+// the SAME list a hard bounce writes to and the same list every sender checks
+// before every send. That is what makes one click stop the mail from every
+// agent, not just the one whose pitch they happened to receive -- and it also
+// stops every already-queued follow-up to that address on every roster.
+const canSpamSvc = require('./services/canSpam');
+
+function unsubscribePage({ address, done, badToken }) {
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const body = badToken
+    ? `<h1>That link has expired</h1>
+       <p>We could not read the address in this link. Email
+       <a href="mailto:${esc(ADMIN_EMAIL)}">${esc(ADMIN_EMAIL)}</a> and we will remove you by hand.</p>`
+    : done
+      ? `<h1>You're unsubscribed</h1>
+         <p><strong>${esc(address)}</strong> will not receive any further email from NILDash, from any agent on the platform.</p>
+         <p class="muted">Anything already scheduled to this address has been cancelled.</p>`
+      : `<h1>Unsubscribe</h1>
+         <p>Stop all email from NILDash to <strong>${esc(address)}</strong>?</p>
+         <form method="POST" action="/unsubscribe">
+           <input type="hidden" name="u" value="${esc(canSpamSvc.tokenFor(address))}">
+           <button type="submit">Unsubscribe me</button>
+         </form>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Unsubscribe</title><style>
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+ background:#0b0f17;color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:16px}
+main{max-width:460px;width:100%;background:#111827;border:1px solid #1f2937;border-radius:12px;padding:28px}
+h1{font-size:20px;margin:0 0 12px}p{font-size:14px;line-height:1.6;margin:0 0 12px;color:#cbd5e1}
+.muted{color:#6b7280;font-size:13px}a{color:#60a5fa}
+button{margin-top:8px;background:#2563eb;color:#fff;border:0;border-radius:8px;
+ padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer}
+button:hover{background:#1d4ed8}
+footer{margin-top:20px;padding-top:14px;border-top:1px solid #1f2937;color:#6b7280;font-size:12px}
+</style></head><body><main>${body}
+<footer>${esc(canSpamSvc.mailingAddress() || 'NILDash')}</footer>
+</main></body></html>`;
+}
+
+app.get('/unsubscribe', (req, res) => {
+  const address = canSpamSvc.emailFromToken(req.query.u);
+  res.status(address ? 200 : 400).send(unsubscribePage({ address, done: false, badToken: !address }));
+});
+
+// The form posts urlencoded and nothing else on this server does, so the
+// parser is mounted on this one route rather than globally: adding a body
+// parser to every request to change one page is how a JSON API starts
+// accepting form posts it was never written for.
+app.post('/unsubscribe', express.urlencoded({ extended: false, limit: '4kb' }), async (req, res) => {
+  const address = canSpamSvc.emailFromToken((req.body && req.body.u) || req.query.u);
+  if (!address) return res.status(400).send(unsubscribePage({ badToken: true }));
+  const sendRules = require('./services/sendRules');
+  const out = await sendRules.suppressManually(store.pool, address, {
+    reason: 'unsubscribed from an outreach email', kind: 'unsubscribe', by: null,
+  });
+  if (!out.ok) {
+    console.error('[unsubscribe] could not suppress', address, out.error);
+    return res.status(500).send(unsubscribePage({ address, done: false }));
+  }
+  console.log(`[unsubscribe] ${address} suppressed for every agent; ${out.stopped} queued message(s) stopped`);
+  res.send(unsubscribePage({ address, done: true }));
 });
 
 // ── Landing page ──────────────────────────────────────────────
