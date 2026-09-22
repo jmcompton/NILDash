@@ -21,6 +21,7 @@ const fs = require('fs');
 const ROOT = REPO;
 const store = require(ROOT + 'server/store.js');
 const Closer = require(ROOT + 'server/services/closer.js');
+const PA = require(ROOT + 'server/services/pitchActions.js');
 const G = require(ROOT + 'server/services/sendGuard.js');
 const shiftReport = require(ROOT + 'server/services/shiftReport.js');
 
@@ -36,7 +37,10 @@ function handlerFor(startMarker, endMarker) {
   const end = SRC.indexOf(endMarker, start);
   if (start < 0 || end < 0) return null;
   const body = SRC.slice(SRC.indexOf('{', SRC.indexOf('async (req, res)', start)), end);
-  return new Function('store', 'Closer', 'req', 'res',
+  // The handler is lifted out of index.js and run for real, so everything it
+  // names at module scope has to be handed in. PitchActions is the action log
+  // the dashboard approve now writes to.
+  return new Function('store', 'Closer', 'PitchActions', 'req', 'res',
     'return (async (req,res)=>' + body.slice(0, body.lastIndexOf('}') + 1) + ')(req,res);');
 }
 
@@ -69,7 +73,7 @@ async function main() {
   ok('the batch endpoint exists', !!batchH);
   let got = null;
   const res = { json: (v) => { got = v; return res; }, status: () => res };
-  await batchH(store, Closer, { session: { userId: AG } }, res);
+  await batchH(store, Closer, PA, { session: { userId: AG } }, res);
   ok('  it returns tonight\'s batch', got && got.batch && got.batch.length === 4, got && got.batch && got.batch.length);
   ok('  with the ceiling alongside it', got.budget && got.budget.cap === 40, got.budget);
 
@@ -82,7 +86,7 @@ async function main() {
   const ids = got.batch.map((b) => b.id);
   let out = null;
   const res2 = { json: (v) => { out = v; return res2; }, status: () => res2 };
-  await apprH(store, Closer, { session: { userId: AG }, body: { ids, skip: [ids[0]] } }, res2);
+  await apprH(store, Closer, PA, { session: { userId: AG }, body: { ids, skip: [ids[0]] } }, res2);
   ok('  approving schedules the batch minus what was unchecked',
     out.scheduled === 3 && out.skipped === 1, out);
 
@@ -102,7 +106,7 @@ async function main() {
   ok('the auto-mode endpoint exists', !!autoH);
   let autoOut = null, code = 200;
   const res3 = { json: (v) => { autoOut = v; return res3; }, status: (c) => { code = c; return res3; } };
-  await autoH(store, Closer, { session: { userId: AG },
+  await autoH(store, Closer, PA, { session: { userId: AG },
     body: { scopeKind: 'global', scopeId: 'all', enabled: true } }, res3);
   ok('  a global scope is rejected with 400', code === 400, { code, autoOut });
   ok('  saying it is per athlete or per lane', /per athlete or per lane/.test(autoOut.error), autoOut);

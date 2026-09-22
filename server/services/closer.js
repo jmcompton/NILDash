@@ -552,6 +552,46 @@ async function approveBatch(pool, agentId, opts = {}) {
   };
 }
 
+// ── SKIP ONE DRAFT ───────────────────────────────────────────────────────────
+// SKIPPED, NOT DELETED. It stops the cadence for this one business and says
+// why, so "where did that pitch go" is answerable.
+//
+// This was the body of PATCH /api/agent/closer/draft/:id and nothing else could
+// reach it. One-tap Skip from the digest email has to do the identical thing --
+// not "the same thing written twice", which is how two paths drift until one of
+// them stops honouring a rule the other added. The route calls this now, and so
+// does the email. Approve already had approveBatch; skip has this.
+//
+// Returns { ok, skipped } or { ok:false, reason }. It never throws on a draft
+// that is simply gone: a pitch approved in the dashboard three minutes ago is
+// an expected outcome for an emailed link, not an error.
+const SKIP_REASON = 'you skipped it';
+async function skipDraft(pool, agentId, id) {
+  if (!id) return { ok: false, reason: 'no draft named' };
+  const r = await pool.query(
+    `UPDATE outreach_logs
+        SET cadence_stopped_at = NOW(), cadence_stop_reason = $3, updated_at = NOW()
+      WHERE id = $1 AND agent_id = $2 AND status = 'draft' AND approved_at IS NULL
+        AND cadence_stopped_at IS NULL
+      RETURNING id, brand_name, athlete_id`,
+    [String(id), agentId, SKIP_REASON]);
+  const row = r.rows[0];
+  if (!row) return { ok: false, reason: 'not an open draft any more' };
+
+  // ── THE QUEUE SLOT GOES BACK ───────────────────────────────────────────
+  // Approving frees the nightly slot as 'sent'. Skipping is the agent acting
+  // on the card too, so the slot must not stay 'queued' forever -- that is an
+  // athlete permanently down one of five. Best-effort, like the approve side:
+  // a failure here costs a slot until the next run and says so.
+  await pool.query(
+    `UPDATE outreach_queue
+        SET state = 'skipped', updated_at = NOW()
+      WHERE outreach_log_id = $1 AND state = 'queued'`, [row.id])
+    .catch((e) => console.error('[closer] could not free the queue slot for ' + row.id + ':', e.message));
+
+  return { ok: true, skipped: true, id: row.id, brand: row.brand_name, athleteId: row.athlete_id };
+}
+
 // ── RELEASE: the job that actually sends ─────────────────────────────────────
 // Nothing read scheduled_send_at before this existed. Runs on a tick, sends what
 // is due and inside the window, and stops the moment the provider says stop.
@@ -986,7 +1026,7 @@ async function setAutoMode(pool, agentId, { scopeKind, scopeId, enabled }) {
 }
 
 module.exports = {
-  buildBatch, laneLabel, cityOf, recipientOf, summariseDropped, approveBatch, releaseDue, scheduleNextTouch, stop,
+  buildBatch, laneLabel, cityOf, recipientOf, summariseDropped, approveBatch, skipDraft, SKIP_REASON, releaseDue, scheduleNextTouch, stop,
   complianceGate,
   autoModeProgress, autoModeFor, isAuto, setAutoMode, followUpSubject,
   CADENCE, MAX_TOUCHES, AUTO_MODE_THRESHOLD,

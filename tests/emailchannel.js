@@ -281,10 +281,25 @@ async function seed(P) {
 
   // And the only route to `approved` is a person pressing the button.
   const srv = require('fs').readFileSync(ROOT + 'server/index.js', 'utf8');
-  check('approveBatch has exactly one caller in the server', 
-    (srv.match(/Closer\.approveBatch\(/g) || []).length === 1);
-  check('  and it is behind requireAuth',
+  // THREE CALLERS, EACH BEHIND A DELIBERATE HUMAN ACT. It was one -- the
+  // dashboard button -- and the rule being protected was never "only one
+  // caller", it was "nothing reaches `approved` except a person choosing it".
+  // One-tap approve from the digest email is that same choice made from a
+  // phone, so the rule now reads: every caller is either behind requireAuth or
+  // behind a single-use token that has already been claimed.
+  const callers = (srv.match(/Closer\.approveBatch\(/g) || []).length;
+  check('approveBatch has exactly three callers in the server', callers === 3, callers);
+  check('  the dashboard one is behind requireAuth',
     /app\.post\('\/api\/agent\/closer\/approve', requireAuth/.test(srv));
+  // The other two are the emailed link: one pitch, or one athlete's lot.
+  const postBlock = srv.slice(srv.indexOf("app.post('/a/:token'"), srv.indexOf("app.get('/unsubscribe'"));
+  check('  the two emailed ones are in the POST handler, never the GET',
+    (postBlock.match(/Closer\.approveBatch\(/g) || []).length === 2
+    && !/Closer\.approveBatch\(/.test(srv.slice(srv.indexOf("app.get('/a/:token'"), srv.indexOf("app.post('/a/:token'"))));
+  check('  and neither runs until the token is claimed, which is one statement and single-use',
+    postBlock.indexOf('T.claim(store.pool, req.params.token)') < postBlock.indexOf('Closer.approveBatch(')
+    && /UPDATE pitch_action_tokens SET used_at = NOW\(\)\s*\n\s*WHERE token_hash = \$1 AND used_at IS NULL/.test(
+      require('fs').readFileSync(ROOT + 'server/services/pitchActionTokens.js', 'utf8')));
   check('nothing auto-approves: autoModeFor is never called',
     (require('fs').readFileSync(ROOT + 'server/services/closer.js', 'utf8')
       .match(/autoModeFor\(/g) || []).length === 1);

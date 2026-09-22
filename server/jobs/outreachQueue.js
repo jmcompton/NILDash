@@ -1864,9 +1864,17 @@ async function fillAgent(pool, agent, opts) {
     // and the on-demand path goes through fillAthlete, not fillAgent. The
     // digest itself skips an agent with no new cards, an unsubscribed agent,
     // and a night already sent. A digest failure never fails the fill.
-    if (filled > 0 && !opts.noDigest) {
+    if (!opts.noDigest) {
       try {
-        const r = await require('../services/nightlyDigest').sendForRun(pool, { agentId: agent.id, runDate, details });
+        const ND = require('../services/nightlyDigest');
+        // A NIGHT THAT FOUND NOTHING IS NOT A NIGHT WITH NOTHING TO SAY. When
+        // the fill placed cards, the digest is about them. When it placed none
+        // but pitches are still sitting unapproved, the same email goes out
+        // saying so -- at most once every three days, and never on a night a
+        // real digest already went. Silence is what let the queue build up.
+        const r = filled > 0
+          ? await ND.sendForRun(pool, { agentId: agent.id, runDate, details })
+          : await ND.sendWaiting(pool, { agentId: agent.id, runDate });
         if (!r.sent) console.log(`[nightly-digest] agent=${agent.id} not sent: ${r.reason}`);
       } catch (e) { console.error(`[nightly-digest] agent=${agent.id} failed: ${e.message}`); }
     }

@@ -20,6 +20,9 @@ const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 const fs = require('fs');
 const ROOT = REPO;
 const store = require(ROOT + 'server/store.js');
+const Closer = require(ROOT + 'server/services/closer.js');
+const PA = require(ROOT + 'server/services/pitchActions.js');
+const SKIP_SRC = fs.readFileSync(ROOT + 'server/services/closer.js', 'utf8');
 const C = require(ROOT + 'server/services/closer.js');
 const G = require(ROOT + 'server/services/sendGuard.js');
 
@@ -175,18 +178,28 @@ async function main() {
   ok('the edit endpoint exists', /app\.patch\('\/api\/agent\/closer\/draft\/:id'/.test(SRC), null);
   ok('  editing flags the draft, which is what gates auto mode',
     /edited_before_approval = edited_before_approval OR \$4/.test(SRC), null);
+  // The SQL moved into Closer.skipDraft so the one-tap Skip link in the digest
+  // email does the identical thing rather than a second copy of it. The rule
+  // being checked is the same: stop the cadence and say why, never delete.
   ok('  skipping stops the cadence rather than deleting the row',
-    /cadence_stopped_at = NOW\(\), cadence_stop_reason = 'you skipped it'/.test(SRC), null);
+    /cadence_stopped_at = NOW\(\), cadence_stop_reason = \$3/.test(SKIP_SRC)
+    && /SKIP_REASON = 'you skipped it'/.test(SKIP_SRC) && !/DELETE FROM outreach_logs/.test(SKIP_SRC), null);
+  ok('  and the route calls that one function, rather than keeping its own copy',
+    /Closer\.skipDraft\(store\.pool, agentId, req\.params\.id\)/.test(SRC)
+    && !/cadence_stop_reason = 'you skipped it'/.test(SRC), null);
 
   // Run the real handler.
   const start = SRC.indexOf("app.patch('/api/agent/closer/draft/:id'");
   const end = SRC.indexOf("// Auto mode, per athlete or per lane", start);
   const bodySrc = SRC.slice(SRC.indexOf('{', SRC.indexOf('async (req, res)', start)), end);
-  const handler = new Function('store', 'req', 'res',
+  // Skip is Closer.skipDraft now -- one function for the dashboard and for the
+  // one-tap link in the digest email -- and every action is logged with its
+  // channel, so both have to be handed to the lifted handler.
+  const handler = new Function('store', 'Closer', 'PitchActions', 'req', 'res',
     'return (async (req,res)=>' + bodySrc.slice(0, bodySrc.lastIndexOf('}') + 1) + ')(req,res);');
   let out = null, code = 200;
   const res = { json: (v) => { out = v; return res; }, status: (c) => { code = c; return res; } };
-  await handler(store, { params: { id: item.id }, session: { userId: AG },
+  await handler(store, Closer, PA, { params: { id: item.id }, session: { userId: AG },
     body: { body: 'Rewritten by the agent.' } }, res);
   ok('editing saves in place', out && out.ok === true, { code, out });
   const after = (await P.query(
@@ -194,7 +207,7 @@ async function main() {
   ok('  the new text is stored', after.body_html === 'Rewritten by the agent.', after);
   ok('  and the edit is recorded against auto mode', after.edited_before_approval === true, after);
 
-  await handler(store, { params: { id: item.id }, session: { userId: AG }, body: { skip: true } }, res);
+  await handler(store, Closer, PA, { params: { id: item.id }, session: { userId: AG }, body: { skip: true } }, res);
   const skipped = (await P.query(
     `SELECT cadence_stopped_at, cadence_stop_reason FROM outreach_logs WHERE id=$1`, [item.id])).rows[0];
   ok('skipping one stops it', !!skipped.cadence_stopped_at, skipped);

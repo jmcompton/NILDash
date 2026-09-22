@@ -684,6 +684,11 @@
       "total": 61,
       "fault": null
     },
+    "pitchactions.js": {
+      "failed": 0,
+      "total": 85,
+      "fault": null
+    },
     "pitchroute.js": {
       "failed": 0,
       "total": 40,
