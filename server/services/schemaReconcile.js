@@ -83,9 +83,25 @@ async function reconcile(pool, opts = {}) {
   try {
     // ONE QUERY for the whole schema. Asking per table would be 96 round trips
     // at every boot to discover, almost always, that there is nothing to do.
+    // ── ORDINARY TABLES ONLY ───────────────────────────────────────────────
+    // information_schema.columns lists the columns of VIEWS as well as tables,
+    // so a view whose name appears in the manifest looked exactly like a table
+    // that was missing some columns -- and every boot issued ALTER TABLE ...
+    // ADD COLUMN at it and got back "ALTER action ADD COLUMN cannot be
+    // performed on relation". Five failures a boot, for months, against
+    // university_sync_health, which is a view by design and always was.
+    //
+    // A view's columns come from its SELECT: they are not addable and not
+    // missing. Joining to pg_class on relkind = 'r' leaves views, materialised
+    // views, foreign tables and sequences out of the comparison entirely, so
+    // the reconciler cannot ask a view for something it can never have.
     const r = await pool.query(
-      `SELECT table_name, column_name FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = ANY($1)`, [names]);
+      `SELECT c.table_name, c.column_name
+         FROM information_schema.columns c
+         JOIN pg_class pc   ON pc.relname = c.table_name
+         JOIN pg_namespace n ON n.oid = pc.relnamespace AND n.nspname = c.table_schema
+        WHERE c.table_schema = 'public' AND c.table_name = ANY($1)
+          AND pc.relkind = 'r'`, [names]);
     rows = r.rows || [];
   } catch (e) {
     // A reconcile that cannot read the schema reports and steps aside. It is a
