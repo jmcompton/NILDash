@@ -53,8 +53,24 @@ function prompts(modPath) {
   return m.exports.__prompts;
 }
 
+// ── THE "BEFORE" COPY IS COMMITTED NOW, NOT LEFT IN /tmp ───────────────────
+// This read the second copy from /tmp/base/server/services/programMap.js -- a
+// checkout made in the session that did the sport work. /tmp/base is long gone,
+// so every run since has died at load with ENOENT and took all 14 assertions
+// with it, including the basketball half below that never needed the copy.
+//
+// The nine strings are the comparison, so the nine strings are what is stored:
+// rendered from the verified-identical file and committed as a fixture, which
+// is the same proof from any checkout on any machine and needs no second
+// working tree to exist. programMap.js has not changed since 92f42b7, so the
+// fixture holds exactly the text the /tmp/base run signed off on.
+//
+// REGENERATING IT IS NOT HOW YOU MAKE THIS GREEN. A diff here means a football
+// prompt moved, which is the one thing this file exists to catch; firstDiff
+// below prints where. Rewrite the fixture only once the change is the intended
+// one and has been read.
 const cur = prompts(REPO + 'server/services/programMap.js');
-const base = prompts('/tmp/base/server/services/programMap.js');
+const base = JSON.parse(fs.readFileSync(REPO + 'tests/fixtures/programmap-prompts.json', 'utf8'));
 
 console.log('-- the football search-lane prompts are unchanged --');
 ok('SYS identical', cur.SYS === base.SYS, cur.SYS === base.SYS ? undefined : `now:  ${cur.SYS}\n       was:  ${base.SYS}`);
