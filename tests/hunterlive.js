@@ -45,8 +45,25 @@ global.fetch = async (url, init) => {
 
 async function main() {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));
-  const clean = () => store.pool.query(
-    `DELETE FROM brand_evidence_cache WHERE lane IN ('hunter','siteemail','websitecheck','places')`);
+  // ── BOTH CONSUMERS OF THE BUDGET, OR NEITHER ────────────────────────────
+  // The Hunter budget is ladder + verification: accountUsedThisMonth adds the
+  // 'hunter' rows in brand_evidence_cache to this month's rows in
+  // email_verify_credit_log. This cleaned only the first, so the suite started
+  // with whatever verification credits the suites before it had written -- 3 in
+  // a full alphabetical run, 0 straight after creditfault.js, which deletes the
+  // table's rows. Against a budget deliberately set to 5, that ate most of the
+  // headroom and 'nothing spent yet' was the first thing to say so.
+  //
+  // The suite takes the whole budget for itself by setting
+  // HUNTER_MONTHLY_BUDGET=5 at the top, so it cannot share either counter with
+  // anyone. It clears both now, and stops depending on the alphabet.
+  const clean = async () => {
+    await store.pool.query(
+      `DELETE FROM brand_evidence_cache WHERE lane IN ('hunter','siteemail','websitecheck','places')`);
+    await store.pool.query(
+      `DELETE FROM email_verify_credit_log WHERE checked_at >= date_trunc('month', NOW())`)
+      .catch(() => {});   // creditfault.js drops this table; absent is the same as empty
+  };
   await clean(); H._resetBudgetCache();
 
   // ── THE BUDGET CAP ────────────────────────────────────────────────────────

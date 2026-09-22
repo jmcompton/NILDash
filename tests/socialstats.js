@@ -169,8 +169,19 @@ const LANE2_EMPTY = { followers: null, engagement_rate: null, source: null, conf
     !/athlete\.engagement\) \|\| 3\.0/.test(fs.readFileSync(REPO + 'server/benchmarks.js', 'utf8')));
 
   console.log('\n-- AGENT ADD CLIENT ALREADY DOES THIS --');
-  ok2('the review step renders the suggestion', /obStats && obStats\.engagement_suggestion/.test(IDX2));
-  ok2('next to a manual engagement input', /id="ob-rev-engagement"/.test(IDX2));
+  // ── THE ONBOARDING REVIEW STEP IS GONE; ADD CLIENT IS WHERE THIS LIVES ──
+  // These read obStats.engagement_suggestion and id="ob-rev-engagement" off the
+  // onboarding wizard's review step. That step was deliberately removed --
+  // obSaveAthlete carries the note, because reading followers and engagement
+  // off elements that no longer existed would have thrown on the first click
+  // and killed the wizard. Neither string has been in the page since, so both
+  // have been red while the behaviour they describe went on working one
+  // heading up: "AGENT ADD CLIENT ALREADY DOES THIS". Read Add Client.
+  ok2('the Add Client form renders the suggestion',
+    /engSrc\.textContent = data\.engagement_suggestion \|\| 'No published rate found/.test(IDX2));
+  ok2('next to a manual engagement input',
+    /id="a_eng" type="number"[^>]*oninput="flagStatManual\('eng'\)"/.test(IDX2)
+    && /id="a-eng-src"/.test(IDX2));
   ok2('with an honest fallback string', /No published rate found\. Typical range is 1 to 5 percent\./.test(IDX2));
 
   console.log('\nappended failures: ' + g);

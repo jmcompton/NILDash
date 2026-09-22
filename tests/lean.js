@@ -91,7 +91,16 @@ console.log('\n-- THE GREETING PROMPT --');
 
   ok('the lean prompt is under a third of the full one', lean.length < full.length / 3,
     { full: full.length, lean: lean.length });
-  ok('it drops the knowledge base', !/119 football programs/.test(lean) && /119 football programs/.test(full));
+  // ── PROBE THE KNOWLEDGE BASE WITH THE KNOWLEDGE BASE ───────────────────
+  // This looked for "119 football programs" in both prompts. That line is
+  // marketing copy on the homepage and has never been in services/
+  // assistantKnowledge, so the half that asserted the FULL prompt carries it
+  // could only ever be false -- red since this suite was written, against a
+  // split that has worked correctly the whole time. Compared against the
+  // module now, so no edit to the knowledge text can make this lie again.
+  const { KNOWLEDGE } = require(R + 'server/services/assistantKnowledge');
+  ok('it drops the knowledge base', !lean.includes(KNOWLEDGE) && full.includes(KNOWLEDGE),
+    { knowledge: KNOWLEDGE.length, inFull: full.includes(KNOWLEDGE), inLean: lean.includes(KNOWLEDGE) });
   ok('and the rules that exist only to govern it', !/WHAT YOU KNOW ABOUT NILDASH/.test(lean));
 
   // What it must NOT drop.
@@ -110,7 +119,9 @@ console.log('\n-- THE GREETING PROMPT --');
     /You do\s+not have the product reference on this turn/.test(lean));
 
   // The full prompt is untouched.
-  ok('the full prompt still carries the knowledge base', /KNOWLEDGE/.test(full) && /119 football programs/.test(full));
+  // Same stale probe as above: the section heading AND the text under it, read
+  // from the module rather than from a phrase that lives on the homepage.
+  ok('the full prompt still carries the knowledge base', /KNOWLEDGE/.test(full) && full.includes(KNOWLEDGE));
   ok('and the safety block', /WHAT YOU DO NOT DO/.test(full));
   ok('and the knowledge rule', /WHAT YOU KNOW ABOUT NILDASH/.test(full));
   // SAME brief as `full`, or the comparison measures the brief rather than `lean`.

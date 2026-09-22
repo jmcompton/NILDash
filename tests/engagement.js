@@ -103,11 +103,34 @@ for (const er of [1.5, 3.0, 4.8, 6.0, 9.0, 20.0]) {
     Math.abs(spread(r) - 0.60) < 0.01, spread(r).toFixed(3));
   ok('  er=' + er + ' still reports a numeric confidence', typeof r.confidenceScore === 'number');
 }
-// The exact figures from before the change, for the cases that had a real rate.
-ok('er=4.8 still returns $130 / $185 / $241',
-  known.low === 130 && known.mid === 185 && known.high === 241, [known.low, known.mid, known.high]);
-ok('er=9.0 still returns $162 / $231 / $301',
-  run(9).low === 162 && run(9).mid === 231 && run(9).high === 301, [run(9).low, run(9).mid, run(9).high]);
+// ── THE EXACT FIGURES, HELD STILL AGAINST A CPM THAT MOVES EVERY MONTH ─────
+// These pinned $130/$185/$241 and $162/$231/$301 as literals, which made them
+// pass in July and August and fail the other ten months of the year -- nothing
+// to do with the engagement default they were written to guard.
+//
+// MARKET_RATES.seasonalCPM reads new Date().getMonth(). Basketball is
+// [24,20,26,22,18,16,15,15,17,20,24,26], so the CPM was $15 when these numbers
+// were recorded (2026-08-17, index 7) and is $17 today (September, index 8).
+// Every figure is off by exactly 17/15: 130 -> 147, 185 -> 210, 241 -> 273.
+// The valuation is linear in CPM -- valuePerView = (cpm * totalMult) / 1000 --
+// so dividing back out restores the recorded numbers exactly, in any month.
+//
+// The figures stay literal, because they are the point: an athlete with a real
+// rate must be untouched by the removal of the 3.0 default. Only the calendar
+// is taken out of them. A dollar of slack absorbs the rounding, and nothing
+// else: a genuine change to any multiplier moves these by far more.
+const CPM = parseFloat(known.breakdown.cpm);
+const atAug = (v) => v * 15 / CPM;
+const near = (v, want) => Math.abs(atAug(v) - want) < 1;
+ok('er=4.8 still returns $130 / $185 / $241 at the $15 CPM they were recorded at',
+  near(known.low, 130) && near(known.mid, 185) && near(known.high, 241),
+  { cpm: CPM, got: [known.low, known.mid, known.high],
+    atAugustCpm: [known.low, known.mid, known.high].map((v) => +atAug(v).toFixed(1)) });
+const k9 = run(9);
+ok('er=9.0 still returns $162 / $231 / $301, the same way',
+  near(k9.low, 162) && near(k9.mid, 231) && near(k9.high, 301),
+  { cpm: CPM, got: [k9.low, k9.mid, k9.high],
+    atAugustCpm: [k9.low, k9.mid, k9.high].map((v) => +atAug(v).toFixed(1)) });
 
 console.log('\n-- 6. THE FLAT-FEE PATH GOT THE SAME TREATMENT --');
 const flatAbsent = run(undefined, 'appearance-inperson');

@@ -50,7 +50,13 @@ const rankOf = (() => {
   const start = AI.indexOf(sig);
   let d = 0, j = AI.indexOf('{', start), end = j;
   for (; j < AI.length; j++) { if (AI[j] === '{') d++; else if (AI[j] === '}') { d--; if (!d) { end = j; break; } } }
-  return new Function(AI.slice(start, end + 1) + '\n return _contactAuthorityRank;')();
+  // The lifted body is one line: `return _CR.authorityOf(title).rank;`. Without
+  // services/contactRank in scope it throws "_CR is not defined" the moment the
+  // ladder ranks anyone, which is what it has done here since this suite moved
+  // into tests/ -- and it THREW, so everything after the first ladder call went
+  // unrun rather than unpinned.
+  const _CR = require(R + 'server/services/contactRank');
+  return new Function('_CR', AI.slice(start, end + 1) + '\n return _contactAuthorityRank;')(_CR);
 })();
 const mk = (res, b) => buildContactLadder(res, {
   rankOf, rootDomain: (u) => String(u || '').replace(/^https?:\/\//, '').split('/')[0], category: null, brand: b || 'X',

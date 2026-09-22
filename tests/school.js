@@ -95,11 +95,27 @@ ok('the no-market case is carried as a REASON, not an early blank',
   /const noMarket = !String\(region \|\| ''\)\.trim\(\)/.test(body), true);
 ok('  and it no longer returns before the slate is assembled',
   body.indexOf('const noMarket =') < body.indexOf('Scout.assembleSlate'), true);
+// ── THE GUARD SPLIT IN TWO, AND GOT STRICTER ───────────────────────────────
+// These looked for the single `if (cand.lane && cand.lane !== 'local')`. That
+// form is gone: the `cand.lane &&` half was the bug, because a candidate with
+// NO lane fell straight through into the local path and bought a Places lookup
+// that resolves a national brand to its corporate HQ. It is two guards now --
+// an unrouteable candidate is refused outright, then non-local is routed away
+// -- so the invariant still holds and holds harder. Both indices are checked,
+// and both must be real: an indexOf that returns -1 is smaller than every
+// other index, which is how the second of these went on passing while the
+// first failed.
+const noLane = body.indexOf('if (!cand.lane) {');
+const nonLocal = body.indexOf("if (cand.lane !== 'local') {");
+const places = body.indexOf('await lookupPlace(');
+const ladderCall = body.indexOf('ai.getBrandContacts(');
 ok('a non-local candidate never reaches a Places lookup',
-  body.indexOf("if (cand.lane && cand.lane !== 'local')") > 0
-  && body.indexOf("if (cand.lane && cand.lane !== 'local')") < body.indexOf('await lookupPlace('), true);
+  nonLocal > 0 && places > 0 && nonLocal < places, { nonLocal, places });
 ok('  nor the local contact ladder',
-  body.indexOf("if (cand.lane && cand.lane !== 'local')") < body.indexOf('ai.getBrandContacts('), true);
+  ladderCall > 0 && nonLocal < ladderCall, { nonLocal, ladderCall });
+ok('  AND A CANDIDATE WITH NO LANE IS REFUSED, not treated as local',
+  noLane > 0 && noLane < nonLocal && noLane < places
+  && /no lane recorded for this brand, so it cannot be routed/.test(body), { noLane, nonLocal, places });
 ok('  before spending anything', JOB.indexOf('noMarket: true') < JOB.indexOf('lookupPlace('), 
   [JOB.indexOf('noMarket: true'), JOB.indexOf('lookupPlace(')]);
 ok('  and the comment says geography binds the LOCAL lane only',

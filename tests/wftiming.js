@@ -104,7 +104,19 @@ psql(`CREATE TABLE automation_runs (id TEXT PRIMARY KEY, agent_id TEXT, athlete_
 const AG = 'usr_john', ATH = 'ath_amari';
 // Run A: the reported shape. Contact discovery is instant because the card's bare
 // business phone made it "already supplied", and the run produced no contact.
-let base = Date.parse('2026-08-18T02:00:00Z');
+// ── THE SEEDED TIMELINE HAS TO SIT INSIDE THE WINDOW BEING MEASURED ────────
+// This was Date.parse('2026-08-18T02:00:00Z'), the day the suite was written.
+// scripts/workflow-timing tallies drafts with `created_at > NOW() - INTERVAL
+// '7 days'`, so the Ferrer Auto warm draft -- the third prewarm draft, seeded
+// at base - 120000 -- aged out of the tally a week later and 'prewarm drafts
+// counted' has been red ever since, finding 2 where the fixture plants 3. The
+// other three rows take the column default of NOW() and never aged out, which
+// is why only one assertion failed and the shortfall read as a miscount.
+//
+// Anchored to the run instead. Nothing here reads the calendar date; base only
+// supplies relative offsets, and the timeline runs about twenty minutes, so
+// two hours back puts every row comfortably in the past AND inside the window.
+let base = Date.now() - 2 * 60 * 60 * 1000;
 const ev = (run, type, offsetMs, payload) =>
   psql(bind(`INSERT INTO workflow_events (run_id, agent_id, event_type, payload, created_at)
              VALUES ($1,$2,$3,$4,$5)`,
