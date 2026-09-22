@@ -330,6 +330,33 @@ function readRawCookie(req, name) {
   }
   return null;
 }
+// ── www.mynildash.com → mynildash.com ────────────────────────────────────────
+//
+// THE CERTIFICATE HALF OF THIS IS NOT IN THIS FILE. www currently answers with
+// a certificate mismatch because the domain is not on the Railway service, so
+// no certificate was ever issued for it. That is a dashboard action and cannot
+// be done from code; see the steps in the commit message.
+//
+// The REDIRECT half is code, and this is it. Railway has no redirect setting of
+// its own, so once www resolves and has its certificate, this is what stops the
+// site being reachable at two addresses -- which splits search ranking, splits
+// cookies (a session set on the apex is not sent to www), and makes every
+// absolute link in an email point somewhere the visitor did not come from.
+//
+// 301, because it is permanent, and GET/HEAD only: a redirect of a POST would
+// drop the body and turn a form submission into a silent no-op.
+//
+// It fires only when the Host actually starts with "www.", so it is inert until
+// the domain exists and can never loop. APP_URL decides the target, so a
+// preview deployment redirects to itself rather than to production.
+app.use((req, res, next) => {
+  const host = String(req.headers.host || '');
+  if (!/^www\./i.test(host)) return next();
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const base = String(process.env.APP_URL || 'https://mynildash.com').replace(/\/+$/, '');
+  return res.redirect(301, base + req.originalUrl);
+});
+
 // A visitor landing on ANY url with ?ref=<code> gets a first-party, first-touch,
 // httpOnly cookie. First code wins (never overwritten), survives browsing, signup,
 // and the full Stripe Checkout redirect (same-domain cookie), and is read once at
@@ -11490,6 +11517,11 @@ app.get('/privacy', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'));
 });
 
+// ── Terms of service ─────────────────────────────────────────
+app.get('/terms', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'terms.html'));
+});
+
 // ── Unsubscribe ──────────────────────────────────────────────
 //
 // The CAN-SPAM opt-out mechanism, linked from the footer of every outreach
@@ -18153,7 +18185,27 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
+// ── THE CATCH-ALL, AND WHAT IT MUST NOT SWALLOW ──────────────────────────────
+//
+// Every unmatched GET returns the single-page app, which is right for an app
+// route typed by hand or reloaded from history. It was wrong for four paths:
+// /robots.txt, /sitemap.xml, /favicon.ico and /terms each answered 200 with the
+// full homepage. A crawler asking for robots.txt was told "here is some HTML"
+// and, finding no rules it could parse, crawled everything; a browser asking
+// for favicon.ico got a megabyte of markup and showed no icon.
+//
+// All four are real files in public/ now, so express.static answers them before
+// this ever runs. This list is the second lock: if one is ever renamed or lost
+// in a build, the honest answer is 404, not the homepage dressed as a
+// robots.txt. A path that looks like a FILE (it has an extension) is refused
+// for the same reason -- /styles.css returning HTML is never useful.
+const NEVER_THE_APP = new Set(['/robots.txt', '/sitemap.xml', '/favicon.ico', '/terms', '/terms/']);
 app.get('*', (req, res) => {
+  const p = req.path;
+  if (NEVER_THE_APP.has(p) || /\.[a-z0-9]{2,5}$/i.test(p)) {
+    res.status(404).type('text/plain').send('Not found');
+    return;
+  }
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 

@@ -1,0 +1,33 @@
+# mynildash.com
+#
+# The marketing pages are public and should be indexed. Everything behind a
+# login is not: it is either an agent's own book of work or a one-time token
+# link, and neither belongs in a search index.
+
+User-agent: *
+
+# The app itself. Every one of these needs a session; a crawler gets the
+# marketing page or a 401, and indexing either under an app URL is noise.
+Disallow: /api/
+Disallow: /admin
+Disallow: /admin/
+Disallow: /athlete-dashboard
+Disallow: /athlete-login
+Disallow: /athlete-signup
+Disallow: /athletes
+Disallow: /reset
+
+# ── TOKEN LINKS: NEVER CRAWLED, AND NEVER INDEXED ──────────────────────────
+# /a/<token> approves or skips a pitch, /unsubscribe stops mail to an address,
+# /report/<token> and /kit/<slug> are pages an agent shared with one family or
+# one business. A crawler following these would be acting on behalf of a person
+# who never clicked. The GET at /a/ deliberately does nothing but render a
+# button for exactly this reason; this is the second lock, not the first.
+Disallow: /a/
+Disallow: /unsubscribe
+Disallow: /report/
+Disallow: /kit/
+Disallow: /media-kit/
+Disallow: /pitch/
+
+Sitemap: https://mynildash.com/sitemap.xml

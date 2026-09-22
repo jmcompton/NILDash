@@ -2432,15 +2432,22 @@ async function init() {
       created_at      TIMESTAMPTZ DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS university_sync_health (
-      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      university_id   TEXT NOT NULL UNIQUE,
-      last_sync_at    TIMESTAMPTZ,
-      last_sync_status TEXT,
-      consecutive_failures INTEGER DEFAULT 0,
-      athlete_count   INTEGER DEFAULT 0,
-      updated_at      TIMESTAMPTZ DEFAULT NOW()
-    );
+    -- university_sync_health IS A VIEW, not a table. It is created by
+    -- server/migrations/004_ingestion_pipeline.sql and computed live from
+    -- universities and automation_scheduler_log.
+    --
+    -- A CREATE TABLE IF NOT EXISTS for the same name used to sit here, and the
+    -- two definitions raced at every boot: whichever ran first won, and the
+    -- loser failed silently for the life of that database. Production got the
+    -- view, so this statement was a no-op and the schema reconciler spent every
+    -- boot issuing ALTER TABLE ... ADD COLUMN at a view. A fresh database got
+    -- the TABLE, which is worse: the table has no university_name column, and
+    -- the only thing that reads this relation is
+    -- services/university/RosterAutomationScheduler:
+    --     SELECT * FROM university_sync_health ORDER BY university_name
+    -- so on a new deployment the scheduler would have failed on every tick.
+    --
+    -- Nothing writes to it. The view is correct and is what the reader needs.
 
     CREATE TABLE IF NOT EXISTS automation_scheduler_log (
       id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

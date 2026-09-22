@@ -1213,15 +1213,6 @@
       "university_id": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
-    "university_sync_health": {
-      "athlete_count": "INTEGER DEFAULT 0",
-      "consecutive_failures": "INTEGER DEFAULT 0",
-      "id": "TEXT DEFAULT gen_random_uuid()::text",
-      "last_sync_at": "TIMESTAMPTZ",
-      "last_sync_status": "TEXT",
-      "university_id": "TEXT",
-      "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
-    },
     "university_users": {
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "email": "TEXT",

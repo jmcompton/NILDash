@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terms of Service — NILDash</title>
+<link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
+<link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#0A0E1A;
+  --surface:#141929;
+  --surface2:#1E2540;
+  --border:rgba(255,255,255,0.08);
+  --border2:rgba(255,255,255,0.14);
+  --text:#F0F4FF;
+  --muted:rgba(240,244,255,0.45);
+  --accent:#84CC16;
+  --accent-dark:#6BAE10;
+  --green:#16a34a;
+}
+
+html{scroll-behavior:smooth}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'DM Sans',sans-serif;
+  font-size:15px;
+  line-height:1.75;
+  min-height:100vh;
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+.site-header{
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:0 24px;
+  position:sticky;
+  top:0;
+  z-index:100;
+}
+.header-inner{
+  max-width:800px;
+  margin:0 auto;
+  height:60px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.wordmark{
+  font-family:'DM Sans',sans-serif;
+  font-size:19px;
+  font-weight:900;
+  letter-spacing:-0.5px;
+  color:#fff;
+  text-decoration:none;
+  line-height:1;
+  display:flex;
+  flex-direction:column;
+}
+.wordmark em{
+  font-style:normal;
+  color:var(--accent);
+}
+.wordmark-sub{
+  font-size:7.5px;
+  font-weight:600;
+  letter-spacing:2.5px;
+  text-transform:uppercase;
+  color:rgba(255,255,255,0.3);
+  margin-top:3px;
+}
+.back-link{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:500;
+  text-decoration:none;
+  padding:7px 14px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  transition:color 0.15s, border-color 0.15s, background 0.15s;
+  white-space:nowrap;
+}
+.back-link:hover{
+  color:var(--text);
+  border-color:var(--border2);
+  background:var(--surface2);
+}
+.back-link svg{flex-shrink:0}
+
+/* ── Page wrapper ────────────────────────────────────────── */
+.page{
+  max-width:800px;
+  margin:0 auto;
+  padding:56px 24px 96px;
+}
+
+/* ── Hero ────────────────────────────────────────────────── */
+.hero{
+  margin-bottom:52px;
+  padding-bottom:36px;
+  border-bottom:1px solid var(--border);
+}
+.hero-eyebrow{
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:0.16em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:14px;
+}
+.hero-title{
+  font-size:clamp(28px,5vw,42px);
+  font-weight:900;
+  letter-spacing:-0.03em;
+  color:#fff;
+  line-height:1.1;
+  margin-bottom:14px;
+}
+.hero-meta{
+  font-size:13px;
+  color:var(--muted);
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px 20px;
+}
+.hero-meta span{display:inline-flex;align-items:center;gap:5px}
+
+/* ── Section ─────────────────────────────────────────────── */
+.section{
+  margin-bottom:44px;
+}
+.section:last-of-type{
+  margin-bottom:0;
+}
+.section-number{
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:0.14em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:8px;
+}
+.section-title{
+  font-size:18px;
+  font-weight:800;
+  color:#fff;
+  letter-spacing:-0.02em;
+  margin-bottom:16px;
+  padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+}
+.section p{
+  color:rgba(240,244,255,0.80);
+  margin-bottom:14px;
+  font-size:14.5px;
+}
+.section p:last-child{
+  margin-bottom:0;
+}
+.section ul,.section ol{
+  color:rgba(240,244,255,0.80);
+  padding-left:20px;
+  margin-bottom:14px;
+  font-size:14.5px;
+}
+.section ul li,.section ol li{
+  margin-bottom:7px;
+  padding-left:4px;
+}
+.section ul li:last-child,.section ol li:last-child{
+  margin-bottom:0;
+}
+.highlight-box{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-left:3px solid var(--accent);
+  border-radius:0 8px 8px 0;
+  padding:16px 20px;
+  margin:18px 0;
+  font-size:13.5px;
+  color:rgba(240,244,255,0.85);
+  line-height:1.6;
+}
+.highlight-box strong{
+  color:#fff;
+  font-weight:700;
+}
+
+/* ── Contact card ────────────────────────────────────────── */
+.contact-card{
+  background:var(--surface);
+  border:1px solid var(--border2);
+  border-radius:10px;
+  padding:24px 28px;
+  margin-top:20px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 32px;
+}
+.contact-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13.5px;
+  color:rgba(240,244,255,0.75);
+}
+.contact-row a{
+  color:var(--accent);
+  text-decoration:none;
+  transition:color 0.15s;
+}
+.contact-row a:hover{color:var(--accent-dark)}
+
+/* ── Footer ──────────────────────────────────────────────── */
+.page-footer{
+  margin-top:64px;
+  padding-top:28px;
+  border-top:1px solid var(--border);
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  font-size:12px;
+  color:var(--muted);
+}
+.page-footer a{
+  color:var(--muted);
+  text-decoration:none;
+  transition:color 0.15s;
+}
+.page-footer a:hover{color:var(--text)}
+
+@media(max-width:600px){
+  .page{padding:36px 18px 72px}
+  .hero{margin-bottom:36px;padding-bottom:28px}
+  .section-title{font-size:16px}
+  .contact-card{padding:18px 20px}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────── -->
+<header class="site-header">
+  <div class="header-inner">
+    <a href="/" class="wordmark">
+      <img src="/images/nildash-logo-header.png" alt="NILDash" style="height:40px;width:auto;">
+    </a>
+    <a href="/" class="back-link">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 2L4 6.5L8 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Back to NILDash
+    </a>
+  </div>
+</header>
+
+<!-- ── Page ────────────────────────────────────────────────────── -->
+<main class="page">
+
+  <div class="hero">
+    <div class="hero-eyebrow">Legal</div>
+    <h1 class="hero-title">Terms of Service</h1>
+    <div class="hero-meta">
+      <span>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="2" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M1 5h11" stroke="currentColor" stroke-width="1.2"/><path d="M4 1v2M9 1v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        Last updated: September 22, 2026
+      </span>
+      <span>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 4v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        Compton Group LLC
+      </span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-number">Section 01</div>
+    <h2 class="section-title">Agreement</h2>
+    <p>
+      NILDash is operated by <strong>Compton Group LLC</strong>. These Terms govern your use of the NILDash
+      platform at <a href="https://mynildash.com" style="color:var(--accent);text-decoration:none;">https://mynildash.com</a>
+      (the "Service"). By creating an account or using the Service you agree to them. If you do not agree,
+      do not use the Service.
+    </p>
+    <p>
+      Your use of the Service is also governed by the <a href="/privacy" style="color:var(--accent);text-decoration:none;">Privacy Policy</a>,
+      which explains what we collect and how it is handled.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 02</div>
+    <h2 class="section-title">Who may use NILDash</h2>
+    <p>
+      You must be at least 18 years old to hold an agent account. Athlete accounts may be created for
+      athletes under 18 only with the involvement of a parent or guardian, and NILDash collects a parent or
+      guardian email address for those accounts.
+    </p>
+    <p>
+      You are responsible for what happens under your account, including keeping your password private and
+      keeping any mailbox you connect secure.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 03</div>
+    <h2 class="section-title">What NILDash does, and what it does not do</h2>
+    <p>
+      NILDash finds businesses that may be a fit for an athlete, researches a contact at those businesses,
+      drafts outreach, and tracks the resulting deals. It is a tool for doing that work. It is not an agent,
+      not a law firm, and not a compliance authority.
+    </p>
+    <ul>
+      <li>NILDash does not guarantee that any business will respond, or that any deal will be signed.</li>
+      <li>Research and contact details are gathered from public sources and can be wrong or out of date.
+          You are expected to check anything before you act on it.</li>
+      <li>Compliance rules differ by state, by school and by governing body. NILDash surfaces what it can,
+          but you remain responsible for the compliance of every deal you make.</li>
+    </ul>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 04</div>
+    <h2 class="section-title">Outreach sent through NILDash</h2>
+    <p>
+      Outreach is sent under your name, from a mailbox you connect, to recipients chosen from your own
+      pipeline. You are the sender. You agree that you will use it only for genuine business outreach on
+      behalf of athletes you represent, and not for unsolicited bulk mail.
+    </p>
+    <p>
+      Every outreach email carries an unsubscribe link and a physical mailing address, as the CAN-SPAM Act
+      requires. When a recipient unsubscribes, that address is blocked across the whole platform and cannot
+      be mailed again by any account. NILDash also limits how many emails one mailbox may send in a day, and
+      will not send the same recipient the same message twice.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 05</div>
+    <h2 class="section-title">Business activity shown on NILDash</h2>
+    <p>
+      NILDash may show that a business has completed an NIL deal on the platform, without revealing the
+      agent, athlete, or deal terms. This is a fact about the business, not about any user's book of work.
+    </p>
+    <p>
+      Nothing read from a connected mailbox is ever used to create or show this, and nothing from your
+      mailbox is shown to any other user.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 06</div>
+    <h2 class="section-title">Your content</h2>
+    <p>
+      Athlete records, deal records, notes and anything else you put into NILDash remain yours. You grant
+      Compton Group LLC the permission needed to store and process that material in order to run the
+      Service for you, and nothing beyond that.
+    </p>
+    <p>
+      You can export your data or ask for your account to be deleted at any time by writing to the address
+      at the bottom of this page.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 07</div>
+    <h2 class="section-title">Payment</h2>
+    <p>
+      Paid plans are billed in advance through Stripe on the interval shown at checkout. Fees are not
+      refundable for a period already begun, except where the law requires otherwise. You may cancel at any
+      time, and cancellation takes effect at the end of the current period.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 08</div>
+    <h2 class="section-title">Acceptable use</h2>
+    <p>You agree not to:</p>
+    <ul>
+      <li>Use the Service to send unsolicited bulk email, or to contact anyone who has asked you to stop.</li>
+      <li>Upload material you do not have the right to upload, including another person's contact list where
+          you have no basis for holding it.</li>
+      <li>Misrepresent who you are, or who you represent, to a business you contact through the Service.</li>
+      <li>Attempt to access another user's account, data, or connected mailbox.</li>
+      <li>Resell, scrape or bulk-export the Service's research output as a data product of your own.</li>
+    </ul>
+    <p>Accounts that do any of these may be suspended without notice.</p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 09</div>
+    <h2 class="section-title">Availability and liability</h2>
+    <p>
+      The Service is provided as it is. Compton Group LLC does not warrant that it will be uninterrupted or
+      error-free, and does not warrant the accuracy of research gathered from public sources.
+    </p>
+    <p>
+      To the fullest extent the law allows, Compton Group LLC is not liable for indirect, incidental or
+      consequential loss, including lost deals or lost revenue. Where liability cannot be excluded, it is
+      limited to the amount you paid for the Service in the twelve months before the claim.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 10</div>
+    <h2 class="section-title">Changes and termination</h2>
+    <p>
+      These Terms may change. Material changes will be notified by email or in the product, and the
+      "Last updated" date above will change. Continuing to use the Service after that means you accept the
+      new Terms.
+    </p>
+    <p>
+      You may stop using the Service at any time. Compton Group LLC may suspend or end an account that
+      breaches these Terms, or for non-payment.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 11</div>
+    <h2 class="section-title">Governing law</h2>
+    <p>
+      These Terms are governed by the laws of the State of Alabama, without regard to its conflict of law
+      rules. Any dispute will be brought in the state or federal courts located in Alabama.
+    </p>
+  </div>
+
+
+  <div class="section">
+    <div class="section-number">Section 12</div>
+    <h2 class="section-title">Contact</h2>
+    <p>Questions about these Terms:</p>
+    <div class="contact-card">
+      <div class="contact-row">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M1 5l6 4 6-4" stroke="currentColor" stroke-width="1.2"/></svg>
+        <a href="mailto:jmcompton04@gmail.com">jmcompton04@gmail.com</a>
+      </div>
+      <div class="contact-row">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M4 7h6M7 4v6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <span>Compton Group LLC</span>
+      </div>
+      <div class="contact-row">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M1 7h12M7 1a9 9 0 000 12M7 1a9 9 0 010 12" stroke="currentColor" stroke-width="1.2"/></svg>
+        <a href="https://mynildash.com">https://mynildash.com</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="page-footer">
+    <span>© 2026 Compton Group LLC. All rights reserved.</span>
+    <a href="/">← Return to NILDash</a>
+  </footer>
+
+</main>
+
+</body>
+</html>
