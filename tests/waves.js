@@ -16,8 +16,22 @@ const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 const fs=require('fs');
 const src=fs.readFileSync(REPO + 'server/ai.js','utf8');
-const fn=src.match(/async function runSourceWaves\(sources, runOne, opts = \{\}\) \{[\s\S]*?\n\}/)[0];
-const m={}; new Function('module','console', fn+'\nmodule.run=runSourceWaves;')(m,{log(){}});
+// ── LIFTED OUT OF ai.js BY NAME, NOT BY SIGNATURE ──────────────────────────
+// This used to match the parameter list literally -- `(sources, runOne, opts =
+// {})` -- so f5ffe2f renaming the second parameter to runOneRaw (the AI call
+// ledger, which wraps each source call in scanMeter.label) turned the match to
+// null and the whole suite into a crash at load: "Cannot read properties of
+// null (reading '0')", six assertions silently gone. Anchored on the name and
+// the opening brace now, so a renamed parameter cannot do that again, and the
+// null is reported as the fault it is rather than dereferenced.
+const _fnMatch=src.match(/async function runSourceWaves\([\s\S]*?\n\}/);
+if(!_fnMatch){console.log('  FAIL runSourceWaves no longer parses out of server/ai.js -- the shape this suite lifts has changed');process.exit(1);}
+const fn=_fnMatch[0];
+// runSourceWaves reaches one name outside itself: the scan meter it labels each
+// source call with. Handed in rather than stubbed, so the suite exercises the
+// real labelling path instead of a shape that only exists in this file.
+const scanMeter=require(REPO + 'server/scanMeter');
+const m={}; new Function('module','console','scanMeter', fn+'\nmodule.run=runSourceWaves;')(m,{log(){}},scanMeter);
 const run=m.run;
 const sleep=(ms,v)=>new Promise(r=>setTimeout(()=>r(v),ms));
 

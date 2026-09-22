@@ -177,8 +177,28 @@ console.log('\n-- 3. THE CONTACT LADDER SECTION --');
   const sec = TEXT.slice(TEXT.indexOf('<span class="eyebrow">Contact Ladder</span>'));
   const block = sec.slice(0, sec.indexOf('<span class="eyebrow">Programs</span>'));
   ok('it exists', block.length > 400, block.length);
-  ok('same feature format as Deal Scan', /class="ftext"/.test(block) && /class="fimg"/.test(block));
-  ok('in the same browser chrome', /class="browser"/.test(block) && /class="url"/.test(block));
+  // ── THE ILLUSTRATION WENT, AND THAT WAS THE POINT ──────────────────────
+  // These four used to pin a hand-written mockup: a .fimg in browser chrome
+  // holding a card that showed "Name: Confident", "Name: Likely" and "No email
+  // found, so none is shown". Every name and the phone number in it were
+  // invented, which is why the site audit had it removed rather than relabelled
+  // -- the one section whose whole claim is "never a guessed email address"
+  // must not illustrate itself with a made-up person. The copy it sat beside
+  // stayed and is still pinned below.
+  //
+  // So what is asserted now is the absence, in the same place, at the same
+  // strength: no illustration, no fabricated card, and the section rendering as
+  // one column instead of a half-empty grid. tests/siteroutes.js holds the same
+  // line page-wide; this holds it for the section that most needs it.
+  ok('the fabricated contact card is gone, not merely emptied',
+    !/class="fimg"/.test(block) && !/class="cardui"/.test(block) && !/cu-prow/.test(block), block.length);
+  ok('  and so is the browser chrome it was dressed in',
+    !/class="browser"/.test(block) && !/class="url"/.test(block));
+  ok('  no invented name or phone number is left behind',
+    !/Name: (Confident|Likely)/.test(block) && !/No email found, so none is shown/.test(block)
+    && !/\(205\) 555-01/.test(block));
+  ok('  the section renders as one column rather than a half-empty grid',
+    /<div class="feature solo">[\s\S]{0,400}?Contact Ladder/.test(TEXT));
   ok('finds a named person, not a front desk', /A name, not a front desk/.test(block));
   ok('ranked above the general line', /ranked above the general line/i.test(block));
   ok('direct email, phone and Instagram', /Direct email, direct phone, and Instagram/.test(block));
@@ -186,9 +206,13 @@ console.log('\n-- 3. THE CONTACT LADDER SECTION --');
   ok('and never a guessed email', /Never a guessed email address/.test(block));
   ok('the confidence words match the app\'s own labels',
     ['Confident', 'Likely', 'Fallback'].every((w) => new RegExp('_DS_CONF_STYLE[\\s\\S]{0,300}' + w).test(IDX)));
-  ok('the card shows all three labels', /Name: Confident/.test(block) && /Name: Likely/.test(block) && /Fallback/.test(block));
-  ok('and demonstrates the no-guess rule in the card itself',
-    /No email found, so none is shown/.test(block));
+  // The three labels were demonstrated by the mockup; with it gone, the copy
+  // is where they have to appear, and it is the copy that has to match the
+  // app's own words. Checked against index.js rather than against a picture.
+  ok('the three labels are still named in the copy, now that no card shows them',
+    /Confident, Likely or Fallback/.test(block));
+  ok('and the no-guess rule is stated rather than illustrated',
+    /If it was not found, it is not shown/.test(block));
 }
 
 console.log('\n-- 4. THE PROGRAMS SECTION --');

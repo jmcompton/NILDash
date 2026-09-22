@@ -146,10 +146,29 @@ OUT.push('', '-- sport abbreviations expand, and the check compares by sport --'
   ok('"soccer" against a stored WSOC passes', PW.verifyAthleteFacts('Jo, a soccer player', { name: 'Jo', sport: 'WSOC' }).problems.length === 0);
   const sb = PW.verifyAthleteFacts('As a softball player, Jo', { name: 'Jo', sport: 'Baseball', position: 'P' }).problems;
   ok('"softball" against a stored Baseball is still refused', sb.length === 1 && /says "softball" but the stored sport is "Baseball"/.test(sb[0]), sb);
+  // ── THE SPORT RULE IS SPELT OUT NOW, NOT ABBREVIATED ───────────────────
+  // These matched `sport: say "basketball" or nothing`, the wording _sportRule
+  // used before 8ae619e rewrote it. That commit is the fix for a wrong sport
+  // word losing the whole card -- twelve of thirteen writes needing a second
+  // call, eleven refused twice, almost all of them "says X" -- and it made the
+  // instruction name the record, name the only two allowed answers, and close
+  // the loophole the model kept walking through: inferring the sport from the
+  // position or the stats. It did not touch this suite, so both assertions
+  // have been red since.
+  //
+  // The expanded-sport half of each was still passing on its own, so what is
+  // asserted now is the current sentence, in the three pieces that carry the
+  // rule -- the stored label, "or name no sport at all", and the refusal to
+  // infer one from the position or the stats -- rather than a phrase that
+  // happens to appear in it.
   const d1 = PW.describeAthlete({ name: 'Jo', sport: 'MBB', school: 'Auburn' });
-  ok('the writer is handed the expanded sport and told what to say', /Plays: basketball at Auburn/.test(d1) && /sport: say "basketball" or nothing/.test(d1), d1.split('\n')[1]);
+  ok('the writer is handed the expanded sport and told what to say',
+    /Plays: basketball at Auburn/.test(d1)
+    && /sport: this record says "basketball"\. Say "basketball" or name no sport at all/.test(d1)
+    && /Do not say any other sport, even if the position or the stats suggest one/.test(d1), d1.split('\n')[1]);
   const d2 = PW.describeAthlete({ name: 'Max', sport: 'WSOC', position: 'F', team: 'New York City FC', athleteType: 'pro' });
-  ok('  a pro too', /Plays: forward soccer for the New York City FC/.test(d2) && /sport: say "soccer"/.test(d2), d2.split('\n')[2]);
+  ok('  a pro too', /Plays: forward soccer for the New York City FC/.test(d2)
+    && /sport: this record says "soccer"\. Say "soccer" or name no sport at all/.test(d2), d2.split('\n')[2]);
 
   // ── 7. NO POSITION ON FILE: THE WRITER IS TOLD, NOT LEFT TO GUESS ──────────
   OUT.push('', '-- no position on file --');

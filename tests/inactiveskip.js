@@ -105,7 +105,19 @@ async function main() {
   ok('Home reports it', /out\.filling = !!\(out\.selected && OQs\.isFilling\(out\.selected\)\)/.test(idx));
   const html = require('fs').readFileSync(REPO + 'public/index.html', 'utf8');
   ok('  and the page shows "finding businesses" and looks again', /Finding businesses for/.test(html) && /HQ\._fillingTimer = setTimeout/.test(html));
-  ok('adding an athlete starts an on-demand fill for them', /runOnDemandFills\(user\.id, id\)/.test(idx) && /markFilling\(id\)/.test(idx));
+  // ── THE SINGLE ADD MOVED OUT OF index.js ───────────────────────────────
+  // This grepped server/index.js for runOnDemandFills(user.id, id), which is
+  // where the one-athlete path used to live. It is services/athleteCreate.js
+  // now, and singular there (runOnDemandFill), so the assertion has been red
+  // since the extraction while the behaviour it guards never stopped working.
+  // Read where the code is, and read BOTH ways in, because an import is the
+  // path that added twenty athletes at once and the one that would be missed
+  // quietly.
+  const ac = require('fs').readFileSync(REPO + 'server/services/athleteCreate.js', 'utf8');
+  ok('adding an athlete starts an on-demand fill for them',
+    /runOnDemandFill\(user\.id, id\)/.test(ac) && /markFilling\(id\)/.test(ac));
+  ok('  and so does an import, one athlete at a time',
+    /runOnDemandFills\(user\.id, c\.id\)/.test(idx) && /markFilling\(c\.id\)/.test(idx));
   ok('the on-demand row records ms', /ALTER TABLE outreach_queue_ondemand ADD COLUMN IF NOT EXISTS ms INT/.test(require('fs').readFileSync(REPO + 'server/store.js', 'utf8')));
 
   await P().query(`DELETE FROM outreach_queue_runs WHERE run_date IN ('2099-01-01','2099-01-02','2099-01-03')`).catch(() => {});

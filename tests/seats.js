@@ -79,7 +79,14 @@ async function main() {
   OUT.push('', '-- the readers --');
   const idx = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   ok('the old per-plan function is gone from the server', !/function getSeatLimit\(/.test(idx));
-  ok('Add Client reads seatLimitFor and answers with the right message', /const seats = Seats\.seatLimitFor\(user\);\s*const seatLimit = seats\.limit;/.test(idx) && /error: Seats\.limitMessage\(seats\)/.test(idx));
+  // Add Client's seat check moved into services/athleteCreate.js with the rest
+  // of the create path; this kept grepping server/index.js for it and has been
+  // red since, though the check itself never moved an inch -- same two lines,
+  // same message, one file over. Read where it lives.
+  const ac = fs.readFileSync(REPO + 'server/services/athleteCreate.js', 'utf8');
+  ok('Add Client reads seatLimitFor and answers with the right message',
+    /const seats = Seats\.seatLimitFor\(user\);\s*const seatLimit = seats\.limit;/.test(ac)
+    && /error: Seats\.limitMessage\(seats\)/.test(ac));
   ok('seat-status reports the source', /seatSource: seats\.source, seatOverride: seats\.override/.test(idx));
   ok('the admin users list carries seat_override, the athlete count and the description', /seat_override,\s*\(SELECT COUNT\(\*\)::int FROM athletes a WHERE a\.agent_id = users\.id\) AS athletes/.test(idx) && /seats: Seats\.describeSeats\(seats\)/.test(idx));
   ok('POST /api/admin/set-seat-override exists, admin only, writes only seat_override', /app\.post\('\/api\/admin\/set-seat-override'/.test(idx) && /UPDATE users SET seat_override = \$1 WHERE id = \$2/.test(idx) && /set-seat-override'[\s\S]*?user\.email !== ADMIN_EMAIL/.test(idx));

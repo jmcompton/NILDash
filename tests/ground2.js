@@ -20,7 +20,19 @@ const mapSrc = src.match(/const SCHOOL_LOCATIONS = \{[\s\S]*?\n\};/)[0];
 const lookSrc= src.match(/function lookupSchoolLocation\(school\) \{[\s\S]*?\n\}/)[0];
 const fnSrc  = src.match(/function _foreignSchoolIn\(text, athleteSchool\) \{[\s\S]*?\n\}/)[0];
 const ambSrc= src.match(/const AMBIGUOUS_SHORT_FORMS = new Set\(\[[\s\S]*?\]\);/)[0];
-const m={}; new Function('module', mapSrc+'\n'+ambSrc+'\n'+lookSrc+'\n'+fnSrc+'\nmodule.f=_foreignSchoolIn;')(m);
+// ── LIFT WHAT lookupSchoolLocation LEANS ON, NOT JUST lookupSchoolLocation ──
+// This sandbox names the chunks it lifts out of server/ai.js one by one, so a
+// chunk that grows a dependency on a NEW module-scope name goes on compiling
+// and dies at the first call instead. 61e9f7b did exactly that: folding the
+// school map's keys once ("U. of Pittsburgh" and "university  of pittsburgh"
+// are the same key) put _foldSchool and _foldedSchoolKeys beside
+// lookupSchoolLocation, and every run since got five passes and then
+// "ReferenceError: _foldSchool is not defined" -- a crash, so the remaining
+// twenty-six cases were never reached and the suite scored as a FAULT rather
+// than a failure. Both are lifted by the same rule as everything else here:
+// read out of the shipped source, never restated.
+const foldSrc= src.match(/const _foldSchool = [^\n]*\n/)[0] + src.match(/let _foldedSchoolKeys = [^\n]*\n/)[0];
+const m={}; new Function('module', mapSrc+'\n'+ambSrc+'\n'+foldSrc+'\n'+lookSrc+'\n'+fnSrc+'\nmodule.f=_foreignSchoolIn;')(m);
 const cases=[
  ['Great foot traffic from the UConn campus.','Samford University','FLAG'],
  ['Steps from the Samford University campus.','Samford University','clean'],
