@@ -179,8 +179,16 @@ async function main() {
   // In production that part is about 18% of a night's work, so the subject was
   // consistently a smaller morning than the agent had, and a different number
   // from the one Home showed them thirty seconds later.
+  // AND THE DATE IS PART OF IT. These two assertions were anchored with `$`
+  // against the pre-date subject, so they started failing the day 9ae1fa4 put
+  // the date in every recurring subject -- the fix for one agent receiving 29
+  // identical "Shift report" emails in 30 days. The wording and the count they
+  // were written to protect are both still exactly right; only the anchor was
+  // stale. Asserting the suffix too, in the same shape tests/nightlydigest
+  // uses, so these now pin BOTH deliberate changes instead of silently
+  // tolerating a third.
   ok('with no reply the subject names the WHOLE pile, not just the emails',
-    /^16 cards ready to work$/.test(m3.subject), m3.subject);
+    /^16 cards ready to work, \w{3} \w{3} \d{1,2}$/.test(m3.subject), m3.subject);
   ok('  and no reply block is rendered', !/BRAND REPLIED/.test(m3.html), null);
 
   // When the pile IS all email, the more specific wording is still the one used
@@ -188,7 +196,7 @@ async function main() {
   await P.query(`UPDATE outreach_queue SET state = 'skipped' WHERE agent_id = $1`, [AG]);
   const m4 = renderShiftEmail(await shiftReport.buildShiftReport(P, AG), {});
   ok('  but an all-email pile keeps the sharper wording',
-    /^12 pitches ready to send$/.test(m4.subject), m4.subject);
+    /^12 pitches ready to send, \w{3} \w{3} \d{1,2}$/.test(m4.subject), m4.subject);
   await P.query(`UPDATE outreach_queue SET state = 'queued' WHERE agent_id = $1`, [AG]);
 
   await clean();
