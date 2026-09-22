@@ -43,8 +43,8 @@
       "fault": null
     },
     "affiliation.js": {
-      "failed": 1,
-      "total": 15,
+      "failed": 0,
+      "total": 26,
       "fault": null
     },
     "agehold.js": {
@@ -74,7 +74,7 @@
     },
     "asstath.js": {
       "failed": 0,
-      "total": 53,
+      "total": 61,
       "fault": null
     },
     "athbill.js": {
@@ -118,7 +118,7 @@
       "fault": null
     },
     "audit.js": {
-      "failed": 6,
+      "failed": 0,
       "total": 41,
       "fault": null
     },
@@ -149,7 +149,7 @@
     },
     "briefsrailway.js": {
       "failed": 0,
-      "total": 60,
+      "total": 61,
       "fault": null
     },
     "cachefix.js": {
@@ -324,7 +324,7 @@
     },
     "emailchannel.js": {
       "failed": 0,
-      "total": 70,
+      "total": 72,
       "fault": null
     },
     "emailcheck.js": {
@@ -338,10 +338,9 @@
       "fault": null
     },
     "engagement.js": {
-      "failed": 2,
+      "failed": 0,
       "total": 68,
-      "fault": null,
-      "note": "PRE-EXISTING, not caused by the pause-loop change: fails identically on clean HEAD. Two hardcoded dollar figures in the engagement-rate valuation (er=4.8 and er=9.0) no longer match what benchmarks.js returns. benchmarks.js has not changed since 2026-08-17 and neither has the suite, so the inputs moved. Not diagnosed; not blocking."
+      "fault": null
     },
     "engrate.js": {
       "failed": 0,
@@ -355,7 +354,7 @@
     },
     "fillfive.js": {
       "failed": 0,
-      "total": 44,
+      "total": 45,
       "fault": null
     },
     "fix4.js": {
@@ -469,10 +468,9 @@
       "fault": null
     },
     "hunterlive.js": {
-      "failed": 3,
+      "failed": 0,
       "total": 31,
-      "fault": null,
-      "note": "ORDER-DEPENDENT, pre-existing. It asserts on a global verify-credit counter that other suites populate, so it ranges 0-4 failures depending purely on which suites ran before it. 3 is the value in a full alphabetical run. Not caused by the pipeline change; verified 3 on clean HEAD and 0 when run straight after creditfault.js."
+      "fault": null
     },
     "ident.js": {
       "failed": 0,
@@ -496,7 +494,7 @@
     },
     "inactiveskip.js": {
       "failed": 0,
-      "total": 28,
+      "total": 29,
       "fault": null
     },
     "inbox.js": {
@@ -530,7 +528,7 @@
       "fault": null
     },
     "lean.js": {
-      "failed": 2,
+      "failed": 0,
       "total": 45,
       "fault": null
     },
@@ -540,8 +538,8 @@
       "fault": null
     },
     "linetype.js": {
-      "failed": 1,
-      "total": 3,
+      "failed": 0,
+      "total": 47,
       "fault": null
     },
     "livefour.js": {
@@ -591,7 +589,7 @@
     },
     "mktcopy.js": {
       "failed": 0,
-      "total": 151,
+      "total": 153,
       "fault": null
     },
     "msgid_db.js": {
@@ -631,7 +629,7 @@
     },
     "nightlydigest.js": {
       "failed": 0,
-      "total": 36,
+      "total": 41,
       "fault": null
     },
     "noname.js": {
@@ -701,7 +699,7 @@
     },
     "pitchvoice.js": {
       "failed": 0,
-      "total": 31,
+      "total": 37,
       "fault": null
     },
     "placeholder.js": {
@@ -716,7 +714,7 @@
     },
     "poolkeymig.js": {
       "failed": 0,
-      "total": 27,
+      "total": 26,
       "fault": null
     },
     "poolrecord.js": {
@@ -810,8 +808,8 @@
       "fault": null
     },
     "queue.js": {
-      "failed": 1,
-      "total": 117,
+      "failed": 0,
+      "total": 118,
       "fault": null
     },
     "reach.js": {
@@ -821,7 +819,7 @@
     },
     "readytosend.js": {
       "failed": 0,
-      "total": 46,
+      "total": 47,
       "fault": null
     },
     "recency.js": {
@@ -895,8 +893,8 @@
       "fault": null
     },
     "school.js": {
-      "failed": 1,
-      "total": 84,
+      "failed": 0,
+      "total": 85,
       "fault": null
     },
     "schoolaudit.js": {
@@ -971,7 +969,7 @@
     },
     "signature.js": {
       "failed": 0,
-      "total": 39,
+      "total": 43,
       "fault": null
     },
     "signup.js": {
@@ -995,7 +993,7 @@
       "fault": null
     },
     "socialstats.js": {
-      "failed": 2,
+      "failed": 0,
       "total": 33,
       "fault": null
     },
@@ -1065,13 +1063,13 @@
       "fault": null
     },
     "wftiming.js": {
-      "failed": 1,
+      "failed": 0,
       "total": 21,
       "fault": null
     },
     "writer.js": {
       "failed": 0,
-      "total": 132,
+      "total": 133,
       "fault": null
     },
     "xdom.js": {
