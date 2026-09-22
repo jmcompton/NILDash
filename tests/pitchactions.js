@@ -172,8 +172,12 @@ async function main() {
   const chan = await PA.byChannel(pool, 30);
   const total = chan.reduce((s, r) => s + r.n, 0);
   ok('and they can be compared by channel, which is the point of the table', total >= 3 && chan.some((r) => r.source === 'email') && chan.some((r) => r.source === 'dashboard'), chan);
+  // PitchActions is required at module scope, not inside the handler: a
+  // require() in a route body is a lookup on every request, and the two suites
+  // that lift these handlers out of index.js and run them cannot see it.
   ok('THE DASHBOARD APPROVE LOGS ITS CHANNEL TOO',
-    /pitchActions'\)\.logMany\(store\.pool,\s*\n?\s*\(out\.when \|\| \[\]\)\.map/.test(idx) && /source: 'dashboard'/.test(idx));
+    /PitchActions\.logMany\(store\.pool,\s*\n?\s*\(out\.when \|\| \[\]\)\.map/.test(idx) && /source: 'dashboard'/.test(idx));
+  ok('  and the module is required once, at the top', /^const PitchActions = require\('\.\/services\/pitchActions'\);$/m.test(idx));
   ok('  and the dashboard skip does', /action: 'skip', source: 'dashboard'/.test(idx));
   ok('a failed log never throws, because it is a record and not the work',
     (await PA.log({ query: async () => { throw new Error('nope'); } }, { pitchId: 'x', agentId: AG, action: 'approve', source: 'email' })) === false);

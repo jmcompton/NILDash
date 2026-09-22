@@ -415,8 +415,23 @@ function personNameProblem(name, brandName) {
   const fold = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   if (brandName && fold(bare) === fold(brandName)) return `contact name "${n}" is the business name`;
   if (!GG.salutationName(n)) return `contact name "${n}" gives no name to open with`;
+  // ── ONE PERSON'S NAME, AND NOTHING ELSE ──────────────────────────────────
+  // Everything above asks "is this a role, an organisation, greetable". None
+  // of it asked "is this ONE PERSON" or "is this a NAME rather than prose", so
+  // a research sentence reached a card and then the greeting of a cold email:
+  // "The practice is led by Dr. Sarah Wilson, Dr. James Vetter, Dr. Amy Chen,
+  // Dr. Mark Ross and Dr. Lisa Kim" was the owner of Wilvet South.
+  const own = require('./ownerName').problem(n, brandName);
+  if (own) return `contact name "${n.length > 50 ? n.slice(0, 47) + '…' : n}" ${own}`;
   return null;
 }
+// One person's name off whatever the ladder handed us: a title stripped, a
+// label stripped, and null when the value is a sentence rather than a name.
+// Pure, and it never invents: see services/ownerName.
+function _ownerName(raw, brandName) {
+  try { return require('./ownerName').clean(raw, brandName); } catch (_) { return raw || null; }
+}
+
 const _htmlToText = (html) => String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>|<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 // The greeting at the head of the first line, whether it stands alone ("Hi
 // Dana,") or runs into the sentence ("Hi Dana, I work with..."). null when the
@@ -654,7 +669,12 @@ function buildCard(cand, ladder, ig) {
     brandKey: c.brandKey || null,
     brandName: c.brand || c.brandName || null,
     why: c.rationale || null,
-    contactName: top.name || null,
+    // NORMALISED, NOT JUST CHECKED. "Dana Whitfield, Owner" is a good
+    // contact with a title stuck on the end; refusing it would lose a real
+    // person, so the title comes off here and the name goes on the card.
+    // A value that is prose rather than a name cleans to null and the card
+    // is then refused by cardNameProblem, which is the correct outcome.
+    contactName: _ownerName(top.name, c.brand || c.brandName),
     contactTitle: top.title || null,
     // Carried so the card can say, in words, why an owner is only Tier 2.
     sourceNote: top.sourceNote || null,
@@ -775,7 +795,7 @@ function buildProgramCard(cand, pitch, athleteName, ig, person) {
     brandKey: c.brand_key || null,
     brandName: c.brand_name || null,
     why: c.why || null,
-    contactName: p ? p.name : null,
+    contactName: p ? _ownerName(p.name, c.brand_name) : null,
     contactTitle: p ? (p.title || null) : null,
     sourceNote: p
       ? `Named by a web search for "${p.query === 'owner' ? 'owner' : 'marketing director'}"${p.sourceUrl ? ' at ' + p.sourceUrl : ''}${c.offerSummary ? '. ' + c.offerSummary : ''}`

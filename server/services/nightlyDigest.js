@@ -417,14 +417,20 @@ async function sendWaiting(pool, { agentId, runDate }, opts = {}) {
   if (u.digest_unsubscribed === true) return { sent: false, reason: 'unsubscribed', athletes: groups.length, cards };
 
   // THE THREE-DAY FLOOR, against every digest, not just waiting ones.
-  const last = await pool.query(
-    `SELECT MAX(COALESCE(sent_at, created_at)) AS at FROM nightly_digest_sends
-      WHERE agent_id = $1 AND status = 'sent'`, [agentId]).catch(() => ({ rows: [] }));
-  const at = last.rows && last.rows[0] && last.rows[0].at;
-  if (at) {
-    const days = (now.getTime() - new Date(at).getTime()) / 86400000;
-    if (days < everyDays) {
-      return { sent: false, reason: `last digest was ${days.toFixed(1)} days ago; the floor is ${everyDays}`, athletes: groups.length, cards };
+  // opts.force skips it and the once-per-night claim below. It is reachable
+  // ONLY from the admin test endpoint, which sends to the caller's own
+  // account: the floor is there to stop a drip reaching a customer, and
+  // "send me one now so I can tap the buttons" is not a drip.
+  if (!opts.force) {
+    const last = await pool.query(
+      `SELECT MAX(COALESCE(sent_at, created_at)) AS at FROM nightly_digest_sends
+        WHERE agent_id = $1 AND status = 'sent'`, [agentId]).catch(() => ({ rows: [] }));
+    const at = last.rows && last.rows[0] && last.rows[0].at;
+    if (at) {
+      const days = (now.getTime() - new Date(at).getTime()) / 86400000;
+      if (days < everyDays) {
+        return { sent: false, reason: `last digest was ${days.toFixed(1)} days ago; the floor is ${everyDays}`, athletes: groups.length, cards };
+      }
     }
   }
 
@@ -437,6 +443,16 @@ async function sendWaiting(pool, { agentId, runDate }, opts = {}) {
 
   // The same claim table and the same unique (agent, night): a waiting digest
   // and a new-cards digest cannot both go out on one night.
+  //
+  // A forced test clears its own claim first, so the endpoint can be hit twice
+  // in a minute. It only ever deletes the row for THIS agent and THIS date,
+  // and the endpoint only ever names the caller, so a test cannot free a real
+  // agent's night and let them be mailed twice.
+  if (opts.force) {
+    await pool.query(
+      `DELETE FROM nightly_digest_sends WHERE agent_id = $1 AND run_date = $2`, [agentId, runDate])
+      .catch((e) => console.error('[nightly-digest] force: could not clear the claim:', e.message));
+  }
   const claim = await pool.query(
     `INSERT INTO nightly_digest_sends (agent_id, run_date, email, athletes, cards, status)
      VALUES ($1, $2, $3, $4::jsonb, $5, 'claimed')

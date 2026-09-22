@@ -5477,6 +5477,13 @@ const ADMIN_SCRIPTS = {
     q.agent ? ['--agent', String(q.agent).replace(/[^a-z0-9@._+-]/gi, '').slice(0, 120)] : [],
     q.nights ? ['--nights', String(parseInt(q.nights, 10) || 4)] : []) },
   'lookup-pro-hitrate': { file: 'scripts/lookup-pro-hitrate.js', args: (q) => [].concat(q.league ? ['--league', String(q.league).replace(/[^a-z]/gi, '').slice(0, 10)] : [], q.noTeam ? ['--no-team'] : [], (q.fresh || q.force) ? ['--fresh'] : []) },
+  // What My Brands is still showing that it should not: placeholder business
+  // names, and owner fields holding a sentence instead of a person. Reports by
+  // default and changes nothing; the flags are what make it write.
+  'mybrands-cleanup': {
+    file: 'scripts/mybrands-cleanup.js',
+    args: (q) => [].concat(q.fixOwners ? ['--fix-owners'] : [], q.deletePlaceholders ? ['--delete-placeholders'] : []),
+  },
   // ── ONE MORNING BRIEF, NOW, ON DEMAND ───────────────────────────────────
   // The briefs run themselves at 5:30, 5:45, 6:00 and 6:15 Central. This is
   // how you find out whether one WORKS without waiting until tomorrow
@@ -12000,6 +12007,80 @@ app.get('/admin/connections', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!user || user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
   res.sendFile(path.join(__dirname, '..', 'public', 'admin-connections.html'));
+});
+
+// ── SEND MYSELF THE DIGEST, NOW ─────────────────────────────────────────────
+//
+//   /api/admin/digest/test            send it to my own account
+//   /api/admin/digest/test?text=1     the links as plain text, nothing sent
+//
+// There is no other way to see the Approve and Skip links working: the digest
+// goes out once a night, from the fill, and waiting for tomorrow morning to
+// find out whether a button works is not a test.
+//
+// IT ONLY EVER MAILS THE CALLER. The agent is req.session.userId and cannot be
+// named in the query string -- an admin endpoint that takes an agent id and
+// sends them mail is one typo away from mailing a customer a test. It skips
+// the three-day floor and clears its own once-a-night claim, both scoped to
+// the caller's own row, so it can be run twice in a minute without freeing a
+// real agent's night.
+//
+// The links it mints are REAL: same table, same 72 hours, same single use. A
+// pitch approved from a test email is approved, and goes out in the next send
+// window like any other. That is the point -- a test that used fake links
+// would not test anything.
+app.get('/api/admin/digest/test', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const ND = require('./services/nightlyDigest');
+    const agentId = user.id;
+
+    const groups = await ND.pitchesFor(store.pool, agentId);
+    const pitches = groups.reduce((s, g) => s + g.pitches.length, 0);
+    if (!pitches) {
+      return res.status(409).json({
+        error: 'Nothing is waiting on your account, so there is nothing to put in a digest.',
+        hint: 'The digest only ever lists drafts that are unapproved, not cadence-stopped, and due. Approve nothing and leave a draft on one of your own athletes, then try again.',
+        athletes: groups.length, pitches: 0,
+      });
+    }
+
+    // text=1 prints the links instead of mailing them: useful when the mail
+    // provider is the thing that is broken, and for reading a token off the
+    // screen rather than out of an inbox.
+    if (req.query.text) {
+      await ND.attachActionUrls(store.pool, agentId, groups);
+      res.type('text/plain');
+      return res.send([
+        `${pitches} pitch(es) across ${groups.length} athlete(s). NOTHING WAS SENT.`,
+        'These links are real, single-use and expire in 72 hours.', '',
+        ...groups.flatMap((g) => [
+          `${g.name}${g.place ? ` (${g.place})` : ''}`,
+          ...g.pitches.flatMap((p) => [
+            `  ${p.brand}${p.owner ? ` — ${p.owner}` : ''}`,
+            `    ${p.preview}`,
+            `    approve: ${p.approveUrl}`,
+            `    skip:    ${p.skipUrl}`,
+          ]),
+          g.approveAllUrl ? `  approve all ${g.pitches.length}: ${g.approveAllUrl}` : '',
+          '',
+        ]),
+      ].filter((l) => l !== null).join('\n'));
+    }
+
+    const out = await ND.sendWaiting(store.pool,
+      { agentId, runDate: new Date().toISOString().slice(0, 10) }, { force: true });
+    if (!out.sent) return res.status(409).json({ error: 'Not sent: ' + out.reason, ...out });
+    console.log(`[digest-test] ${user.email} sent themselves ${out.cards} pitch(es) across ${out.athletes} athlete(s)`);
+    res.json({
+      ok: true, sentTo: user.email, athletes: out.athletes, pitches: out.cards,
+      note: 'Check your inbox. The Approve and Skip links are real: approving schedules the pitch for the next send window.',
+    });
+  } catch (e) {
+    console.error('[digest-test]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/admin/connections', requireAuth, async (req, res) => {
