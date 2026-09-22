@@ -83,8 +83,24 @@ const q = (n) => Array.from({ length: n }, (_, i) => ({ brand: 'Q' + i, result: 
   ok('  nor the lookup cap', b.spent() === 0 && b.remaining() === 8, { spent: b.spent(), remaining: b.remaining() });
   ok('  and is counted where it belongs', b.discoverySpent() === 0.25, b.discoverySpent());
   b.spendDiscovery(1.6);
-  ok('the pot refuses what it cannot afford', b.canSpendDiscovery(0.25) === false, b.discoverySpent());
-  ok('  but still affords what fits', b.canSpendDiscovery(0.15) === true, null);
+  // ── THE POT AND THE SHARE ARE TWO DIFFERENT CEILINGS ────────────────────
+  // canSpendDiscovery answers BOTH of them since 8ae619e gave the discovery
+  // pot the per-athlete share the lookup cap always had -- the fix for two
+  // athletes' cold-market scans draining a $2 night, and 28 of 30 being told
+  // "the discovery pot is spent" before they were attempted at all.
+  //
+  // So `  but still affords what fits` started asking the wrong accessor that
+  // day and has been red since: $1.85 is inside the $2 pot but far outside
+  // this athlete's $2/9 share, and it is the SHARE that refuses. The claim it
+  // was written to protect -- the pot is a ceiling, not an all-or-nothing
+  // gate -- is still true and still worth pinning, so it is pinned on the
+  // pot-only accessor that now carries it. Each ceiling is named by the
+  // accessor that owns it, rather than one assertion that passes on whichever
+  // of the two happens to say no first.
+  ok('the pot refuses what it cannot afford', b.canSpendDiscoveryFromPot(0.25) === false, b.discoverySpent());
+  ok('  but still affords what fits', b.canSpendDiscoveryFromPot(0.15) === true, b.discoverySpent());
+  ok('  AND THE SHARE STOPS ONE ATHLETE SPENDING THE NIGHT, even where the pot would allow it',
+    b.canSpendDiscovery(0.15) === false, { used: b.discoverySpent(), shareLeft: b.discoveryShareLeft() });
   const d = Q.newBudget(8);
   ok('the default pot is the constant', d.discoveryCap() === Q.DISCOVERY_CAP_USD, d.discoveryCap());
   ok('a lookup still spends from the share, as before', (d.openFor(1), d.spend(0.06), d.shareLeft() < d.shareOf()), null);
