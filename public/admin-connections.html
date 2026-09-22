@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>LinkedIn connections — NILDash admin</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0f17;color:#e5e7eb;padding:16px;
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto}
+h1{font-size:22px;margin:8px 0 4px}
+.sub{color:#6b7280;font-size:13px;margin:0 0 20px}
+.card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:20px;margin-bottom:16px}
+h2{font-size:15px;margin:0 0 12px;color:#e5e7eb}
+p{font-size:14px;line-height:1.6;color:#cbd5e1;margin:0 0 10px}
+.muted{color:#6b7280;font-size:13px}
+.big{font-size:28px;font-weight:600;color:#fff;line-height:1.1}
+.row{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:8px}
+label.file{display:inline-block;background:#1f2937;border:1px dashed #374151;border-radius:8px;
+ padding:22px 18px;width:100%;text-align:center;cursor:pointer;font-size:14px;color:#cbd5e1}
+label.file:hover{border-color:#2563eb;color:#fff}
+input[type=file]{display:none}
+button{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:11px 18px;
+ font-size:14px;font-weight:600;cursor:pointer}
+button:hover{background:#1d4ed8}
+button:disabled{background:#374151;color:#9ca3af;cursor:not-allowed}
+button.ghost{background:transparent;border:1px solid #374151;color:#9ca3af;padding:5px 10px;font-weight:400;font-size:12px}
+button.ghost:hover{border-color:#ef4444;color:#ef4444;background:transparent}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:#6b7280;font-weight:500;padding:6px 8px;border-bottom:1px solid #1f2937}
+td{padding:8px;border-bottom:1px solid #1f2937;color:#cbd5e1}
+tr.current td{color:#fff}
+.tag{display:inline-block;background:#1e3a8a;color:#bfdbfe;border-radius:99px;padding:1px 8px;font-size:11px;margin-left:6px}
+.msg{border-radius:8px;padding:12px;font-size:14px;line-height:1.5;margin-bottom:12px;display:none}
+.msg.err{background:#3f1d1d;border:1px solid #7f1d1d;color:#fecaca;display:block}
+.msg.ok{background:#14351f;border:1px solid #166534;color:#bbf7d0;display:block}
+ol{font-size:14px;line-height:1.7;color:#cbd5e1;padding-left:20px;margin:0}
+code{background:#1f2937;border-radius:4px;padding:1px 5px;font-size:12px}
+a{color:#60a5fa}
+</style></head><body><main>
+
+<h1>LinkedIn connections</h1>
+<p class="sub">The export the prospecting brief filters every morning at 6:00 Central.
+It is stored here, in the database, so the brief runs on Railway whether your Mac is on or not.</p>
+
+<div id="msg" class="msg"></div>
+
+<div class="card">
+  <h2>In use now</h2>
+  <div id="current"><p class="muted">Loading…</p></div>
+</div>
+
+<div class="card">
+  <h2>Upload a new export</h2>
+  <p class="muted">The newest upload is the one the brief reads. Nothing is overwritten —
+  the previous ones stay below until you delete them.</p>
+  <label class="file" for="f" id="drop">Choose <code>Connections.csv</code>…</label>
+  <input type="file" id="f" accept=".csv,text/csv">
+  <div style="margin-top:12px"><button id="go" disabled>Upload</button>
+    <span class="muted" id="picked" style="margin-left:10px"></span></div>
+</div>
+
+<div class="card">
+  <h2>Where to get the file</h2>
+  <ol>
+    <li>LinkedIn → <strong>Settings &amp; Privacy</strong> → <strong>Data privacy</strong> →
+        <strong>Get a copy of your data</strong>.</li>
+    <li>Pick <strong>Connections</strong> (not "the works" — that download is far larger and takes hours).</li>
+    <li>LinkedIn emails a zip, usually within ten minutes. Unzip it and upload the
+        <code>Connections.csv</code> inside.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h2>Earlier uploads</h2>
+  <div id="history"><p class="muted">Loading…</p></div>
+</div>
+
+<p class="muted">Test the brief against this export without waiting for the morning:
+<a href="/api/admin/scripts/brief?which=prospecting&amp;noEmail=1&amp;text=1">run prospecting now, no email</a>.</p>
+
+<script>
+var esc = function (s) { return String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+var kb = function (n) { return n >= 1048576 ? (n/1048576).toFixed(1) + ' MB' : Math.round(n/1024) + ' KB'; };
+var when = function (s) { try { return new Date(s).toLocaleString(); } catch (e) { return String(s || ''); } };
+var msg = document.getElementById('msg');
+function say(text, kind) { msg.className = 'msg ' + kind; msg.textContent = text; }
+function clearSay() { msg.className = 'msg'; msg.textContent = ''; }
+
+function render(d) {
+  var c = d.current;
+  document.getElementById('current').innerHTML = c
+    ? '<div class="row"><div><div class="big">' + Number(c.rows).toLocaleString() + '</div>'
+      + '<div class="muted">connections</div></div>'
+      + '<div><div class="big">' + kb(c.bytes) + '</div><div class="muted">' + esc(c.filename || 'Connections.csv') + '</div></div></div>'
+      + '<p class="muted">Uploaded ' + esc(when(c.uploadedAt)) + (c.uploadedBy ? ' by ' + esc(c.uploadedBy) : '') + '.</p>'
+    : '<p>No export stored yet. The prospecting brief will report <strong>0 drafted</strong> every morning until one is uploaded.</p>';
+
+  var rest = (d.history || []).slice(1);
+  document.getElementById('history').innerHTML = (d.history || []).length < 2
+    ? '<p class="muted">Nothing earlier. The one above is the only export stored.</p>'
+    : '<table><tr><th>Uploaded</th><th>File</th><th>Connections</th><th>Size</th><th></th></tr>'
+      + rest.map(function (r) {
+          return '<tr><td>' + esc(when(r.uploadedAt)) + '</td><td>' + esc(r.filename || '') + '</td>'
+            + '<td>' + Number(r.rows).toLocaleString() + '</td><td>' + kb(r.bytes) + '</td>'
+            + '<td><button class="ghost" data-del="' + r.id + '">Delete</button></td></tr>';
+        }).join('')
+      + '</table>';
+  Array.prototype.forEach.call(document.querySelectorAll('[data-del]'), function (b) {
+    b.onclick = function () { del(b.getAttribute('data-del')); };
+  });
+}
+
+function load() {
+  fetch('/api/admin/connections', { credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { if (d.error) { say(d.error, 'err'); return; } render(d); })
+    .catch(function (e) { say('Could not load: ' + e.message, 'err'); });
+}
+
+function del(id) {
+  if (!confirm('Delete this earlier upload? The export in use is not affected.')) return;
+  fetch('/api/admin/connections/' + id, { method: 'DELETE', credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { if (d.error) { say(d.error, 'err'); return; } clearSay(); load(); })
+    .catch(function (e) { say('Could not delete: ' + e.message, 'err'); });
+}
+
+var picked = null;
+document.getElementById('f').onchange = function (e) {
+  picked = e.target.files && e.target.files[0];
+  document.getElementById('go').disabled = !picked;
+  document.getElementById('picked').textContent = picked ? picked.name + ' — ' + kb(picked.size) : '';
+  if (picked) document.getElementById('drop').textContent = picked.name;
+  clearSay();
+};
+
+document.getElementById('go').onclick = function () {
+  if (!picked) return;
+  var btn = document.getElementById('go');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  var fr = new FileReader();
+  fr.onerror = function () { say('Could not read that file off your disk.', 'err'); btn.disabled = false; btn.textContent = 'Upload'; };
+  fr.onload = function () {
+    fetch('/api/admin/connections', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: picked.name, csv: String(fr.result) }),
+    }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false; btn.textContent = 'Upload';
+        if (d.error) { say(d.error, 'err'); return; }
+        say(Number(d.rows).toLocaleString() + ' connections stored. The prospecting brief reads this one from its next run.', 'ok');
+        document.getElementById('drop').textContent = 'Choose Connections.csv…';
+        document.getElementById('picked').textContent = '';
+        document.getElementById('f').value = ''; picked = null; btn.disabled = true;
+        load();
+      })
+      .catch(function (e) { btn.disabled = false; btn.textContent = 'Upload'; say('Upload failed: ' + e.message, 'err'); });
+  };
+  fr.readAsText(picked);
+};
+
+load();
+</script>
+</main></body></html>

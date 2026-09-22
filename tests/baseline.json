@@ -127,6 +127,11 @@
       "total": 39,
       "fault": null
     },
+    "briefconnections.js": {
+      "failed": 0,
+      "total": 54,
+      "fault": null
+    },
     "briefsauth.js": {
       "failed": 0,
       "total": 22,

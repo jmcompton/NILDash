@@ -13,6 +13,8 @@
 //   node tools/briefs/run-slot.js --all        every brief in order (a manual run)
 //   node tools/briefs/run-slot.js --brief news-watch
 //   node tools/briefs/run-slot.js --dry        say which brief this slot would run
+//   node tools/briefs/run-slot.js --brief news-watch --no-email   run it, archive it, send nothing
+//   node tools/briefs/run-slot.js --brief prospecting --brief-dry   count the queue, draft nothing
 //
 // BRIEFS_TZ (default America/Chicago) and BRIEFS_SLOT_TOLERANCE_MIN (default
 // 7: Railway's cron can start a job a minute or two late) shape the match.
@@ -49,11 +51,35 @@ function pickSlot(hm, tolerance = TOLERANCE, slots = SLOTS) {
   return best;
 }
 
-function runBrief(name) {
+// The flags a brief understands, forwarded from this runner's own command
+// line. THE LIST IS CLOSED on purpose: the admin endpoint that runs a brief on
+// demand passes user input through here, and an open passthrough would let a
+// query string add arguments to a spawned process.
+//
+// --dry IS NOT ON THE LIST, and --brief-dry is. They are two different words
+// for two different things and sharing one would be a trap: --dry here means
+// "say which brief this slot picks and run nothing", while --dry inside
+// prospecting means "count the queue, draft nothing, spend no model call".
+// Forwarding the first as the second would silently run a brief somebody
+// asked NOT to run; keeping them apart costs one word.
+const PASS_THROUGH = ['--no-email', '--debug'];
+const TRANSLATE = { '--brief-dry': '--dry' };
+function briefFlags(argv) {
+  const out = [];
+  for (const a of argv || []) {
+    if (PASS_THROUGH.includes(a) && !out.includes(a)) out.push(a);
+    else if (TRANSLATE[a] && !out.includes(TRANSLATE[a])) out.push(TRANSLATE[a]);
+  }
+  return out;
+}
+
+function runBrief(name, flags) {
   const script = path.join(__dirname, `${name}.js`);
+  const args = [script, ...briefFlags(flags)];
   return new Promise((resolve) => {
     const t0 = Date.now();
-    const child = spawn(process.execPath, [script], { stdio: 'inherit', env: process.env });
+    if (args.length > 1) console.log(`[run-slot] ${name} ${args.slice(1).join(' ')}`);
+    const child = spawn(process.execPath, args, { stdio: 'inherit', env: process.env });
     child.on('error', (e) => { console.error(`[run-slot] ${name}: could not start: ${e.message}`); resolve(1); });
     child.on('close', (code) => { console.log(`[run-slot] ${name}: exit ${code} after ${Math.round((Date.now() - t0) / 1000)}s`); resolve(code == null ? 1 : code); });
   });
@@ -82,11 +108,11 @@ async function main(argv) {
 
   let worst = 0;
   for (const n of names) {
-    const code = await runBrief(n);
+    const code = await runBrief(n, argv);
     if (code > worst) worst = code;
   }
   return worst;
 }
 
-module.exports = { SLOTS, localHM, pickSlot, runBrief, main };
+module.exports = { SLOTS, PASS_THROUGH, TRANSLATE, localHM, pickSlot, briefFlags, runBrief, main };
 if (require.main === module) main(process.argv.slice(2)).then((code) => process.exit(code)).catch((e) => { console.error('[run-slot] FAILED', e); process.exit(1); });

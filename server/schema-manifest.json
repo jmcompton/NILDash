@@ -363,6 +363,15 @@
       "partnership_opportunities": "JSONB DEFAULT '[]'",
       "reasoning": "TEXT"
     },
+    "brief_connections": {
+      "id": "SERIAL",
+      "filename": "TEXT",
+      "csv": "TEXT",
+      "rows": "INT DEFAULT 0",
+      "bytes": "INT DEFAULT 0",
+      "uploaded_by": "TEXT",
+      "uploaded_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "calendar_events": {
       "agent_id": "TEXT",
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
