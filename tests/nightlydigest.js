@@ -63,17 +63,47 @@ async function main() {
 
   // ── 2. THE EMAIL ─────────────────────────────────────────────────────────
   OUT.push('', '-- the email --');
-  const m = D.render({ rows, reviewUrl: 'https://mynildash.com/', unsubUrl: 'https://mynildash.com/api/digest/unsubscribe?token=t' });
+  // The email renders PITCHES now, not counts, so the fixture carries them:
+  // one line per pitch with its business, owner and first sentence, and its
+  // own pair of links. rowsFor's counts are still what decides whether a
+  // digest goes out at all, and are asserted above.
+  let _pn = 0;
+  const groups = rows.map((r) => ({
+    ...r,
+    pitches: Array.from({ length: r.count }, () => {
+      const i = ++_pn;
+      return { id: 'nd-p' + i, brand: 'Business ' + i, owner: 'Owner ' + i,
+        preview: 'A first sentence about Business ' + i + '.',
+        approveUrl: 'https://mynildash.com/a/aaa' + i, skipUrl: 'https://mynildash.com/a/sss' + i };
+    }),
+    approveAllUrl: r.count > 1 ? 'https://mynildash.com/a/all' + r.athleteId : null,
+  }));
+  const m = D.render({ rows: groups, reviewUrl: 'https://mynildash.com/', unsubUrl: 'https://mynildash.com/api/digest/unsubscribe?token=t' });
   ok('subject: the count and the date, so no two nights are the same email', /^6 pitches ready, \w{3} \w{3} \d{1,2}$/.test(m.subject), m.subject);
-  ok('the one line at the top', m.html.includes("NILDash found new opportunities for your athletes last night. Here&#39;s what&#39;s ready.") || m.html.includes("NILDash found new opportunities for your athletes last night. Here's what's ready."));
+  ok('the one line at the top, and it names the decision the email now carries',
+    m.html.includes('NILDash found new opportunities for your athletes last night. Approve or skip each one right here.'));
   ok('  and it is the first thing in the body after the preheader', m.html.indexOf('NILDash found new opportunities') < m.html.indexOf('Peyton Bair'));
-  ok('one row per athlete: name, school or city, count, Review link to the dashboard', (m.html.match(/>Review<\/a>/g) || []).length === 3 && (m.html.match(/href="https:\/\/mynildash\.com\/"/g) || []).length === 3 && /Peyton Bair[\s\S]*Auburn University[\s\S]*3 new pitches/.test(m.html) && /Max Murray[\s\S]*New York, NY[\s\S]*1 new pitch</.test(m.html));
-  ok('the single footer line', m.html.includes('Pitches expire in 14 days. NILDash refills automatically each night.') && (m.html.match(/Pitches expire in 14 days/g) || []).length === 1);
+  // ONE ROW PER PITCH, GROUPED BY ATHLETE. It was one row per athlete and a
+  // count, with a single Review link to the dashboard -- and agents were not
+  // clicking it, which is the whole reason this changed.
+  ok('each athlete still heads their own block, with their school or city and a count',
+    /Peyton Bair<\/span>[\s\S]{0,200}Auburn University/.test(m.html) && /3 pitches</.test(m.html)
+    && /Max Murray<\/span>[\s\S]{0,200}New York, NY/.test(m.html) && /1 pitch</.test(m.html), m.html.slice(0, 0));
+  ok('  and every pitch under it carries its own Approve and Skip',
+    (m.html.match(/>Approve</g) || []).length === 6 && (m.html.match(/>Skip</g) || []).length === 6);
+  ok('  an athlete with more than one pitch gets an Approve all',
+    /Approve all 3 for Peyton</.test(m.html), (m.html.match(/Approve all [^<]*/g) || []));
+  ok('the single footer line, saying what approving actually does',
+    m.html.includes('Pitches expire in 14 days.') && /Tuesday to Thursday morning/.test(m.html)
+    && (m.html.match(/Pitches expire in 14 days/g) || []).length === 1);
   ok('plain: no header banner, no logo image, no marketing or feature copy', !/<img/i.test(m.html) && !/<h1|<h2/i.test(m.html) && !/upgrade|new feature|introducing|learn more|pro plan/i.test(m.html));
   ok('mobile friendly: viewport meta, one 560px table, no fixed widths wider than a phone', /viewport/.test(m.html) && /max-width:560px/.test(m.html) && !/width="6\d\d"|width:7\d\dpx/.test(m.html));
   ok('the unsubscribe link is present and small', /Unsubscribe from these emails/.test(m.html) && m.html.indexOf('Unsubscribe') > m.html.indexOf('Pitches expire'));
-  ok('the text alternative carries the same three lines', /NILDash found new opportunities/.test(m.text) && /Peyton Bair \(Auburn University\): 3 new pitches\. Review: https:\/\/mynildash\.com\//.test(m.text) && /Pitches expire in 14 days/.test(m.text));
-  ok('names are escaped', /&lt;b&gt;/.test(D.render({ rows: [{ name: '<b>x</b>', place: '', count: 1 }], reviewUrl: 'u', unsubUrl: '' }).html));
+  ok('the text alternative carries the same pitches and the same links',
+    /NILDash found new opportunities/.test(m.text) && /Peyton Bair \(Auburn University\) — 3 pitches/.test(m.text)
+    && /Approve: https:/.test(m.text) && /Skip: {4}https:/.test(m.text) && /Pitches expire in 14 days/.test(m.text), m.text.slice(0, 300));
+  ok('names are escaped', /&lt;b&gt;/.test(D.render({ rows: [{ name: '<b>x</b>', place: '', pitches: [{ id: 'p', brand: 'B', preview: 'x.', approveUrl: 'u', skipUrl: 'u' }] }], reviewUrl: 'u', unsubUrl: '' }).html));
+  ok('  and so is a business name', /&lt;i&gt;/.test(D.render({ rows: [{ name: 'A', place: '', pitches: [{ id: 'p', brand: '<i>B</i>', preview: 'x.', approveUrl: 'u', skipUrl: 'u' }] }], reviewUrl: 'u', unsubUrl: '' }).html));
 
   // ── 3. THE SEND, ONCE ────────────────────────────────────────────────────
   OUT.push('', '-- the send --');
@@ -118,7 +148,15 @@ async function main() {
   const job = fs.readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
   const hook = job.slice(job.indexOf('async function fillAgent('), job.indexOf('const INACTIVE_AFTER_DAYS'));
   ok('the digest is called at the end of fillAgent, after the run row is written', /UPDATE outreach_queue_runs SET filled = \$3, spent_usd = \$4, details = \$5, finished_at = NOW\(\)[\s\S]*?sendForRun\(pool, \{ agentId: agent\.id, runDate, details \}\)/.test(hook));
-  ok('  only when the fill placed something, never in a dry run', /if \(filled > 0 && !opts\.noDigest\) \{/.test(hook) && hook.indexOf('if (!dry) {') < hook.indexOf('sendForRun'));
+  // A NIGHT THAT FOUND NOTHING IS NOT A NIGHT WITH NOTHING TO SAY. It used to
+  // be `filled > 0` and nothing else, so an agent with a queue of unapproved
+  // pitches heard nothing for as long as the fill kept coming up empty -- which
+  // is exactly the silence that let the queue build up. Cards tonight: the
+  // digest is about them. No cards but pitches still waiting: the same email,
+  // at most once every three days.
+  ok('  never in a dry run', hook.indexOf('if (!dry) {') < hook.indexOf('sendForRun'));
+  ok('  a night with cards sends the new-pitches digest', /filled > 0\s*\n?\s*\? await ND\.sendForRun\(pool, \{ agentId: agent\.id, runDate, details \}\)/.test(hook));
+  ok('  a night with none sends the waiting one instead', /: await ND\.sendWaiting\(pool, \{ agentId: agent\.id, runDate \}\)/.test(hook));
   ok('  a digest failure cannot fail the fill', /catch \(e\) \{ console\.error\(`\[nightly-digest\] agent=/.test(hook));
   ok('a dormant agent is skipped before fillAgent, so never digested', /const why = inactiveSkip\(a, opts\.now\);[\s\S]*?continue;[\s\S]*?const r = await fillAgent\(pool, a, opts\)/.test(job));
   ok('the on-demand path (fillAthlete) does not send it', !/sendForRun/.test(job.slice(job.indexOf('async function fillOnDemand('), job.indexOf('async function loadAthletesForQueue'))));

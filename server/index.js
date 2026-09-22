@@ -17,6 +17,15 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const ai       = require('./ai');
 const MarketDeepen = require('./services/marketDeepen');
 const Closer = require('./services/closer');
+// One-tap approve/skip from the digest email: the action log and the signed
+// links. Module scope, not inside the handlers -- a require() in a route body
+// is a lookup on every request, and it puts the dependency where a reader of
+// the route cannot see it.
+const PitchActions = require('./services/pitchActions');
+const PitchActionTokens = require('./services/pitchActionTokens');
+// firstSentence: the same one-line preview the digest email prints, so the
+// page an agent lands on shows exactly what the email showed them.
+const { firstSentence: pitchPreview } = require('./services/nightlyDigest');
 const nilRules = require('./nilStateRules');
 const scanMeter = require('./scanMeter');
 const { requireUniversityMode } = require('./middleware/modeGuard');
@@ -30,6 +39,12 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
 // form see them without a lookup (services/schoolFind).
 if (store.ready && typeof store.ready.then === 'function') {
   store.ready.then(() => require('./services/sendRules').ensureTable(store.pool)).catch(() => {});
+  // The one-tap approve/skip tables. schemaReconcile creates them from the
+  // manifest; these calls add the indexes it cannot derive -- above all the
+  // UNIQUE on token_hash, which is what makes "look this token up" mean one
+  // row and not several.
+  store.ready.then(() => PitchActionTokens.ensureTable(store.pool)).catch(() => {});
+  store.ready.then(() => PitchActions.ensureTable(store.pool)).catch(() => {});
   store.ready.then(() => require('./services/schoolFind').ensureLoaded())
     .then((n) => { if (n) console.log(`[schoolFind] ${n} learned school(s) loaded`); })
     .catch((e) => console.error('[schoolFind] boot load:', e.message));
@@ -2023,6 +2038,12 @@ app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
     // that athlete rather than trusting the posted id list.
     const out = await Closer.approveBatch(store.pool, req.session.userId,
       { ids, skip, athleteId: req.body.athleteId || null });
+    // Logged with its channel, so approvals from the dashboard and approvals
+    // from the digest email can be compared rather than guessed at. Only what
+    // was actually scheduled: `when` is the per-draft record approveBatch
+    // already keeps, so this counts sends, not clicks.
+    await PitchActions.logMany(store.pool,
+      (out.when || []).map((w) => ({ pitchId: w.id, agentId: req.session.userId, action: 'approve', source: 'dashboard' })));
     res.json(out);
   } catch (e) {
     // A REJECTED ID IS THE CLIENT'S FAULT, NOT A FAULT. approveBatch throws
@@ -2049,14 +2070,14 @@ app.patch('/api/agent/closer/draft/:id', requireAuth, async (req, res) => {
     const { body, skip } = req.body || {};
 
     if (skip === true) {
-      // SKIPPED, NOT DELETED. It stops the cadence for this one business and
-      // says why, so "where did that pitch go" is answerable.
-      const r = await store.pool.query(
-        `UPDATE outreach_logs
-            SET cadence_stopped_at = NOW(), cadence_stop_reason = 'you skipped it', updated_at = NOW()
-          WHERE id = $1 AND agent_id = $2 AND status = 'draft' AND approved_at IS NULL
-          RETURNING id`, [req.params.id, agentId]);
-      if (!r.rows[0]) return res.status(404).json({ error: 'Draft not found' });
+      // ONE SKIP, TWO DOORS. The body of this used to live here and nowhere
+      // else; one-tap Skip from the digest email does the identical thing, and
+      // "the identical thing" has to be the same function or the two drift.
+      const out = await Closer.skipDraft(store.pool, agentId, req.params.id);
+      if (!out.ok) return res.status(404).json({ error: 'Draft not found' });
+      // Logged with its channel, so dashboard skips and emailed skips can be
+      // compared rather than guessed at (services/pitchActions).
+      await PitchActions.log(store.pool, { pitchId: out.id, agentId, action: 'skip', source: 'dashboard' });
       return res.json({ ok: true, skipped: true });
     }
 
@@ -11518,6 +11539,212 @@ footer{margin-top:20px;padding-top:14px;border-top:1px solid #1f2937;color:#6b72
 <footer>${esc(canSpamSvc.mailingAddress() || 'NILDash')}</footer>
 </main></body></html>`;
 }
+
+// ── ONE-TAP APPROVE AND SKIP, FROM THE DIGEST EMAIL ──────────────────────────
+//
+// Agents were not logging in to approve pitches, so deals stalled. Every pitch
+// in the nightly digest carries two links here. PUBLIC, no session: the whole
+// point is that it works from a phone at 6am without a password.
+//
+// GET SHOWS, POST ACTS, and that split is the load-bearing part. Outlook Safe
+// Links and Gmail's scanner fetch every URL in a message before a human sees
+// it; a GET that approved would send pitches nobody chose to send, under an
+// agent's own name, to real businesses. So GET renders the pitch and a button,
+// and only the button's POST does anything.
+//
+// THE WORK IS NOT DONE HERE. Approve calls Closer.approveBatch and skip calls
+// Closer.skipDraft -- the same two functions the dashboard calls, with the same
+// ceiling, the same send window, the same pipeline write. There is no second
+// send path to keep in step.
+const pitchActionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  message: 'Too many requests. Wait a few minutes and try again.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+function _paEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// One page shape for every state: the action, the confirmation and the five
+// friendly refusals. Mobile-first because the phone is where this is read.
+function _pitchActionPage({ title, sub, body, note }) {
+  const appUrl = process.env.APP_URL || 'https://mynildash.com';
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<title>${_paEsc(title)}</title><style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#0b0f17;color:#e5e7eb;padding:16px;
+ display:flex;align-items:flex-start;justify-content:center;
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+main{max-width:460px;width:100%;margin-top:24px}
+.card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:22px;margin-bottom:14px}
+h1{font-size:19px;margin:0 0 6px;line-height:1.3}
+.sub{color:#9ca3af;font-size:14px;margin:0 0 14px;line-height:1.5}
+.brand{font-size:17px;font-weight:600;color:#fff;margin-bottom:2px}
+.owner{font-size:13px;color:#9ca3af;margin-bottom:10px}
+.preview{font-size:14px;line-height:1.6;color:#cbd5e1;background:#0b0f17;
+ border:1px solid #1f2937;border-radius:8px;padding:12px;margin-bottom:16px}
+button{width:100%;border:0;border-radius:10px;padding:15px 18px;font-size:16px;
+ font-weight:600;cursor:pointer;background:#2563eb;color:#fff}
+button:hover{background:#1d4ed8}
+button.skip{background:#1f2937;color:#e5e7eb;border:1px solid #374151}
+button.skip:hover{background:#374151}
+.note{font-size:13px;color:#6b7280;line-height:1.5;margin-top:12px}
+ul{margin:8px 0 0;padding-left:18px;font-size:14px;color:#cbd5e1;line-height:1.7}
+a{color:#60a5fa}
+.foot{text-align:center;font-size:13px;color:#6b7280;padding-bottom:24px}
+</style></head><body><main>
+<div class="card"><h1>${_paEsc(title)}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}${body || ''}${note ? `<div class="note">${note}</div>` : ''}</div>
+<div class="foot"><a href="${_paEsc(appUrl)}/">Open NILDash</a></div>
+</main></body></html>`;
+}
+
+// The five refusals, each in words and each with a way back in.
+const _PA_REFUSALS = {
+  unknown: { title: 'That link is not valid', sub: 'We could not find this link. It may have been retyped or cut short by an email client.' },
+  expired: { title: 'That link has expired', sub: 'Approve and skip links last 72 hours. This pitch is still waiting for you in NILDash.' },
+  used: { title: 'That one is already done', sub: 'This link has been used. Each one works once.' },
+  gone: { title: 'That pitch is no longer there', sub: 'It was removed or expired before this link was used.' },
+  handled: { title: 'Already handled', sub: 'This was approved or skipped already, here or in NILDash.' },
+};
+
+function _pitchActionRefusal(res, reason, extra) {
+  const r = _PA_REFUSALS[reason] || _PA_REFUSALS.unknown;
+  const code = reason === 'unknown' ? 404 : 410;
+  return res.status(code).send(_pitchActionPage({
+    title: r.title,
+    sub: _paEsc(r.sub) + (extra ? ' ' + _paEsc(extra) : ''),
+    note: `<a href="${_paEsc(process.env.APP_URL || 'https://mynildash.com')}/">Log in to NILDash</a> to see everything waiting.`,
+  }));
+}
+
+// The form that does the work. One large button, method POST.
+function _pitchActionForm(token, label, { skip } = {}) {
+  return `<form method="POST" action="/a/${encodeURIComponent(token)}">
+  <button type="submit"${skip ? ' class="skip"' : ''}>${_paEsc(label)}</button>
+</form>`;
+}
+
+app.get('/a/:token', pitchActionLimiter, async (req, res) => {
+  try {
+    const T = PitchActionTokens;
+    const out = await T.lookup(store.pool, req.params.token);
+    if (!out.ok) return _pitchActionRefusal(res, out.reason);
+    const row = out.row;
+
+    if (row.action === 'approve_all') {
+      const list = out.pending || [];
+      return res.send(_pitchActionPage({
+        title: list.length === 1
+          ? `Send this pitch for ${_paEsc(row.athlete_name || 'this athlete')}?`
+          : `Send all ${list.length} pitches for ${_paEsc(row.athlete_name || 'this athlete')}?`,
+        sub: 'Each goes out Tuesday to Thursday, mid-morning in the business’s own timezone.',
+        body: `<ul>${list.map((p) => `<li>${_paEsc(p.brand_name || 'A local business')}</li>`).join('')}</ul>
+          <div style="margin-top:16px">${_pitchActionForm(req.params.token, list.length === 1 ? 'Send pitch' : `Send all ${list.length}`)}</div>`,
+        note: 'Nothing is sent until you tap the button.',
+      }));
+    }
+
+    const skip = row.action === 'skip';
+    return res.send(_pitchActionPage({
+      title: skip ? 'Skip this pitch?' : 'Send this pitch?',
+      sub: `For ${_paEsc(row.athlete_name || 'your athlete')}`,
+      body: `<div class="brand">${_paEsc(row.brand_name || 'A local business')}</div>
+        ${row.contact_name ? `<div class="owner">${_paEsc(row.contact_name)}</div>` : ''}
+        ${row.body_html ? `<div class="preview">${_paEsc(pitchPreview(row.body_html))}</div>` : ''}
+        ${_pitchActionForm(req.params.token, skip ? 'Skip pitch' : 'Send pitch', { skip })}`,
+      note: skip
+        ? 'Skipping stops the follow-up sequence for this business. Nothing is sent.'
+        : 'Nothing is sent until you tap the button. It then goes out Tuesday to Thursday, mid-morning in the business’s own timezone.',
+    }));
+  } catch (e) {
+    console.error('[pitch-action/get]', e.message);
+    res.status(500).send(_pitchActionPage({ title: 'Something went wrong', sub: 'Try the link again in a minute.' }));
+  }
+});
+
+app.post('/a/:token', pitchActionLimiter, express.urlencoded({ extended: false, limit: '4kb' }), async (req, res) => {
+  try {
+    const T = PitchActionTokens;
+    const PA = PitchActions;
+    // THE CLAIM COMES FIRST. One statement, so a double tap cannot approve
+    // twice; the work only happens for the tap that won it.
+    const got = await T.claim(store.pool, req.params.token);
+    if (!got.ok) return _pitchActionRefusal(res, got.reason);
+    const row = got.row;
+    const agentId = row.agent_id;
+    const source = 'email';
+
+    let title, sub;
+    if (row.action === 'approve_all') {
+      const pending = await T.pendingForAthlete(store.pool, agentId, row.athlete_id);
+      const ids = pending.map((p) => p.id);
+      const out = await Closer.approveBatch(store.pool, agentId, { ids });
+      await PA.logMany(store.pool, ids.slice(0, out.scheduled).map((id) => ({ pitchId: id, agentId, action: 'approve', source })));
+      title = `${out.scheduled} pitch${out.scheduled === 1 ? '' : 'es'} sent for ${row.athlete_name || 'your athlete'}`;
+      sub = out.scheduled
+        ? 'They go out Tuesday to Thursday, mid-morning where each business is.'
+        : (out.note || 'Nothing was scheduled.');
+      if (out.scheduled && out.note) sub += ' ' + out.note;
+    } else if (row.action === 'skip') {
+      const out = await Closer.skipDraft(store.pool, agentId, row.pitch_id);
+      if (!out.ok) return _pitchActionRefusal(res, 'handled');
+      await PA.log(store.pool, { pitchId: row.pitch_id, agentId, action: 'skip', source });
+      title = `Skipped ${row.brand_name || 'that business'}`;
+      sub = 'Nothing was sent, and the follow-up sequence for this business is stopped.';
+    } else {
+      const out = await Closer.approveBatch(store.pool, agentId, { ids: [row.pitch_id] });
+      if (!out.scheduled) {
+        // Approve is the one action that can legitimately refuse: the daily
+        // ceiling, or no send slot in the next window. Say which.
+        return res.status(409).send(_pitchActionPage({
+          title: 'Not sent yet',
+          sub: _paEsc(out.note || (out.blocked ? out.note : 'This pitch could not be scheduled just now.')),
+          note: `It is still waiting in <a href="${_paEsc(process.env.APP_URL || 'https://mynildash.com')}/">NILDash</a>.`,
+        }));
+      }
+      await PA.log(store.pool, { pitchId: row.pitch_id, agentId, action: 'approve', source });
+      title = `Sent to ${row.brand_name || 'that business'}`;
+      sub = 'It goes out Tuesday to Thursday, mid-morning in their own timezone.';
+    }
+
+    // ── AND THE NEXT ONE, so the queue clears in a row ──────────────────
+    // The reason this page is not just a receipt: an agent who taps once is an
+    // agent who will tap again if the next decision is already in front of
+    // them. Its buttons are fresh tokens, minted here.
+    const next = await T.nextPending(store.pool, agentId, row.pitch_id || null);
+    const left = await T.pendingCount(store.pool, agentId);
+    let body = '';
+    if (next) {
+      // retirePrevious: false -- this pitch already has live links in the email
+      // the agent is holding. Killing them here would tell them "already done"
+      // about a pitch nobody has touched. The claim still allows exactly one.
+      const pair = await T.issueFor(store.pool, { pitchId: next.id, agentId, athleteId: next.athlete_id, retirePrevious: false });
+      const base = (process.env.APP_URL || 'https://mynildash.com').replace(/\/+$/, '');
+      body = `<div style="margin-top:18px;padding-top:18px;border-top:1px solid #1f2937">
+          <p class="sub" style="margin-bottom:10px">Next up${left > 1 ? ` — ${left} still waiting` : ''}: for ${_paEsc(next.athlete_name || 'your athlete')}</p>
+          <div class="brand">${_paEsc(next.brand_name || 'A local business')}</div>
+          ${next.contact_name ? `<div class="owner">${_paEsc(next.contact_name)}</div>` : ''}
+          ${next.body_html ? `<div class="preview">${_paEsc(pitchPreview(next.body_html))}</div>` : ''}
+          <form method="POST" action="/a/${encodeURIComponent(pair.approve)}"><button type="submit">Send pitch</button></form>
+          <form method="POST" action="/a/${encodeURIComponent(pair.skip)}" style="margin-top:8px"><button type="submit" class="skip">Skip pitch</button></form>
+        </div>`;
+    } else {
+      body = '<p class="sub" style="margin-top:14px">That was the last one waiting. Nice.</p>';
+    }
+    res.send(_pitchActionPage({ title, sub: _paEsc(sub), body }));
+  } catch (e) {
+    console.error('[pitch-action/post]', e.message);
+    res.status(500).send(_pitchActionPage({ title: 'Something went wrong', sub: 'Nothing was changed. Try the link again in a minute.' }));
+  }
+});
 
 app.get('/unsubscribe', (req, res) => {
   const address = canSpamSvc.emailFromToken(req.query.u);

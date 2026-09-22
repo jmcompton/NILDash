@@ -882,6 +882,25 @@
       "token_hash": "TEXT",
       "used": "BOOLEAN DEFAULT FALSE"
     },
+    "pitch_action_tokens": {
+      "id": "SERIAL",
+      "pitch_id": "TEXT",
+      "agent_id": "TEXT",
+      "action": "TEXT",
+      "token_hash": "TEXT",
+      "expires_at": "TIMESTAMPTZ",
+      "used_at": "TIMESTAMPTZ",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "athlete_id": "TEXT"
+    },
+    "pitch_actions": {
+      "id": "SERIAL",
+      "pitch_id": "TEXT",
+      "agent_id": "TEXT",
+      "action": "TEXT",
+      "source": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "pitch_decks": {
       "agent_id": "TEXT",
       "athlete_id": "TEXT",
