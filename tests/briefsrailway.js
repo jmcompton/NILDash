@@ -128,7 +128,17 @@ async function main() {
   // ── 5. PROSPECTING AND STRATEGY WATCH OFF THE MAC ────────────────────────
   OUT.push('', '-- the other two --');
   const pr = fs.readFileSync(REPO + 'tools/briefs/prospecting.js', 'utf8');
-  ok('prospecting fetches the LinkedIn CSV from BRIEFS_CONNECTIONS_URL into the inbox', /async function fetchConnectionsIfConfigured/.test(pr) && /await fetchConnectionsIfConfigured\(cfg, warnings\);\s*const tried = \[\];\s*const csvPath = findCsv\(cfg, tried\);/.test(pr) && /'Connections\.csv'/.test(pr));
+  // The DATABASE is the first door now (tests/briefconnections.js covers it);
+  // the URL fetch is the second and the Mac's own files the third, and the
+  // order is what matters here -- a server has no inbox for anybody to drop a
+  // file into, so a stored export has to win over one.
+  ok('prospecting reads the stored export before it looks at any file',
+    /const stored = await connectionsFromDb\(tried, warnings\);/.test(pr)
+    && pr.indexOf('connectionsFromDb(tried, warnings)') < pr.indexOf('fetchConnectionsIfConfigured(cfg, warnings)'));
+  ok('prospecting still fetches the LinkedIn CSV from BRIEFS_CONNECTIONS_URL into the inbox when nothing is stored',
+    /async function fetchConnectionsIfConfigured/.test(pr)
+    && /if \(!csvText\) \{\s*await fetchConnectionsIfConfigured\(cfg, warnings\);\s*const csvPath = findCsv\(cfg, tried\);/.test(pr)
+    && /'Connections\.csv'/.test(pr));
   ok('  and a failed fetch keeps the last copy', /Using the last copy/.test(pr));
   // strategy-watch: no config.json on Railway, so the record goes to the state dir.
   const stub = async (prompt, opts) => ({ text: '[]', json: [{ title: 'Vote set', url: 'https://example.com/v', source: 'S', published: L.today(), kind: 'vote', meaningful: true, line: 'A vote was scheduled.' }], sessionId: 's', numTurns: 1, ms: 1 });

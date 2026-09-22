@@ -22,7 +22,7 @@ If nothing survives, the run writes one log line and sends nothing. When it send
 1. **The keys.** `mkdir -p ~/nildash-briefs/inbox`, copy `config.example.json` to `~/nildash-briefs/config.json`, and set `deepseekApiKey` to a DeepSeek API key (platform.deepseek.com > API keys). If you would rather not keep it in the file, leave it empty and export `DEEPSEEK_API_KEY` in the environment that runs the briefs; the file is read first, the environment second, and with neither a run stops before any call is made and says which to set. News, prospecting and strategy-watch search the web, and DeepSeek has no search of its own, so also set one of `braveSearchApiKey` (api.search.brave.com), `serperApiKey` (serper.dev) or `tavilyApiKey` (tavily.com); follow-ups needs none. Then `node tools/briefs/lib.js --api-test` must print `RESULT: PASS` and name where the key came from, and `--api-test --search` must show a search going through the provider.
 2. **Config.** In the same file fill in `resendApiKey` (the same key Railway has), `myAddresses` (every address you send from), and `aboutMe` in your own words. `to` is already `john@comptongroupllc.com`.
 3. **Mail.app.** Both accounts must be set up in Mail on that Mac. The first run will ask for Automation permission (System Settings > Privacy & Security > Automation: allow the terminal, and cron, to control Mail). Run `node tools/briefs/follow-ups.js` by hand once so the prompt appears.
-4. **LinkedIn CSV.** Drop `Connections.csv` in `~/nildash-briefs/inbox/`, or set `connectionsFile` in the config to wherever it is (`~` is expanded). The export lives at LinkedIn > Settings > Data privacy > Get a copy of your data > Connections. Prospecting looks at `connectionsFile` first, then `inbox/*.csv`, then `~/nildash-briefs/*.csv`.
+4. **LinkedIn CSV.** Upload it at `/admin/connections` on NILDash and it is stored in the database, read by the brief wherever it runs. Prospecting looks at the database first, then `connectionsUrl`, then `connectionsFile`, then `inbox/*.csv`, then `~/nildash-briefs/*.csv` — so dropping `Connections.csv` in `~/nildash-briefs/inbox/` still works on a Mac with no `DATABASE_URL`. The export lives at LinkedIn > Settings > Data privacy > Get a copy of your data > Connections.
 5. **launchd, not cron.** `node tools/briefs/launchd.js --install` writes four LaunchAgents (`com.nildash.briefs.<kind>`) that run the briefs at 5:30, 5:45, 6:00 and 6:15 local through `StartCalendarInterval`. cron skips a minute that passes while the Mac is asleep; launchd runs the missed job as soon as the Mac wakes, and folds several missed runs into one. Then `node tools/briefs/launchd.js --remove-cron` takes the old cron lines out (the old crontab is saved under `~/nildash-briefs/logs/`). `--status` shows what is loaded and the last line of each log; the logs are `~/nildash-briefs/logs/launchd-<kind>.log`. `crontab.example` is kept for a machine that has to stay on cron.
 6. **Mail.app under launchd.** A launchd job is its own process for Automation permission: run `node tools/briefs/follow-ups.js` once by hand so the Mail prompt appears, and if a launchd run logs `osascript failed`, allow node to control Mail in System Settings > Privacy & Security > Automation.
 7. **When a morning's briefs do not arrive**, `bash tools/briefs/why-no-brief.sh` on the Mac prints, top to bottom, whether the Mac was awake at the slots, what is scheduled, what each run logged between 05:20 and 06:30, whether the keys are in place, and the result of one test call. The first block that says the wrong thing is the reason.
@@ -54,7 +54,7 @@ The same four scripts, as one Railway service separate from the NILDash app. The
 
 1. Railway > the NILDash project > New > GitHub repo > this repository. Name the service `nildash-briefs`. Leave the root directory at `/`.
 2. Service settings > Config-as-code > set the path to `tools/briefs/railway.json`. That file selects the Dockerfile, the start command, the cron schedule and no restarts. Railway reads it on the next deploy.
-3. Service settings > Volumes > add a volume mounted at `/data/briefs`. State (what was shown, what was drafted, the last strategy send), the archives, the logs and the LinkedIn CSV live there. Without it every deploy starts from nothing and the briefs repeat themselves.
+3. Service settings > Volumes > add a volume mounted at `/data/briefs`. State (what was shown, what was drafted, the last strategy send), the archives and the logs live there. Without it every deploy starts from nothing and the briefs repeat themselves. (The LinkedIn export no longer needs the volume: it is in the database.)
 4. Variables: the table below. `BRIEFS_HOME` is already set by the Dockerfile.
 5. Deploy. Then run `node tools/briefs/run-slot.js --brief news-watch` from the service's shell (or temporarily set the start command to it) to see one brief go out before the first morning.
 
@@ -85,8 +85,25 @@ The same four scripts, as one Railway service separate from the NILDash app. The
 | `BRIEFS_CALL_TIMEOUT_MIN` | `callTimeoutMin` | 6 |
 | `BRIEFS_CONFIG_JSON` | (all) | the whole config as one JSON value, if that is easier |
 | `BRIEFS_TZ` | | `America/Chicago` |
-| `BRIEFS_CONNECTIONS_URL` | `connectionsUrl` | **for prospecting**: a direct-download link to the LinkedIn `Connections.csv`, fetched into the volume's inbox each run |
-| `BRIEFS_CONNECTIONS_FILE` | `connectionsFile` | **for prospecting**: the path of the LinkedIn CSV when it is not in the inbox, e.g. `~/nildash-briefs/Connections.csv` |
+| `DATABASE_URL` | | **for prospecting**: the same value the NILDash service has. It is how the brief reads the LinkedIn export (below), and it is also the Outlook mail door |
+| `BRIEFS_CONNECTIONS_URL` | `connectionsUrl` | fallback only: a direct-download link to the LinkedIn `Connections.csv`, fetched into the volume's inbox each run |
+| `BRIEFS_CONNECTIONS_FILE` | `connectionsFile` | fallback only: the path of the LinkedIn CSV when it is not in the inbox, e.g. `~/nildash-briefs/Connections.csv` |
+
+**The LinkedIn export lives in the database.** It used to be a file on one Mac, which is why the prospecting brief could not move off that Mac. Upload it once at **`/admin/connections`** (admin login, dark page, pick the file) and it is stored in `brief_connections`; the brief reads the newest upload wherever it runs, and reports `N connections in Connections.csv (uploaded YYYY-MM-DD)` in its own footer so you can see which copy it used.
+
+Getting the file: LinkedIn > Settings & Privacy > Data privacy > Get a copy of your data > **Connections** (not the full archive). Unzip the emailed download and upload the `Connections.csv` inside. A new upload does not overwrite the old one — the page lists what is stored and lets you delete anything except the copy in use.
+
+`DATABASE_URL` unset, unreachable or the table empty all mean "nothing stored", and the brief falls back to `BRIEFS_CONNECTIONS_URL` and then the filesystem, so the Mac run is unaffected. A database that *fails* is different from one that has nothing in it, and the brief says which in its warnings.
+
+**Run one brief on demand.** From the NILDash app, admin only:
+
+```
+/api/admin/scripts/brief?which=news-watch&noEmail=1&text=1
+```
+
+`which` is one of the four names. `noEmail=1` archives without sending, `dry=1` (prospecting) counts the queue without spending a model call, `debug=1` adds the trace, `restart=1` re-runs instead of returning the last result, and `text=1` returns plain text instead of JSON. It goes through `run-slot.js --brief`, the same entry point Railway's cron uses, so a brief that works here works there.
+
+This runs **inside the NILDash app service**, not the briefs service, because that is where an HTTP route can live. The brief variables above therefore have to be set on the app service too for the on-demand URL to work — `DEEPSEEK_API_KEY`, a search key and `RESEND_API_KEY` are usually already there; `BRIEFS_TO`, `BRIEFS_MY_ADDRESSES` and `BRIEFS_ABOUT_ME` are not.
 
 **Mail on a server.** Mail.app does not exist on Railway, and the two accounts need two different doors:
 

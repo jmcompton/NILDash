@@ -5456,6 +5456,35 @@ const ADMIN_SCRIPTS = {
     q.agent ? ['--agent', String(q.agent).replace(/[^a-z0-9@._+-]/gi, '').slice(0, 120)] : [],
     q.nights ? ['--nights', String(parseInt(q.nights, 10) || 4)] : []) },
   'lookup-pro-hitrate': { file: 'scripts/lookup-pro-hitrate.js', args: (q) => [].concat(q.league ? ['--league', String(q.league).replace(/[^a-z]/gi, '').slice(0, 10)] : [], q.noTeam ? ['--no-team'] : [], (q.fresh || q.force) ? ['--fresh'] : []) },
+  // ── ONE MORNING BRIEF, NOW, ON DEMAND ───────────────────────────────────
+  // The briefs run themselves at 5:30, 5:45, 6:00 and 6:15 Central. This is
+  // how you find out whether one WORKS without waiting until tomorrow
+  // morning to discover that a key is missing.
+  //
+  //   /api/admin/scripts/brief?which=prospecting&noEmail=1&text=1
+  //   /api/admin/scripts/brief?which=news-watch&text=1          (mails it)
+  //
+  // It goes through run-slot.js --brief, the same entry point Railway's cron
+  // uses, so a brief that works here works there. noEmail=1 archives the
+  // brief without sending it, and dry=1 (prospecting) counts without spending
+  // a model call. `which` is checked against the four names rather than
+  // interpolated: this builds a command line.
+  brief: {
+    file: 'tools/briefs/run-slot.js',
+    args: (q) => {
+      const names = ['follow-ups', 'news-watch', 'prospecting', 'strategy-watch'];
+      const which = String(q.which || q.brief || '').trim();
+      if (!names.includes(which)) {
+        const e = new Error(`which must be one of ${names.join(', ')} — e.g. /api/admin/scripts/brief?which=news-watch&noEmail=1&text=1`);
+        e.status = 400;
+        throw e;
+      }
+      // dry=1 becomes --brief-dry, which run-slot forwards to the brief as
+      // its own --dry. run-slot's --dry means something else entirely (name
+      // the slot, run nothing) and must not be reachable from here.
+      return ['--brief', which].concat(q.noEmail ? ['--no-email'] : [], q.dry ? ['--brief-dry'] : [], q.debug ? ['--debug'] : []);
+    },
+  },
 };
 const _adminScriptJobs = new Map();
 app.get('/api/admin/scripts/:name', requireAuth, async (req, res) => {
@@ -5465,12 +5494,18 @@ app.get('/api/admin/scripts/:name', requireAuth, async (req, res) => {
     const def = ADMIN_SCRIPTS[req.params.name];
     if (!def) return res.status(404).json({ error: 'No such script', scripts: Object.keys(ADMIN_SCRIPTS) });
     const q = req.query || {};
-    let job = _adminScriptJobs.get(req.params.name);
+    // A job is remembered by name, and the briefs share one name with a
+    // `which`. Keyed by name AND arguments, so asking for news-watch does not
+    // hand back the prospecting run somebody started a minute ago.
+    let args;
+    try { args = def.args(q); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    const key = req.params.name + (args.length ? ' ' + args.join(' ') : '');
+    let job = _adminScriptJobs.get(key);
     const finished = job && job.done;
     if (!job || (finished && q.restart)) {
-      const args = def.args(q);
       job = { name: req.params.name, args, startedAt: new Date().toISOString(), done: false, output: '', code: null, error: null };
-      _adminScriptJobs.set(req.params.name, job);
+      _adminScriptJobs.set(key, job);
       const { execFile } = require('child_process');
       const child = execFile(process.execPath, [require('path').join(__dirname, '..', def.file), ...args],
         { cwd: require('path').join(__dirname, '..'), env: process.env, timeout: 15 * 60 * 1000, maxBuffer: 8 * 1024 * 1024 },
@@ -11720,6 +11755,62 @@ app.get('/api/admin/empty-reports', requireAuth, async (req, res) => {
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ── THE LINKEDIN CONNECTIONS EXPORT ──────────────────────────────────────────
+//
+// The prospecting brief used to read ~/nildash-briefs/Connections.csv, which
+// meant the brief could only ever run on the one Mac that had the file. The
+// export lives in the database now (services/briefConnections) and this is how
+// a new one gets there: pick the file, it is read in the browser and posted as
+// text, validated, counted and stored. No multipart, no upload directory, no
+// file on any disk.
+//
+// ADMIN ONLY, like every other page under /admin. The stored export is a list
+// of real people with their employers and sometimes their personal email
+// addresses; the page shows counts and never the rows.
+const briefConnectionsJson = express.json({ limit: '14mb' });
+
+app.get('/admin/connections', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
+  res.sendFile(path.join(__dirname, '..', 'public', 'admin-connections.html'));
+});
+
+app.get('/api/admin/connections', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const BC = require('./services/briefConnections');
+    const rows = await BC.history(store.pool, 10);
+    // `current` is the row the brief will actually read tomorrow morning, said
+    // in those words: "uploaded" and "in use" are not the same thing once
+    // there is more than one row, and the page has to be able to say which.
+    res.json({ current: rows[0] || null, history: rows, maxBytes: BC.MAX_BYTES });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/connections', requireAuth, briefConnectionsJson, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const { csv, filename } = req.body || {};
+    const out = await require('./services/briefConnections')
+      .save(store.pool, { csv, filename, uploadedBy: user.email });
+    if (!out.ok) return res.status(400).json({ error: out.error });
+    console.log(`[connections] ${user.email} uploaded ${filename || 'Connections.csv'}: ${out.rows} connections, ${out.bytes} bytes`);
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/connections/:id', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const out = await require('./services/briefConnections').remove(store.pool, req.params.id);
+    if (!out.ok) return res.status(400).json({ error: out.error });
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/suppression', requireAuth, async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);

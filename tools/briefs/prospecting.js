@@ -70,31 +70,45 @@ function filterReason(j) {
 }
 
 // LinkedIn's export starts with a few lines of notes before the real header.
-function parseCsv(text) {
-  const rows = [];
-  let row = [], field = '', q = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (q) {
-      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
-      else field += c;
-    } else if (c === '"') q = true;
-    else if (c === ',') { row.push(field); field = ''; }
-    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(field); rows.push(row); row = []; field = ''; }
-    else field += c;
+// ONE parser, shared with the admin upload page: the count the page shows
+// after an upload is the count this brief filters, because it is the same
+// function reading the same bytes. A second copy here is how those two
+// numbers start disagreeing and nobody can say which is right.
+const { parseCsv } = require('../../server/services/briefConnections');
+
+// ── THE EXPORT, FROM THE DATABASE ───────────────────────────────────────────
+// The first place looked, and on Railway the only one that works: there is no
+// Mac filesystem and no inbox for anybody to drop a file into. It is uploaded
+// once through /admin/connections and read from here every morning.
+//
+// A missing DATABASE_URL, an unreachable database or an empty table are all
+// "nothing stored" rather than a failure -- the Mac run has no DATABASE_URL
+// and must keep working off its own file, so this returns null and the
+// filesystem search below takes over. A database that is reachable but angry
+// is worth a warning in the brief, because that IS the difference between
+// "you have not uploaded one" and "we could not read the one you uploaded".
+async function connectionsFromDb(tried, warnings) {
+  const note = (where, found) => { if (tried) tried.push({ where, found }); };
+  if (!process.env.DATABASE_URL) { note('the database (DATABASE_URL is not set)', false); return null; }
+  let pool = null;
+  try {
+    const { Pool } = require('pg');
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: /localhost|127\.0\.0\.1|\/tmp/.test(process.env.DATABASE_URL) ? false : { rejectUnauthorized: false },
+    });
+    const row = await require('../../server/services/briefConnections').latest(pool);
+    if (!row) { note('the database (brief_connections: nothing uploaded yet)', false); return null; }
+    note(`the database (${row.filename || 'Connections.csv'}, ${row.rows} rows, uploaded ${String(row.uploadedAt).slice(0, 10)})`, true);
+    return row;
+  } catch (e) {
+    note(`the database (FAILED: ${e.message})`, false);
+    if (warnings) warnings.push(`Could not read the connections export from the database: ${e.message}. Falling back to a local file if there is one.`);
+    L.log(KIND, `connections from database failed: ${e.message}`);
+    return null;
+  } finally {
+    if (pool) await pool.end().catch(() => {});
   }
-  if (field.length || row.length) { row.push(field); rows.push(row); }
-  const hi = rows.findIndex((r) => r.some((x) => /^first name$/i.test(String(x).trim())));
-  if (hi < 0) return [];
-  const header = rows[hi].map((h) => String(h).trim().toLowerCase());
-  const col = (name) => header.indexOf(name);
-  const ix = { first: col('first name'), last: col('last name'), url: col('url'), email: col('email address'), company: col('company'), position: col('position'), on: col('connected on') };
-  return rows.slice(hi + 1).filter((r) => r.length >= 2 && (r[ix.first] || r[ix.last])).map((r) => ({
-    first: (r[ix.first] || '').trim(), last: (r[ix.last] || '').trim(),
-    url: (r[ix.url] || '').trim(), email: (r[ix.email] || '').trim().toLowerCase(),
-    company: (r[ix.company] || '').trim(), position: (r[ix.position] || '').trim(),
-    connectedOn: (r[ix.on] || '').trim(),
-  }));
 }
 
 // On Railway nobody drops a file into an inbox. BRIEFS_CONNECTIONS_URL (a
@@ -163,19 +177,29 @@ async function main() {
     dbg('config:', JSON.stringify(describeConfig(cfg), null, 2));
     dbg('briefs root:', L.ROOT, ' inbox:', L.DIRS.inbox, ' state:', L.DIRS.state);
   }
-  await fetchConnectionsIfConfigured(cfg, warnings);
+  // WHERE THE EXPORT COMES FROM, IN ORDER: the database (the only source that
+  // works on a server, and the one an upload page can refresh), then the
+  // download URL, then the Mac's own files. Every place is reported in --debug
+  // and named in the "no CSV" brief, so a morning with no prospects says which
+  // doors were tried rather than just "0".
   const tried = [];
-  const csvPath = findCsv(cfg, tried);
+  const stored = await connectionsFromDb(tried, warnings);
+  let csvText = stored ? stored.csv : null;
+  let csvLabel = stored ? `${stored.filename || 'Connections.csv'} (uploaded ${String(stored.uploadedAt).slice(0, 10)})` : null;
+  if (!csvText) {
+    await fetchConnectionsIfConfigured(cfg, warnings);
+    const csvPath = findCsv(cfg, tried);
+    if (csvPath) { dbg('reading', csvPath); csvText = fs.readFileSync(csvPath, 'utf8'); csvLabel = path.basename(csvPath); }
+  }
   if (DEBUG) for (const t of tried) dbg(`looked ${t.found ? 'FOUND  ' : 'nothing'} ${t.where}`);
-  if (!csvPath) {
+  if (!csvText) {
     dbg('why 0: no CSV was found in any of the places above; nothing to filter');
-    const md = [`# Prospects: 0 drafted`, '', `No connections CSV. Looked for: ${tried.map((t) => t.where).join('; ')}. Set connectionsFile in config.json (or BRIEFS_CONNECTIONS_FILE) to the LinkedIn export, or drop Connections.csv in ${L.DIRS.inbox}.`, L.footer(KIND, calls, audit)].join('\n');
+    const md = [`# Prospects: 0 drafted`, '', `No connections CSV. Looked for: ${tried.map((t) => t.where).join('; ')}. Upload the LinkedIn export at /admin/connections, or set connectionsFile in config.json (or BRIEFS_CONNECTIONS_FILE), or drop Connections.csv in ${L.DIRS.inbox}.`, L.footer(KIND, calls, audit)].join('\n');
     L.writeBrief(KIND, md);
     if (!NO_EMAIL && !DRY) await L.sendBrief(cfg, { subject: 'Prospects: 0 drafted', markdown: md, kind: KIND }).catch((e) => L.log(KIND, 'EMAIL FAILED: ' + e.message));
     return;
   }
-  dbg('reading', csvPath);
-  const csvText = fs.readFileSync(csvPath, 'utf8');
+  dbg('source:', csvLabel);
   const rawLines = csvText.split(/\r?\n/);
   const headerLine = rawLines.findIndex((l) => /first name/i.test(l));
   dbg(`file: ${csvText.length} chars, ${rawLines.filter((l) => l.trim()).length} non-empty lines; header row at line ${headerLine + 1}${headerLine > 0 ? ` (after ${headerLine} line(s) of LinkedIn preamble)` : ''}${headerLine < 0 ? ' -- NO "First Name" HEADER FOUND, the file is not a LinkedIn Connections export' : ''}`);
@@ -271,7 +295,7 @@ Return ONLY JSON: {"summary": "two lines on who they are and what they do, from 
 
   const md = [];
   md.push(`# Prospects: ${n} drafted, ${filtered.length} filtered`, '');
-  md.push(`${people.length} connections in ${path.basename(csvPath)}; ${matches.length} match the keywords; ${batch.length} researched this run: ${n} drafted, ${filtered.length} filtered${breakdown ? ` (${breakdown})` : ''}${dropped.excluded ? `; ${dropped.excluded} skipped by --exclude (${excludedNames.join(', ')})` : ''}; ${queue.length - batch.length} more in the queue for the next runs. Nothing has been sent.`, '');
+  md.push(`${people.length} connections in ${csvLabel}; ${matches.length} match the keywords; ${batch.length} researched this run: ${n} drafted, ${filtered.length} filtered${breakdown ? ` (${breakdown})` : ''}${dropped.excluded ? `; ${dropped.excluded} skipped by --exclude (${excludedNames.join(', ')})` : ''}; ${queue.length - batch.length} more in the queue for the next runs. Nothing has been sent.`, '');
   if (warnings.length) { md.push('**Warnings**'); for (const w of warnings) md.push(`- ${w}`); md.push(''); }
   if (filtered.length) {
     md.push(`## Filtered (${filtered.length})`, '');

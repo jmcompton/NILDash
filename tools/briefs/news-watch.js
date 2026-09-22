@@ -7,11 +7,20 @@
 // items from the last few days as JSON. Everything ever
 // shown is remembered by URL in state/news-seen.json (30 days), so today's
 // brief never repeats yesterday's. Ten newest lines, emailed and archived.
+//
+//   node tools/briefs/news-watch.js --no-email   build and archive, send nothing
+//
+// The other three briefs have had --no-email since they were written; this one
+// did not, and the admin "run a brief now" URL offers it for all four. A flag
+// that is accepted and ignored is worse than one that does not exist: you ask
+// for a test run, it mails the brief anyway, and you only find out from your
+// inbox.
 
 const L = require('./lib');
 
 const KIND = 'news-watch';
 const STATE = 'news-seen.json';
+const NO_EMAIL = process.argv.includes('--no-email');
 
 function canon(url) {
   try {
@@ -78,6 +87,7 @@ async function main() {
   L.log(KIND, `archived ${file}`);
 
   const subject = `NIL watch: ${lines.length} items`;
+  if (NO_EMAIL) { L.log(KIND, `--no-email: "${subject}" archived at ${file}, not sent`); return; }
   try { await L.sendBrief(cfg, { subject, markdown: text, kind: KIND }); }
   catch (e) { L.log(KIND, `EMAIL FAILED: ${e.message}. The archive at ${file} is complete.`); process.exitCode = 2; }
 }
