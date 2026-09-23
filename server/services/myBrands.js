@@ -25,12 +25,14 @@
 //   replied       a card or an email with replied_at, a card outcome replied,
 //                 or the ledger says responded
 //   pitched       a card marked sent, an email sent, or the ledger says contacted
+//   sending       an email approved and not yet sent (it has no sent_at): the
+//                 release queue has it. NOT pitched until it actually leaves.
 //   not pitched   everything else
 //
 // STRICT ISOLATION. Every query is bound to the agent id; there is no path
 // that returns another agent's rows, and the admin summary is counts only.
 
-const STATUSES = ['not pitched', 'pitched', 'replied', 'deal signed'];
+const STATUSES = ['not pitched', 'sending', 'pitched', 'replied', 'deal signed'];
 const PAGE_SIZE = 50;
 
 const lower = (s) => String(s || '').trim().toLowerCase();
@@ -135,7 +137,7 @@ async function loadRaw(pool, agentId) {
       `SELECT athlete_id, LOWER(TRIM(data->>'brand')) AS brand, LOWER(COALESCE(data->>'stage', data->>'status', '')) AS stage
          FROM deals WHERE agent_id = $1 AND COALESCE(data->>'brand', '') <> ''`, [agentId]),
     pool.query(
-      `SELECT athlete_id, LOWER(TRIM(brand_name)) AS brand, status, sent_at, replied_at
+      `SELECT athlete_id, LOWER(TRIM(brand_name)) AS brand, status, sent_at, replied_at, cadence_stopped_at
          FROM outreach_logs WHERE agent_id = $1`, [agentId]),
     pool.query(
       `SELECT id, data->>'name' AS name, data->>'school' AS school, data->>'hometown' AS hometown, data->>'city' AS city
@@ -167,7 +169,7 @@ function buildRows(raw) {
         // domain. Never shown, and never a name (see brandFlags).
         brandKey: c.brand_key || c.identity_key || null, placeId: c.place_id || null, website: c.website || null,
         placeType: c.place_type || null, placeTypes: c.place_types || null, lane: c.lane || null, address: c.address || null, foundAt: c.created_at,
-        pitched: false, replied: false, closed: false, source: 'card' };
+        pitched: false, sending: false, replied: false, closed: false, source: 'card' };
       rows.set(k, r);
     }
     if (c.created_at && (!r.foundAt || new Date(c.created_at) < new Date(r.foundAt))) r.foundAt = c.created_at;
@@ -181,7 +183,10 @@ function buildRows(raw) {
     if (!r.brandKey && (c.brand_key || c.identity_key)) r.brandKey = c.brand_key || c.identity_key;
     if (!r.placeId && c.place_id) r.placeId = c.place_id;
     if (!r.website && c.website) r.website = c.website;
+    // A card is 'sent' only once its email has a sent_at (services/closer); an
+    // approved email card is 'sending' until then.
     if (c.state === 'sent' || c.sent_at) r.pitched = true;
+    if (c.state === 'sending') r.sending = true;
     if (c.replied_at || c.outcome === 'replied') r.replied = true;
     if (c.outcome === 'closed') r.closed = true;
   }
@@ -194,7 +199,7 @@ function buildRows(raw) {
       r = { athleteId: e.athlete_id, brand: e.brand_name, ownerName: null, ownerTitle: null, email: null, phone: null, instagram: null,
         brandKey: e.brand_key || null, placeId: null, website: null,
         placeType: null, placeTypes: null, lane: e.lane || null, address: null, foundAt: e.first_shown_at || e.created_at,
-        pitched: false, replied: false, closed: false, source: 'scan' };
+        pitched: false, sending: false, replied: false, closed: false, source: 'scan' };
       rows.set(k, r);
     }
     const at = e.first_shown_at || e.created_at;
@@ -209,6 +214,7 @@ function buildRows(raw) {
     const r = rows.get(l.athlete_id + '|' + l.brand);
     if (!r) continue;
     if (l.sent_at || l.status === 'sent') r.pitched = true;
+    else if (l.status === 'approved' && !l.cadence_stopped_at) r.sending = true;
     if (l.replied_at) r.replied = true;
   }
   for (const d of raw.deals) {
@@ -228,7 +234,8 @@ function buildRows(raw) {
         if (!r.phone && c.phone) r.phone = c.phone;
       }
     }
-    const status = r.closed ? 'deal signed' : r.replied ? 'replied' : r.pitched ? 'pitched' : 'not pitched';
+    const status = r.closed ? 'deal signed' : r.replied ? 'replied' : r.pitched ? 'pitched'
+      : r.sending ? 'sending' : 'not pitched';
     const scope = scopeOf(r.lane);
     // A social or DTC brand has no town: it is national. A local business
     // with no town we could place shows a dash, never a guess.
@@ -259,8 +266,8 @@ function counts(rows) {
   };
 }
 
-const FILTERS = { all: () => true, replied: (r) => r.status === 'replied' || r.status === 'deal signed', pitched: (r) => r.status === 'pitched', 'not pitched': (r) => r.status === 'not pitched', 'deal signed': (r) => r.status === 'deal signed' };
-const STATUS_RANK = { 'deal signed': 0, replied: 1, pitched: 2, 'not pitched': 3 };
+const FILTERS = { all: () => true, replied: (r) => r.status === 'replied' || r.status === 'deal signed', pitched: (r) => r.status === 'pitched', sending: (r) => r.status === 'sending', 'not pitched': (r) => r.status === 'not pitched', 'deal signed': (r) => r.status === 'deal signed' };
+const STATUS_RANK = { 'deal signed': 0, replied: 1, pitched: 2, sending: 3, 'not pitched': 4 };
 const SCOPES = ['local', 'social', 'all'];
 function applyView(rows, opts = {}) {
   const filter = FILTERS[opts.filter] ? opts.filter : 'all';

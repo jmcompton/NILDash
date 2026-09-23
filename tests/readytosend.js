@@ -166,7 +166,8 @@ async function main() {
     HTML.slice(HTML.indexOf('async function srSaveDraft'), HTML.indexOf('async function srSkipDraft'))), null);
   ok('  Skip this one is on the expanded row', /Skip this one/.test(HTML), null);
   ok('  the approve button is kept', /id="sr-approve"/.test(HTML), null);
-  ok('  and so is the timing line', /You do not pick the time/.test(HTML), null);
+  // The timing line now says approving sends, a short gap apart (no window).
+  ok('  and so is the timing line', /They start sending as soon as you approve/.test(HTML), null);
   ok('  mobile has its own rules', /@media \(max-width:520px\)[\s\S]{0,400}sr-ath-status/.test(HTML), null);
 
   // APPROVE COVERS COLLAPSED ROWS TOO. A pitch hidden behind "2 more" is still

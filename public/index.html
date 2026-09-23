@@ -1997,6 +1997,19 @@ tbody td{padding:11px 14px;vertical-align:middle}
   .hq-est{margin-left:17px}
 }
 .hq-mail{font-size:14px;line-height:1.55}
+/* APPROVED ROWS. Same 68px row and the same right-hand column as the rows
+   above, so the status sits where Approve and Skip were. */
+.hq-outhd{margin:22px 0 8px}
+.hq-outhead{cursor:default}
+.hq-outhead .hq-rowtxt{flex:1 1 auto}
+.hq-outstate{display:inline-block;width:176px;box-sizing:border-box;text-align:center;font-size:12.5px;
+  font-weight:600;border-radius:7px;padding:7px 10px;border:1px solid var(--line,#26261f);color:var(--muted,#9a9a8e)}
+.hq-outstate.sending{color:#60a5fa;border-color:rgba(96,165,250,.35)}
+.hq-outstate.held{color:#f0c98a;border-color:rgba(240,201,138,.35)}
+.hq-outstate.sent{color:var(--accent,#C8F135);border-color:rgba(200,241,53,.35)}
+.hq-outstate.stopped{color:var(--red,#FF3D5A);border-color:rgba(255,61,90,.35)}
+.hq-outwhy{margin:-4px 14px 12px 34px;font-size:12px;color:var(--muted,#9a9a8e)}
+@media (max-width:560px){ .hq-outstate{width:auto} .hq-outwhy{margin-left:17px} }
 .hq-mail dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0 0 12px}
 .hq-mail dt{color:var(--dim,#63635a);font-size:12px;text-transform:uppercase;
   letter-spacing:.05em;padding-top:2px}
@@ -4360,11 +4373,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
     </div>
 
     <!-- ══ DAILY REPORT — the ONE thing an agent sets about it: when it lands.
-         Outreach send timing is deliberately NOT here. The team holds overnight
-         drafts and releases them into business hours in the recipient's own
-         timezone, mid-morning Tuesday to Thursday, never weekends. That is how
-         the product behaves, not a preference — an agent who could set it to 3am
-         eventually would, and it is their sender reputation that pays. ══ -->
+         Outreach has no send timing to set: approving an email sends it, from
+         the agent's own mailbox, one email every 20 to 50 seconds so a bulk
+         approve never goes out as a burst (jobs/closerRelease). ══ -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
       <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Email from NILDash</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
@@ -6695,9 +6706,8 @@ function acYearChanged() {
 // that apply to the chosen type.
 // ── "City, ST", NOT "Denver" ─────────────────────────────────────────────────
 // The two-letter state is not decoration: services/compliance resolves a pro's
-// state from this field and it decides which state's endorsement rules apply,
-// and sendWindow reads it to pick the recipient's timezone. A city with no
-// state silently loses both. Returns the sentence to show, or null.
+// state from this field and it decides which state's endorsement rules apply.
+// A city with no state silently loses that. Returns the sentence to show, or null.
 function acCityProblem(city) {
   const s = String(city || '').trim();
   if (!s) return 'A city is required for a pro. Enter it as "City, ST": the nightly run finds local businesses there, and the state decides which endorsement rules apply.';
@@ -15014,7 +15024,9 @@ async function mbLoad() {
 }
 function mbStatusChip(s) {
   var cls = s === 'deal signed' ? 'chip-green' : s === 'replied' ? 'chip-blue' : '';
+  // SENDING: approved, and not yet sent. It reads Pitched only once it has left.
   var style = s === 'pitched' ? 'background:rgba(255,184,0,0.1);color:#FFB800;border:1px solid rgba(255,184,0,0.2)'
+    : s === 'sending' ? 'background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.25)'
     : s === 'not pitched' ? 'background:var(--surface2);color:var(--muted);border:1px solid var(--border)' : '';
   return '<span class="chip ' + cls + '" style="' + style + '">' + escHtml(s) + '</span>';
 }
@@ -17961,8 +17973,8 @@ async function loadAgentHomeV2() {
 
 // ══ THE ONE DECISION ══════════════════════════════════════════════════════
 // The whole Closer interaction is this block: a count, a list with checkboxes,
-// and one button. No send time (sendWindow decides that, in the recipient's
-// timezone) and no per-message send.
+// and one button. No send time: approving sends, one email at a time from the
+// agent's own mailbox, a short gap apart (jobs/closerRelease).
 var _srBatch = null;
 
 function srRenderCloser(d, el) {
@@ -17991,8 +18003,8 @@ function srRenderCloser(d, el) {
       + '</div>');
   } else if (c.scheduled > 0) {
     bits.push('<div class="sr-needs-card"><div class="sr-empty">'
-      + hqEsc(c.scheduled) + ' approved and waiting for the right morning. '
-      + 'They go out Tuesday to Thursday, mid-morning where the business is.'
+      + hqEsc(c.scheduled) + ' approved and sending. '
+      + 'They go out from your own mailbox a short gap apart; each says Sent on Home once it has left.'
       + '</div></div>');
   }
 
@@ -18105,9 +18117,9 @@ function srRenderBatch() {
   body.innerHTML = out
     + held
     + '<div class="hm-btns"><button class="hm-btn primary" id="sr-approve" onclick="srApprove()">'
-    + 'Approve ' + live + ' and schedule</button></div>'
-    + '<div class="sr-cap-sub">They go out Tuesday to Thursday, mid-morning where each business is. '
-    + 'You do not pick the time.</div>';
+    + 'Approve and send ' + live + '</button></div>'
+    + '<div class="sr-cap-sub">They start sending as soon as you approve, from your own mailbox, '
+    + 'a short gap apart so they never go out as a burst.</div>';
 }
 
 function firstName(n) { return String(n || '').trim().split(/\s+/)[0] || 'them'; }
@@ -18258,12 +18270,12 @@ async function srApprove() {
     });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'could not approve');
-    body.innerHTML = '<div class="sr-empty"><b>' + hqEsc(d.scheduled) + ' scheduled.</b> '
-      + 'They go out Tuesday to Thursday, mid-morning where each business is.'
+    body.innerHTML = '<div class="sr-empty"><b>Sending ' + hqEsc(d.scheduled) + '.</b> '
+      + 'They go out from your own mailbox a short gap apart, starting now.'
       + (d.note ? '<div class="sr-cap-sub">' + hqEsc(d.note) + '</div>' : '')
       + '</div>';
   } catch (e) {
-    btn.disabled = false; btn.textContent = 'Approve and schedule';
+    btn.disabled = false; btn.textContent = 'Approve and send';
     body.insertAdjacentHTML('beforeend',
       '<div class="sr-fail">Could not schedule: ' + hqEsc(e.message) + '</div>');
   }
@@ -20847,8 +20859,10 @@ function hqRender() {
   // ONE PLACE, EVERY STATE. Admin-only, and in the same spot whether the page is
   // empty, paused or full -- a control that moves depending on what the queue
   // happens to hold is a control nobody can find twice.
+  html += hqOutboxHtml(d);
   html += hqFillPanel(d);
   panel.innerHTML = html;
+  hqPollOutbox(d);
 
   var btn = document.getElementById('home-approve');
   var capEl = document.getElementById('home-cap');
@@ -21070,6 +21084,65 @@ var HQ_CH = {
   dm: { label: 'DM', cls: 'dm' },
   call: { label: 'Call', cls: 'call' },
 };
+
+// ── APPROVED: SENDING, THEN SENT ───────────────────────────────────────────
+// Approve means send, but the release queue spaces one mailbox's emails 20 to
+// 50 seconds apart, so an approved email stays on the page. It says Sending
+// until the server has given it a sent_at, then Sent with the time. A held one
+// says why on the row -- nothing that stops an email is allowed to be silent.
+function hqOutboxHtml(d) {
+  var ob = d.outbox || [];
+  if (!ob.length) return '';
+  var sending = ob.filter(function (o) { return o.status === 'sending'; }).length;
+  var sent = ob.filter(function (o) { return o.status === 'sent'; }).length;
+  var head = [sending ? sending + ' sending' : null, sent ? sent + ' sent today' : null].filter(Boolean).join(' &middot; ');
+  return '<p class="hq-sub hq-outhd">Approved' + (head ? ' &middot; ' + head : '') + '</p>'
+    + '<div class="hq-cards">' + ob.map(function (o) {
+      var label, cls, why = null;
+      if (o.status === 'sent') {
+        label = 'Sent ' + hqClock(o.sentAt); cls = 'sent';
+      } else if (o.status === 'not_sent') {
+        label = 'Not sent'; cls = 'stopped'; why = o.stopReason;
+      } else if (o.holdReason) {
+        label = 'Sending &middot; held'; cls = 'held'; why = o.holdReason;
+      } else {
+        label = 'Sending&hellip;'; cls = 'sending';
+      }
+      return '<div class="hq-card hq-row hq-out email">'
+        + '<div class="hq-rowhead hq-outhead">'
+        + '<span class="hq-chev" aria-hidden="true"></span>'
+        + '<span class="hq-rowtxt"><span class="hq-rowbiz">' + hqEscape(o.business || 'A business') + '</span>'
+        + '<span class="hq-rowwho">' + hqEscape(o.contact || o.to || '') + '</span></span>'
+        + '<span class="hq-chan email">Email</span>'
+        + '<span class="hq-rowbtns"><span class="hq-outstate ' + cls + '">' + label + '</span></span>'
+        + '</div>'
+        + (why ? '<p class="hq-outwhy">' + hqEscape(why) + '</p>' : '')
+        + '</div>';
+    }).join('') + '</div>';
+}
+
+function hqClock(at) {
+  if (!at) return '';
+  try { return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (_) { return ''; }
+}
+
+// While anything is still sending, look again every ten seconds so a row turns
+// Sent without a manual refresh. Never while the agent is typing in an open
+// row: a reload would throw away their edit, so it waits for them.
+function hqPollOutbox(d) {
+  clearTimeout(HQ._outboxTimer);
+  var live = (d.outbox || []).some(function (o) { return o.status === 'sending' && !o.holdReason; });
+  if (!live) return;
+  HQ._outboxTimer = setTimeout(function () {
+    var panel = document.getElementById('home-panel');
+    var typing = panel && (panel.querySelector('.hq-edit:not([hidden])')
+      || (document.activeElement && panel.contains(document.activeElement)
+        && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)));
+    if (HQ.selected !== d.selected) return;
+    if (document.hidden || typing || HQ.busy) { hqPollOutbox(d); return; }
+    hqLoad(d.selected);
+  }, 10000);
+}
 
 function hqRenderCard(c, i) {
   var ch = HQ_CH[c.channel] || { label: c.channel || 'Card', cls: 'call' };
@@ -21304,7 +21377,7 @@ async function hqApproveOne(i, btn) {
     // SAY WHAT ACTUALLY WENT. `note` accounts for an id that was not
     // scheduled -- over the cap, no send slot, no longer a draft.
     if (typeof showToast === 'function') {
-      showToast(out.scheduled ? 'Scheduled. It goes out Tuesday to Thursday, mid-morning.' : (out.note || 'Not scheduled'));
+      showToast(out.scheduled ? 'Sending. It goes out from your mailbox within a minute or two.' : (out.note || 'Not approved'));
     }
     hqLoad(HQ.selected);
   } catch (e) {
@@ -21485,8 +21558,8 @@ async function hqApprove() {
     var left = d.cards.length - ids.length;
     document.getElementById('home-panel').insertAdjacentHTML('afterbegin',
       '<div class="hq-done" style="margin-bottom:14px"><p class="hq-biz" style="margin:0 0 6px">'
-      + out.scheduled + (out.scheduled === 1 ? ' pitch scheduled' : ' pitches scheduled') + '</p>'
-      + '<p class="hq-why" style="margin:0">They go out Tuesday to Thursday, mid-morning where each business is.'
+      + 'Sending ' + out.scheduled + (out.scheduled === 1 ? ' pitch' : ' pitches') + '</p>'
+      + '<p class="hq-why" style="margin:0">They go out from your own mailbox a short gap apart, starting now. Each one below says Sent once it has left.'
       + (left ? ' ' + left + (left === 1 ? ' card is' : ' cards are') + ' still yours to work below.' : '')
       + '</p>'
       + (out.note ? '<p class="hq-why" style="margin:8px 0 0">' + hqEscape(out.note) + '</p>' : '')

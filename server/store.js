@@ -1834,8 +1834,8 @@ async function init() {
     ON athlete_report_sends(agent_id, athlete_id)`).catch(() => {});
 
   // ── Held outreach ─────────────────────────────────────────────────────────
-  // A draft cleared to send is STAMPED with a release time rather than going out
-  // at 3am. See services/sendWindow.js for why, and for the rule.
+  // scheduled_send_at is the earliest an approved email may go: approval sets
+  // it to now, a hold moves it forward. See jobs/closerRelease.js.
   // ── Why this pitch said what it said ──────────────────────────────────────
   // The angle is the reasoning that produced the message. Stored beside the
   // draft so "why did it pitch that" is answerable from the row, and so replies
@@ -2123,7 +2123,7 @@ async function init() {
   // THE LINK TO THE DRAFT THAT WILL ACTUALLY SEND IT.
   //
   // An email card does NOT get a second send path. outreach_logs already owns
-  // sending: sendGuard's daily ceiling, sendWindow's per-recipient timing,
+  // sending: sendGuard's daily ceiling, the release queue's pacing,
   // releaseDue, the follow-up cadence, reply capture, bounce suppression and the
   // editable-draft work. A queue row that could also send is how one business
   // gets pitched twice.
@@ -2153,6 +2153,28 @@ async function init() {
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_timezone TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_scheduled
                       ON outreach_logs (scheduled_send_at) WHERE scheduled_send_at IS NOT NULL`).catch(() => {});
+
+  // ── APPROVE MEANS SEND (services/closer, jobs/closerRelease) ─────────────
+  // scheduled_send_at is no longer a Tuesday-to-Thursday slot. It is the
+  // NOT-BEFORE time: approval sets it to now, and a hold moves it forward to
+  // when the email is worth looking at again, so a held email is not
+  // re-examined every few seconds.
+  //
+  //   send_hold_reason  why an approved email has not gone yet, in words the
+  //                     card can show. NULL while it is simply waiting its turn.
+  //   send_claimed_at   set by the one process sending it, so two servers
+  //                     (a deploy overlaps old and new) cannot both send it.
+  //   send_failures     consecutive provider failures, for the retry backoff.
+  for (const sql of [
+    `ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_hold_reason TEXT`,
+    `ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_hold_at TIMESTAMPTZ`,
+    `ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_claimed_at TIMESTAMPTZ`,
+    `ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_failures INT NOT NULL DEFAULT 0`,
+  ]) await pool.query(sql).catch((e) => console.error('[init] outreach_logs send cols:', e.message));
+
+  // What the send window and the unset release switch were holding (41 approved
+  // emails since Sep 18): due now. See releaseApprovedBacklog.
+  await releaseApprovedBacklog().catch((e) => console.error('[init] release approved:', e.message));
 
   // ── Reply capture (Resend Inbound) ────────────────────────────────────────
   // Set on EVERY inbound event the webhook sees for this row, including bounces
@@ -4196,6 +4218,30 @@ function placeholderReason(name) {
 // meta: optional Map name -> { category, hasEvidence }, from the scan record the
 // name came off. Absent for callers that only have names, and an absent entry
 // writes NULL -- which reads as UNKNOWN, never as "no evidence".
+// ── RELEASE WHAT THE WINDOW WAS HOLDING ─────────────────────────────────────
+// Approve means send now. Every approved email that has not gone was waiting
+// on a Tuesday slot or on a release switch that production never set: those
+// are made due NOW. Only rows with no hold reason, because a hold's forward
+// time is deliberate. And an email card that approval marked 'sent' while its
+// email sat unsent goes back to 'sending'; the release queue marks it sent when
+// the email itself gets a sent_at. Idempotent, so it runs on every start.
+async function releaseApprovedBacklog(p) {
+  const db = p || pool;
+  const made = await db.query(
+    `UPDATE outreach_logs SET scheduled_send_at = NOW(), updated_at = NOW()
+      WHERE status = 'approved' AND sent_at IS NULL AND cadence_stopped_at IS NULL
+        AND send_hold_reason IS NULL
+        AND (scheduled_send_at IS NULL OR scheduled_send_at > NOW())`);
+  const cards = await db.query(
+    `UPDATE outreach_queue q SET state = 'sending', sent_at = NULL, updated_at = NOW()
+       FROM outreach_logs l
+      WHERE q.outreach_log_id = l.id AND q.state = 'sent' AND q.sent_via = 'email'
+        AND l.sent_at IS NULL`);
+  if (made.rowCount) console.log(`[init] ${made.rowCount} approved email(s) made due now (the send window is gone)`);
+  if (cards.rowCount) console.log(`[init] ${cards.rowCount} email card(s) marked sending until their email goes`);
+  return { madeDue: made.rowCount || 0, cardsSending: cards.rowCount || 0 };
+}
+
 async function markMarketNewcomers(marketKey, brands, meta) {
   const out = new Set();
   try {
@@ -4618,6 +4664,7 @@ async function getSocialDepth(athlete) {
 }
 
 module.exports = {
+  releaseApprovedBacklog,
   ready,
   recordMarketPool,
   recordCardSkip, loadSkipSignals, SKIP_HALF_LIFE_DAYS, AGENT_SKIP_WINDOW_DAYS,

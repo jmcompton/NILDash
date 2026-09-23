@@ -40,7 +40,9 @@ function handlerFor(startMarker, endMarker) {
   // The handler is lifted out of index.js and run for real, so everything it
   // names at module scope has to be handed in. PitchActions is the action log
   // the dashboard approve now writes to.
-  return new Function('store', 'Closer', 'PitchActions', 'req', 'res',
+  // kickRelease wakes the release queue after an approval (approve means send);
+  // handed in as a spy so the test can see that it was called.
+  return new Function('store', 'Closer', 'PitchActions', 'kickRelease', 'req', 'res',
     'return (async (req,res)=>' + body.slice(0, body.lastIndexOf('}') + 1) + ')(req,res);');
 }
 
@@ -73,9 +75,11 @@ async function main() {
   ok('the batch endpoint exists', !!batchH);
   let got = null;
   const res = { json: (v) => { got = v; return res; }, status: () => res };
-  await batchH(store, Closer, PA, { session: { userId: AG } }, res);
+  let kicks = 0;
+  const kick = () => { kicks++; };
+  await batchH(store, Closer, PA, kick, { session: { userId: AG } }, res);
   ok('  it returns tonight\'s batch', got && got.batch && got.batch.length === 4, got && got.batch && got.batch.length);
-  ok('  with the ceiling alongside it', got.budget && got.budget.cap === 40, got.budget);
+  ok('  with the ceiling alongside it (Google\'s 500, not the old 40)', got.budget && got.budget.cap === 500, got.budget);
 
   // ── THE APPROVE ENDPOINT ─────────────────────────────────────────────────
   // The end marker is the NEXT route, whatever it is. A new endpoint was added
@@ -86,9 +90,10 @@ async function main() {
   const ids = got.batch.map((b) => b.id);
   let out = null;
   const res2 = { json: (v) => { out = v; return res2; }, status: () => res2 };
-  await apprH(store, Closer, PA, { session: { userId: AG }, body: { ids, skip: [ids[0]] } }, res2);
+  await apprH(store, Closer, PA, kick, { session: { userId: AG }, body: { ids, skip: [ids[0]] } }, res2);
   ok('  approving schedules the batch minus what was unchecked',
     out.scheduled === 3 && out.skipped === 1, out);
+  ok('  AND WAKES THE RELEASE QUEUE: approve means send', kicks === 1, kicks);
 
   // NO PER-MESSAGE SEND ENDPOINT was added for the Closer path.
   ok('THERE IS NO PER-MESSAGE CLOSER SEND ROUTE',
@@ -106,7 +111,7 @@ async function main() {
   ok('the auto-mode endpoint exists', !!autoH);
   let autoOut = null, code = 200;
   const res3 = { json: (v) => { autoOut = v; return res3; }, status: (c) => { code = c; return res3; } };
-  await autoH(store, Closer, PA, { session: { userId: AG },
+  await autoH(store, Closer, PA, kick, { session: { userId: AG },
     body: { scopeKind: 'global', scopeId: 'all', enabled: true } }, res3);
   ok('  a global scope is rejected with 400', code === 400, { code, autoOut });
   ok('  saying it is per athlete or per lane', /per athlete or per lane/.test(autoOut.error), autoOut);
@@ -114,7 +119,7 @@ async function main() {
   // ── THE SHIFT REPORT CARRIES THE CLOSER BLOCK ────────────────────────────
   const rep = await shiftReport.buildShiftReport(P, AG);
   ok('the shift report includes the closer block', !!rep.closer, Object.keys(rep));
-  ok('  with the ceiling stated in words', /of 40 emails used today/.test(rep.closer.line), rep.closer.line);
+  ok('  with the ceiling stated in words', /of 500 emails used today/.test(rep.closer.line), rep.closer.line);
   ok('  the count waiting on one decision', rep.closer.pendingApproval === 1, rep.closer.pendingApproval);
   ok('  and how many are scheduled', rep.closer.scheduled === 3, rep.closer.scheduled);
   ok('  plus the auto-mode progress', !!rep.closer.auto, rep.closer.auto);
@@ -141,8 +146,10 @@ async function main() {
     (HTML.match(/onclick="srApprove\(\)"/g) || []).length);
   ok('  the page never offers a send time',
     !/id="sr-send-time"|name="scheduledSendAt"/.test(HTML), null);
-  ok('  it says who decides the timing instead',
-    /You do not pick the time/.test(HTML), null);
+  // CHANGED DELIBERATELY: there is no send time to pick any more. Approving
+  // sends, a short gap apart, and the page says so.
+  ok('  it says approving sends, a short gap apart',
+    /They start sending as soon as you approve/.test(HTML), null);
   ok('  the cap message says DMs and calls are unaffected',
     /not affected by this/.test(HTML), null);
   ok('  auto mode is shown as progress toward an offer',

@@ -537,7 +537,7 @@ async function buildCloserBlock(pool, agentId, act) {
         WHERE agent_id = $1 AND status = 'draft' AND approved_at IS NULL
           AND cadence_stopped_at IS NULL`, [agentId])).rows[0].n;
 
-  // Approved and waiting for the recipient's Tuesday morning.
+  // Approved and not yet sent: in the release queue, or held with a reason.
   const scheduled = (await pool.query(
     `SELECT COUNT(*)::int AS n, MIN(scheduled_send_at) AS next FROM outreach_logs
       WHERE agent_id = $1 AND status = 'approved' AND cadence_stopped_at IS NULL`,

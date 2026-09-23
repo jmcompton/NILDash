@@ -5,26 +5,23 @@
 // no backoff anywhere between the dispatcher and gmail.users.messages.send. A
 // cap hit threw raw into whatever the caller happened to catch.
 //
-// WHY 40, WHEN GOOGLE ALLOWS 500 OR 2,000.
+// WHY 500. It was 40, as a deliverability limit: cold outreach above roughly
+// 50 a day reads to Gmail as bulk. That was a limit on VOLUME PER DAY, and it
+// turned a 150-email approval into four days of waiting -- and approve now
+// means send. The protection that matters for one mailbox is not the day's
+// total but the burst: jobs/closerRelease sends one email per agent at a time
+// with a 20 to 50 second gap, so 150 takes an hour and a half, never a second.
 //
-// Google's cap is not the binding constraint and treating it as one is how you
-// lose a mailbox. Personal gmail.com allows 500 recipients a day and Workspace
-// 2,000, but cold outreach above roughly 50 a day reads to Gmail's filters as
-// bulk sending, and the sender's reputation degrades over two to four weeks.
-//
-// That damage lands on the AGENT'S OWN MAILBOX -- the one they use for real
-// client work, contracts and parents. A failed send is an inconvenience. A
-// mailbox that quietly starts landing in spam is the business.
-//
-// So 40 is a DELIVERABILITY limit, deliberately far below the platform limit,
-// and it is the number this file enforces. Scale is supposed to come from more
-// mailboxes, not more volume per mailbox.
+// So the ceiling is Google's own for a personal account (Workspace allows
+// 2,000), and it is only there so we stop before Gmail does and say so, rather
+// than learning it from a quota refusal. users.daily_email_cap still overrides
+// it per agent, lower or higher.
 //
 // EMAIL ONLY. DM, phone and program cards are not email and are not counted
 // here -- only about a third of local businesses have a reachable address, so
 // those channels carry most of the volume and none of the reputation risk.
 
-const DEFAULT_DAILY_CAP = parseInt(process.env.AGENT_DAILY_EMAIL_CAP, 10) || 40;
+const DEFAULT_DAILY_CAP = parseInt(process.env.AGENT_DAILY_EMAIL_CAP, 10) || 500;
 
 // A cap that resets at UTC midnight resets in the middle of the afternoon for an
 // agent in Hawaii. The reset is the agent's OWN midnight, from users.report_tz,

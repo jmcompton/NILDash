@@ -243,7 +243,7 @@ AL._setSearchLoopForTests(async (o) => {
   ok('  and the save refuses until a sport is picked, on both the add and the edit path', /function acSportProblem\(\)/.test(html) && /Choose a sport\. It decides which roster the lookup reads/.test(html) && (html.match(/acSportProblem\(\)/g) || []).length >= 4);
   ok('  the edit path no longer fills a value no option carries', /document\.getElementById\('a_sport'\)\.value = \(a\.sport \|\| ''\)\.toLowerCase\(\)/.test(html) && !/a\.sport \|\| 'Basketball'/.test(html));
   // A pro's city carries its state or it is not a city: compliance resolves
-  // the state from it and sendWindow reads the timezone off it.
+  // the state from it.
   const cityFn = html.slice(html.indexOf('function acCityProblem'), html.indexOf('function acSportProblem'));
   const acCityProblem = eval('(' + cityFn.slice(cityFn.indexOf('function acCityProblem')).replace(/\n\s*$/, '') + ')');
   ok('a pro city must be "City, ST": "Denver, CO" passes, "Denver" does not', !acCityProblem('Denver, CO') && !acCityProblem('Kansas City, MO') && !acCityProblem('St. Louis, MO') && !acCityProblem('Winston-Salem, NC'), null);

@@ -22,7 +22,6 @@ const C = require(ROOT + 'server/services/closer.js');
 const A = require(ROOT + 'server/services/closerAllocator.js');
 const G = require(ROOT + 'server/services/sendGuard.js');
 const SUP = require(ROOT + 'server/services/suppression.js');
-const SW = require(ROOT + 'server/services/sendWindow.js');
 
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g) : '')); } };
@@ -157,26 +156,15 @@ async function main() {
     `SELECT status, approved_at FROM outreach_logs WHERE id=$1`, [skipped[0]])).rows[0];
   ok('  and stay drafts', skippedRow.status === 'draft' && !skippedRow.approved_at, skippedRow);
 
-  // THE AGENT NEVER PICKS THE TIME.
+  // APPROVE MEANS SEND. No Tuesday slot and no timezone window: an approved
+  // message is due the moment it is approved, and the release queue sends it.
   const sched = (await P.query(
     `SELECT scheduled_send_at, send_timezone FROM outreach_logs
       WHERE agent_id=$1 AND status='approved' LIMIT 5`, [AG])).rows;
-  ok('every approved message carries a send time it did not ask for',
-    sched.length > 0 && sched.every((r) => !!r.scheduled_send_at), sched.length);
-  ok('  IN THE RECIPIENT\'S TIMEZONE', sched.every((r) => !!r.send_timezone), sched[0]);
-  ok('  and every one lands inside the window',
-    sched.every((r) => SW.isSendable(r.scheduled_send_at, { timezone: r.send_timezone })), sched);
-  // dow is a JS day number, Sun=0, so Tue/Wed/Thu is [2,3,4] -- SEND_DAYS itself.
-  ok('  never on a weekend, never Mon or Fri',
-    sched.every((r) => SW.SEND_DAYS.includes(
-      SW.partsIn(new Date(r.scheduled_send_at), r.send_timezone).dow)),
-    sched.map((r) => SW.partsIn(new Date(r.scheduled_send_at), r.send_timezone).dow));
-  ok('  and inside 9:30-11:00 local', sched.every((r) => {
-    const p = SW.partsIn(new Date(r.scheduled_send_at), r.send_timezone);
-    const min = p.hour * 60 + p.minute;
-    return min >= SW.WINDOW_START_MIN && min < SW.WINDOW_END_MIN;
-  }), sched.map((r) => { const p = SW.partsIn(new Date(r.scheduled_send_at), r.send_timezone);
-    return p.hour + ':' + p.minute; }));
+  ok('every approved message is due at once, at the moment it was approved',
+    sched.length > 0 && sched.every((r) => r.scheduled_send_at && new Date(r.scheduled_send_at).getTime() === TUE),
+    sched.map((r) => r.scheduled_send_at));
+  ok('  with no send window attached', sched.every((r) => r.send_timezone === null), sched[0]);
 
   // ── RELEASE: THE JOB THAT DID NOT EXIST ──────────────────────────────────
   await P.query(`UPDATE outreach_logs SET scheduled_send_at = $2

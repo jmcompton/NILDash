@@ -145,7 +145,8 @@ async function seed(P) {
   await Closer.approveBatch(P, AG, { ids: ['email:' + card.outreach_log_id], athleteId: ATH });
   const after = (await P.query(
     `SELECT state, sent_via FROM outreach_queue WHERE id=$1`, [card.id])).rows[0];
-  check('approving the draft frees the queue slot', after.state === 'sent', after.state);
+  // 'sending', not 'sent': the card says Sent only once its email has a sent_at.
+  check('approving the draft frees the queue slot', after.state === 'sending', after.state);
   check('  recorded as sent by email', after.sent_via === 'email', after.sent_via);
 
   console.log('\n6. A DRAFT THAT LOST THE SLOT DOES NOT HAUNT HOME');

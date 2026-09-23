@@ -411,7 +411,44 @@ async function buildHome(pool, agentId, opts = {}) {
     || who.over18 === true || who.over18 === false));
   const blocked = !ageKnown && !!who;
 
+  // ── WHAT WAS APPROVED, AND WHETHER IT HAS GONE ─────────────────────────
+  // Approve means send, but not in the same second: the release queue spaces
+  // one agent's emails 20 to 50 seconds apart. So an approved email stays on
+  // the page as a row that says Sending until it has a sent_at, then Sent. And
+  // one that is held says why, on the row, rather than sitting silently.
+  //
+  // This athlete only: every email approved and not yet gone, plus those sent
+  // or stopped in the last day.
+  const outboxRows = selected ? await q('outbox',
+    `SELECT l.id, l.brand_name, l.sent_to_email, l.approved_at, l.sent_at, l.status,
+            l.send_hold_reason, l.cadence_stopped_at, l.cadence_stop_reason,
+            qc.contact_name
+       FROM outreach_logs l
+       LEFT JOIN LATERAL (SELECT contact_name FROM outreach_queue q
+                           WHERE q.outreach_log_id = l.id ORDER BY q.id DESC LIMIT 1) qc ON TRUE
+      WHERE l.agent_id = $1 AND l.athlete_id = $2 AND l.approved_at IS NOT NULL
+        AND (   (l.sent_at IS NULL AND l.status = 'approved' AND l.cadence_stopped_at IS NULL)
+             OR l.sent_at > NOW() - INTERVAL '24 hours'
+             OR (l.sent_at IS NULL AND l.cadence_stopped_at > NOW() - INTERVAL '24 hours'))
+      ORDER BY l.approved_at DESC
+      LIMIT 60`, [agentId, selected]) : [];
+  const outbox = outboxRows.map((o) => ({
+    id: 'email:' + o.id,
+    business: o.brand_name || null,
+    contact: o.contact_name || null,
+    to: o.sent_to_email || null,
+    // SENT only with a sent_at. Stopped means a send-time check refused it
+    // for good (they replied first, a suppressed address, a repeated subject).
+    status: o.sent_at ? 'sent' : (o.cadence_stopped_at ? 'not_sent' : 'sending'),
+    approvedAt: o.approved_at || null,
+    sentAt: o.sent_at || null,
+    holdReason: o.sent_at ? null : (o.send_hold_reason || null),
+    stopReason: o.sent_at ? null : (o.cadence_stop_reason || null),
+  }));
+
   return {
+    // Approved emails for this athlete: Sending until they have a sent_at.
+    outbox,
     // The tab count MATCHES THE SCREEN. Showing 63 on a tab that renders five
     // is the same defect as the shift report's two counts of one pile. The true
     // backlog is reported separately, per athlete, and said in words below the

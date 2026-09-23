@@ -12,20 +12,24 @@
 //
 // So: approve all, or uncheck the few that are wrong and approve the rest.
 //
-// WHAT THIS DOES NOT DO. It does not choose when mail goes out. sendWindow.js
-// already answers that -- Tuesday to Thursday, 9:30 to 11:00 in the RECIPIENT's
-// timezone, never weekends -- and the agent does not configure it, because a
-// business owner reads mail on their clock and not on the agent's.
+// APPROVE MEANS SEND. There was a Tuesday-to-Thursday, 9:30-to-11:00 send
+// window, and a release switch that was never turned on, so 41 approved emails
+// sat unsent for days with nothing on screen to say so. Both are gone.
+// Approving stamps the email due NOW; jobs/closerRelease drains the queue at
+// once, one email per agent at a time with a short gap, so a bulk approve
+// spreads out instead of firing from one mailbox in a second.
 //
-// SCHEDULED IS NOT SENT. Nothing in the codebase ever read scheduled_send_at;
-// the column was written and then nothing happened. releaseDue() is the job that
-// was missing, and it is the only thing that calls the provider.
+// releaseDue() is still the only thing that calls the provider, and the checks
+// that run at send time are unchanged: a reply first, the suppression list, the
+// compliance gate, the 4-day rule and the duplicate-subject rule. A held email
+// carries its reason (send_hold_reason) so the card can say why it has not
+// gone, and a not-before time (scheduled_send_at) so it is not re-examined
+// every few seconds.
 
 const sendGuard = require('./sendGuard');
 const PIPE = require('./pipeline');
 const suppression = require('./suppression');
 const sendRules = require('./sendRules');
-const sendWindow = require('./sendWindow');
 // Namespaced card ids, so a call or DM card can never be mistaken for a draft.
 const A = require('./actionable');
 
@@ -472,25 +476,27 @@ async function approveBatch(pool, agentId, opts = {}) {
   for (const id of missing) {
     if (!notDue.has(String(id))) dropped.push({ id, why: 'not an approvable draft any more' });
   }
+  const dueNow = opts.now ? new Date(opts.now) : new Date();
+  // IN THE ORDER THE AGENT SAW THEM. Each gets its own approved_at in this
+  // order, and the queue sends oldest approval first, so a bulk approve goes
+  // out top to bottom rather than in whatever order the table returned.
+  const pos = new Map(allowed.map((id, i) => [String(id), i]));
+  rows.sort((x, y) => (pos.get(String(x.id)) ?? 1e9) - (pos.get(String(y.id)) ?? 1e9));
   for (const r of rows) {
-    // THE WINDOW IS COMPUTED PER MESSAGE, in the RECIPIENT's timezone, because
-    // it is the business owner's Tuesday morning that matters and a roster can
-    // span Oregon to New Jersey.
-    const slot = sendWindow.nextSendSlot(opts.now || new Date(), {
-      businessAddress: r.biz_address, athleteSchoolState: r.school, key: r.id,
-    });
-    if (!slot) { dropped.push({ id: r.id, brand: r.brand_name, why: 'no send slot in the next window' }); continue; }
+    // DUE NOW. No slot, no window: the release queue picks it up at once and
+    // spaces it behind whatever this agent already has going out.
     const kit = kitLineFor(r);
     await pool.query(
       `UPDATE outreach_logs
           SET status = 'approved', approved_at = NOW(), approved_by = $2,
-              scheduled_send_at = $3, send_timezone = $4,
-              body_html = COALESCE($5, body_html), updated_at = NOW()
+              scheduled_send_at = $3, send_timezone = NULL,
+              send_hold_reason = NULL, send_hold_at = NULL, send_claimed_at = NULL, send_failures = 0,
+              body_html = COALESCE($4, body_html), updated_at = NOW()
         WHERE id = $1`,
-      [r.id, agentId, slot.at, slot.timezone,
+      [r.id, agentId, dueNow,
         kit ? String(r.body_html || '') + kit : null]);
     scheduled++;
-    when.push({ id: r.id, brand: r.brand_name, at: slot.at, tz: slot.timezone });
+    when.push({ id: r.id, brand: r.brand_name, at: dueNow });
 
     // ── THE QUEUE SLOT THIS DRAFT CAME FROM IS NOW WORKED ────────────────────
     // A nightly email card writes an outreach_logs draft and holds its id
@@ -499,34 +505,21 @@ async function approveBatch(pool, agentId, opts = {}) {
     // otherwise an email card would hold its slot forever and the athlete would
     // lose one of five for good.
     //
+    // 'SENDING', NOT 'SENT'. The card said Sent the moment it was approved,
+    // while the email itself could sit unsent for days. It says Sending until
+    // releaseDue gives the email a sent_at, and marks the card sent then.
+    //
     // Best-effort: a failure here must not unschedule an email that is already
     // approved. It costs a slot until the next run, and it says so.
     await pool.query(
       `UPDATE outreach_queue
-          SET state = 'sent', sent_at = NOW(), sent_via = 'email', updated_at = NOW()
+          SET state = 'sending', sent_via = 'email', updated_at = NOW()
         WHERE outreach_log_id = $1 AND state = 'queued'`, [r.id])
       .catch((e) => console.error('[closer] could not free the queue slot for ' + r.id + ':', e.message));
 
-    // ── AND ONTO THE PIPELINE BOARD ────────────────────────────────────────
-    // Approving is the agent acting on the card. It meant the same thing as
-    // marking a DM sent and wrote nothing to any deal table, so an agent who
-    // approved five drafts opened the Pipeline and found it empty. Forward-only,
-    // so approving a follow-up to a brand already in Negotiating leaves it there.
-    //
-    // Best-effort, like the slot free above: an email that is already scheduled
-    // must not be unscheduled because a board write failed. The backfill can
-    // recover a missing row; it cannot un-send an email.
-    try {
-      await PIPE.enterOutreachSent(pool, {
-        athleteId: r.athlete_id, agentId,
-        brandName: r.brand_name,
-        contactEmail: r.sent_to_email || null,
-        note: 'Email approved and scheduled',
-        source: 'outreach_logs',
-      });
-    } catch (e) {
-      console.error('[closer] pipeline write failed for ' + r.id + ':', e.message);
-    }
+    // THE PIPELINE BOARD MOVES WHEN THE EMAIL LEAVES, not at approval: it
+    // says "Outreach Sent", and until the email has a sent_at that is not
+    // true. releaseDue writes it on the successful send.
   }
   // Every id posted lands in exactly one bucket: scheduled, unchecked, over the
   // cap, or dropped with a reason. scheduled + skipped + overflow + dropped
@@ -749,11 +742,52 @@ async function complianceGate(pool, log, opts = {}) {
     why: `${worstFinding.ruleLabel}: ${worstFinding.reason}` };
 }
 
+// ── HOW LONG A HELD EMAIL WAITS BEFORE IT IS LOOKED AT AGAIN ────────────────
+// The release queue ticks every few seconds. A held email is not re-examined
+// that often: its not-before time (scheduled_send_at) moves forward, and its
+// reason is written where the card can show it.
+// ── THE PACE OF ONE MAILBOX ─────────────────────────────────────────────────
+// jobs/closerRelease sends one email per agent at a time, then waits a random
+// gap in this range. 150 approved at once take about an hour and a half.
+const MIN_GAP_MS = 20 * 1000;
+const MAX_GAP_MS = 50 * 1000;
+
+const RECHECK_COMPLIANCE_MS = 2 * 60 * 1000;    // the agent may fix the athlete or the business
+const RECHECK_CEILING_MS = 30 * 60 * 1000;      // today's ceiling, or a quota block
+const RECHECK_RULE_MS = 60 * 60 * 1000;         // the 4-day rule, when it gives no time
+const FAIL_BACKOFF_MAX_MS = 60 * 60 * 1000;     // a failing provider, doubling to this
+const CLAIM_STALE_MINUTES = 15;                 // a claim older than this was a crash
+
+function failBackoffMs(failures) {
+  return Math.min(FAIL_BACKOFF_MAX_MS, 60 * 1000 * Math.pow(2, Math.max(0, Number(failures) || 0)));
+}
+
+// Held: say why, and do not look again until `until`. Clears the claim.
+async function hold(pool, log, why, until) {
+  await pool.query(
+    `UPDATE outreach_logs
+        SET send_hold_reason = $2, send_hold_at = NOW(), scheduled_send_at = $3,
+            send_claimed_at = NULL, updated_at = NOW()
+      WHERE id = $1 AND status = 'approved' AND sent_at IS NULL`,
+    [log.id, String(why || 'held').slice(0, 300), until]).catch((e) =>
+    console.error('[closer] could not record the hold on ' + log.id + ':', e.message));
+}
+
 async function releaseDue(pool, opts = {}) {
   const now = opts.now ? new Date(opts.now) : new Date();
+  const nowMs = now.getTime();
   const limit = opts.limit || 200;
   const sendFn = opts.send;      // injected: (log) => provider result
   if (typeof sendFn !== 'function') throw new Error('releaseDue needs a send function');
+  // ── PACING, SUPPLIED BY THE QUEUE ────────────────────────────────────────
+  // perAgent: how many sends one agent may attempt in this call (the queue
+  // passes 1). agentReady(agentId): whether this agent's gap since their last
+  // send has passed. onAttempt(agentId): told after every send attempt, so the
+  // queue can start the next gap. Absent, releaseDue sends everything due --
+  // which is what a direct call (a script, a test) wants.
+  const perAgent = Number.isFinite(opts.perAgent) ? opts.perAgent : Infinity;
+  const agentReady = typeof opts.agentReady === 'function' ? opts.agentReady : null;
+  const onAttempt = typeof opts.onAttempt === 'function' ? opts.onAttempt : null;
 
   const due = (await pool.query(
     `SELECT l.*, a.data->>'name' AS athlete_name, e.location AS biz_address,
@@ -786,18 +820,29 @@ async function releaseDue(pool, opts = {}) {
         AND l.scheduled_send_at IS NOT NULL
         AND l.scheduled_send_at <= $1
         AND l.cadence_stopped_at IS NULL
-      ORDER BY l.scheduled_send_at ASC
+        AND l.sent_at IS NULL
+      -- Oldest approval first, within what is due: the order the agent said yes.
+      ORDER BY l.scheduled_send_at ASC, l.approved_at ASC NULLS LAST
       LIMIT $2`, [now, limit])).rows;
 
-  const out = { considered: due.length, sent: 0, held: 0, failed: 0, stoppedAgents: [], detail: [] };
+  const out = { considered: due.length, sent: 0, held: 0, failed: 0, waiting: 0, stoppedAgents: [], detail: [] };
   const blockedAgents = new Set();
+  const attempts = new Map();          // agentId -> sends attempted in this call
+  const readiness = new Map();         // agentId -> agentReady answer, asked once
 
   for (const log of due) {
     if (blockedAgents.has(log.agent_id)) { out.held++; continue; }
+    // NOT THIS AGENT'S TURN YET. Not a hold and nothing is written: the email
+    // is simply next in line behind the one this agent just sent.
+    if ((attempts.get(log.agent_id) || 0) >= perAgent) { out.waiting++; continue; }
+    if (agentReady) {
+      if (!readiness.has(log.agent_id)) readiness.set(log.agent_id, !!(await agentReady(log.agent_id, now)));
+      if (!readiness.get(log.agent_id)) { out.waiting++; continue; }
+    }
 
     // Late guards. All three can have become true since approval: the recipient
     // may have replied, the address may have bounced for another athlete, and
-    // the window may have closed while the queue drained.
+    // a follow-up may not be due yet.
     if (log.replied_at) {
       await stop(pool, log, 'they replied before this went out');
       out.held++; out.detail.push({ id: log.id, result: 'stopped', why: 'replied first' });
@@ -813,10 +858,11 @@ async function releaseDue(pool, opts = {}) {
     // The batch and the approval already refuse an early follow-up; this is
     // the late guard for one approved before that rule existed, or one whose
     // due date was edited after approval.
-    if (log.next_follow_up_at && new Date(log.next_follow_up_at).getTime() > now.getTime()) {
+    if (log.next_follow_up_at && new Date(log.next_follow_up_at).getTime() > nowMs) {
+      const why = `a follow-up, not due until ${new Date(log.next_follow_up_at).toISOString().slice(0, 10)}`;
+      await hold(pool, log, why, new Date(log.next_follow_up_at));
       out.held++;
-      out.detail.push({ id: log.id, result: 'held',
-        why: `not due until ${new Date(log.next_follow_up_at).toISOString().slice(0, 10)}` });
+      out.detail.push({ id: log.id, result: 'held', why: `not due until ${new Date(log.next_follow_up_at).toISOString().slice(0, 10)}` });
       continue;
     }
     // ── THE COMPLIANCE GATE ──────────────────────────────────────────────
@@ -837,6 +883,7 @@ async function releaseDue(pool, opts = {}) {
       gate = { clear: false, why: 'the compliance check could not run: ' + e.message, severity: 'hold' };
     }
     if (!gate.clear) {
+      await hold(pool, log, 'compliance: ' + gate.why, new Date(nowMs + RECHECK_COMPLIANCE_MS));
       out.held++;
       out.compliance = (out.compliance || 0) + 1;
       out.detail.push({ id: log.id, result: 'held', why: gate.why, compliance: gate.severity });
@@ -845,8 +892,8 @@ async function releaseDue(pool, opts = {}) {
 
     // ── THE RULES EVERY SYSTEM SHARES ────────────────────────────────────
     // Never the same subject twice to one address; never two emails to one
-    // address inside four days, whoever sent the first. A window refusal is a
-    // hold (it sends when the window clears); the other two stop the draft.
+    // address inside four days, whoever sent the first. The 4-day rule is a
+    // hold (it sends when the four days are up); the other two stop the draft.
     // AFTER the compliance gate, so a hold is on the record whatever these
     // say: compliance is a fact about the message, this is only about timing
     // and repetition.
@@ -856,6 +903,8 @@ async function releaseDue(pool, opts = {}) {
     });
     if (!rule.ok) {
       if (rule.kind === 'window') {
+        const after = rule.retryAfter ? new Date(rule.retryAfter) : null;
+        await hold(pool, log, rule.reason, after && after.getTime() > nowMs ? after : new Date(nowMs + RECHECK_RULE_MS));
         out.held++;
         out.detail.push({ id: log.id, result: 'held', why: rule.reason });
       } else {
@@ -865,26 +914,28 @@ async function releaseDue(pool, opts = {}) {
       continue;
     }
 
-    // THE WINDOW COMES AFTER COMPLIANCE. It used to come first, and that meant a
-    // hold was not RECORDED until the send window happened to open -- a pitch
-    // held on a Friday evening would not reach the agent's report until Monday.
-    // Compliance is a fact about the message; the window is only about timing.
-    if (!sendWindow.isSendable(now, {
-      businessAddress: log.biz_address, athleteSchoolState: log.school || log.city,
-    })) {
-      out.held++; out.detail.push({ id: log.id, result: 'held', why: 'outside the send window' });
-      continue;
-    }
+    // ── ONE SENDER PER EMAIL ─────────────────────────────────────────────
+    // A deploy runs the old and the new server side by side for a moment, and
+    // both drain the same table. The claim is one atomic UPDATE: whoever gets
+    // the row sends it. A claim left by a process that died goes stale.
+    const claimed = await pool.query(
+      `UPDATE outreach_logs SET send_claimed_at = NOW()
+        WHERE id = $1 AND status = 'approved' AND sent_at IS NULL
+          AND (send_claimed_at IS NULL OR send_claimed_at < NOW() - ($2 || ' minutes')::interval)
+        RETURNING id`, [log.id, String(CLAIM_STALE_MINUTES)]).catch(() => ({ rowCount: 0 }));
+    if (!claimed.rowCount) { out.waiting++; continue; }
 
-    // RESERVE BEFORE SENDING. The reservation is the cap.
+    // RESERVE BEFORE SENDING. The reservation is the ceiling.
     const res = await sendGuard.reserve(pool, log.agent_id, opts);
     if (!res.ok) {
       blockedAgents.add(log.agent_id);
+      await hold(pool, log, res.reason, new Date(nowMs + RECHECK_CEILING_MS));
       out.held++;
       out.detail.push({ id: log.id, result: 'held', why: res.reason });
       continue;
     }
 
+    attempts.set(log.agent_id, (attempts.get(log.agent_id) || 0) + 1);
     const attempt = await sendGuard.sendWithRetry(() => sendFn(log), {
       sleep: opts.sleep, rnd: opts.rnd,
       onQuota: async (c) => {
@@ -897,6 +948,7 @@ async function releaseDue(pool, opts = {}) {
       },
       onRetry: (r) => console.log(`[closer] ${log.id} rate-limited, waiting ${r.waitMs}ms (attempt ${r.attempt})`),
     });
+    if (onAttempt) { try { await onAttempt(log.agent_id, now); } catch (_) { /* pacing is advisory */ } }
 
     if (attempt.ok) {
       const r = attempt.result || {};
@@ -904,10 +956,32 @@ async function releaseDue(pool, opts = {}) {
         `UPDATE outreach_logs
             SET status='sent', sent_at=NOW(), email_message_id=$2, message_id=$3,
                 reply_to=$4, sent_to_email=$5, send_attempts=$6, send_error=NULL,
+                send_hold_reason=NULL, send_hold_at=NULL, send_claimed_at=NULL, send_failures=0,
                 updated_at=NOW()
           WHERE id=$1`,
         [log.id, r.providerMessageId || null, r.messageId || null, r.replyTo || null,
          suppression.normalize(log.sent_to_email || log.to_email), attempt.attempts]);
+      // ── AND ONTO THE PIPELINE BOARD, NOW THAT IT HAS GONE ─────────────────
+      // Forward-only, so a follow-up to a brand already in Negotiating leaves
+      // it there. Best-effort: the email has left, and a board write failing
+      // must not make it look as though it did not. The backfill can recover
+      // a missing row.
+      try {
+        await PIPE.enterOutreachSent(pool, {
+          athleteId: log.athlete_id, agentId: log.agent_id,
+          brandName: log.brand_name,
+          contactEmail: log.sent_to_email || null,
+          note: 'Email sent',
+          source: 'outreach_logs',
+        });
+      } catch (e) {
+        console.error('[closer] pipeline write failed for ' + log.id + ':', e.message);
+      }
+      // THE CARD SAYS SENT NOW, and not before: the email has a sent_at.
+      await pool.query(
+        `UPDATE outreach_queue SET state = 'sent', sent_at = NOW(), sent_via = 'email', updated_at = NOW()
+          WHERE outreach_log_id = $1 AND state IN ('sending', 'queued')`, [log.id])
+        .catch((e) => console.error('[closer] could not mark the card sent for ' + log.id + ':', e.message));
       out.sent++;
       out.detail.push({ id: log.id, result: 'sent', brand: log.brand_name });
       await sendRules.record(pool, {
@@ -922,9 +996,21 @@ async function releaseDue(pool, opts = {}) {
       // must not consume the allowance either.
       await sendGuard.release(pool, log.agent_id, opts);
       out.failed++;
+      const failures = (Number(log.send_failures) || 0) + 1;
+      const detail = String(attempt.detail || attempt.kind);
+      // SAID ON THE CARD, and retried on a doubling backoff rather than every
+      // few seconds into the same wall.
+      const why = attempt.kind === 'auth'
+        ? 'the mailbox could not send (reconnect it in Settings): ' + detail
+        : 'the send failed and will be retried: ' + detail;
       await pool.query(
-        `UPDATE outreach_logs SET send_error=$2, send_attempts=$3, updated_at=NOW() WHERE id=$1`,
-        [log.id, String(attempt.detail || attempt.kind).slice(0, 300), attempt.attempts]).catch(() => {});
+        `UPDATE outreach_logs
+            SET send_error=$2, send_attempts=$3, send_failures=$4,
+                send_hold_reason=$5, send_hold_at=NOW(), scheduled_send_at=$6,
+                send_claimed_at=NULL, updated_at=NOW()
+          WHERE id=$1`,
+        [log.id, detail.slice(0, 300), attempt.attempts, failures, why.slice(0, 300),
+          new Date(nowMs + failBackoffMs(failures - 1))]).catch(() => {});
       if (attempt.kind === 'auth' || attempt.kind === 'quota') blockedAgents.add(log.agent_id);
       out.detail.push({ id: log.id, result: 'failed', why: attempt.detail || attempt.kind });
     }
@@ -1054,7 +1140,7 @@ async function setAutoMode(pool, agentId, { scopeKind, scopeId, enabled }) {
 
 module.exports = {
   buildBatch, laneLabel, cityOf, recipientOf, summariseDropped, approveBatch, skipDraft, SKIP_REASON, releaseDue, scheduleNextTouch, stop,
-  complianceGate,
+  complianceGate, hold, failBackoffMs, CLAIM_STALE_MINUTES, MIN_GAP_MS, MAX_GAP_MS,
   autoModeProgress, autoModeFor, isAuto, setAutoMode, followUpSubject,
   CADENCE, MAX_TOUCHES, AUTO_MODE_THRESHOLD,
 };

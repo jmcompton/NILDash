@@ -37,7 +37,7 @@ function allowed(email) {
 const SUBJECT = 'Your athletes have new pitches ready';   // the pre-count wording; rows sent before it carry this
 function subjectFor(n) { return `${n} pitch${n === 1 ? '' : 'es'} ready`; }
 const INTRO = 'NILDash found new opportunities for your athletes last night. Approve or skip each one right here.';
-const FOOTER = 'Pitches expire in 14 days. Approving schedules the email for Tuesday to Thursday morning, in the business’s own timezone.';
+const FOOTER = 'Pitches expire in 14 days. Approving sends the email from your own mailbox, a short gap apart.';
 
 // ── THE OTHER KIND OF NIGHT ─────────────────────────────────────────────────
 // Nothing new was written, but pitches are still sitting there unapproved.
