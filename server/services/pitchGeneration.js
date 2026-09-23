@@ -253,7 +253,7 @@ Generate this exact JSON:
 
   let raw;
   try {
-    raw = await oneShot(prompt, system, 3000);
+    raw = await oneShot(prompt, system, 3000, undefined, { prose: true });
   } catch (e) {
     console.error('[pitchGeneration] AI call failed:', e.message);
     return buildFallbackPitch(athleteData, enrichment, contact, dealScanData);
@@ -268,7 +268,7 @@ Generate this exact JSON:
         prompt + `\n\nYour previous attempt was REJECTED for: ${bad.join('; ')}. `
         + `Rewrite it fixing every one of those. Name the deliverable, never a price. `
         + `Use ONLY the athlete facts listed above; if a detail is not listed, leave it out entirely.`,
-        system, 3000);
+        system, 3000, undefined, { prose: true });
       const second = parsePitch(retry, athleteData, enrichment, contact, dealScanData);
       const stillBad = violationsIn(second);
       if (!stillBad.length) return second;

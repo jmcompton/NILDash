@@ -3417,7 +3417,7 @@ Return ONLY valid JSON (no markdown):
 
   let aiData = null;
   try {
-    const raw = await ai.oneShot(aiPrompt, 'You are an elite sports agent negotiation coach. Return only valid JSON.', 2000, ai.MODEL_FAST);
+    const raw = await ai.oneShot(aiPrompt, 'You are an elite sports agent negotiation coach. Return only valid JSON.', 2000, ai.MODEL_FAST, { prose: true });
     const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     aiData = JSON.parse(clean);
   } catch (e) {
@@ -3482,7 +3482,7 @@ Give a 4-part playbook:
 4. WALK-AWAY LINE — exact sentence
 Include 3 KEY DATA POINTS to quote. Word-for-word scripts only.`;
   try {
-    const playbook = await ai.oneShot(prompt, 'You are an elite sports agent negotiation coach with deep expertise in NIL deal rates and brand spending. Return practical word-for-word scripts.', 8000);
+    const playbook = await ai.oneShot(prompt, 'You are an elite sports agent negotiation coach with deep expertise in NIL deal rates and brand spending. Return practical word-for-word scripts.', 8000, undefined, { prose: true });
     res.json({ playbook });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3498,7 +3498,7 @@ app.post('/api/ai/ask', requireAuth, aiLimiter, async (req, res) => {
     school:'Unknown', schoolTier:'p4-mid', instagram:0, tiktok:0, engagement:4.0, notes:'' };
   const user = await store.getUser(req.session.userId);
   try {
-    const response = await ai.oneShot(message, await ai.buildSystemPrompt(eff, user.role));
+    const response = await ai.oneShot(message, await ai.buildSystemPrompt(eff, user.role), undefined, undefined, { prose: true });
     res.json({ response });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3562,7 +3562,7 @@ Return ONLY this JSON:
 }`;
 
   try {
-    const raw = await ai.oneShot(prompt, system, 4000, ai.MODEL_STANDARD);
+    const raw = await ai.oneShot(prompt, system, 4000, ai.MODEL_STANDARD, { prose: true });
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Generation failed' });
@@ -3609,7 +3609,7 @@ app.post('/api/ai/compliance', requireAuth, aiLimiter, async (req, res) => {
     'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Agent registration requirements in ' + state + ' under the UAAA / RUAAA 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 6) The 72-hour notice to ' + (school||'the university') + ' after signing, which is a state UAAA / RUAAA duty, NOT SPARTA 7) SPARTA (federal), which separately bars false or misleading agent conduct and requires specific agency-contract disclosures 8) School-specific NIL policies\n\n' +
     'Attribute the 72-hour school notice to the UAAA / RUAAA, and SPARTA only to federal agent-conduct and disclosure duties. Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text the agent must send to the university athletic department within 72 hours under the UAAA / RUAAA","sourceNote":"what laws this is based on"}';
   try {
-    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000);
+    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000, undefined, { prose: true });
     const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Failed to parse result' });
@@ -3894,8 +3894,7 @@ Valid types: follow-up, outreach, review, opportunity, alert`;
     const raw = await ai.oneShot(
       prompt,
       'You are a NIL agent AI assistant. Return ONLY a valid JSON array. No markdown fences, no preamble, no explanation.',
-      3000
-    );
+      3000, undefined, { prose: true });
 
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = cleaned.indexOf('[');
@@ -4106,7 +4105,7 @@ DRAFTING STYLE — draft this as a practicing sports and entertainment attorney 
 Use professional legal language. Include specific dollar amounts and dates. Add FTC disclosure language. Make it ready to sign.`;
 
   try {
-    const contract = await ai.oneShot(prompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000, ai.MODEL_STANDARD);
+    const contract = await ai.oneShot(prompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000, ai.MODEL_STANDARD, { prose: true });
     if (!contract || contract.length < 100) throw new Error('Contract generation failed');
     res.json({ contract, athleteName: partyName, brand, value });
   } catch (err) {
@@ -4114,7 +4113,7 @@ Use professional legal language. Include specific dollar amounts and dates. Add 
     // Retry with shorter prompt
     try {
       const shortPrompt = 'Generate a professional NIL contract between ' + partyName + ' (' + athlete.sport + ' at ' + (athlete.school||'university') + ') and ' + brand + ' for $' + parseInt(value||0).toLocaleString() + '. Deal type: ' + (dealType||'Social Media') + '. Deliverables: ' + (deliverables||'3 Instagram posts') + '. Include: parties, scope, compensation, term, exclusivity, usage rights, FTC disclosure, and signature lines. Use professional legal language.';
-      const contract = await ai.oneShot(shortPrompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000, ai.MODEL_STANDARD);
+      const contract = await ai.oneShot(shortPrompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000, ai.MODEL_STANDARD, { prose: true });
       res.json({ contract, athleteName: partyName, brand, value });
     } catch(err2) {
       res.status(503).json({ error: 'Contract generation temporarily unavailable. Please try again in 30 seconds.' });
@@ -6258,7 +6257,7 @@ app.post('/api/admin/cleanup-duplicates', requireAuth, async (req, res) => {
 app.post('/api/ai/help', requireAuth, aiLimiter, async (req, res) => {
   try {
     const out = await require('./services/helpPrompts').handleHelp(req.body,
-      (prompt, sys) => scanMeter.label({ site: 'help' }, () => ai.oneShot(prompt, sys)));
+      (prompt, sys) => scanMeter.label({ site: 'help' }, () => ai.oneShot(prompt, sys, undefined, undefined, { prose: true })));
     res.status(out.status).json(out.json);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -7390,7 +7389,7 @@ Return ONLY valid JSON (no markdown):
   "instagram": "...",
   "linkedin": "..."
 }`;
-    const raw = await ai.oneShot(prompt, 'You are an NIL sponsorship specialist. Return only valid JSON.');
+    const raw = await ai.oneShot(prompt, 'You are an NIL sponsorship specialist. Return only valid JSON.', undefined, undefined, { prose: true });
     let result = {};
     try { const m = raw.match(/\{[\s\S]*\}/); if (m) result = JSON.parse(m[0]); } catch(e) {}
     if (!result.email && !result.instagram) return res.status(500).json({ error: 'AI failed to generate outreach' });
@@ -7480,7 +7479,7 @@ app.post('/api/athlete/ai-draft-outreach', verifyAthleteToken, requireAthleteSub
     // Use the proven oneShot helper (matches the working /write-outreach
     // generator). The previous ai.chat() call did not exist on the ai module
     // and threw "ai.chat is not a function", surfacing as a generic 500.
-    const response = await ai.oneShot(userPrompt, systemPrompt, 800);
+    const response = await ai.oneShot(userPrompt, systemPrompt, 800, undefined, { prose: true });
     const draft = (response || '').trim();
     if (!draft) return res.status(502).json({ error: 'AI returned an empty draft. Please try again.' });
     res.json({ draft });
@@ -10863,7 +10862,7 @@ Write 5-7 specific, confident talking points they can use when negotiating with 
 Include: how to anchor high, what to say about their audience value, how to handle "we have a limited budget", and when to walk away.
 Be direct and practical. Write in first-person so the athlete can say it directly.`;
 
-    const talking_points = await ai.oneShot(prompt, 'You are an NIL negotiation coach. Write practical, confident scripts.');
+    const talking_points = await ai.oneShot(prompt, 'You are an NIL negotiation coach. Write practical, confident scripts.', undefined, undefined, { prose: true });
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'talking_points_generated',
       `Generated talking points for ${deliverable_type || 'ig-reel'}`, { deliverable_type });
     res.json({ talking_points });
@@ -10890,7 +10889,7 @@ app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, requireAthl
     const brands = dealsR.rows.map(r => r.brand).join(', ') || 'various brands';
     const prompt = `Generate 8 NIL content ideas for this college athlete.\n\nName: ${ath.name} | Sport: ${ath.sport} | School: ${ath.school}\nInstagram: @${ath.instagram_handle || 'N/A'} | TikTok: @${ath.tiktok_handle || 'N/A'}\nActive partnerships: ${brands}\n\nReturn ONLY a valid JSON array:\n[{"platform":"Instagram/TikTok/YouTube","content_type":"Reel/Story/Post","idea":"Brief idea","caption":"Draft caption + hashtags","best_time":"Best posting time"}]`;
 
-    const raw = await ai.oneShot(prompt, 'You are a college athlete social media strategist. Return only valid JSON.');
+    const raw = await ai.oneShot(prompt, 'You are a college athlete social media strategist. Return only valid JSON.', undefined, undefined, { prose: true });
     let ideas = [];
     try { const m = raw.match(/\[[\s\S]*\]/); if (m) ideas = JSON.parse(m[0]); } catch(e) {}
     res.json({ ideas });
@@ -10919,7 +10918,7 @@ Number them 1, 2, 3.`;
 
     const system = `You are a social media copywriter for college athletes. Write captions that sound exactly like a real college athlete wrote them — casual, authentic, genuine. Never corporate. Never over-enthusiastic. Use natural language a 20-year-old would actually use. Don't use phrases like "super excited" or "amazing opportunity" or "blessed". Make it sound like they dashed it off between practice and class.`;
 
-    const raw = await ai.oneShot(prompt, system, 800, 'claude-sonnet-4-6');
+    const raw = await ai.oneShot(prompt, system, 800, 'claude-sonnet-4-6', { prose: true });
     console.log('[generate-caption] brand:', brand, 'type:', postType, 'athlete:', req.athlete.id);
     res.json({ captions: raw || '' });
   } catch (e) {
@@ -11033,7 +11032,7 @@ app.post('/api/athlete/compliance', verifyAthleteToken, requireAthleteSubscripti
       checksLine +
       'Attribute the 72-hour school notice to the UAAA / RUAAA, and SPARTA only to federal agent-conduct and disclosure duties. Return ONLY JSON: {"state":"' + (stateResolved ? state : 'Federal (state unspecified)') + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text the agent must send to the university athletic department within 72 hours under the UAAA / RUAAA","sourceNote":"what laws this is based on"}';
 
-    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000);
+    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000, undefined, { prose: true });
     const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Failed to parse result' });
@@ -11326,7 +11325,7 @@ Return ONLY valid JSON (no markdown):
 
     let aiData = null;
     try {
-      const raw = await ai.oneShot(aiPrompt, 'You are an elite NIL deal coach. Return only valid JSON. Format all text fields as clean natural sentences. Never use bullet points, arrows, dashes as list items, numbered lists, or excessive formatting. Write like a knowledgeable human advisor.', 2000, ai.MODEL_FAST);
+      const raw = await ai.oneShot(aiPrompt, 'You are an elite NIL deal coach. Return only valid JSON. Format all text fields as clean natural sentences. Never use bullet points, arrows, dashes as list items, numbered lists, or excessive formatting. Write like a knowledgeable human advisor.', 2000, ai.MODEL_FAST, { prose: true });
       const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       aiData = JSON.parse(clean);
     } catch (e) {
@@ -16679,7 +16678,7 @@ The bio must:
 Under 200 characters total.`;
     }
 
-    const bio = await ai.oneShot(prompt, system, 200, 'claude-sonnet-4-6');
+    const bio = await ai.oneShot(prompt, system, 200, 'claude-sonnet-4-6', { prose: true });
     console.log('[generate-bio] success — bio length:', (bio||'').length, '— preview:', (bio||'').substring(0, 60));
     res.json({ bio: (bio || '').trim().slice(0, 500) });
   } catch (e) {
@@ -17137,7 +17136,7 @@ ${productWants ? `- Products they already use: ${productWants}` : ''}
 ${mk.bio ? `- Bio excerpt: ${String(mk.bio).slice(0, 200)}` : ''}
 
 Rules: plain, direct, human language. No em dashes. No exclamation marks. No invented numbers. Speak to why this athlete fits ${brand}'s space. Output ONLY the sentence, no quotes.`;
-      opener = (await ai.oneShot(prompt, 'You write one plain, factual sentence. Output only the sentence. Never use em dashes. Never invent facts.', 120, ai.MODEL_FAST) || '').trim();
+      opener = (await ai.oneShot(prompt, 'You write one plain, factual sentence. Output only the sentence. Never use em dashes. Never invent facts.', 120, ai.MODEL_FAST, { prose: true }) || '').trim();
       opener = opener.replace(/^["']|["']$/g, '').replace(/—|–/g, ',').slice(0, 220);
     } catch (e) {
       console.warn('[media-kit variant] opener AI failed, using template:', e.message);
@@ -17256,7 +17255,7 @@ app.post('/api/agent/generate-bio/:athleteId', requireAuth, requireAgentSubscrip
     const { story } = req.body;
     const storyPart = story ? `\nAthlete story: "${story}"` : '';
     const prompt = `Write a 2-sentence NIL media kit bio for ${d.name || 'this athlete'}, a ${d.year || 'college'} ${d.position || 'athlete'} at ${d.school || 'their university'} playing ${d.sport || 'their sport'}.${storyPart}\nInstagram: ${d.followers_ig || d.instagram || 0} followers. TikTok: ${d.followers_tt || d.tiktok || 0} followers. Engagement: ${d.engagement || 4}%.\nThe bio should be compelling for brand partnerships — authentic, achievement-focused, and 40-60 words. Return only the bio text, nothing else.`;
-    const bio = await ai.oneShot(prompt, 'You are an NIL brand partnership specialist writing athlete bios.', 200, ai.MODEL_FAST);
+    const bio = await ai.oneShot(prompt, 'You are an NIL brand partnership specialist writing athlete bios.', 200, ai.MODEL_FAST, { prose: true });
     res.json({ bio: bio.trim() });
   } catch (e) {
     console.error('[agent/generate-bio]', e.message);
@@ -18005,7 +18004,7 @@ Return only 4 plain sentences, one per line, nothing else.`;
 
     const system = "You are a concise morning brief assistant for a sports agent. Write 4 short, specific status updates — exactly one per line. Each sentence must be under 15 words. Be direct and specific with names and numbers. No filler, no formatting, no labels. Return only 4 lines.";
 
-    const rawBrief = await ai.oneShot(prompt, system, 200, ai.MODEL_FAST);
+    const rawBrief = await ai.oneShot(prompt, system, 200, ai.MODEL_FAST, { prose: true });
     const bullets = (rawBrief || '').trim()
       .split('\n')
       .map(b => b.replace(/^[-–•*\d.)\]]\s*/, '').trim())
@@ -18140,7 +18139,7 @@ Return only 4 plain sentences, one per line, nothing else.`;
 
     const system = "You are a concise morning brief assistant for a college athlete managing their NIL. Write 4 short, specific status updates — exactly one per line. Each sentence must be under 15 words. Be encouraging and specific with brand names. No filler, no formatting, no labels. Return only 4 lines.";
 
-    const rawBrief = await ai.oneShot(prompt, system, 200, ai.MODEL_FAST);
+    const rawBrief = await ai.oneShot(prompt, system, 200, ai.MODEL_FAST, { prose: true });
     const bullets = (rawBrief || '').trim()
       .split('\n')
       .map(b => b.replace(/^[-–•*\d.)\]]\s*/, '').trim())

@@ -96,7 +96,7 @@ const src = (p) => fs.readFileSync(REPO + p, 'utf8');
   ok('  the rule the model is given names the record and forbids any other sport', /this record says "\$\{label\}"\. Say "\$\{label\}" or name no sport at all/.test(pw) && /even if the position or the stats suggest one/.test(pw));
   ok('  a repair is reported on the result, so how often it fires is a count', /sportRepaired/.test(pw) && /sport repaired for/.test(pw));
   ok('THE MODEL IS UNCHANGED: still the writer\'s own model at both sites',
-    /ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN\)/.test(src('server/jobs/outreachQueue.js')) && !/claude-opus|claude-fable/.test(pw));
+    /ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN(?:, \{ prose: true \})?\)/.test(src('server/jobs/outreachQueue.js')) && !/claude-opus|claude-fable/.test(pw));
 
   // ── THE REPORT THAT ANSWERS "WHY 0 TRIED" ─────────────────────────────
   OUT.push('', '-- the report --');

@@ -149,7 +149,7 @@ async function main() {
   ok('the athlete lookup runs on DeepSeek through the search loop, on no Anthropic model', !/LOOKUP_MODEL/.test(al) && !/claude-/.test(al) && !/@anthropic-ai\/sdk/.test(al) && /WST\.searchLoop/.test(al));
   ok('  and every turn and search is on the ledger under lookup.<level> with the athlete as the brand', /const site = `lookup\.\$\{level\}`;/.test(al) && /ctx: \{ site, brand: q\.name, agentId: ctx && ctx\.agentId \}/.test(al));
   const jobSrc = src('server/jobs/outreachQueue.js');
-  ok('THE WRITER IS UNTOUCHED: still MODEL_GEN at both sites', (jobSrc.match(/ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN\)/g) || []).length === 2 && /const MODEL_GEN = MODEL_BALANCED;/.test(aiSrc) && /const MODEL_BALANCED = 'claude-sonnet-4-6';/.test(aiSrc));
+  ok('THE WRITER IS UNTOUCHED: still MODEL_GEN at both sites', (jobSrc.match(/ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN(?:, \{ prose: true \})?\)/g) || []).length === 2 && /const MODEL_GEN = MODEL_BALANCED;/.test(aiSrc) && /const MODEL_BALANCED = 'claude-sonnet-4-6';/.test(aiSrc));
 
   // ── 6. THE WRITER RETRY IS COUNTED ───────────────────────────────────────
   OUT.push('', '-- a lint refusal is recorded, so how often the second call fires is a count --');

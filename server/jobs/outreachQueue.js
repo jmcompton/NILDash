@@ -1196,7 +1196,7 @@ async function fillAthlete(pool, ctx) {
             learnedAngles: await PW.learnedAngles(pool, PW.playbookFor(cand.category || null).key).catch(() => []),
           }, { oneShot: (p2, sys, mt) => scanMeter.label(
             { site: 'writer', agentId, athleteId, brand: cand.brand_name },
-            () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN)) });
+            () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN, { prose: true })) });
         } catch (e) {
           say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
           ppitch = null;
@@ -1516,7 +1516,7 @@ async function fillAthlete(pool, ctx) {
             PW.playbookFor((place && place.primaryType) || null).key).catch(() => []),
         }, { oneShot: (p2, sys, mt) => scanMeter.label(
           { site: 'writer', agentId, athleteId, brand: cand.brand_name },
-          () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN)) });
+          () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN, { prose: true })) });
       } catch (e) {
         say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
         pitch = null;

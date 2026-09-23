@@ -33,9 +33,21 @@ function _placesBuildRecord(marketKey) { _placesBuildHits.set(marketKey, Date.no
 // Strip em/en dashes from AI-generated natural-language text. The model leans on
 // em dashes heavily; replace them (and surrounding spaces) with a comma so output
 // reads like a person wrote it. Non-strings pass through untouched.
+//
+// ── A VOICE RULE, NOT A DATA RULE ───────────────────────────────────────────
+// This used to run on EVERY oneShot reply, extraction included, so a roster
+// row's "2024–25" came back "2024, 25" and a rate range "$500–$1,500" came back
+// as two numbers. It is opt-in now: oneShot and oneShotWebSearch apply it only
+// when the caller passes { prose: true } -- text a person will read as writing
+// -- and never to a call whose output is parsed as data.
+//
+// And even in prose, a dash BETWEEN TWO DIGITS is a range, not a pause: it
+// becomes a hyphen ("2024-25", "$500-$1,500") instead of a comma.
 function stripEmDashes(text) {
   if (typeof text !== 'string') return text;
-  return text.replace(/\s*—\s*/g, ', ').replace(/\s*–\s*/g, ', ').replace(/―/g, ', ');
+  return text
+    .replace(/(\d)\s*[–—]\s*(?=[$\d])/g, '$1-')
+    .replace(/\s*—\s*/g, ', ').replace(/\s*–\s*/g, ', ').replace(/―/g, ', ');
 }
 
 let client = null;
@@ -313,8 +325,12 @@ const MODEL_GEN = MODEL_BALANCED;
 // Set to false to revert to legacy email generation prompts
 const FEATURE_EMAIL_V2 = true;
 
-async function oneShot(prompt, system, maxTokens, model) {
+// opts.prose === true: the reply is writing a person will read (a pitch, a
+// brief, a bio, coaching), so the dash rule is applied. Omitted for anything
+// parsed as data -- see stripEmDashes.
+async function oneShot(prompt, system, maxTokens, model, opts) {
   const useModel = model || MODEL_BALANCED;
+  const _out = (t) => ((opts && opts.prose === true) ? stripEmDashes(t) : t);
   // THE FAST TIER ON DEEPSEEK. Only a Haiku call, and only under a routed
   // site (discovery, contacts, lookup): the writer names Sonnet and never
   // comes here; an app call with no label does not either. A DeepSeek
@@ -327,7 +343,7 @@ async function oneShot(prompt, system, maxTokens, model) {
       try {
         const r = await DS.chat({ system: system || 'You are a precise NIL deal analyst.', messages: [{ role: 'user', content: prompt }],
           maxTokens: maxTokens || 2000, ledger: { ctx: scanMeter.ctx() } });
-        return stripEmDashes(r.text);
+        return _out(r.text);
       } catch (e) {
         console.warn(`[oneShot] DeepSeek failed (${e.message}); this call falls back to ${MODEL_FAST}`);
       }
@@ -348,13 +364,13 @@ async function oneShot(prompt, system, maxTokens, model) {
       // One ledger row per call: model, tokens, and the call site from the
       // meter's label. See services/aiLedger.
       Ledger.record(msg, { model: useModel, ms: Date.now() - _t0, ctx: scanMeter.ctx() });
-      return stripEmDashes(msg.content[0].text);
+      return _out(msg.content[0].text);
     } catch (err) {
       // If fast model fails, step up one tier — not straight to the most
       // expensive one. A missing Haiku should not silently bill at Opus rates.
       if (model === MODEL_FAST && attempt === 0 && err?.status === 404) {
         console.warn('[oneShot] Fast model unavailable, falling back to balanced');
-        return oneShot(prompt, system, maxTokens, MODEL_BALANCED);
+        return oneShot(prompt, system, maxTokens, MODEL_BALANCED, opts);   // the prose flag survives the step-up
       }
       const isOverloaded = err?.status === 529 || err?.error?.type === 'overloaded_error' || (err?.message || '').includes('overloaded');
       if (isOverloaded && attempt < delays.length) {
@@ -437,7 +453,9 @@ async function toolLoop({ system, messages, tools, model, maxTokens, maxRounds, 
 // Web-search-enabled one-shot. Uses Anthropic's server-side web_search tool so
 // brand discovery returns REAL, verifiable local businesses. Falls back to the
 // caller's error handling on timeout/failure.
-async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
+async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model, opts) {
+  // Same opt-in as oneShot. Every caller today is extraction, so none opts in.
+  const _out = (t) => ((opts && opts.prose === true) ? stripEmDashes(t) : t);
   // The fast tier on DeepSeek: the same searches, run by the loop in
   // services/webSearchTool through the search provider. One meter bump per
   // call, as below, whichever provider answers.
@@ -448,7 +466,7 @@ async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
       try {
         const r = await WST.searchLoop({ prompt, system: system || 'You are a precise research assistant.',
           maxSearches: maxSearches || 5, maxTokens: maxTokens || 3000, ctx: scanMeter.ctx() });
-        return stripEmDashes(r.text);
+        return _out(r.text);
       } catch (e) {
         console.warn(`[oneShotWebSearch] DeepSeek search failed (${e.message}); this call falls back to ${MODEL_FAST}`);
       }
@@ -470,7 +488,7 @@ async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
     .filter(b => b.type === 'text')
     .map(b => b.text)
     .join('\n');
-  return stripEmDashes(text);
+  return _out(text);
 }
 
 async function oneShotWithSearch(prompt, systemPrompt) {
@@ -1804,7 +1822,8 @@ async function _contactWebSearchRaw(prompt, sys) {
       try {
         const r = await WST.searchLoop({ prompt, system: sys, temperature: 0,
           maxSearches: CONTACT_SEARCH_MAX_USES, maxTokens: CONTACT_SEARCH_MAX_TOKENS, ctx: scanMeter.ctx() });
-        return { text: stripEmDashes(r.text), citations: r.citations, searches: r.searches, outTokens: r.outTokens, apiMs: r.apiMs };
+        // Extraction: returned exactly as the model wrote it (see stripEmDashes).
+        return { text: r.text, citations: r.citations, searches: r.searches, outTokens: r.outTokens, apiMs: r.apiMs };
       } catch (e) {
         console.warn(`[contacts] DeepSeek search failed (${e.message}); this call falls back to ${MODEL_FAST}`);
       }
@@ -1833,7 +1852,7 @@ async function _contactWebSearchRaw(prompt, sys) {
   const apiMs = Date.now() - _apiT0;
   Ledger.record(msg, { model: MODEL_FAST, ms: apiMs, ctx: scanMeter.ctx() });
   const blocks = Array.isArray(msg.content) ? msg.content : [];
-  const text = stripEmDashes(blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n'));
+  const text = blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');   // extraction: not stripped
   // How many web searches the model ACTUALLY ran, and how many tokens it generated.
   // Together these say whether a slow source is slow because of searching or because
   // of writing, which is the difference between tuning max_uses and max_tokens.
@@ -4097,7 +4116,7 @@ Return ONLY valid JSON: {"subject":"...","body":"..."}`;
 
   const _genT0 = Date.now();
   try {
-    const raw = await oneShot(prompt, 'You write authentic, casual-but-professional outreach emails in a real college athlete\'s voice. Output ONLY valid JSON {"subject","body"}, no markdown, no preamble. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 1200, MODEL_GEN);
+    const raw = await oneShot(prompt, 'You write authentic, casual-but-professional outreach emails in a real college athlete\'s voice. Output ONLY valid JSON {"subject","body"}, no markdown, no preamble. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 1200, MODEL_GEN, { prose: true });
     console.log(`[generateDealPitch] model=${MODEL_GEN} ms=${Date.now() - _genT0}`);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const m = c.match(/\{[\s\S]*\}/);
@@ -4120,7 +4139,7 @@ async function generateFollowUp(athlete, brand) {
   const bn = brand.brand_name || brand.brand || 'your business';
   const prompt = `Write a very short, friendly follow-up email (2 sentences max) from college athlete ${athlete.name} to ${bn}. They reached out before about an NIL partnership and haven't heard back. Casual, no pressure, no markdown. Return ONLY JSON {"subject":"...","body":"..."}.`;
   try {
-    const raw = await oneShot(prompt, 'You write short friendly follow-up emails in a real athlete\'s voice. Output ONLY JSON {"subject","body"}. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 500, MODEL_FAST);
+    const raw = await oneShot(prompt, 'You write short friendly follow-up emails in a real athlete\'s voice. Output ONLY JSON {"subject","body"}. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 500, MODEL_FAST, { prose: true });
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const m = c.match(/\{[\s\S]*\}/);
     if (m) { const out = JSON.parse(m[0]); if (out.subject && out.body) return out; }
@@ -4227,7 +4246,7 @@ Return ONLY this JSON — no markdown, no extra keys, no code fences:
 
   const _genT0 = Date.now();
   try {
-    const raw = await oneShot(prompt, 'You are a senior NIL agency strategist. Return only valid JSON. No markdown, no code fences, no preamble. Every field must be specific to this athlete and brand, with no placeholder text and no generic statements. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 2000, MODEL_GEN);
+    const raw = await oneShot(prompt, 'You are a senior NIL agency strategist. Return only valid JSON. No markdown, no code fences, no preamble. Every field must be specific to this athlete and brand, with no placeholder text and no generic statements. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 2000, MODEL_GEN, { prose: true });
     console.log(`[generateAthleteBrandKit] model=${MODEL_GEN} ms=${Date.now() - _genT0}`);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
@@ -4251,7 +4270,7 @@ Instagram: ${(athlete.instagram||0).toLocaleString()} followers | TikTok: ${(ath
 Engagement: ${athlete.engagement || 0}% | Stats: ${athlete.stats || 'N/A'}
 DEAL CONTEXT: Target brand: ${targetBrand} | Category: ${category || 'general'} | Goal: ${goal ? '$' + parseInt(goal).toLocaleString() : 'Market rate'}
 Generate outreach messages. Return ONLY JSON: {"sponsorshipEmail":{"subject":"subject","body":"full email 150-200 words"},"instagramDm":"DM under 150 chars","partnershipProposal":"2-3 paragraph proposal","followUpEmail":{"subject":"follow-up subject","body":"75-100 word follow-up"}}`;
-    const raw = await oneShot(legacyPrompt, 'You are an elite sports agent writing brand outreach. Return only valid JSON. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 8000);
+    const raw = await oneShot(legacyPrompt, 'You are an elite sports agent writing brand outreach. Return only valid JSON. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 8000, undefined, { prose: true });
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
@@ -4319,7 +4338,7 @@ Return ONLY this JSON:
 
   const _genT0 = Date.now();
   try {
-    const raw = await oneShot(prompt, system, 4000, MODEL_GEN);
+    const raw = await oneShot(prompt, system, 4000, MODEL_GEN, { prose: true });
     console.log(`[generateOutreach] model=${MODEL_GEN} ms=${Date.now() - _genT0}`);
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
@@ -4369,6 +4388,7 @@ module.exports = {
   // TESTS ONLY: swap the SDK client for a stub so the entry points can be
   // driven without a key or a network. Never called by product code.
   _setClientForTests: (c) => { client = c; },
+  stripEmDashes,
   rootDomain: _rootDomain,                     // injected for the cross-domain contact check
   TIER1_RANKS: _TIER1_RANKS,
   prewarmDealEvidence,

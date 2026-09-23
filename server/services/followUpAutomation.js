@@ -181,7 +181,7 @@ Return:
   let followUpSubject = `Follow-up: ${outreach.subject}`;
 
   try {
-    const raw = await oneShot(prompt, system, 500);
+    const raw = await oneShot(prompt, system, 500, undefined, { prose: true });
     const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(clean);
     followUpSubject = parsed.subject || followUpSubject;

@@ -204,7 +204,7 @@ async function main() {
   ok('the ledger has a provider column', /ALTER TABLE ai_call_ledger ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'anthropic'/.test(src('server/store.js')));
   ok('spend-breakdown groups by provider and prints both price tables', /BY PROVIDER/.test(src('scripts/spend-breakdown.js')) && /through the search provider on DeepSeek/.test(src('scripts/spend-breakdown.js')));
   ok('the savings script re-prices the routed Haiku calls', /ESTIMATED SAVING FOR THIS WINDOW/.test(src('scripts/deepseek-savings.js')) && /the writer stays on Sonnet/.test(src('scripts/deepseek-savings.js')));
-  ok('the writer is untouched: no deepseek in pitchWriter, MODEL_GEN on both writer sites', !/deepseek/i.test(src('server/services/pitchWriter.js')) && (src('server/jobs/outreachQueue.js').match(/site: 'writer'[\s\S]{0,300}?ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN\)/g) || []).length === 2);
+  ok('the writer is untouched: no deepseek in pitchWriter, MODEL_GEN on both writer sites', !/deepseek/i.test(src('server/services/pitchWriter.js')) && (src('server/jobs/outreachQueue.js').match(/site: 'writer'[\s\S]{0,300}?ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN(?:, \{ prose: true \})?\)/g) || []).length === 2);
   ok('oneShot routes only the fast model', /if \(useModel === MODEL_FAST\) \{\s*const rt = DS\.route\(scanMeter\.ctx\(\)\.site, \{ needsSearch: false \}\)/.test(src('server/ai.js')));
   ok('the routing is logged once at startup', /console\.log\('\[ai\] ' \+ DS\.describeRouting\(\)\)/.test(src('server/ai.js')));
   // The lookup is DeepSeek through the search loop and nothing else: no
