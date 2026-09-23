@@ -94,7 +94,12 @@ function hashBuffer(buf) {
 // ── Extract text from uploaded file ──────────────────────────────────────
 async function extractText(buffer, mimetype) {
   if (mimetype === 'application/pdf') {
+    // ── RECORDED EXPLICITLY, BECAUSE IT CANNOT GO THROUGH ai.oneShot ──────
+    // oneShot sends text only; this sends the PDF itself as a document block.
+    // It used to bill Opus with no ledger row at all, so contract scans never
+    // appeared in spend-breakdown. The response is recorded by hand instead.
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const _t0 = Date.now();
     const resp = await anthropic.messages.create({
       model: 'claude-opus-4-8',
       max_tokens: 4096,
@@ -109,6 +114,7 @@ async function extractText(buffer, mimetype) {
         ],
       }],
     });
+    require('./aiLedger').record(resp, { model: 'claude-opus-4-8', ms: Date.now() - _t0, site: 'contract.pdf' });
     return resp.content[0]?.text || '';
   }
 

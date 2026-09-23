@@ -4,6 +4,11 @@
 require('dotenv').config();
 
 const { pool } = require('./store');
+// THE LEDGER NEEDS A POOL, AND ONLY ai.js WIRES ONE. This job runs as its own
+// process and never loads ai.js, so without this every ledger row it queued
+// would sit unflushed until process.exit dropped it.
+const Ledger = require('./services/aiLedger');
+Ledger.usePool(pool);
 const Anthropic = require('@anthropic-ai/sdk');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -25,6 +30,13 @@ const TIERS = ['p4-top10','p4-top25','p4-mid','p4-lower','highmajor-top','highma
 
 async function searchAndExtract(query) {
   try {
+    // ── RECORDED EXPLICITLY, NOT RE-ROUTED ──────────────────────────────────
+    // This uses Anthropic's server-side web_search tool. oneShotWebSearch would
+    // move it to DeepSeek + Serper, which is a change of provider, not a change
+    // of bookkeeping. It stays where it is and the ledger is written by hand --
+    // including the searches, which Ledger.record reads off server_tool_use and
+    // prices at Anthropic's $10 a thousand.
+    const _t0 = Date.now();
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 2000,
@@ -49,6 +61,8 @@ Return ONLY a JSON array of deals found. Each deal must have these exact fields:
 Only include deals with a real dollar amount disclosed. Return [] if no valid deals found.`,
       messages: [{ role: 'user', content: `Search for and extract NIL deal data from this query: "${query}". Find any disclosed NIL deals with specific dollar amounts mentioned.` }]
     });
+    Ledger.record(response,
+      { model: 'claude-haiku-4-5-20251001', ms: Date.now() - _t0, site: 'nilcomps' });
 
     // Extract text from response
     const textBlocks = response.content.filter(b => b.type === 'text');
@@ -146,11 +160,16 @@ async function runIngestionJob() {
     CREATE TABLE IF NOT EXISTS ingestion_log (id SERIAL PRIMARY KEY, run_at TIMESTAMPTZ DEFAULT NOW(), comps_saved INTEGER)
   `);
   await pool.query('INSERT INTO ingestion_log (comps_saved) VALUES ($1)', [totalSaved]);
-  
+
+  // Written before exit, or the searches this run paid for never reach the
+  // ledger: process.exit does not wait for the flush that record() scheduled.
+  await Ledger.drain();
   process.exit(0);
 }
 
-runIngestionJob().catch(e => {
+runIngestionJob().catch(async (e) => {
   console.error('Job failed:', e);
+  // A failed run still spent what it spent.
+  await Ledger.drain().catch(() => {});
   process.exit(1);
 });
