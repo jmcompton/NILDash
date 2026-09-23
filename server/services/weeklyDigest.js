@@ -353,8 +353,7 @@ async function draftFollowUp(action, ai) {
       + `Athlete: ${action.athlete_name || 'our client'}\nDays since the original: ${action.days_since}\n`
       + `Three sentences maximum. Reference the earlier email. One clear ask. No markdown, no placeholders in brackets.`,
       'You write brief follow-up emails for a sports agency. Plain text only. Never invent facts about the business or the athlete.',
-      400,
-    );
+      400, undefined, { prose: true });
     const s = String(raw || '').replace(/```json/gi, '').replace(/```/g, '').trim();
     const i = s.indexOf('{'), j = s.lastIndexOf('}');
     if (i === -1 || j <= i) throw new Error('no json');

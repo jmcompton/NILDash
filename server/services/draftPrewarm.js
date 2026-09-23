@@ -342,7 +342,7 @@ async function _attemptDraft({ athlete, card, agentName, brand, retryBecause }) 
     // than relying on oneShot's default, so a change to that default cannot
     // silently move this to another model.
     raw = await ai.withDeadline(
-      ai.oneShot(prompt, SYSTEM, 900, 'claude-sonnet-4-6'),
+      ai.oneShot(prompt, SYSTEM, 900, 'claude-sonnet-4-6', { prose: true }),
       DRAFT_TIMEOUT_MS, `prewarm draft for ${brand}`);
   } catch (e) {
     return { hard: e.message };            // timed out: retrying doubles the wait

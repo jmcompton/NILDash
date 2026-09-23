@@ -145,7 +145,7 @@ Return ONLY this JSON, no markdown:
   // Deck copy is structured JSON rendered into fields, not agent-read prose, so
   // it runs on the cheap Haiku tier (same extraction pattern as Deal Scan).
   const raw = await oneShot(prompt,
-    'Return only valid JSON. No markdown. No preamble. Be specific to this athlete and brand.', 1500, MODEL_FAST);
+    'Return only valid JSON. No markdown. No preamble. Be specific to this athlete and brand.', 1500, MODEL_FAST, { prose: true });
   const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
   const match = clean.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('No JSON in AI response');

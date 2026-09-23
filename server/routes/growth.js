@@ -209,7 +209,7 @@ Return JSON only — no markdown, no explanation:
 }`;
 
   try {
-    const raw = await ai.oneShot(userPrompt, systemPrompt, 1500, GROWTH_MODEL);
+    const raw = await ai.oneShot(userPrompt, systemPrompt, 1500, GROWTH_MODEL, { prose: true });
     let seq = {};
     try {
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -326,7 +326,7 @@ Return ONLY a valid JSON array of exactly 10 objects. Each object has exactly tw
   const userPrompt = 'Generate the 10 posts now.';
 
   try {
-    const raw = await ai.oneShot(userPrompt, systemPrompt, 3500, GROWTH_MODEL);
+    const raw = await ai.oneShot(userPrompt, systemPrompt, 3500, GROWTH_MODEL, { prose: true });
     let posts = [];
     try {
       const arrMatch = raw.match(/\[[\s\S]*\]/);

@@ -172,7 +172,7 @@ const src = (p) => fs.readFileSync(REPO + p, 'utf8');
   const ai = require(REPO + 'server/ai.js');
   ok('  the fast tier is a real model id, not a name that fell through', /^claude-haiku/.test(ai.MODEL_FAST), ai.MODEL_FAST);
   ok('OPUS IS STILL USED WHERE IT WAS CHOSEN: contract drafting is untouched',
-    /4000, ai\.MODEL_STANDARD\)/.test(index) && (index.match(/ai\.MODEL_STANDARD/g) || []).length >= 3);
+    /4000, ai\.MODEL_STANDARD(?:, \{ prose: true \})?\)/.test(index) && (index.match(/ai\.MODEL_STANDARD/g) || []).length >= 3);
 
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));
