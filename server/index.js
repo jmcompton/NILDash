@@ -6260,15 +6260,15 @@ app.post('/api/admin/cleanup-duplicates', requireAuth, async (req, res) => {
 });
 
 // ── Help AI ──────────────────────────────────────────────────
+// The system prompt is SERVER-DEFINED (services/helpPrompts). This used to take
+// it from req.body.system, which let any logged-in user write the instructions
+// for a model call on our key. A caller may name a `topic` from a fixed enum;
+// `system` is ignored whatever it holds.
 app.post('/api/ai/help', requireAuth, aiLimiter, async (req, res) => {
-  const { messages, system } = req.body;
-  if (!messages) return res.status(400).json({ error: 'messages required' });
   try {
-    const response = await ai.oneShot(
-      messages.map(m => m.role + ': ' + m.content).join('\n'),
-      system || 'You are a helpful NILDash support assistant.'
-    );
-    res.json({ response });
+    const out = await require('./services/helpPrompts').handleHelp(req.body,
+      (prompt, sys) => scanMeter.label({ site: 'help' }, () => ai.oneShot(prompt, sys)));
+    res.status(out.status).json(out.json);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
