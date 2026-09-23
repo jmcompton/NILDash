@@ -108,7 +108,7 @@ async function main() {
   // sponsor the school.
   await P.query(`INSERT INTO deal_comps (id, sport, school, brand, deal_value, source)
                  VALUES (990001,'Football','Auburn University','Passed Over 3',5000,'test')`);
-  const sig = await S.schoolSponsorSignals(P, 'Auburn University');
+  const sig = await S.schoolSponsorSignals(P, 'Auburn University', { agentId: AG });
   ok('a scraped deal at this school is found', sig.has('passed over 3'), [...sig.keys()]);
   ok('  but it is labelled a REPORT, not a sponsorship',
     sig.get('passed over 3').kind === 'reported-deal-at-school', sig.get('passed over 3'));
@@ -130,7 +130,7 @@ async function main() {
   await P.query(`INSERT INTO brand_engagement (agent_id,athlete_id,brand_key,brand_name,state)
                  VALUES ($1,'sc-sib','sib1','Passed Over 4','responded')
                  ON CONFLICT DO NOTHING`, [AG]);
-  const sigR = await S.schoolSponsorSignals(P, 'Auburn University');
+  const sigR = await S.schoolSponsorSignals(P, 'Auburn University', { agentId: AG });
   ok('a business that ANSWERED us at this school is a signal',
     sigR.get('passed over 4') && sigR.get('passed over 4').kind === 'replied-at-school',
     sigR.get('passed over 4'));
@@ -153,11 +153,11 @@ async function main() {
   // Our own closed deal at the school is also a signal.
   await P.query(`INSERT INTO deals (id, agent_id, athlete_id, data) VALUES
     ('sc-d1',$1,$2,'{"stage":"Closed","brand":"Passed Over 5"}'::jsonb)`, [AG, ATH.id]);
-  const sig2 = await S.schoolSponsorSignals(P, 'Auburn University');
+  const sig2 = await S.schoolSponsorSignals(P, 'Auburn University', { agentId: AG });
   ok('our own closed deal counts too', sig2.has('passed over 5'), [...sig2.keys()]);
   ok('  and outranks a mere reply', S.SIGNAL_WEIGHT['agent-closed-at-school'] > S.SIGNAL_WEIGHT['replied-at-school']);
   ok('a deal at ANOTHER school is not a signal here',
-    (await S.schoolSponsorSignals(P, 'Clemson University')).size === 0);
+    (await S.schoolSponsorSignals(P, 'Clemson University', { agentId: AG })).size === 0);
 
   // ── THE MIXED SLATE ──────────────────────────────────────────────────────
   // A social pool with no geography: it must reach the slate for an athlete

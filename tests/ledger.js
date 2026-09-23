@@ -95,7 +95,7 @@ async function main() {
   ok('  and an OPEN deal does not', (await stateOf(P, 'Still Talking')) === null);
 
   // ── SOURCE 3 NOW ACCUMULATES ─────────────────────────────────────────────
-  const sig = await S.schoolSponsorSignals(P, 'Auburn University');
+  const sig = await S.schoolSponsorSignals(P, 'Auburn University', { agentId: AG });
   ok('THE SCOUT SIGNAL FINALLY SEES SOMETHING', sig.size > 0, [...sig.keys()]);
   ok('  the replied-at-school signal is real now', !!sig.get('reply cafe'), [...sig.keys()]);
   ok('  and it is worded as what it is',
@@ -112,7 +112,7 @@ async function main() {
   ok('  tagged as our own close, not a news scrape', comp && comp.source === 'agent-close', comp);
 
   // OUR OWN CLOSE IS NOT LAUNDERED INTO "the market says so".
-  const sig2 = await S.schoolSponsorSignals(P, 'Auburn University');
+  const sig2 = await S.schoolSponsorSignals(P, 'Auburn University', { agentId: AG });
   ok('an agent-close comp is NOT counted as a public report',
     !sig2.get('comp brand') || sig2.get('comp brand').kind !== 'reported-deal-at-school',
     sig2.get('comp brand'));
@@ -120,7 +120,7 @@ async function main() {
   // ── THE NEWS SCRAPE IS LABELLED FOR WHAT IT IS ───────────────────────────
   await P.query(`INSERT INTO deal_comps (id,sport,school,brand,deal_value,source)
                  VALUES (990201,'Football','Auburn University','Scraped Collective',50000,'lgtest')`);
-  const sig3 = await S.schoolSponsorSignals(P, 'Auburn University');
+  const sig3 = await S.schoolSponsorSignals(P, 'Auburn University', { agentId: AG });
   const rep = sig3.get('scraped collective');
   ok('a scraped deal is a REPORT, not a sponsorship claim',
     rep && rep.kind === 'reported-deal-at-school', rep);
