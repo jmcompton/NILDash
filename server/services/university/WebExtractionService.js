@@ -15,6 +15,10 @@
 'use strict';
 
 const { getClient } = require('../../ai');
+// Through ai.oneShot, so every call lands in the cost ledger under a site
+// label; it used to build its own client and bill Opus invisibly.
+const _ai = () => require('../../ai');
+const _meter = () => require('../../scanMeter');
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const FETCH_TIMEOUT_MS = 15_000;
@@ -173,13 +177,9 @@ Return format:
 {"athletes": [...], "note": "optional extraction note"}`;
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const raw = message.content?.[0]?.text || '';
+    void client;   // kept so an unconfigured key still fails fast above
+    const raw = (await _meter().label({ site: 'university.webextract' },
+      () => _ai().oneShot(prompt, null, 4096, 'claude-opus-4-8'))) || '';
 
     // Parse JSON response
     const jsonMatch = raw.match(/\{[\s\S]*\}/);

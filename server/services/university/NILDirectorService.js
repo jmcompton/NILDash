@@ -665,13 +665,10 @@ Return ONLY valid JSON:
 }`;
 
   try {
-    const client = getClient();
-    const msg = await client.messages.create({
-      model:     'claude-opus-4-8',
-      max_tokens: 2048,
-      messages:  [{ role: 'user', content: prompt }],
-    });
-    const raw = msg.content?.[0]?.text || '';
+    // Through ai.oneShot so it lands in the cost ledger; it used to build its
+    // own client and bill Opus invisibly.
+    const raw = (await require('../../scanMeter').label({ site: 'university.insights' },
+      () => require('../../ai').oneShot(prompt, null, 2048, 'claude-opus-4-8'))) || '';
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
     return JSON.parse(match[0]);

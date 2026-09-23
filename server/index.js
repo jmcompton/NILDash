@@ -1244,22 +1244,18 @@ app.post('/api/university/ai/compliance-check', requireUniversityAuth, async (re
 
     const userPrompt = `Review this athlete's NIL deal portfolio and return a JSON array of compliance flags:\n\n${JSON.stringify(athletePayload, null, 2)}\n\nReturn ONLY a JSON array in this exact format:\n[{"flag_type":"conflict|exclusivity_breach|missing_disclosure|category_overlap","severity":"low|medium|high","deals_involved":["deal_id"],"summary":"one sentence plain English","recommended_action":"what the compliance officer should do"}]`;
 
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic();
-    const msg = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: userPrompt }],
-      system: systemPrompt,
-    });
+    // Through ai.oneShot so the call lands in the cost ledger; this used to
+    // build its own client and never appeared in spend-breakdown.
+    const _text = await scanMeter.label({ site: 'university.compliance' },
+      () => ai.oneShot(userPrompt, systemPrompt, 1024, 'claude-sonnet-4-6'));
 
     let flags = [];
     try {
-      const text = msg.content[0].text.trim();
+      const text = String(_text || '').trim();
       const jsonStr = text.startsWith('[') ? text : text.slice(text.indexOf('['), text.lastIndexOf(']') + 1);
       flags = JSON.parse(jsonStr);
     } catch(e) {
-      return res.status(500).json({ error: 'AI returned unparseable response', raw: msg.content[0].text });
+      return res.status(500).json({ error: 'AI returned unparseable response', raw: _text });
     }
 
     const saved = [];
@@ -1310,18 +1306,13 @@ app.post('/api/university/ai/deal-recommendations/:athleteId', requireUniversity
 
     const userPrompt = `Generate 5 ranked deal recommendations for this athlete:\n\n${JSON.stringify(athletePayload, null, 2)}\n\nReturn ONLY a JSON array:\n[{"rank":1,"brand_name":"...","category":"...","campaign_concept":"...","estimated_value_min":1000,"estimated_value_max":5000,"why_it_fits":"...","compliance_risk":"low|medium|high"}]`;
 
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic();
-    const msg = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: userPrompt }],
-      system: systemPrompt,
-    });
+    // Through ai.oneShot so the call lands in the cost ledger.
+    const _text = await scanMeter.label({ site: 'university.recommendations' },
+      () => ai.oneShot(userPrompt, systemPrompt, 1500, 'claude-sonnet-4-6'));
 
     let recommendations = [];
     try {
-      const text = msg.content[0].text.trim();
+      const text = String(_text || '').trim();
       const jsonStr = text.startsWith('[') ? text : text.slice(text.indexOf('['), text.lastIndexOf(']') + 1);
       recommendations = JSON.parse(jsonStr);
     } catch(e) {
@@ -15802,8 +15793,6 @@ app.post('/api/university/roster/preview', requireAuth, requireUniversityMode, r
     // Truncate to 12KB to stay well inside Claude's context
     if (rawText.length > 12000) rawText = rawText.slice(0, 12000) + '\n[truncated]';
 
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic();
 
     const systemPrompt = `You are a data mapping assistant. You will receive a raw roster file from a university athletics department. Map the data to this schema and return ONLY a JSON array, no markdown, no explanation:
 [{
@@ -15817,14 +15806,9 @@ app.post('/api/university/roster/preview', requireAuth, requireUniversityMode, r
 }]
 If a field is missing or unclear, set it to null. Combine any full name fields into first_name and last_name. Be flexible — column names vary by school. If you cannot determine the structure at all, return an empty array [].`;
 
-    const msg = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: `Map this roster file:\n\n${rawText}` }],
-    });
-
-    const raw = (msg.content[0]?.text || '').trim();
+    // Through ai.oneShot so the call lands in the cost ledger.
+    const raw = String((await scanMeter.label({ site: 'university.roster' },
+      () => ai.oneShot(`Map this roster file:\n\n${rawText}`, systemPrompt, 4096, 'claude-sonnet-4-6'))) || '').trim();
     let athletes = [];
     try {
       // Strip any accidental markdown fences
@@ -15974,8 +15958,6 @@ app.post('/api/university/roster/parse-text', requireAuth, requireUniversityMode
       return res.status(400).json({ error: 'Please paste some roster text first.' });
     }
     // Re-use Claude extraction but pass text directly (skip HTTP fetch)
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic();
     const prompt = `You are extracting structured athlete roster data that a user has copied and pasted from a university athletics website.
 
 University: ${universityName}
@@ -16006,13 +15988,9 @@ Rules:
 
 Return format: {"athletes": [...], "note": "optional note"}`;
 
-    const message = await client.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const raw = message.content?.[0]?.text || '';
+    // Through ai.oneShot so the call lands in the cost ledger.
+    const raw = (await scanMeter.label({ site: 'university.roster' },
+      () => ai.oneShot(prompt, null, 4096, 'claude-opus-4-8'))) || '';
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return res.status(422).json({ error: 'Could not parse athletes from that text. Try selecting more of the page.' });
 
