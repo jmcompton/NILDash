@@ -118,10 +118,50 @@ const SIGNAL_WEIGHT = {
 // that is built on proximity.
 const LOCAL_LANE_SIGNALS = new Set(['agent-closed-at-school', 'replied-at-school']);
 
+// ── A SIGNAL BELONGS TO THE AGENT WHOSE BOOK IT CAME OUT OF ────────────────
+//
+// This took (pool, school) and filtered on the school alone. Two agents with
+// athletes at the same school share every row these queries read, so the second
+// agent inherited the first agent's closes and the first agent's replies -- as
+// a ranking boost AND as a sentence written onto the card (sponsor_note).
+//
+// Two things were wrong with that, and they are different wrongs:
+//
+//   IT SAID SOMETHING FALSE. 'agent-closed-at-school' renders as "you have
+//   already closed a deal with them at Auburn University". Handed to an agent
+//   who closed nothing, that is a false claim in the second person, on a card
+//   whose whole purpose is to be repeated to a business owner.
+//
+//   IT DISCLOSED A MAILBOX. 'replied-at-school' reads brand_engagement
+//   'responded', which followUpAutomation.markReplied writes from reply capture
+//   over an agent's connected Gmail or Outlook. services/brandFlags.js refuses
+//   to cross agents with exactly this data, for exactly this reason: "showing a
+//   second agent a badge derived from the first agent's inbox is a disclosure of
+//   the first agent's mail, however small the badge." The same rule applies
+//   here, and it did not hold.
+//
+// Both agent-derived queries are scoped to the requesting agent now, and the
+// function FAILS CLOSED without one: no agentId, no signals. A caller that
+// forgets loses a ranking boost, which is a bad night. The alternative default
+// leaks a customer's book, which is not a bad night.
+//
+// deal_comps is the exception and cannot be scoped, because the table has no
+// agent column: it is nilCompJob's weekly scrape of publicly disclosed deals
+// plus our own closes, and the only agent-derived rows are the ones saveComp
+// writes with source='agent-close', which this has always excluded and still
+// does. Nothing left in it identifies an agent -- store.saveComp's own note is
+// "no athlete name, no agent, no deal id" -- so there is nothing to scope. Said
+// out loud here rather than left as a silent asymmetry.
 async function schoolSponsorSignals(pool, school, opts = {}) {
   const out = new Map();
   const s = String(school || '').trim();
   if (!s) return out;
+  const agentId = opts.agentId == null ? '' : String(opts.agentId).trim();
+  if (!agentId) {
+    console.error('[scout/signals] no agentId — returning NO signals rather than every agent\'s. '
+      + `school=${JSON.stringify(s.slice(0, 60))}`);
+    return out;
+  }
   const add = (brand, kind, detail) => {
     const k = normBrand(brand);
     if (!k) return;
@@ -134,25 +174,39 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
     catch (e) { console.error('[scout/signals] ' + label, e.message); return []; }
   };
 
-  // 1. Our own closed deals for athletes at this school.
+  // 1. THIS AGENT'S OWN closed deals for THEIR athletes at this school. Both
+  //    sides are checked -- the deal's agent_id and the athlete's -- because the
+  //    note says "you", and "you" has to be true of the person reading it. Both
+  //    columns are NOT NULL (store.js), so neither check can be satisfied by a
+  //    missing value.
   for (const r of await q('deals',
     `SELECT DISTINCT d.data->>'brand' AS brand
        FROM deals d JOIN athletes a ON a.id = d.athlete_id
       WHERE d.data->>'stage' = 'Closed' AND d.data->>'brand' IS NOT NULL
         AND LOWER(a.data->>'school') = LOWER($1)
-      LIMIT 200`, [s])) {
+        AND d.agent_id = $2 AND a.agent_id = $2
+      LIMIT 200`, [s, agentId])) {
     add(r.brand, 'agent-closed-at-school', `you have already closed a deal with them at ${s}`);
   }
 
-  // 2. A business that answered us for another athlete at this school. This read
-  //    returned nothing for the life of the product: 'responded' and 'closed'
-  //    were never written by anything. See store.advanceBrandEngagement.
+  // 2. A business that answered THIS AGENT for another of THEIR athletes at this
+  //    school. This is the mailbox-derived one, so it is the one that must never
+  //    cross: 'responded' is written by followUpAutomation.markReplied out of a
+  //    connected Gmail or Outlook.
+  //
+  //    The athlete's owner is the authority (athletes.agent_id is NOT NULL);
+  //    brand_engagement.agent_id is NULLABLE, so it is checked as "not somebody
+  //    else's" rather than trusted as "is mine". A row whose recorded agent
+  //    disagrees with the athlete's owner is an anomaly and is excluded rather
+  //    than resolved in this agent's favour.
   for (const r of await q('engaged',
     `SELECT DISTINCT be.brand_name AS brand, be.state
        FROM brand_engagement be JOIN athletes a ON a.id = be.athlete_id
       WHERE be.state IN ('responded','closed') AND be.brand_name IS NOT NULL
         AND LOWER(a.data->>'school') = LOWER($1)
-      LIMIT 200`, [s])) {
+        AND a.agent_id = $2
+        AND (be.agent_id IS NULL OR be.agent_id = $2)
+      LIMIT 200`, [s, agentId])) {
     add(r.brand, 'replied-at-school', r.state === 'closed'
       ? `has closed a deal with another ${s} athlete`
       : `replied to outreach for another ${s} athlete`);
@@ -160,20 +214,25 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
 
   // 3. A DISCLOSED deal reported publicly. Matched on school loosely, because
   //    deal_comps carries whatever the source called it. Worded as what it is: a
-  //    report, not a relationship we can vouch for. Rows we wrote ourselves
-  //    (source='agent-close') are excluded -- they are already source 1, at a
-  //    much higher weight, and counting them twice would launder our own close
-  //    into "the market says so".
+  //    report, not a relationship we can vouch for.
+  //
+  //    NOT SCOPED, AND IT IS THE ONE THAT DOES NOT NEED TO BE. deal_comps has no
+  //    agent column; it holds nilCompJob's weekly scrape of deals disclosed in
+  //    the press. The only rows that ever came out of an agent's own book are
+  //    the ones store.saveComp writes with source='agent-close', excluded here
+  //    since before this change -- they are already source 1, at a much higher
+  //    weight, and counting them twice would launder our own close into "the
+  //    market says so". Trimmed and lower-cased now so the exclusion cannot be
+  //    walked past by whitespace or casing.
   for (const r of await q('comps',
     `SELECT DISTINCT brand FROM deal_comps
       WHERE brand IS NOT NULL AND brand <> ''
-        AND COALESCE(source,'') <> 'agent-close'
+        AND LOWER(TRIM(COALESCE(source,''))) <> 'agent-close'
         AND (LOWER(school) = LOWER($1) OR LOWER(school) LIKE '%' || LOWER($2) || '%')
       LIMIT 400`, [s, s.replace(/\s*(university|college)\s*/ig, ' ').trim()])) {
     add(r.brand, 'reported-deal-at-school',
       `publicly reported an NIL deal with an athlete at ${s}`);
   }
-  void opts;
   return out;
 }
 
@@ -380,7 +439,9 @@ async function assembleSlate(pool, ctx) {
   const { agentId, athlete, store } = ctx;
   const limit = ctx.limit || SLATE_MAX;
 
-  const signals = await schoolSponsorSignals(pool, athlete.school);
+  // The agent is passed, not implied: these signals are that agent's own deal
+  // and reply history, and without an agentId the function returns none.
+  const signals = await schoolSponsorSignals(pool, athlete.school, { agentId });
   const local = await localCandidates(pool, { agentId, athlete, limit });
   let social = await socialCandidates(pool, { athlete, limit, store });
   let national = await nationalCandidates(pool, { limit, store });
