@@ -110,7 +110,7 @@ async function main() {
 
   const budget = Q.newBudget(job.CAP_USD);
   const r1 = await job.fillAthlete(P, {
-    agentId: AG, athleteId: A1, athleteName: 'Marcus Hall', budget,
+    agentId: AG, agentFirstName: 'John', athleteId: A1, athleteName: 'Marcus Hall', budget,
     region: 'Auburn, AL',
     athleteProfile: require(ROOT + 'server/services/athleteRecord')
       .resolveAthlete({ id: A1, data: { name: 'Marcus Hall', school: 'Auburn University', sport: 'Football', instagram: 24000 } },
@@ -139,7 +139,7 @@ async function main() {
     [A2, AG, JSON.stringify({ name: 'No School', hometown: 'Knoxville, TN', sport: 'Football', instagram: 18000 })]);
   stub.placesCalls.length = 0; stub.contactCalls.length = 0;
   const r2 = await job.fillAthlete(P, {
-    agentId: AG, athleteId: A2, athleteName: 'No School', budget: Q.newBudget(job.CAP_USD),
+    agentId: AG, agentFirstName: 'John', athleteId: A2, athleteName: 'No School', budget: Q.newBudget(job.CAP_USD),
     region: '',
     athleteProfile: require(ROOT + 'server/services/athleteRecord')
       .resolveAthlete({ id: A2, data: { name: 'No School', hometown: 'Knoxville, TN', sport: 'Football', instagram: 18000 } },

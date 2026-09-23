@@ -220,7 +220,8 @@ function renderHtml(digest, opts = {}) {
   const unsubUrl = opts.unsubUrl || `${appUrl}/api/digest/unsubscribe?token=${encodeURIComponent(opts.unsubToken || '')}`;
   const c = digest.counts;
   const a = digest.action;
-  const name = firstName(digest.agent.name) || 'there';
+  // null without a real name; the greeting below is written around it.
+  const name = firstName(digest.agent.name) || null;
 
   let html = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -232,7 +233,7 @@ function renderHtml(digest, opts = {}) {
 
 <tr><td style="padding:20px 20px 8px 20px;font-family:Arial,Helvetica,sans-serif">
   <div style="font-size:13px;color:#6b7280">NILDash weekly</div>
-  <div style="font-size:20px;font-weight:800;color:#111827;margin-top:4px">Morning, ${esc(name)}.</div>
+  <div style="font-size:20px;font-weight:800;color:#111827;margin-top:4px">${name ? `Morning, ${esc(name)}.` : 'Morning.'}</div>
 </td></tr>
 
 <tr><td style="padding:4px 12px 12px 12px">
@@ -261,10 +262,15 @@ function renderHtml(digest, opts = {}) {
       <div style="font-size:14px;color:#4b5563;margin-top:6px;line-height:1.45">
         You emailed them ${a.days_since} days ago about ${esc(a.athlete_name || 'your client')} and have not heard back.
       </div>
-      <div style="background:#ffffff;border:1px solid #fed7aa;border-radius:8px;padding:12px;margin-top:12px;font-size:14px;color:#374151;line-height:1.5;white-space:pre-wrap">${esc(a.followUpBody || '')}</div>
+      ${a.followUpBody
+    ? `<div style="background:#ffffff;border:1px solid #fed7aa;border-radius:8px;padding:12px;margin-top:12px;font-size:14px;color:#374151;line-height:1.5;white-space:pre-wrap">${esc(a.followUpBody)}</div>
       <div style="margin-top:14px">
         <a href="${esc(mailto)}" style="${BTN};background:#ea580c;color:#ffffff">Send this follow-up</a>
-      </div>
+      </div>`
+    : `<div style="font-size:14px;color:#4b5563;margin-top:10px;line-height:1.45">No draft: we do not have a name for the person on this thread.</div>
+      <div style="margin-top:14px">
+        <a href="${esc(appUrl + '/#outreach')}" style="${BTN};background:#ea580c;color:#ffffff">Open the thread</a>
+      </div>`}
     </td></tr>
   </table>
 </td></tr>`;
@@ -324,7 +330,7 @@ function renderText(digest) {
     lines.push(`Follow up with ${a.contact_name || 'the contact'} at ${a.brand_name}.`);
     lines.push(`Emailed ${a.days_since} days ago about ${a.athlete_name || 'your client'}, no reply.`);
     lines.push('');
-    lines.push(a.followUpBody || '');
+    lines.push(a.followUpBody || 'No draft: we do not have a name for the person on this thread.');
     lines.push('');
   }
   for (const o of (digest.newOpps || [])) {
@@ -341,16 +347,21 @@ function renderText(digest) {
 // instead of killing the send.
 async function draftFollowUp(action, ai) {
   if (!action) return null;
-  const fallback = `Hi ${firstName(action.contact_name) || 'there'}, following up on my note about a partnership with `
-    + `${action.athlete_name || 'one of our athletes'}. I know inboxes get busy. `
+  // NO STAND-IN NAMES IN A MESSAGE TO A BUSINESS. This greeted "Hi there" and
+  // pitched "one of our athletes" when either name was missing. Now the draft is
+  // simply not written; the digest still lists the stale thread.
+  const contactFirst = firstName(action.contact_name);
+  if (!contactFirst || !action.athlete_name) return null;
+  const fallback = `Hi ${contactFirst}, following up on my note about a partnership with `
+    + `${action.athlete_name}. I know inboxes get busy. `
     + `Would a quick call this week work, or should I check back later this month?`;
   if (!ai || typeof ai.oneShot !== 'function') return { subject: `Re: ${action.subject || action.brand_name}`, body: fallback };
   try {
     const raw = await ai.oneShot(
       `Write a short follow-up email body. Return ONLY JSON: {"subject":"","body":""}\n`
       + `Original subject: ${action.subject || '(none)'}\n`
-      + `Business: ${action.brand_name}\nContact: ${action.contact_name || 'unknown'}\n`
-      + `Athlete: ${action.athlete_name || 'our client'}\nDays since the original: ${action.days_since}\n`
+      + `Business: ${action.brand_name}\nContact: ${action.contact_name}\n`
+      + `Athlete: ${action.athlete_name}\nDays since the original: ${action.days_since}\n`
       + `Three sentences maximum. Reference the earlier email. One clear ask. No markdown, no placeholders in brackets.`,
       'You write brief follow-up emails for a sports agency. Plain text only. Never invent facts about the business or the athlete.',
       400, undefined, { prose: true });

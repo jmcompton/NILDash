@@ -302,7 +302,7 @@ router.post('/pitch', async (req, res) => {
     if (pitch && pitch.refused) {
       return res.status(422).json({
         error: 'pitch_refused', reasons: pitch.reasons || [],
-        message: 'The writer could not produce this pitch without naming a price or inventing a detail about the athlete, so no draft was written.',
+        message: pitch.message || 'The writer could not produce this pitch without naming a price or inventing a detail about the athlete, so no draft was written.',
       });
     }
 
@@ -314,7 +314,8 @@ router.post('/pitch', async (req, res) => {
       if (mk && mk.slug && mk.variants && mk.variants[brandSlug]) {
         const appUrl = process.env.APP_URL || 'https://mynildash.com';
         const kitUrl = `${appUrl}/media-kit/${mk.slug}?for=${brandSlug}`;
-        const athleteFirst = String(athlete.data && athlete.data.name || '').split(/\s+/)[0] || 'the athlete';
+        const athleteFirst = String(athlete.data && athlete.data.name || '').split(/\s+/)[0];
+        if (!athleteFirst) throw new Error('no athlete name for the media kit line');
         const psLine = `<p>P.S. Here is ${athleteFirst}'s media kit, put together for ${enrichment.brand_name}: <a href="${kitUrl}">${kitUrl}</a></p>`;
         if (pitch && typeof pitch.body_html === 'string') pitch.body_html += psLine;
         else if (pitch && typeof pitch.body === 'string') pitch.body += `\n\nP.S. Here is ${athleteFirst}'s media kit, put together for ${enrichment.brand_name}: ${kitUrl}`;

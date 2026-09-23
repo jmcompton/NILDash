@@ -217,7 +217,8 @@ else {
     }
 
     // Agent CTA
-    document.getElementById("r-agent").textContent = (agent.name||"Your Agent") + (agent.email ? " · "+agent.email : "");
+    // No stand-in name: the line shows what we hold and nothing else.
+    document.getElementById("r-agent").textContent = [agent.name, agent.email].filter(Boolean).join(" · ");
 
     // Footer
     var exp = new Date(data.expiresAt);

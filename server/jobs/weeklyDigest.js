@@ -79,8 +79,9 @@ async function buildFor(pool, user, ai, nowMs) {
   const d = await digest.gatherAgentDigest(pool, user, nowMs);
   if (d.action) {
     const draft = await digest.draftFollowUp(d.action, ai);
-    d.action.followUpSubject = draft.subject;
-    d.action.followUpBody = draft.body;
+    // null when the contact or the athlete has no name: no draft is offered.
+    d.action.followUpSubject = draft ? draft.subject : null;
+    d.action.followUpBody = draft ? draft.body : null;
   }
   return d;
 }

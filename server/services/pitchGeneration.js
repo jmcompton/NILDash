@@ -54,10 +54,19 @@ function _engagementLine(a) {
     ` — if you cite it, write "as of ${ep.asOfText}")` : ''}`;
 }
 
+const AgentName = require('./agentName');
+
 async function generatePitch(inputs) {
   const { athlete, enrichment, matchScore, contact, dealScanData, agentName, agentEmail } = inputs;
   const athleteData = extractAthleteData(athlete);
-  const agentSignature = agentName || 'Your Agent';
+  // NO STAND-IN SENDER. This read agentName || 'Your Agent', and the model was
+  // told to write the email "from Your Agent". Refused through the same path as
+  // a price or an invented fact: no model call, no draft.
+  const agentSignature = AgentName.agentFullName({ name: agentName, email: agentEmail });
+  if (!agentSignature) {
+    return { refused: true, reasons: [AgentName.NO_AGENT_NAME_REASON], message: AgentName.NO_AGENT_NAME_REASON,
+      brand: enrichment && enrichment.brand_name };
+  }
   const agentTitle = 'NIL Partnerships';
 
   // ── System prompt: v2 vs legacy ──────────────────────────────
@@ -177,7 +186,7 @@ BRAND:
 
 TARGET CONTACT:
 - Role: ${contactTitle}
-- Name: ${contactName || 'Decision Maker'}
+- Name: ${contactName || 'not known; do not name them'}
 - Contact type: ${contact?.contact_type || 'partnership'}
 
 DEAL SCAN CONTEXT:

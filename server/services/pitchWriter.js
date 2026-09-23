@@ -1,4 +1,5 @@
 'use strict';
+const AgentName = require('./agentName');
 // ── THE WRITER ───────────────────────────────────────────────────────────────
 //
 // What this replaces:
@@ -969,7 +970,7 @@ function _positionRule(a) {
 function describeAthlete(a) {
   const L = [];
   const isPro = a.athleteType === 'pro';
-  L.push('Name: ' + (a.name || 'the athlete'));
+  L.push('Name: ' + a.name);
   if (isPro) {
     // ── THE PRO VARIANT: name, position, team, and what they are known for ──
     // No class year and no school, ever: a year left over on the record from
@@ -1189,6 +1190,16 @@ function systemFor(athlete) {
   return athlete && athlete.athleteType === 'pro' ? SYSTEM_PRO : SYSTEM;
 }
 
+// NO DEFAULT SENDER. This used to read ctx.agentFirstName || 'JohnMark', so an
+// agent with no name on file had every pitch signed with somebody else's name.
+// writePitch refuses before it gets here; this throws so that no other caller
+// can build a prompt without one.
+function _signOffName(ctx) {
+  const n = AgentName.firstNameOrNull(ctx && ctx.agentFirstName);
+  if (!n) throw new Error('buildPrompt: ' + AgentName.NO_AGENT_NAME_REASON);
+  return n;
+}
+
 function buildPrompt(ctx) {
   const play = playbookFor(ctx.business && ctx.business.category);
   const learned = (ctx.learnedAngles && ctx.learnedAngles.length)
@@ -1216,7 +1227,7 @@ ${describeAthlete(ctx.athlete || {})}
 WHAT THIS CATEGORY TYPICALLY WANTS
 ${play.wants}. A fitting ask looks like: ${play.ask}.
 ${dealLines.length ? '\nWHAT WE ALREADY WORKED OUT\n' + dealLines.join('\n') + '\n' : ''}${learned}
-The agent's first name, for the sign-off: ${ctx.agentFirstName || 'JohnMark'}
+The agent's first name, for the sign-off: ${_signOffName(ctx)}
 ${ctx.hasSchedulingLink
     ? 'The agent HAS a scheduling link, and it is appended below your message. You may '
       + 'invite them to use it: "use my scheduling link below to set up a call".'
@@ -1242,7 +1253,16 @@ If there is no real connection worth pitching, return instead:
 async function writePitch(ctx, opts = {}) {
   const oneShot = opts.oneShot;
   if (typeof oneShot !== 'function') throw new Error('writePitch requires opts.oneShot');
-  const agentFirst = String(ctx.agentFirstName || 'JohnMark').trim().split(/\s+/)[0];
+  // THE SENDER IS KNOWN OR THE CARD IS NOT WRITTEN, the same rule as a missing
+  // recipient name. Refused before the model is called, so it costs nothing.
+  const agentFirst = AgentName.firstNameOrNull(ctx.agentFirstName);
+  if (!agentFirst) {
+    return { skipped: true, noAgentName: true, reason: AgentName.NO_AGENT_NAME_REASON };
+  }
+  // Nor about an athlete we cannot name: describeAthlete wrote "Name: the athlete".
+  if (!String((ctx.athlete && ctx.athlete.name) || '').trim()) {
+    return { skipped: true, reason: 'the athlete has no name on file' };
+  }
   // The greeting is linted like the sign-off: the first line must be
   // "Hi <first name>," for the person the card is to. A draft that opens
   // "Hi," is rejected and rewritten once, then refused.

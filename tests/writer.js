@@ -131,17 +131,17 @@ async function main() {
   // ── THE CATEGORY CHANGES THE ASK ────────────────────────────────────────
   ok('a restaurant wants foot traffic', W.playbookFor('italian_restaurant').key === 'foot-traffic');
   ok('a dealership wants a face for 18-24', W.playbookFor('car_dealer').key === 'face-of-brand');
-  ok('  and says so in the prompt', /18-24/.test(W.buildPrompt({ business: { category: 'car_dealer' } })));
+  ok('  and says so in the prompt', /18-24/.test(W.buildPrompt({ agentFirstName: 'Sam', business: { category: 'car_dealer' } })));
   ok('a gym wants signups', W.playbookFor('gym').key === 'signups');
-  ok('  asking for something trackable', /trackable code/.test(W.buildPrompt({ business: { category: 'gym' } })));
+  ok('  asking for something trackable', /trackable code/.test(W.buildPrompt({ agentFirstName: 'Sam', business: { category: 'gym' } })));
   ok('a retailer wants the product worn', W.playbookFor('clothing_store').key === 'product-worn');
   ok('an unknown category still gets an ask', W.DEFAULT_PLAY.ask.length > 10);
-  const gymP = W.buildPrompt({ business: { category: 'gym' } });
-  const carP = W.buildPrompt({ business: { category: 'car_dealer' } });
+  const gymP = W.buildPrompt({ agentFirstName: 'Sam', business: { category: 'gym' } });
+  const carP = W.buildPrompt({ agentFirstName: 'Sam', business: { category: 'car_dealer' } });
   ok('the same athlete gets a DIFFERENT ask by category', gymP !== carP);
 
   // ── BOTH SIDES REACH THE PROMPT ─────────────────────────────────────────
-  const p = W.buildPrompt({ business: BIZ, athlete: ATHLETE, agentFirstName: 'JohnMark',
+  const p = W.buildPrompt({ agentFirstName: 'Sam', business: BIZ, athlete: ATHLETE, agentFirstName: 'JohnMark',
     deal: { valueLow: 400, valueHigh: 800, reasoning: 'Local gym, athlete trains nearby',
       campaignIdeas: ['Training session takeover'] } });
   for (const [what, needle] of [
@@ -165,7 +165,7 @@ async function main() {
     /SELL THE POTENTIAL, NOT A PACKAGE/.test(W.SYSTEM));
   ok('  a 312-review business is called established', /well established locally/.test(p));
   ok('  and a 9-review one is flagged as new or small',
-    /may be new or small/.test(W.buildPrompt({ business: { name: 'X', rating: 5, userRatingCount: 9 } })));
+    /may be new or small/.test(W.buildPrompt({ agentFirstName: 'Sam', business: { name: 'X', rating: 5, userRatingCount: 9 } })));
   ok('the angle comes BEFORE the message in the schema',
     p.indexOf('"angle"') < p.indexOf('"message"'), [p.indexOf('"angle"'), p.indexOf('"message"')]);
   ok('  and the ask comes before it too', p.indexOf('"ask"') < p.indexOf('"message"'));
@@ -188,7 +188,7 @@ async function main() {
 
   // ── IT MAY REFUSE ───────────────────────────────────────────────────────
   const no = stub([{ skip: true, reason: 'A tyre shop has no route to a college linebacker audience' }]);
-  r = await W.writePitch({ business: { name: 'Bob Tyres', category: 'car_repair' }, athlete: ATHLETE }, { oneShot: no });
+  r = await W.writePitch({ business: { name: 'Bob Tyres', category: 'car_repair' }, athlete: ATHLETE, agentFirstName: 'JohnMark' }, { oneShot: no });
   ok('it refuses when there is no real connection', r.skipped === true, r);
   ok('  giving the reason', /tyre shop/.test(r.reason), r.reason);
   ok('  and writes NO message', !r.message, r);
@@ -211,7 +211,7 @@ async function main() {
   ok('  and never returns the bad copy', !r.message, r);
 
   const junk = stub(['not json at all']);
-  r = await W.writePitch({ business: BIZ, athlete: ATHLETE }, { oneShot: junk });
+  r = await W.writePitch({ business: BIZ, athlete: ATHLETE, agentFirstName: 'JohnMark' }, { oneShot: junk });
   ok('unparseable output is a skip, not a crash', r.skipped === true && r.error === true, r);
 
   // ── THE CARD CARRIES IT ─────────────────────────────────────────────────
@@ -264,7 +264,7 @@ async function main() {
   const other = await W.learnedAngles(P, 'foot-traffic');
   ok('  a different category learns separately', other.length === 0, other);
 
-  const withLearned = W.buildPrompt({ business: BIZ, athlete: ATHLETE, learnedAngles: learned });
+  const withLearned = W.buildPrompt({ agentFirstName: 'Sam', business: BIZ, athlete: ATHLETE, learnedAngles: learned });
   ok('learned angles reach the prompt', /trains-nearby \(7\/14 replied\)/.test(withLearned), withLearned.slice(-400));
   ok('  labelled EVIDENCE, not instruction', /evidence, not instruction/.test(withLearned));
 

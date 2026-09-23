@@ -138,7 +138,9 @@ async function clear(P) {
   const ladder = { mainLine: { phone: '205-555-0100' }, tiers: [] };
   const noHandle = Q.buildCard({ brand: 'Ignl Coffee Roasters' }, ladder, { instagram: null });
   check('no handle => the card is a CALL', noHandle.channel === 'call', noHandle.channel);
-  const withHandle = Q.buildCard({ brand: 'Ignl Coffee Roasters' }, ladder,
+  // With an athlete: the fallback DM names the athlete, and without one it is
+  // not written at all (no "a college athlete I work with" stand-in).
+  const withHandle = Q.buildCard({ brand: 'Ignl Coffee Roasters', athleteName: 'Amari Allen' }, ladder,
     { instagram: 'ignlcoffee', instagramScope: 'business' });
   check('a handle => the card is a DM', withHandle.channel === 'dm', withHandle.channel);
   check('  and it carries a message to send', !!withHandle.dmText, withHandle.dmText);

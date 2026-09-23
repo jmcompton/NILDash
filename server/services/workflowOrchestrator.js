@@ -230,6 +230,10 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownCon
  * sign-off line and replaces the AI signature with a proper block.
  */
 function renderProfessionalEmail(rawBody, agentName, agentEmail, deck, athleteData, enrichment) {
+  // The signature used to fall back to "NIL Agent". generatePitch refuses a
+  // nameless sender before this is reached; this makes sure nothing else can
+  // put a stand-in name on an email a business reads.
+  if (!agentName) throw new Error('renderProfessionalEmail: no sender name');
   const FONT  = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
   const BASE  = `${FONT};font-size:15px;line-height:1.6;color:#222222`;
   const MUTED = 'color:#666666;font-size:13px';
@@ -257,7 +261,7 @@ function renderProfessionalEmail(rawBody, agentName, agentEmail, deck, athleteDa
   // Closing + signature: agent's real name + email only.
   const sigLines = [
     `<div>Best,</div>`,
-    `<div>${agentName || 'NIL Agent'}</div>`,
+    `<div>${agentName}</div>`,
     agentEmail
       ? `<div><a href="mailto:${agentEmail}" style="color:#1a73e8;text-decoration:none">${agentEmail}</a></div>`
       : '',
@@ -316,7 +320,7 @@ async function buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment
     [
       id, agentId, athleteId, enrichment.brand_name,
       contact?.id || null, enrichment.id, deck?.id || null,
-      pitch.subject_line || `NIL Partnership — ${athleteData.name || 'Athlete'} × ${enrichment.brand_name}`,
+      pitch.subject_line || `NIL Partnership — ${athleteData.name} × ${enrichment.brand_name}`,
       bodyHtml,
     ]
   );
