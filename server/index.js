@@ -5520,6 +5520,23 @@ const ADMIN_SCRIPTS = {
       q.max ? ['--max', String(parseInt(q.max, 10) || 5)] : [],
       q.limit ? ['--limit', String(parseInt(q.limit, 10) || 5)] : []),
   },
+  // Every sent email and DM signed with a stand-in name ("JohnMark", "Your
+  // Agent", "NIL Agent", "Agent", an email local part), who received it, the
+  // drafts still waiting with one, and the agents who now get no cards until
+  // they add a name. Read-only; no arguments.
+  //   /api/admin/scripts/signoff-audit?text=1
+  'signoff-audit': { file: 'scripts/signoff-audit.js', args: () => [] },
+  // Real cards written twice by the live writer, without and with the
+  // marketing-activity evidence, side by side. Writes nothing; spends two
+  // writer calls a card (labelled writer.beforeafter in the ledger).
+  //   /api/admin/scripts/evidence-before-after?text=1
+  //   /api/admin/scripts/evidence-before-after?n=5&agent=<agent id>&text=1
+  'evidence-before-after': {
+    file: 'scripts/evidence-before-after.js',
+    args: (q) => [].concat(
+      q.n ? ['--n', String(Math.min(Math.max(parseInt(q.n, 10) || 3, 1), 10))] : [],
+      q.agent ? ['--agent', String(q.agent).replace(/[^a-z0-9@._+-]/gi, '').slice(0, 120)] : []),
+  },
   // What My Brands is still showing that it should not: placeholder business
   // names, and owner fields holding a sentence instead of a person. Reports by
   // default and changes nothing; the flags are what make it write.
