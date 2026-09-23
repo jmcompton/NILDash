@@ -6,8 +6,9 @@
 //   node scripts/nightly-run-report.js --agent someone@example.com --nights 4
 //
 // For each of the last N nightly runs: how many athletes were tried, how many
-// cards were written, and for every athlete who got nothing, the reason the
-// run recorded. "0 tried" on twenty-eight athletes is the question this
+// cards were written, THE KEEP RATE (cards approved versus skipped, per night
+// and per athlete: services/keepRate), and for every athlete who got nothing,
+// the reason the run recorded. "0 tried" on twenty-eight athletes is the question this
 // answers; it was previously only recoverable from the process log, which is
 // gone by morning.
 //
@@ -15,6 +16,7 @@
 // the admin script runner.
 
 const store = require('../server/store');
+const KR = require('../server/services/keepRate');
 const INIT_WAIT_MS = parseInt(process.env.INIT_WAIT_MS, 10) || 3000;
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 
@@ -44,6 +46,32 @@ async function main() {
       ORDER BY run_date DESC LIMIT $2`, [u.id, nights])).rows;
   if (!runs.length) { console.log('No nightly runs recorded for this agent.'); }
 
+  // ── THE KEEP RATE ───────────────────────────────────────────────────────
+  // The definition of done: of the cards placed, how many did the agent keep
+  // (approve or mark sent) rather than skip. Expired and waiting cards are
+  // shown and left out of the rate. Over enough days to cover the nights asked
+  // for, plus the time an agent takes to get to a card.
+  const keep = KR.summarise(await KR.keepRateRows(pool, u.id, { days: nights + 2 }).catch((e) => {
+    console.log('  (keep rate could not be read: ' + e.message + ')'); return [];
+  }));
+  const keepByNight = new Map(keep.map((k) => [k.night, k]));
+  console.log('KEEP RATE (nightly-run cards; kept = approved or marked sent)');
+  if (!keep.length) console.log('  no cards placed in this window.');
+  else {
+    console.log('  night        placed  kept  skipped  expired  waiting  keep rate');
+    const all = { placed: 0, kept: 0, skipped: 0, expired: 0, waiting: 0 };
+    for (const k of keep) {
+      const t = k.nightly;
+      for (const f of Object.keys(all)) all[f] += t[f];
+      console.log(`  ${k.night}  ${String(t.placed).padStart(6)}  ${String(t.kept).padStart(4)}  ${String(t.skipped).padStart(7)}`
+        + `  ${String(t.expired).padStart(7)}  ${String(t.waiting).padStart(7)}  ${KR.pct(t.rate).padStart(9)}`
+        + (k.onDemand.placed ? `   + ${k.onDemand.placed} on-demand (keep ${KR.pct(k.onDemand.rate)})` : ''));
+    }
+    console.log(`  ${'window'.padEnd(10)}  ${String(all.placed).padStart(6)}  ${String(all.kept).padStart(4)}  ${String(all.skipped).padStart(7)}`
+      + `  ${String(all.expired).padStart(7)}  ${String(all.waiting).padStart(7)}  ${KR.pct(KR.rate(all.kept, all.skipped)).padStart(9)}`);
+  }
+  console.log('');
+
   for (const run of runs) {
     const details = Array.isArray(run.details) ? run.details : [];
     const tried = details.filter((d) => d && (Number(d.tried) > 0 || Number(d.filled) > 0)).length;
@@ -53,6 +81,19 @@ async function main() {
       + `${run.filled != null && Number(run.filled) !== cards ? `   (run row says ${run.filled})` : ''}`
       + `${run.finished_at ? '' : '   [UNFINISHED]'}`);
     if (run.note) console.log(`  note: ${short(run.note, 300)}`);
+    // This night's keep rate, athlete by athlete.
+    // node-pg hands a DATE back as local midnight: read its local parts, since
+    // toISOString would move it a day anywhere west of UTC.
+    const rd = run.run_date instanceof Date
+      ? `${run.run_date.getFullYear()}-${String(run.run_date.getMonth() + 1).padStart(2, '0')}-${String(run.run_date.getDate()).padStart(2, '0')}`
+      : String(run.run_date).slice(0, 10);
+    const kn = keepByNight.get(rd);
+    if (kn && kn.nightly.placed) {
+      console.log(`  keep: ${KR.line(kn.nightly)}`);
+      for (const a of kn.athletes.sort((x, y) => y.placed - x.placed)) {
+        console.log(`    ${short(a.name, 28).padEnd(28)} ${KR.line(a)}`);
+      }
+    }
     const byId = new Map(details.filter((d) => d && d.athleteId).map((d) => [d.athleteId, d]));
     const untried = [];
     for (const a of roster) {
