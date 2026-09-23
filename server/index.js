@@ -5520,6 +5520,12 @@ const ADMIN_SCRIPTS = {
       q.max ? ['--max', String(parseInt(q.max, 10) || 5)] : [],
       q.limit ? ['--limit', String(parseInt(q.limit, 10) || 5)] : []),
   },
+  // Whether approved emails are actually leaving: the running server's
+  // CLOSER_RELEASE_ENABLED and CAN-SPAM address, approved emails waiting and
+  // overdue, and how many the scheduler released versus were sent by hand.
+  // Read-only; no arguments.
+  //   /api/admin/scripts/send-status?text=1
+  'send-status': { file: 'scripts/send-status.js', args: () => [] },
   // Every sent email and DM signed with a stand-in name ("JohnMark", "Your
   // Agent", "NIL Agent", "Agent", an email local part), who received it, the
   // drafts still waiting with one, and the agents who now get no cards until
@@ -6001,6 +6007,8 @@ app.post('/api/admin/set-seat-override', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// What an agent sent or reached, one definition for Agent Activity and the funnel.
+const AgentReach = require('./services/agentReach');
 app.get('/api/admin/agent-activity', async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);
@@ -6023,7 +6031,10 @@ app.get('/api/admin/agent-activity', async (req, res) => {
       SELECT u.id, u.name, u.email, u.plan, u.comped, u.subscription_status, u.last_login, u.created_at, u.archived,
         (SELECT COUNT(*) FROM athletes a WHERE a.agent_id = u.id) AS athletes,
         (SELECT COUNT(*) FROM athlete_activity_log l WHERE l.agent_id = u.id AND l.activity_type = 'deal_scan') AS scans,
-        (SELECT COUNT(*) FROM athlete_activity_log l WHERE l.agent_id = u.id AND l.activity_type IN ('outreach_written','email_sent')) AS outreach,
+        -- WHAT THE AGENT SENT OR REACHED (services/agentReach): emails that left,
+        -- DM/call/programme cards marked sent, businesses marked contacted. This
+        -- counted athlete-portal activity rows, so every agent read 0.
+        ${AgentReach.COLUMNS},
         (SELECT MAX(l.created_at) FROM athlete_activity_log l WHERE l.agent_id = u.id) AS last_activity,
         ea.n_accounts, ea.n_gmail, ea.connected_at, ea.email_address, ea.provider, ea.status, ea.last_sync
       FROM users u
@@ -6040,6 +6051,7 @@ app.get('/api/admin/agent-activity', async (req, res) => {
                (ARRAY_AGG(status        ORDER BY (provider = 'gmail') DESC, (status = 'active') DESC, created_at))[1] AS status
         FROM email_accounts WHERE user_id = u.id
       ) ea ON TRUE
+      ${AgentReach.LATERAL}
       WHERE ${where}
       ORDER BY u.last_login DESC NULLS LAST
     `);
@@ -6077,8 +6089,7 @@ app.get('/api/admin/signup-funnel', async (req, res) => {
       ath AS (SELECT agent_id, COUNT(*) AS n FROM athletes GROUP BY agent_id),
       act AS (
         SELECT agent_id,
-          COUNT(*) FILTER (WHERE activity_type = 'deal_scan') AS scans,
-          COUNT(*) FILTER (WHERE activity_type IN ('outreach_written','email_sent')) AS outreach
+          COUNT(*) FILTER (WHERE activity_type = 'deal_scan') AS scans
         FROM athlete_activity_log GROUP BY agent_id
       ),
       pr AS (
@@ -6089,7 +6100,8 @@ app.get('/api/admin/signup-funnel', async (req, res) => {
       SELECT u.*,
         COALESCE(ath.n, 0)::int AS athletes,
         COALESCE(act.scans, 0)::int AS scans,
-        COALESCE(act.outreach, 0)::int AS outreach,
+        -- The same three numbers as Agent Activity, from the same fragment.
+        ${AgentReach.COLUMNS},
         COALESCE(pr.tokens, 0)::int AS reset_tokens,
         COALESCE(pr.any_used, FALSE) AS reset_used,
         pr.last_expires AS reset_expires
@@ -6097,6 +6109,7 @@ app.get('/api/admin/signup-funnel', async (req, res) => {
       LEFT JOIN ath ON ath.agent_id = u.id
       LEFT JOIN act ON act.agent_id = u.id
       LEFT JOIN pr  ON pr.email = LOWER(u.email)
+      ${AgentReach.LATERAL}
       ORDER BY u.created_at DESC
     `);
 
