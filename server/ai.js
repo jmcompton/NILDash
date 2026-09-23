@@ -3213,9 +3213,17 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane, opts =
     ? `\nATHLETE INTERESTS/NOTES (weight matching categories higher): ${String(athlete.notes).trim().slice(0, 200)}`
     : '';
 
-  // Shared rules for both local paths: franchises count as LOCAL, and the
-  // rationale must carry a "why they'd say yes" angle.
-  const FRANCHISE_RULE = `LOCALLY-OWNED FRANCHISES COUNT AS LOCAL: the local Wingstop, a Chick-fil-A franchisee, an area State Farm agent, a dealership carrying a national marque. These are LOCAL results (mark "isFranchise": true) ONLY when they point at a specific local location or operator (e.g. "Wingstop on Lakeshore Pkwy", "Chick-fil-A Johns Creek franchisee"), never the corporate brand in general. Their angle: the owner or GM controls a local marketing budget and can say yes without corporate. The ban on big national brands with no confirmed NIL activity still applies to this lane.`;
+  // Shared rules for both local paths: franchisee-owned locations count as
+  // LOCAL, and the rationale must carry a "why they'd say yes" angle.
+  //
+  // FRANCHISEE-OWNED VERSUS CORPORATE-OWNED is the line, not "franchise or
+  // not". A franchisee often controls a local marketing budget and can say yes;
+  // a corporate-owned (company-operated) store never does -- its marketing is
+  // decided at headquarters, so a pitch to the store manager goes nowhere. So a
+  // franchisee location is a local result, and a corporate store is not a
+  // result at all. When the search cannot show which one a location is, it is
+  // left out rather than guessed.
+  const FRANCHISE_RULE = `FRANCHISEE-OWNED LOCATIONS COUNT AS LOCAL; CORPORATE-OWNED STORES DO NOT. A location owned by a local franchisee or owner-operator (a Chick-fil-A franchisee, the Wingstop on Lakeshore Pkwy run by a local operator, an area State Farm agent, a dealership carrying a national marque) is a LOCAL result: mark "isFranchise": true, and point at the specific location or operator (e.g. "Chick-fil-A Johns Creek franchisee"), never the corporate brand in general. Their angle: the franchisee or GM controls a local marketing budget and can say yes without corporate. A CORPORATE-OWNED, company-operated store (the brand runs the location itself, e.g. a company-owned Starbucks, an Apple Store, a Target) is NEVER a result: its marketing is decided at headquarters and the store cannot approve a local deal. If the search does not show whether a location is franchisee-owned or corporate-owned, leave it out. The ban on big national brands with no confirmed NIL activity still applies to this lane.`;
   // GROUNDING RULE. The why-yes rule below primes "foot traffic near campus", and a
   // thin candidate (no category, no evidence) gave the model room to name a campus we
   // never mentioned: a Birmingham business came back citing "UConn campus". Naming the
