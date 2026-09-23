@@ -16,12 +16,16 @@ const FUNNEL_STEPS = [
   { key: 'logged_in', label: 'Logged in' },
   { key: 'added_athlete', label: 'Added an athlete' },
   { key: 'ran_scan', label: 'Ran a scan' },
-  { key: 'sent_outreach', label: 'Sent outreach' },
+  // What the agent actually did, from services/agentReach: an email that left,
+  // a DM/call/programme card marked sent, or a business marked contacted. This
+  // step counted athlete-portal activity rows, so no agent ever reached it.
+  { key: 'sent_outreach', label: 'Sent or contacted a business' },
 ];
 
 // Roles the Agent Activity table can display. Kept here so the funnel can EXPLAIN a
 // gap in that table rather than silently reproducing the same filter.
 const AGENT_ACTIVITY_ROLES = ['agent', 'admin'];
+const { reachedAny } = require('./agentReach');
 
 function classifyFunnelUser(u, nowMs) {
   const now = nowMs || Date.now();
@@ -32,7 +36,7 @@ function classifyFunnelUser(u, nowMs) {
     logged_in: !!u.last_login,
     added_athlete: Number(u.athletes || 0) > 0,
     ran_scan: Number(u.scans || 0) > 0,
-    sent_outreach: Number(u.outreach || 0) > 0,
+    sent_outreach: reachedAny(u),
   };
   // A funnel is monotonic: reaching step N means every earlier step too. Kept
   // separate from raw so an out-of-order account is REPORTED, not massaged. An
@@ -65,7 +69,8 @@ function classifyFunnelUser(u, nowMs) {
     comped: u.comped, subscription_status: u.subscription_status, archived: u.archived,
     created_at: u.created_at, last_login: u.last_login,
     password_reset_required: u.password_reset_required,
-    athletes: Number(u.athletes || 0), scans: Number(u.scans || 0), outreach: Number(u.outreach || 0),
+    athletes: Number(u.athletes || 0), scans: Number(u.scans || 0),
+    emails_sent: Number(u.emails_sent || 0), cards_sent: Number(u.cards_sent || 0), contacted: Number(u.contacted || 0),
     reset_tokens: Number(u.reset_tokens || 0), reset_used: !!u.reset_used,
     reset_expires: u.reset_expires || null, reset_expired: expired,
     note, raw, reached, anomalies,

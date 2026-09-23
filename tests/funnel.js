@@ -34,7 +34,7 @@ ok('six steps in order',
 console.log('-- a fully activated agent --');
 const full = f.classifyFunnelUser({
   id: 'u1', name: 'Fixture Aldridge', email: 'a@x.com', role: 'agent',
-  last_login: PAST, password_reset_required: false, athletes: 3, scans: 5, outreach: 2,
+  last_login: PAST, password_reset_required: false, athletes: 3, scans: 5, emails_sent: 2,
 }, NOW);
 ok('reached the last step', full.reached === 5, full.reached);
 ok('not stuck anywhere', full.stuckAt === null, full.stuckAt);
@@ -44,7 +44,7 @@ ok('appears in Agent Activity', full.inAgentActivity === true, full.inAgentActiv
 console.log('-- invited, link issued, never used, now expired --');
 const cold = f.classifyFunnelUser({
   id: 'u2', name: 'Fixture Bramwell', email: 'b@x.com', role: 'agent',
-  last_login: null, password_reset_required: true, athletes: 0, scans: 0, outreach: 0,
+  last_login: null, password_reset_required: true, athletes: 0, scans: 0, emails_sent: 0,
   reset_tokens: 1, reset_used: false, reset_expires: PAST,
 }, NOW);
 ok('stuck at set_password', cold.stuckAt === 'set_password', cold.stuckAt);
@@ -99,7 +99,7 @@ ok('a null role is hidden, which is worth seeing',
 console.log('-- out of order: invited but already ran scans --');
 const weird = f.classifyFunnelUser({
   id: 'u11', name: 'Fixture Danforth', email: 'k@x.com', role: 'agent',
-  last_login: PAST, password_reset_required: true, athletes: 2, scans: 4, outreach: 1,
+  last_login: PAST, password_reset_required: true, athletes: 2, scans: 4, emails_sent: 1,
 }, NOW);
 ok('counted at the earliest unmet step', weird.stuckAt === 'set_password', weird.stuckAt);
 ok('later completed steps are reported, not hidden',
@@ -108,10 +108,10 @@ ok('raw truth is preserved alongside', weird.raw.ran_scan === true, weird.raw);
 
 console.log('-- counts are monotonic and add up --');
 const rows = [
-  { id: 'a', email: 'a@x.com', role: 'agent', last_login: PAST, password_reset_required: false, athletes: 1, scans: 1, outreach: 1 },
-  { id: 'b', email: 'b@x.com', role: 'agent', last_login: PAST, password_reset_required: false, athletes: 1, scans: 1, outreach: 0 },
-  { id: 'c', email: 'c@x.com', role: 'agent', last_login: PAST, password_reset_required: false, athletes: 1, scans: 0, outreach: 0 },
-  { id: 'd', email: 'd@x.com', role: 'agent', last_login: PAST, password_reset_required: false, athletes: 0, scans: 0, outreach: 0 },
+  { id: 'a', email: 'a@x.com', role: 'agent', last_login: PAST, password_reset_required: false, athletes: 1, scans: 1, emails_sent: 1 },
+  { id: 'b', email: 'b@x.com', role: 'agent', last_login: PAST, password_reset_required: false, athletes: 1, scans: 1, emails_sent: 0 },
+  { id: 'c', email: 'c@x.com', role: 'agent', last_login: PAST, password_reset_required: false, athletes: 1, scans: 0, emails_sent: 0 },
+  { id: 'd', email: 'd@x.com', role: 'agent', last_login: PAST, password_reset_required: false, athletes: 0, scans: 0, emails_sent: 0 },
   { id: 'e', email: 'e@x.com', role: 'agent', last_login: null, password_reset_required: false, reset_tokens: 1, reset_used: true },
   { id: 'f', email: 'f@x.com', role: 'agent', last_login: null, password_reset_required: true, reset_tokens: 1, reset_used: false, reset_expires: PAST },
   { id: 'g', email: 'g@x.com', role: 'university', last_login: null, password_reset_required: false },

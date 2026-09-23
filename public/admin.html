@@ -130,7 +130,7 @@ a.back:hover{color:#C8F135}
   </div>
   <div style="margin-top:32px"><div style="font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px">Agent Activity<label style="font-size:11px;font-weight:400;color:rgba(240,237,230,0.5);margin-left:12px"><input type="checkbox" id="show-archived" onchange="loadAgentActivity()" style="vertical-align:middle"> Show archived</label></div>
   <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.4);text-align:left">
-  <th style="padding:6px 8px">Agent</th><th style="padding:6px 8px">Plan</th><th style="padding:6px 8px">Last login</th><th style="padding:6px 8px">Scans</th><th style="padding:6px 8px">Athletes</th><th style="padding:6px 8px">Outreach</th><th style="padding:6px 8px" title="Whether this agent has a connected mailbox to send from, and when they first connected one. A dash means no mailbox NOW: disconnecting deletes the row, so it cannot distinguish never-connected from later-disconnected.">Mailbox</th><th style="padding:6px 8px">Last active</th><th style="padding:6px 8px">Actions</th>
+  <th style="padding:6px 8px">Agent</th><th style="padding:6px 8px">Plan</th><th style="padding:6px 8px">Last login</th><th style="padding:6px 8px">Scans</th><th style="padding:6px 8px">Athletes</th><th style="padding:6px 8px" title="What the agent actually did. Emails: sent from their mailbox (an approved email counts only once it has left). DM/call: cards marked sent. Contacted: businesses marked contacted, per athlete, including every real send. The three overlap, so they are not added up.">Sent / contacted</th><th style="padding:6px 8px" title="Whether this agent has a connected mailbox to send from, and when they first connected one. A dash means no mailbox NOW: disconnecting deletes the row, so it cannot distinguish never-connected from later-disconnected.">Mailbox</th><th style="padding:6px 8px">Last active</th><th style="padding:6px 8px">Actions</th>
   </tr></thead><tbody id="agent-activity-table"><tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Loading...</td></tr></tbody></table>
   <div style="margin-top:6px;font-size:11px;color:rgba(240,237,230,0.4);line-height:1.6">
     Mailbox is the send path for AI Outreach. <span style="color:#f87171">Scans with no mailbox</span> is the case worth looking at:
@@ -817,7 +817,7 @@ async function loadAgentActivity() {
         '<td style="' + cell + '">' + relTime(u.last_login) + '</td>' +
         '<td style="' + cell + '">' + (u.scans || 0) + '</td>' +
         '<td style="' + cell + '">' + (u.athletes || 0) + '</td>' +
-        '<td style="' + cell + '">' + (u.outreach || 0) + '</td>' +
+        reachCell(u) +
         mailboxCell(u) +
         '<td style="' + cell + '">' + relTime(u.last_activity) + '</td>' +
         '<td style="padding:6px 8px"><button onclick="archiveUser(\'' + u.id + '\', ' + (!u.archived) + ')" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.12);color:rgba(240,237,230,0.7);padding:3px 10px;border-radius:5px;font-size:11px;cursor:pointer">' + lbl + '</button></td>' +
@@ -838,6 +838,17 @@ async function loadAgentActivity() {
 // The red case is deliberately "ran scans AND has no mailbox". An agent with no
 // mailbox and no scans has simply not started; an agent who scanned and had no way
 // to send is the one the question is about.
+// SENT / CONTACTED. Three numbers from services/agentReach, never added up:
+// one real send is both an email sent and a business contacted. This column
+// used to count athlete-portal activity rows, so every agent read 0.
+function reachCell(u) {
+  var e = Number(u.emails_sent || 0), c = Number(u.cards_sent || 0), b = Number(u.contacted || 0);
+  if (!e && !c && !b) return '<td style="padding:6px 8px;color:rgba(240,237,230,0.35)">none</td>';
+  return '<td style="padding:6px 8px;color:rgba(240,237,230,0.7)" title="' + e + ' email(s) sent, '
+    + c + ' DM/call card(s) marked sent, ' + b + ' business(es) marked contacted">'
+    + e + ' email' + (e === 1 ? '' : 's') + ' &middot; ' + c + ' DM/call &middot; ' + b + ' contacted</td>';
+}
+
 function mailboxCell(u) {
   var cell = 'padding:6px 8px;color:rgba(240,237,230,0.7)';
   var scans = Number(u.scans || 0);
@@ -1789,7 +1800,7 @@ async function loadAgentActivity() {
         '<td style="' + cell + '">' + relTime(u.last_login) + '</td>' +
         '<td style="' + cell + '">' + (u.scans || 0) + '</td>' +
         '<td style="' + cell + '">' + (u.athletes || 0) + '</td>' +
-        '<td style="' + cell + '">' + (u.outreach || 0) + '</td>' +
+        reachCell(u) +
         mailboxCell(u) +
         '<td style="' + cell + '">' + relTime(u.last_activity) + '</td>' +
         '<td style="padding:6px 8px"><button onclick="archiveUser(\'' + u.id + '\', ' + (!u.archived) + ')" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.12);color:rgba(240,237,230,0.7);padding:3px 10px;border-radius:5px;font-size:11px;cursor:pointer">' + lbl + '</button></td>' +
