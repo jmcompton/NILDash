@@ -481,6 +481,13 @@ async function buildHome(pool, agentId, opts = {}) {
         // a DM or call card explains the address it is not using, an email
         // card says the address was checked (services/emailValidation).
         emailNote: c.emailNote || null,
+        // ── AND WHEN IT IS A THIN ONE, THE CARD SAYS SO ────────────────────
+        // A candidate with no marketing-activity evidence reaches a slot only
+        // once the evidenced ones are gone (services/scout). The agent is the
+        // one spending the morning on it, so the card tells them which kind of
+        // find it is rather than presenting every card as an equal one.
+        thin: c.thin === true,
+        thinNote: c.thin === true ? (c.thinNote || null) : null,
       };
 
       if (c.channel === 'email') {

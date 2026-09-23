@@ -364,13 +364,13 @@
       "reasoning": "TEXT"
     },
     "brief_connections": {
-      "id": "SERIAL",
-      "filename": "TEXT",
-      "csv": "TEXT",
-      "rows": "INT DEFAULT 0",
       "bytes": "INT DEFAULT 0",
-      "uploaded_by": "TEXT",
-      "uploaded_at": "TIMESTAMPTZ DEFAULT NOW()"
+      "csv": "TEXT",
+      "filename": "TEXT",
+      "id": "SERIAL",
+      "rows": "INT DEFAULT 0",
+      "uploaded_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "uploaded_by": "TEXT"
     },
     "calendar_events": {
       "agent_id": "TEXT",
@@ -380,6 +380,17 @@
       "notes": "TEXT",
       "reminderdays": "INTEGER",
       "title": "TEXT"
+    },
+    "card_skips": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "brand_key": "TEXT",
+      "brand_name": "TEXT",
+      "category": "TEXT",
+      "id": "SERIAL",
+      "identity_key": "TEXT",
+      "lane": "TEXT",
+      "skipped_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
     "company_enrichment": {
       "agent_id": "TEXT",
@@ -739,7 +750,9 @@
     },
     "market_business_seen": {
       "brand": "TEXT",
+      "category": "TEXT",
       "first_seen_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "has_evidence": "BOOLEAN",
       "last_seen_at": "TIMESTAMPTZ DEFAULT NOW()",
       "market_key": "TEXT"
     },
@@ -830,6 +843,7 @@
       "athlete_id": "TEXT",
       "brand_key": "TEXT",
       "brand_name": "TEXT",
+      "business_category": "TEXT",
       "channel": "TEXT DEFAULT 'call'",
       "contact_name": "TEXT",
       "contact_title": "TEXT",
@@ -847,6 +861,8 @@
       "slot": "INT",
       "source_note": "TEXT",
       "state": "TEXT DEFAULT 'queued'",
+      "thin": "BOOLEAN DEFAULT FALSE",
+      "thin_note": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
       "why": "TEXT"
     },
@@ -883,23 +899,23 @@
       "used": "BOOLEAN DEFAULT FALSE"
     },
     "pitch_action_tokens": {
+      "action": "TEXT",
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "expires_at": "TIMESTAMPTZ",
       "id": "SERIAL",
       "pitch_id": "TEXT",
-      "agent_id": "TEXT",
-      "action": "TEXT",
       "token_hash": "TEXT",
-      "expires_at": "TIMESTAMPTZ",
-      "used_at": "TIMESTAMPTZ",
-      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
-      "athlete_id": "TEXT"
+      "used_at": "TIMESTAMPTZ"
     },
     "pitch_actions": {
+      "action": "TEXT",
+      "agent_id": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "id": "SERIAL",
       "pitch_id": "TEXT",
-      "agent_id": "TEXT",
-      "action": "TEXT",
-      "source": "TEXT",
-      "created_at": "TIMESTAMPTZ DEFAULT NOW()"
+      "source": "TEXT"
     },
     "pitch_decks": {
       "agent_id": "TEXT",

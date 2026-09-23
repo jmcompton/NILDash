@@ -180,7 +180,8 @@ function queueSql(athleteScoped, where) {
   return `SELECT q.id, q.athlete_id, q.brand_name, q.brand_key, q.created_at, q.channel,
                  q.slot, q.why, q.contact_name, q.contact_title, q.dm_text,
                  q.instagram, q.instagram_scope, q.phone, q.phone_ask_for,
-                 q.sponsor_note, q.source_note, q.affiliation_scope, q.lane, q.program_url, q.email_note
+                 q.sponsor_note, q.source_note, q.affiliation_scope, q.lane, q.program_url, q.email_note,
+                 q.business_category, q.thin, q.thin_note
             FROM outreach_queue q
            WHERE ${where || QUEUE_WHERE}${athleteScoped ? ' AND q.athlete_id = $2' : ''}`;
 }
@@ -222,6 +223,14 @@ function normQueue(r) {
     affiliationScope: r.affiliation_scope || null, lane: r.lane || null,
     programUrl: r.program_url || null,
     emailNote: r.email_note || null,
+    // ── A THIN CARD SAYS SO ON THE CARD ────────────────────────────────────
+    // A candidate with no marketing-activity evidence fills a slot only when
+    // nothing stronger was left (services/scout). The agent is the one deciding
+    // whether to spend a morning on it, so they are told which kind of find it
+    // is rather than being handed it as though it were any other card.
+    businessCategory: r.business_category || null,
+    thin: r.thin === true,
+    thinNote: r.thin === true ? (r.thin_note || null) : null,
   };
 }
 

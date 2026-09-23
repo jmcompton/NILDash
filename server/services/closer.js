@@ -583,11 +583,38 @@ async function skipDraft(pool, agentId, id) {
   // on the card too, so the slot must not stay 'queued' forever -- that is an
   // athlete permanently down one of five. Best-effort, like the approve side:
   // a failure here costs a slot until the next run and says so.
-  await pool.query(
+  //
+  // RETURNING, because the row it just closed is also the record of what was
+  // skipped: the identity, the kind of business and the lane are all on it
+  // already. Reading them here is what lets the skip become feedback instead of
+  // a state change nothing looks at.
+  const q = await pool.query(
     `UPDATE outreach_queue
         SET state = 'skipped', updated_at = NOW()
-      WHERE outreach_log_id = $1 AND state = 'queued'`, [row.id])
-    .catch((e) => console.error('[closer] could not free the queue slot for ' + row.id + ':', e.message));
+      WHERE outreach_log_id = $1 AND state = 'queued'
+      RETURNING athlete_id, brand_key, identity_key, brand_name, business_category, lane`, [row.id])
+    .catch((e) => {
+      console.error('[closer] could not free the queue slot for ' + row.id + ':', e.message);
+      return { rows: [] };
+    });
+
+  // ── AND THE SKIP IS RECORDED ───────────────────────────────────────────
+  // Both skip paths reach here -- the dashboard route and the one-tap link in
+  // the digest email -- which is the whole reason skipDraft was extracted, and
+  // the reason this only has to be written once.
+  const qr = (q && q.rows && q.rows[0]) || null;
+  const BC = require('./businessCategory');
+  await require('../store').recordCardSkip({
+    agentId, athleteId: row.athlete_id || (qr && qr.athlete_id) || null,
+    brandKey: qr ? qr.brand_key : null,
+    identityKey: qr ? qr.identity_key : null,
+    brandName: row.brand_name || (qr && qr.brand_name) || null,
+    // The stored category when the card carried one; otherwise one last read of
+    // the name, which is a guess and is allowed to be null.
+    category: (qr && qr.business_category)
+      || BC.categoryOf({ brand_name: row.brand_name || (qr && qr.brand_name) || null }).category,
+    lane: qr ? qr.lane : null,
+  });
 
   return { ok: true, skipped: true, id: row.id, brand: row.brand_name, athleteId: row.athlete_id };
 }
