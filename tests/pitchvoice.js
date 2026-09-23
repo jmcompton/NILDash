@@ -127,10 +127,11 @@ function main() {
     /NONE on file[\s\S]{0,220}Do NOT claim they already have any/.test(pw), null);
 
   // ── THE BRAND IS NOT DESCRIBED BACK TO ITSELF ─────────────────────────────
-  ok('the prompt forbids writing about the brand',
-    /DO NOT WRITE ABOUT THE BRAND/.test(pw), null);
-  ok('  and says why: they know their own business',
-    /know their own business better than we do/.test(pw), null);
+  // CHANGED DELIBERATELY: one line of supplied evidence, or nothing at all.
+  ok('the prompt allows one fact about the business, from the evidence, or none',
+    /ONE FACT ABOUT THE BUSINESS, FROM THE EVIDENCE, OR NONE/.test(pw), null);
+  ok('  and with no evidence, nothing about the business at all',
+    /When the block says no\s+evidence was supplied, the message says nothing about the business at all/.test(pw), null);
   ok('the prompt dictates the opener, verbatim',
     /I wanted to call your attention to \[athlete\], \[position\] on the \[team\]/.test(pw), null);
   ok('  and the close, verbatim',

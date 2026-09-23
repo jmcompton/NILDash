@@ -3968,6 +3968,10 @@ async function ensureMarketSightings() {
   for (const sql of [
     `ALTER TABLE market_business_seen ADD COLUMN IF NOT EXISTS category TEXT`,
     `ALTER TABLE market_business_seen ADD COLUMN IF NOT EXISTS has_evidence BOOLEAN`,
+    // THE WORDS, NOT JUST THE FLAG. has_evidence ranked the business; the line
+    // itself ("Sponsors Homewood High athletics") was dropped, so the writer
+    // could never say it. NULL on rows written before, and NULL means unknown.
+    `ALTER TABLE market_business_seen ADD COLUMN IF NOT EXISTS evidence TEXT`,
   ]) await pool.query(sql).catch(e => console.error('[init] market_business_seen col:', e.message));
 
   // ── WHAT THE AGENT SAID NO TO ─────────────────────────────────────────────
@@ -4242,16 +4246,18 @@ async function markMarketNewcomers(marketKey, brands, meta) {
     // downgraded to unknown by a thinner pass over the same market.
     const m = meta instanceof Map ? meta : new Map();
     await pool.query(
-      `INSERT INTO market_business_seen (market_key, brand, category, has_evidence)
-       SELECT $1, u.brand, u.category, u.has_evidence
-         FROM UNNEST($2::text[], $3::text[], $4::boolean[]) AS u(brand, category, has_evidence)
+      `INSERT INTO market_business_seen (market_key, brand, category, has_evidence, evidence)
+       SELECT $1, u.brand, u.category, u.has_evidence, u.evidence
+         FROM UNNEST($2::text[], $3::text[], $4::boolean[], $5::text[]) AS u(brand, category, has_evidence, evidence)
        ON CONFLICT (market_key, brand) DO UPDATE SET
          last_seen_at = NOW(),
          category     = COALESCE(EXCLUDED.category, market_business_seen.category),
-         has_evidence = COALESCE(EXCLUDED.has_evidence, market_business_seen.has_evidence)`,
+         has_evidence = COALESCE(EXCLUDED.has_evidence, market_business_seen.has_evidence),
+         evidence     = COALESCE(EXCLUDED.evidence, market_business_seen.evidence)`,
       [marketKey, list,
         list.map((b) => (m.get(b) ? m.get(b).category : null)),
-        list.map((b) => (m.get(b) ? m.get(b).hasEvidence : null))]);
+        list.map((b) => (m.get(b) ? m.get(b).hasEvidence : null)),
+        list.map((b) => (m.get(b) ? (m.get(b).evidence || null) : null))]);
   } catch (e) {
     console.error('[market-seen]', e.message);
   }
@@ -4368,6 +4374,8 @@ async function recordMarketPool(found, { schoolMarket, hometown } = {}) {
         // all is not the same as one the scan looked at and found nothing for,
         // and the ranking treats the two differently.
         hasEvidence: ev === undefined ? null : !!(ev && String(ev).trim()),
+        // The line itself, for the writer (services/writerEvidence).
+        evidence: (typeof ev === 'string' && ev.trim()) ? ev.trim().slice(0, 180) : null,
       });
     }
     const school = list.filter((f) => f && f.market !== 'hometown').map(nameOf).filter(Boolean);
