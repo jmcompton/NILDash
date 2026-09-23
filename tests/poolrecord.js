@@ -109,8 +109,20 @@ async function main() {
     ok('  and BEFORE the page is cut', iPage > -1 && iRec < iPage, { iRec, iPage });
     ok('  keyed by the school market and the hometown', /recordMarketPool\(found, \{ schoolMarket, hometown:/.test(src), null);
     const st = fs.readFileSync(REPO + 'server/store.js', 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    // ── ANCHORED ON THE CALL, NOT ON ITS ARGUMENT LIST ────────────────────
+    // This matched `markMarketNewcomers(sk, school)` literally, so adding the
+    // third argument -- the category and evidence the scan already knew, which
+    // the table used to drop at the insert -- broke it while the contract it
+    // guards was untouched. The contract is: ONE insert into the table, and it
+    // goes through the helper that filters placeholder names first. Both still
+    // hold, and the meta argument is pinned too so it cannot be quietly dropped
+    // and leave every new row uncategorised.
     ok('the helper routes through markMarketNewcomers (placeholder filter + upsert), not a second INSERT',
-      (st.match(/INSERT INTO market_business_seen/g) || []).length === 1 && /await markMarketNewcomers\(sk, school\)/.test(st), null);
+      (st.match(/INSERT INTO market_business_seen/g) || []).length === 1
+      && /await markMarketNewcomers\(sk, school\b/.test(st), null);
+    ok('  and hands it the category and evidence the scan found',
+      /await markMarketNewcomers\(sk, school, meta\)/.test(st)
+      && /await markMarketNewcomers\(hk, home, meta\)/.test(st), null);
   }
 
   await cleanup();
