@@ -180,7 +180,9 @@ async function main() {
   ok('  the ladder copies the verdict onto its rows', /emailCheck: c\.email \? \(c\.emailCheck \|\| null\) : null/.test(src('server/services/contactLadder.js')) && /emailCheck: r\.genericInboxCheck \|\| null/.test(src('server/services/contactLadder.js')) && /emailCheck: r\.personalInboxCheck \|\| null/.test(src('server/services/contactLadder.js')));
   ok('the AI Outreach path stores a failed address as no address, with the reason', /r\.email_check = `undeliverable: \$\{v\.reason\} \(\$\{r\.email\}\)`;\s*r\.email = null;/.test(src('server/services/contactDiscovery.js')) && /priority_rank, email_check, created_at/.test(src('server/services/contactDiscovery.js')));
   ok('the columns exist', /ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_note TEXT/.test(src('server/store.js')) && /ALTER TABLE brand_contacts ADD COLUMN IF NOT EXISTS email_check TEXT/.test(src('server/store.js')));
-  ok('Home carries the note on every card and the page shows it', /emailNote: c\.emailNote \|\| null,/.test(src('server/services/homeQueue.js')) && /q\.email_note/.test(src('server/services/actionable.js')) && /c\.emailNote \? '<p class="hq-note">' \+ hqEscape\(c\.emailNote\)/.test(src('public/index.html')));
+  // The note stays on the payload -- it is the operator's diagnostic -- but the
+  // agent's page no longer draws it.
+  ok('Home carries the note on every card, and the page does NOT show it', /emailNote: c\.emailNote \|\| null,/.test(src('server/services/homeQueue.js')) && /q\.email_note/.test(src('server/services/actionable.js')) && !/hqEscape\(c\.emailNote\)/.test(src('public/index.html')));
 
   await P().query(`DELETE FROM outreach_queue WHERE athlete_id = $1`, [ATH]).catch(() => {});
   await P().query(`DELETE FROM athletes WHERE id = $1`, [ATH]).catch(() => {});
