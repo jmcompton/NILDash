@@ -17,6 +17,7 @@
 //   node scripts/evidence-before-after.js              three cards
 //   node scripts/evidence-before-after.js --n 5        five
 //   node scripts/evidence-before-after.js --agent <id>
+//   /api/admin/scripts/evidence-before-after?text=1          (in Chrome, as admin)
 //
 // WHERE THE EVIDENCE COMES FROM, per card, first found wins per source:
 //   market_business_seen.evidence       written by scans from now on
@@ -67,7 +68,7 @@ async function evidenceLines(P, card, school) {
 
 async function main() {
   const P = store.pool;
-  await new Promise((r) => setTimeout(r, 3000));
+  await new Promise((r) => setTimeout(r, parseInt(process.env.INIT_WAIT_MS, 10) || 8000));
   const cards = (await P.query(
     `SELECT q.*, a.data AS athlete_data, u.name AS agent_name, u.email AS agent_email, u.scheduling_url,
             l.body_html AS email_html
@@ -96,7 +97,10 @@ async function main() {
       agentFirstName, hasSchedulingLink: !!c.scheduling_url,
       channel: c.channel === 'email' ? 'email' : 'dm',
     });
-    const write = (ev) => PW.writePitch(ctxOf(ev), { oneShot: (p, s, mt) => ai.oneShot(p, s, mt, ai.MODEL_GEN, { prose: true }) });
+    // Labelled, so these calls are counted apart from the nightly writer.
+    const write = (ev) => PW.writePitch(ctxOf(ev), { oneShot: (p, s, mt) => require(ROOT + 'server/scanMeter.js').label(
+      { site: 'writer.beforeafter', agentId: c.agent_id, athleteId: c.athlete_id, brand: c.brand_name },
+      () => ai.oneShot(p, s, mt, ai.MODEL_GEN, { prose: true })) });
     const before = await write([]);
     const after = await write(evidence);
     shown++;
@@ -115,6 +119,11 @@ async function main() {
       : '(no stored text)'));
   }
   if (!shown) console.log('No card with findable evidence. Run a scan so market_business_seen.evidence fills, then retry.');
+  // The writer calls are real spend: let the ledger write them before exiting.
+  // And exit explicitly, because ai.js holds timers open and the admin runner
+  // waits for the process to end.
+  try { await require(ROOT + 'server/services/aiLedger.js').drain(); } catch (_) {}
   await P.end().catch(() => {});
+  process.exit(0);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => { console.error('evidence-before-after: FAILED', e); process.exit(1); });
