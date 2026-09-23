@@ -13,17 +13,15 @@
 // and intercepts fetch to see exactly what a save would send.
 //
 // WHAT IT PROTECTS, in the order the agent meets it:
-//   - Edit is at CARD level, a sibling of the disclosure, not nested inside the
-//     panel it opens. That nesting is what made a working feature read as
-//     read-only next to a DM card whose box is always visible.
-//   - the email panel still starts SHUT. Four expanded bodies is not a queue.
-//   - one click from a shut card puts the fields on screen, with the disclosure
-//     button's aria-expanded and label telling the truth about it.
-//   - the fields are prefilled from what is stored.
-//   - saving PATCHes the outreach_logs route with the BARE draft id -- ids are
-//     namespaced now ("email:<id>") and posting the namespaced one 404s.
-//   - the body goes as TEXT, never markup.
-//   - cancel restores rather than keeping the typing.
+//   - one line per pitch, collapsed by default, about 68px, with Approve and
+//     Skip at the same x on every row and a chevron saying the row opens.
+//   - no Mark done, and no "Email checked / MX record found" line.
+//   - a click anywhere on the row opens it in place; a second click closes it;
+//     only one row is open at a time; Approve and Skip never open it.
+//   - each button calls the endpoint its channel always used.
+//   - Edit opens the row on its way to the fields, prefilled from what is
+//     stored; saving PATCHes with the BARE draft id and TEXT, never markup;
+//     cancel restores rather than keeping the typing.
 //
 process.env.PGHOST = process.env.PGHOST || '/tmp';
 process.env.PGPORT = process.env.PGPORT || '55432';
@@ -72,182 +70,212 @@ const AG = 'er-agent', ATH = 'er-ath';
   check('  carrying the subject', payload.cards[mailIdx].subject === 'A partnership idea');
   check('  and the body as editable text', /THE MODEL SENTENCE/.test(payload.cards[mailIdx].bodyText || ''));
 
-  // The REAL renderer and the REAL handlers, lifted from the shipping page.
+  // The REAL renderer and the REAL handlers, lifted from the shipping page,
+  // with the page's REAL stylesheets -- the row height and the button column
+  // are layout, and layout needs the CSS.
   const H = fs.readFileSync(ROOT + 'public/index.html', 'utf8');
   const cut = (a, b) => H.slice(H.indexOf(a), H.indexOf(b));
   // hqRender INCLUDED. The page does not call hqRenderCard directly -- it calls
-  // hqRender(), which builds the tabs, the sub-line, the card list and the
-  // approve bar and then assigns innerHTML in one go. Testing the card function
-  // alone would skip whatever hqRender does around it.
+  // hqRender(), which builds the tabs, the sub-line, the rows and the approve
+  // bar and then assigns innerHTML in one go.
   const js = cut('function hqEscape(s)', 'async function hqLoad(athleteId)')
-    + cut('function hqRender()', 'function hqPeek(btn)')
-    + cut('function hqPeek(btn)', 'async function hqApprove()');
+    + cut('function hqRender()', 'async function hqApprove()');
+  const css = (H.match(/<style[^>]*>[\s\S]*?<\/style>/g) || []).join('\n');
 
-  const page = `<!doctype html><meta charset="utf-8">
-<div id="home-tabs"></div><div id="home-panel"></div>
+  // THE DIAGNOSTIC LINE IS ON THE PAYLOAD AND MUST NOT REACH THE PAGE.
+  payload.cards[mailIdx].emailNote = 'Email checked: jeff@trakshak.com (the domain accepts mail (MX record found))';
+
+  const page = `<!doctype html><meta charset="utf-8">${css}
+<div style="width:900px"><div id="home-tabs"></div><div id="home-panel"></div></div>
 <div id="home-bar" hidden><button id="home-approve"></button><span id="home-cap"></span></div>
 <script>
 var API_BASE = '';
 var LOG = [];
-// Intercept rather than stub the handler: whatever hqSaveEdit decides to send is
+// Intercept rather than stub the handlers: whatever a click decides to send is
 // what an agent's click would send.
 window.fetch = function (url, opts) {
   LOG.push({ url: String(url), method: (opts && opts.method) || 'GET', body: (opts && opts.body) || null });
   return Promise.resolve({ ok: true, json: function () {
     return Promise.resolve({ subject: 'EDITED SUBJECT', body_html: '<p>EDITED BODY.</p>',
-      edited_before_approval: true });
+      edited_before_approval: true, scheduled: 1 });
   } });
 };
 function showToast() {}
-// hqRender ends by wiring the approve bar to hqApprove. Not lifted (it is the
-// send path, not the edit path), so it is stubbed -- without it hqRender throws
-// on the assignment and nothing renders at all.
+// The send path and the reload are not what this page tests; stubbed so a
+// click that ends in a reload does not throw.
 function hqApprove() {}
+var RELOADS = 0;
+function hqLoad() { RELOADS++; }
 window.onerror = function (m) { document.title = 'ERROR: ' + m; };
 ${js}
-var HQ = { data: ${JSON.stringify(payload)}, selected: ${JSON.stringify(ATH)}, busy: false };
-// THE REAL ENTRY POINT the page uses after a load.
+var HQ = { data: ${JSON.stringify(payload)}, selected: ${JSON.stringify(ATH)}, busy: false, openId: null };
 hqRender();
 var i = ${mailIdx};
+var dmIdx = HQ.data.cards.findIndex(function (c) { return c.channel === 'dm'; });
+var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.hq-cards .hq-row')); };
+var openRows = function () { return rows().filter(function (r) { return !r.querySelector('.hq-x').hidden; }).length; };
+var rowOf = function (k) { return rows()[k]; };
 var R = {};
 
-// 0. WHAT AN AGENT SEES AT A GLANCE, before clicking anything. This is the
-//    comparison that matters on a mixed page: a DM card's box is right there,
-//    an email card's editing is behind a disclosure.
-var dmIdx = HQ.data.cards.findIndex(function (c) { return c.channel === 'dm'; });
-R.dmBoxVisibleImmediately = dmIdx !== -1 && !!document.getElementById('hq-dm-' + dmIdx)
-  && !document.getElementById('hq-dm-' + dmIdx).closest('[hidden]');
-R.emailFieldsBehindDisclosure = !!document.getElementById('hq-esubj-' + i)
-  && !!document.getElementById('hq-esubj-' + i).closest('[hidden]');
-R.peekBtnPresent = !!document.querySelector('.hq-card.email .hq-peek');
-// EDIT IS AT CARD LEVEL: a sibling of the disclosure, not inside the panel it
-// opens. Asserted structurally so nesting it again fails here.
-var actions = document.querySelector('.hq-card.email .hq-cardactions');
-R.editAtCardLevel = !!(actions && actions.querySelector('.hq-editbtn'));
-R.editNotInsidePanel = !!document.querySelector('.hq-card.email .hq-editbtn')
-  && !document.querySelector('.hq-card.email .hq-editbtn').closest('.hq-mail');
-R.editVisibleWithoutOpening = R.editAtCardLevel
-  && !actions.querySelector('.hq-editbtn').closest('[hidden]');
-R.mailPanelStartsShut = document.getElementById('hq-mail-' + i).hidden === true;
-// Every email card starts collapsed -- four open bodies would bury the queue.
-R.openPanelsOnLoad = document.querySelectorAll('.hq-mail:not([hidden])').length;
+// 0. COLLAPSED, EVERY ROW
+R.rowCount = rows().length;
+R.openOnLoad = openRows();
+R.heights = rows().map(function (r) { return Math.round(r.querySelector('.hq-rowhead').getBoundingClientRect().height); });
+R.everyRowHasApproveAndSkip = rows().every(function (r) {
+  var b = r.querySelectorAll('.hq-rowbtns button');
+  return b.length === 2 && b[0].textContent === 'Approve' && b[1].textContent === 'Skip';
+});
+R.approveRights = rows().map(function (r) { return Math.round(r.querySelectorAll('.hq-rowbtns button')[0].getBoundingClientRect().right); });
+R.approveLefts = rows().map(function (r) { return Math.round(r.querySelectorAll('.hq-rowbtns button')[0].getBoundingClientRect().left); });
+R.badges = rows().map(function (r) { return r.querySelector('.hq-chan').textContent; });
+R.biz = rows().map(function (r) { return r.querySelector('.hq-rowbiz').textContent; });
+R.chevrons = rows().every(function (r) { return !!r.querySelector('.hq-rowhead .hq-chev'); });
+R.markDone = /Mark done/.test(document.getElementById('home-panel').innerHTML);
+R.mxLine = /MX record|Email checked/.test(document.getElementById('home-panel').innerHTML);
+R.barKept = !document.getElementById('home-bar').hidden && /Approve 1 email/.test(document.getElementById('home-approve').textContent);
+R.textHiddenWhenShut = !!document.getElementById('hq-esubj-' + i).closest('[hidden]');
 
-// 0b. the disclosure itself, clicked the way the button does
-var peek = document.querySelector('.hq-card.email .hq-peek');
-if (peek) hqPeek(peek);
-R.afterPeek_mailShown = document.getElementById('hq-mail-' + i).hidden === false;
-R.afterPeek_label = peek ? peek.querySelector('.lbl').textContent : null;
+// 1. CLICKING ANYWHERE ON THE ROW OPENS IT, IN PLACE
+rowOf(i).querySelector('.hq-rowbiz').click();
+R.clickOpens = !rowOf(i).querySelector('.hq-x').hidden && openRows() === 1;
+R.ariaOpen = rowOf(i).querySelector('.hq-rowtoggle').getAttribute('aria-expanded');
+R.fullTextShown = /THE MODEL SENTENCE/.test(rowOf(i).querySelector('.hq-x').textContent)
+  && !document.getElementById('hq-read-' + i).closest('[hidden]');
+R.editInOpenRow = Array.prototype.some.call(rowOf(i).querySelectorAll('.hq-x button'), function (b) { return b.textContent === 'Edit'; });
+// clicking the padding of the row head, not the toggle, counts too
+rowOf(i).querySelector('.hq-rowhead').click();
+R.clickAgainCloses = rowOf(i).querySelector('.hq-x').hidden && openRows() === 0;
+R.ariaShut = rowOf(i).querySelector('.hq-rowtoggle').getAttribute('aria-expanded');
 
-// 1. what an agent sees before touching anything
-R.editBtnPresent = !!document.querySelector('#hq-read-' + i + ' .hq-editbtn');
-R.editPanelHidden = document.getElementById('hq-edit-' + i).hidden === true;
-R.readPanelVisible = document.getElementById('hq-read-' + i).hidden === false;
+// 2. ONLY ONE ROW OPEN AT A TIME
+rowOf(i).querySelector('.hq-rowhead').click();
+rowOf(dmIdx).querySelector('.hq-rowhead').click();
+R.oneAtATime = openRows() === 1 && !rowOf(dmIdx).querySelector('.hq-x').hidden && rowOf(i).querySelector('.hq-x').hidden;
+R.dmHasCopy = /Copy DM &amp; open Instagram/.test(rowOf(dmIdx).querySelector('.hq-x').innerHTML);
+R.dmHasEdit = Array.prototype.some.call(rowOf(dmIdx).querySelectorAll('.hq-x button'), function (b) { return b.textContent === 'Edit'; });
+R.dmTextShown = /Hi — quick idea\./.test(document.getElementById('hq-dmread-' + dmIdx).textContent);
+hqEdit(dmIdx);
+R.dmEditShowsBox = !document.getElementById('hq-dm-' + dmIdx).hidden && document.getElementById('hq-dmread-' + dmIdx).hidden;
+rowOf(dmIdx).querySelector('.hq-rowhead').click();
+R.dmClosed = openRows() === 0;
 
-// 1b. EDIT FROM A SHUT CARD. The button is outside the panel now, so this is
-//     the path that matters: a fresh page, one click, fields on screen.
-hqPeek(peek);                       // shut it again after the 0b probe
-R.reShut = document.getElementById('hq-mail-' + i).hidden === true;
-hqEdit(i);
-R.editFromShut_panelOpened = document.getElementById('hq-mail-' + i).hidden === false;
-R.editFromShut_fieldsVisible = !!document.getElementById('hq-esubj-' + i)
-  && !document.getElementById('hq-esubj-' + i).closest('[hidden]');
-R.editFromShut_peekLabel = peek ? peek.querySelector('.lbl').textContent : null;
-R.editFromShut_ariaHonest = peek ? peek.getAttribute('aria-expanded') : null;
-
-// 2. click Edit, exactly as the button does
-hqEdit(i);
-R.afterEdit_editShown = document.getElementById('hq-edit-' + i).hidden === false;
-R.afterEdit_readHidden = document.getElementById('hq-read-' + i).hidden === true;
-var si = document.getElementById('hq-esubj-' + i);
-var ta = document.getElementById('hq-ebody-' + i);
-R.subjectFieldExists = !!si;
-R.bodyFieldExists = !!ta;
-R.subjectPrefilled = si ? si.value : null;
-R.bodyPrefilled = ta ? ta.value : null;
-
-// 3. type, and save
-if (si) si.value = 'THE AGENT SUBJECT';
-if (ta) ta.value = 'Hi Jeff,\\n\\nTHE AGENT SENTENCE.';
-hqSaveEdit(i, null);
+// 3. THE BUTTONS ACT, AND DO NOT OPEN THE ROW
+LOG = [];
+rowOf(dmIdx).querySelectorAll('.hq-rowbtns button')[0].click();   // Approve, DM
+R.approveDidNotOpen = openRows() === 0;
+rowOf(dmIdx).querySelectorAll('.hq-rowbtns button')[1].click();   // Skip, DM
+rowOf(i).querySelectorAll('.hq-rowbtns button')[0].click();       // Approve, email
+rowOf(i).querySelectorAll('.hq-rowbtns button')[1].click();       // Skip, email
+R.skipDidNotOpen = openRows() === 0;
 
 setTimeout(function () {
-  R.fetches = LOG;
-  // 4. cancel restores, rather than leaving a half-typed draft in the box
+  R.actionFetches = LOG.slice();
+  R.reloads = RELOADS;
+  // 4. EDIT, from a shut row: the row opens on its way to the fields
+  LOG = [];
   hqEdit(i);
-  var ta2 = document.getElementById('hq-ebody-' + i);
-  if (ta2) ta2.value = 'DISCARD ME';
-  hqCancelEdit(i);
-  R.afterCancel = document.getElementById('hq-ebody-' + i).value;
-  document.title = JSON.stringify(R);
+  R.editFromShut_rowOpened = !rowOf(i).querySelector('.hq-x').hidden;
+  R.editFromShut_fieldsVisible = !document.getElementById('hq-esubj-' + i).closest('[hidden]');
+  R.editFromShut_ariaHonest = rowOf(i).querySelector('.hq-rowtoggle').getAttribute('aria-expanded');
+  R.afterEdit_readHidden = document.getElementById('hq-read-' + i).hidden === true;
+  var si = document.getElementById('hq-esubj-' + i);
+  var ta = document.getElementById('hq-ebody-' + i);
+  R.subjectPrefilled = si ? si.value : null;
+  R.bodyPrefilled = ta ? ta.value : null;
+  if (si) si.value = 'THE AGENT SUBJECT';
+  if (ta) ta.value = 'Hi Jeff,\\n\\nTHE AGENT SENTENCE.';
+  hqSaveEdit(i, null);
+  setTimeout(function () {
+    R.saveFetches = LOG.slice();
+    // the save re-renders; the same pitch stays open
+    R.stillOpenAfterSave = !rowOf(i).querySelector('.hq-x').hidden && openRows() === 1;
+    hqEdit(i);
+    var ta2 = document.getElementById('hq-ebody-' + i);
+    if (ta2) ta2.value = 'DISCARD ME';
+    hqCancelEdit(i);
+    R.afterCancel = document.getElementById('hq-ebody-' + i).value;
+    document.title = JSON.stringify(R);
+  }, 60);
 }, 60);
 <\/script>`;
   const tmp = path.join(require('os').tmpdir(), 'nildash-editrender.html');
   fs.writeFileSync(tmp, page);
   const dom = execFileSync(CHROMIUM,
-    ['--headless', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=4000',
+    ['--headless', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=4000', '--window-size=1100,900',
       '--dump-dom', '--allow-file-access-from-files', 'file://' + tmp],
     { encoding: 'utf8', maxBuffer: 4e7, stdio: ['ignore', 'pipe', 'ignore'] });
   const m = dom.match(/<title>([\s\S]*?)<\/title>/);
-  const R = m ? JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'")) : null;
-  check('the page ran', !!R, m && m[1].slice(0, 120));
+  let R = null;
+  try {
+    R = m ? JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'")) : null;
+  } catch (_) { R = null; }
+  check('the page ran', !!R, m && m[1].slice(0, 160));
   if (!R) { console.log('\n0/1 passed'); process.exit(1); }
 
-  console.log('\n0. WHAT THE TWO CARD TYPES LOOK LIKE SIDE BY SIDE');
-  check('a DM card\'s message box is visible immediately',
-    R.dmBoxVisibleImmediately === true, R.dmBoxVisibleImmediately);
-  check('an EMAIL card\'s fields are behind a disclosure',
-    R.emailFieldsBehindDisclosure === true, R.emailFieldsBehindDisclosure);
-  check('  the disclosure button is there', R.peekBtnPresent === true);
-  check('  and clicking it opens the panel', R.afterPeek_mailShown === true);
-  check('  relabelling itself', /Hide the email/.test(R.afterPeek_label || ''), R.afterPeek_label);
+  console.log('\n0. ONE LINE PER PITCH, COLLAPSED BY DEFAULT');
+  check('two rows drew', R.rowCount === 2, R.rowCount);
+  check('EVERY ROW STARTS COLLAPSED', R.openOnLoad === 0, R.openOnLoad);
+  check('  a collapsed row is about 68px tall', R.heights.every((h) => h >= 64 && h <= 76), JSON.stringify(R.heights));
+  check('every row has Approve then Skip', R.everyRowHasApproveAndSkip === true);
+  check('  IN THE SAME POSITION ON EVERY ROW', new Set(R.approveRights).size === 1 && new Set(R.approveLefts).size === 1,
+    JSON.stringify({ right: R.approveRights, left: R.approveLefts }));
+  check('the badge says EMAIL or DM', JSON.stringify(R.badges.slice().sort()) === '["DM","Email"]', JSON.stringify(R.badges));
+  check('  and the row names the business', R.biz.indexOf('Trak Shak') !== -1 && R.biz.indexOf('Hoover Cycles') !== -1, JSON.stringify(R.biz));
+  check('a chevron on every row says it opens', R.chevrons === true);
+  check('NO Mark done button anywhere', R.markDone === false);
+  check('NO "Email checked / MX record" line, although the payload carries it', R.mxLine === false);
+  check('the approve-all bar is still there', R.barKept === true);
+  check('the pitch is not on screen while the row is shut', R.textHiddenWhenShut === true);
 
-  console.log('\n1. THE EDIT AFFORDANCE IS ON THE CARD, NOT INSIDE THE DISCLOSURE');
-  check('Edit sits beside Read the email at card level', R.editAtCardLevel === true);
-  check('  it is NOT nested inside the panel it opens', R.editNotInsidePanel === true);
-  check('  so it is visible without opening anything', R.editVisibleWithoutOpening === true);
-  check('the panel still starts SHUT', R.mailPanelStartsShut === true);
-  check('  and no email body is expanded on load', R.openPanelsOnLoad === 0, R.openPanelsOnLoad);
-  check('  the read panel is what shows first', R.readPanelVisible === true);
-  check('  and the edit panel starts hidden', R.editPanelHidden === true);
+  console.log('\n1. A CLICK ON THE ROW OPENS IT IN PLACE; ANOTHER CLOSES IT');
+  check('clicking the row opens it', R.clickOpens === true);
+  check('  the toggle says so', R.ariaOpen === 'true', R.ariaOpen);
+  check('  showing the full pitch', R.fullTextShown === true);
+  check('  with Edit', R.editInOpenRow === true);
+  check('clicking again collapses it', R.clickAgainCloses === true);
+  check('  and the toggle says that too', R.ariaShut === 'false', R.ariaShut);
 
-  console.log('\n1b. ONE CLICK FROM A SHUT CARD PUTS THE FIELDS ON SCREEN');
-  check('the card was shut again', R.reShut === true);
-  check('Edit opens the panel on its way in', R.editFromShut_panelOpened === true);
-  check('  and the fields are actually visible, not revealed inside a hidden box',
-    R.editFromShut_fieldsVisible === true);
-  check('  the disclosure button agrees it is open', R.editFromShut_ariaHonest === 'true',
-    R.editFromShut_ariaHonest);
-  check('  and relabels itself', /Hide the email/.test(R.editFromShut_peekLabel || ''),
-    R.editFromShut_peekLabel);
+  console.log('\n2. ONE ROW OPEN AT A TIME');
+  check('opening a second row closes the first', R.oneAtATime === true);
+  check('an open DM row has Copy DM & open Instagram', R.dmHasCopy === true);
+  check('  and Edit', R.dmHasEdit === true);
+  check('  and shows the DM text', R.dmTextShown === true);
+  check('  Edit puts the DM in its box, which is what Copy DM copies', R.dmEditShowsBox === true);
+  check('  and the row collapses on a second click', R.dmClosed === true);
 
-  console.log('\n2. CLICKING EDIT OPENS THE FIELDS');
-  check('the edit panel opens', R.afterEdit_editShown === true);
-  check('  and the read panel closes', R.afterEdit_readHidden === true);
-  check('the SUBJECT field exists', R.subjectFieldExists === true);
-  check('the BODY field exists', R.bodyFieldExists === true);
-  check('  the subject is prefilled with what is stored',
-    R.subjectPrefilled === 'A partnership idea', R.subjectPrefilled);
-  check('  the body is prefilled with the draft',
-    /THE MODEL SENTENCE/.test(R.bodyPrefilled || ''), R.bodyPrefilled);
+  console.log('\n3. APPROVE AND SKIP CALL THE ENDPOINTS THEY ALWAYS DID');
+  const A = R.actionFetches || [];
+  const has = (fn) => A.some(fn);
+  check('pressing Approve or Skip does not open the row', R.approveDidNotOpen === true && R.skipDidNotOpen === true);
+  check('DM Approve records it as sent by DM (what Mark done posted)',
+    has((f) => f.method === 'POST' && /\/api\/agent\/outreach-queue\/\d+\/sent$/.test(f.url) && JSON.parse(f.body).via === 'dm'),
+    JSON.stringify(A));
+  check('DM Skip is the queue skip', has((f) => f.method === 'POST' && /\/api\/agent\/outreach-queue\/\d+\/skip$/.test(f.url)));
+  check('email Approve is the same approve call as the bar, for this one id',
+    has((f) => f.method === 'POST' && f.url === '/api/agent/closer/approve'
+      && JSON.stringify(JSON.parse(f.body).ids) === '["email:er-1"]'));
+  check('email Skip is the closer skip, with the BARE draft id',
+    has((f) => f.method === 'PATCH' && /\/api\/agent\/closer\/draft\/er-1$/.test(f.url) && JSON.parse(f.body).skip === true));
+  check('each action reloads the queue', R.reloads === 4, R.reloads);
 
-  console.log('\n3. SAVING SENDS THE EDIT TO THE RIGHT PLACE');
-  const patch = (R.fetches || []).find((f) => f.method === 'PATCH');
-  check('a PATCH was issued', !!patch, JSON.stringify(R.fetches));
-  check('  to the outreach_logs route', /\/api\/outreach\/logs\//.test((patch || {}).url || ''),
-    (patch || {}).url);
-  check('  with the BARE draft id, not the namespaced one',
+  console.log('\n4. EDITING AN EMAIL');
+  check('Edit from a shut row opens the row', R.editFromShut_rowOpened === true);
+  check('  and the fields are actually visible', R.editFromShut_fieldsVisible === true);
+  check('  and the toggle agrees it is open', R.editFromShut_ariaHonest === 'true', R.editFromShut_ariaHonest);
+  check('  the read view gives way to the fields', R.afterEdit_readHidden === true);
+  check('  the subject is prefilled with what is stored', R.subjectPrefilled === 'A partnership idea', R.subjectPrefilled);
+  check('  the body is prefilled with the draft', /THE MODEL SENTENCE/.test(R.bodyPrefilled || ''), R.bodyPrefilled);
+  const patch = (R.saveFetches || []).find((f) => f.method === 'PATCH');
+  check('saving PATCHes the outreach_logs route with the BARE draft id',
     /\/api\/outreach\/logs\/er-1$/.test((patch || {}).url || ''), (patch || {}).url);
   const body = patch && patch.body ? JSON.parse(patch.body) : {};
   check('  carrying the typed subject', body.subject === 'THE AGENT SUBJECT', body.subject);
   check('  and the typed body as TEXT, never markup',
-    /THE AGENT SENTENCE/.test(body.body_text || '') && !/[<>]/.test(body.body_text || ''),
-    body.body_text);
-
-  console.log('\n4. CANCEL PUTS IT BACK');
+    /THE AGENT SENTENCE/.test(body.body_text || '') && !/[<>]/.test(body.body_text || ''), body.body_text);
+  check('the same pitch is still open after the save re-renders', R.stillOpenAfterSave === true);
   check('cancelling restores the stored text rather than keeping the typing',
-    /EDITED BODY/.test(R.afterCancel || '') || /THE MODEL SENTENCE/.test(R.afterCancel || ''),
-    R.afterCancel);
+    /EDITED BODY/.test(R.afterCancel || '') || /THE MODEL SENTENCE/.test(R.afterCancel || ''), R.afterCancel);
 
   const failed = out.filter((x) => !x.ok);
   console.log('\n' + (out.length - failed.length) + '/' + out.length + ' passed');

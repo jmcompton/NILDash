@@ -114,17 +114,18 @@ const AG='hc-agent', ATH='hc-ath';
     && (mail.match(/<textarea class="hq-ta"/g)||[]).length===1);
   ok('  and they are the subject and the message',
     /id="hq-esubj-/.test(mail) && /id="hq-ebody-/.test(mail));
-  // CHANGED DELIBERATELY. "No per-card action" was right when every card was an
-  // email and one bar approved all of them. A DM and a call have NO batch action
-  // -- approving does not send them, a person does -- so a card with no button
-  // is a card an agent cannot act on. The rule that survives is the narrower and
-  // actually load-bearing one: an EMAIL card still has no per-card send.
-  ok('  an email card still has no per-card send or skip',
-    !/hqSend|hqSkip|hqCardDone|hqCardSkip|Copy DM/i.test(mail));
-  ok('  but a DM card does, because nothing else will send it',
-    /hqCopyDm/.test(home) && /hqCardDone/.test(home));
-  ok('the email panel is collapsed by default', /class="hq-mail" id=.*hidden/.test(home) || /hidden>/.test(home));
-  ok('  and is one click on the same card', /aria-controls=/.test(home) && /hqPeek/.test(home));
+  // CHANGED DELIBERATELY, TWICE. Every row now carries Approve and Skip in the
+  // same place, email included; they sit on the ROW, not inside the email
+  // body, which still offers the subject and the message and nothing else.
+  ok('  the email body has no send or skip of its own',
+    !/hqSend|hqSkip|hqCardDone|hqCardSkip|hqRowApprove|hqRowSkip|Copy DM/i.test(mail));
+  const card=HTML.slice(HTML.indexOf('function hqRenderCard'), HTML.indexOf('function hqEmailBody'));
+  ok('  Approve and Skip are on every row',
+    /hqRowApprove\(/.test(card) && /hqRowSkip\(/.test(card));
+  ok('  a DM row still copies and opens Instagram; Mark done is gone',
+    /hqCopyDm/.test(home) && !/hqCardDone|Mark done/.test(home));
+  ok('every row is collapsed by default', /'<div class="hq-x" id="' \+ xId \+ '"' \+ \(open \? '' : ' hidden'\)/.test(card));
+  ok('  and opens with one click on the row', /aria-controls=/.test(card) && /hqRowClick\(event/.test(card));
 
   for (const t of ['outreach_logs','outreach_queue','brand_match_scores','athletes'])
     await P.query(`DELETE FROM ${t} WHERE agent_id=$1`,[AG]).catch(()=>{});

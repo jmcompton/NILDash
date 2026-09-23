@@ -66,6 +66,7 @@ const AG = 'rnd-agent', ATH = 'rnd-ath';
   const js = cut('function hqEscape(s)', 'async function hqLoad')
     + cut('var HQ_CH = {', 'function hqRawId(')
     + cut('function hqCardAt(i)', 'function hqCopyDm(');
+  // hqRenderCard reads HQ.openId; the page declares HQ, and so does this one.
   const css = cut('.hq-chan{', '.hq-note{margin:6px');
 
   const page = `<!doctype html><meta charset="utf-8"><style>${css}</style>
@@ -89,7 +90,7 @@ document.title = 'OK';
   // renderer's own source contains every string this test looks for -- so
   // matching the whole document counts the code as though it were output.
   const cards = dom.slice(dom.indexOf('<div id="cards">'), dom.indexOf('<script>'));
-  const n = (dom.match(/class="hq-card [a-z]+"/g) || []).length;
+  const n = (dom.match(/class="hq-card hq-row [a-z]+"/g) || []).length;
   check('three cards drew', n === 3, 'cards=' + n);
 
   // THE ORDER IS THE LADDER, and it is asserted rather than assumed. Both queue
@@ -106,7 +107,7 @@ document.title = 'OK';
 
   console.log('\nBADGES');
   check('the email card is badged', /hq-chan email">Email</.test(cards));
-  check('the DM card is badged', /hq-chan dm">Instagram DM</.test(cards));
+  check('the DM card is badged', /hq-chan dm">DM</.test(cards));
   check('the call card is badged', /hq-chan call">Call</.test(cards));
 
   console.log('\nEACH CHANNEL CARRIES ITS OWN ACTION');
@@ -120,21 +121,20 @@ document.title = 'OK';
   check('the call card shows the number', /205-555-0100/.test(cards));
   check('  and who to ask for', /ask for Dana/.test(cards));
   check('  behind a tel: link that dials', /href="tel:2055550100"/.test(cards));
-  check('the email card has NO per-card send',
-    cards.indexOf('hqCardDone(' + MAIL + ',') === -1);
+  check('there is no Mark done anywhere', !/hqCardDone|Mark done/.test(cards));
   check('  but does have the read-and-edit panel',
     cards.indexOf('id="hq-read-' + MAIL + '"') !== -1 && cards.indexOf('hqEdit(' + MAIL + ')') !== -1);
-  check('every non-email card can be marked done', (cards.match(/hqCardDone\(/g) || []).length === 2);
-  check('  and skipped', (cards.match(/hqCardSkip\(/g) || []).length === 2);
+  check('every row, email included, has Approve', (cards.match(/hqRowApprove\(/g) || []).length === 3);
+  check('  and Skip', (cards.match(/hqRowSkip\(/g) || []).length === 3);
   check('the call card has no message box — there is no script, and none is faked',
     cards.indexOf('id="hq-dm-' + CALL + '"') === -1);
 
   console.log('\nWHAT THE CARD SAYS');
-  check('the sponsor evidence is above the fold, not behind a click',
+  check('the sponsor evidence is in the row, one click away',
     /Named on the athletics department sponsor page\./.test(cards));
   check('the why sentence is on every card', (cards.match(/class="hq-why"/g) || []).length >= 3);
-  check('the email body is still one click away, not open',
-    cards.indexOf('class="hq-mail" id="hq-mail-' + MAIL + '" hidden') !== -1);
+  check('every row starts collapsed, the email body one click away',
+    (cards.match(/class="hq-x" id="hq-x-\d+" hidden/g) || []).length === 3);
   check('no raw namespaced id leaked into a DOM id', !/id="[^"]*(email|queue):/.test(cards));
   check('and none into an inline handler', !/onclick="[^"]*(email|queue):/.test(cards));
 
