@@ -45,7 +45,13 @@ async function main() {
       COUNT(*) FILTER (WHERE approved_at IS NOT NULL AND sent_at > NOW() - INTERVAL '1 hour')::int        AS sent_hour,
       COUNT(*) FILTER (WHERE approved_at IS NOT NULL AND sent_at > NOW() - INTERVAL '24 hours')::int      AS sent_day,
       MAX(sent_at) FILTER (WHERE approved_at IS NOT NULL)                                                  AS last_sent,
-      COUNT(*) FILTER (WHERE approved_at IS NULL AND sent_at IS NOT NULL)::int                             AS by_hand
+      COUNT(*) FILTER (WHERE approved_at IS NULL AND sent_at IS NOT NULL)::int                             AS by_hand,
+      -- APPROVED, THEN STOPPED instead of sent: a same-subject repeat, a
+      -- suppressed address, a reply. Left out of "sending" and "held", so it
+      -- has its own line or the totals silently stop adding up.
+      COUNT(*) FILTER (WHERE approved_at IS NOT NULL AND sent_at IS NULL AND cadence_stopped_at IS NOT NULL)::int AS stopped,
+      COUNT(*) FILTER (WHERE approved_at IS NOT NULL AND sent_at IS NULL
+                         AND cadence_stopped_at > NOW() - INTERVAL '24 hours')::int                         AS stopped_day
     FROM outreach_logs`)).rows[0];
 
   // ── THE ANSWER ──────────────────────────────────────────────────────────
@@ -71,7 +77,8 @@ async function main() {
   console.log(`  held, with a reason on the card    ${t.held}`);
   console.log(`  sent after approval, last hour     ${t.sent_hour}`);
   console.log(`  sent after approval, last day      ${t.sent_day}   (last ${d(t.last_sent)})`);
-  console.log(`  sent by hand, never approved       ${t.by_hand}\n`);
+  console.log(`  approved, then stopped, not sent    ${t.stopped}   (last day: ${t.stopped_day}; see HELD AND STOPPED below)`);
+  console.log(`  sent by hand, never approved       ${t.by_hand}   (a different set: none of these was approved)\n`);
 
   const holds = (await P.query(`
     SELECT send_hold_reason AS why, COUNT(*)::int AS n
@@ -81,6 +88,16 @@ async function main() {
   console.log('HELD, BY REASON');
   if (!holds.length) console.log('  (none)');
   for (const h of holds) console.log(`  ${String(h.n).padStart(4)}  ${String(h.why).slice(0, 150)}`);
+  console.log('');
+
+  const stops = (await P.query(`
+    SELECT cadence_stop_reason AS why, COUNT(*)::int AS n
+      FROM outreach_logs
+     WHERE approved_at IS NOT NULL AND sent_at IS NULL AND cadence_stopped_at IS NOT NULL
+     GROUP BY 1 ORDER BY 2 DESC LIMIT 12`)).rows;
+  console.log('APPROVED, THEN STOPPED, BY REASON  (by business: approved-accounting)');
+  if (!stops.length) console.log('  (none)');
+  for (const h of stops) console.log(`  ${String(h.n).padStart(4)}  ${String(h.why).slice(0, 150)}`);
   console.log('');
 
   const rows = (await P.query(`

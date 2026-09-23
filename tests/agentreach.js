@@ -139,6 +139,42 @@ async function main() {
   ok('  and nothing about a release switch', !/CLOSER_RELEASE_ENABLED/.test(withAddr));
   ok('  the per-agent table tells sending, sent and hand-sent apart', /rch-a@x\.com\s+1\s+0\s+1\s+1/.test(withAddr), (withAddr.match(/rch-a@x\.com.*/) || [])[0]);
 
+  // ── 5. EVERY APPROVED EMAIL, ACCOUNTED FOR ──────────────────────────────
+  OUT.push('', '-- approved-accounting --');
+  ok('approved-accounting is registered with the admin script runner', /'approved-accounting': \{ file: 'scripts\/approved-accounting\.js'/.test(idx));
+  const H = 3600000, now = Date.now(), ago = (ms) => new Date(now - ms);
+  const acc = (id, extra) => P.query(
+    `INSERT INTO outreach_logs (id, agent_id, athlete_id, brand_name, status, approved_at, sent_at, sent_to_email, subject,
+                                cadence_stopped_at, cadence_stop_reason, send_hold_reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [id, AG, A1, ...extra]);
+  await acc('rch-acc-sent', ['Acc Sent Deli', 'sent', ago(48 * H), ago(H / 6), 'sent@acc.x', 'Hi', null, null, null]);
+  await acc('rch-acc-held', ['Acc Held Gym', 'approved', ago(48 * H), null, 'held@acc.x', 'Hi', null, null, '4-day rule']);
+  await acc('rch-acc-dup', ['Acc Dup Cafe', 'approved', ago(48 * H), null, 'dup@acc.x', 'Same', ago(H / 6), '"Same" was already sent to dup@acc.x', null]);
+  await acc('rch-acc-hand', ['Acc Dup Cafe', 'sent', null, ago(24 * H), 'dup@acc.x', 'Same', null, null, null]);
+  await acc('rch-acc-early', ['Acc Early Bar', 'approved', ago(48 * H), null, 'early@acc.x', 'Hi', ago(24 * H), 'they replied before this went out', null]);
+  await acc('rch-acc-wait', ['Acc Wait Shop', 'approved', ago(48 * H), null, 'wait@acc.x', 'Hi', null, null, null]);
+  await P.query(`INSERT INTO email_sends (email, subject, subject_key, system, agent_id, ref_id, sent_at) VALUES
+    ('sent@acc.x','Hi','hi','closer',$1,'rch-acc-sent',$2), ('dup@acc.x','Same','same','manual',$1,'rch-acc-hand',$3)`,
+  [AG, ago(H / 6), ago(24 * H)]);
+  let accOut;
+  try {
+    accOut = execFileSync(process.execPath, [REPO + 'scripts/approved-accounting.js', '--before=' + ago(H).toISOString()],
+      { encoding: 'utf8', env: { ...process.env, INIT_WAIT_MS: '5000' }, timeout: 90000 });
+  } catch (e) { accOut = String(e.stdout || '') + String(e.stderr || ''); }
+  const line = (biz) => { const i = accOut.indexOf(biz); return i < 0 ? '' : accOut.slice(i, accOut.indexOf('\n', i)); };
+  ok('sent after the cutoff reads SENT (release queue)', /SENT \(release queue\)/.test(line('Acc Sent Deli')), line('Acc Sent Deli'));
+  ok('a hold reads HELD with its reason', /HELD/.test(line('Acc Held Gym')) && /4-day rule/.test(accOut), line('Acc Held Gym'));
+  ok('a same-subject stop reads DEDUPED and names the hand-sent row it repeated',
+    /DEDUPED/.test(line('Acc Dup Cafe')) && /earlier send: manual, row rch-acc-hand.*"sent by hand" count/.test(accOut), accOut.slice(-900));
+  ok('a row stopped before the deploy is listed and says so', /STOPPED \(they replied\) -- before the deploy/.test(line('Acc Early Bar')), line('Acc Early Bar'));
+  ok('an untouched one reads WAITING', /WAITING/.test(line('Acc Wait Shop')), line('Acc Wait Shop'));
+  ok('the hand-sent row is not one of the approved set', !/Acc Dup Cafe[^\n]*SENT BY HAND/.test(accOut) && /rows in both: 0/.test(accOut));
+  ok('  but it is reported as sharing an address with one', /hand-sent [^\n]*dup@acc\.x \(row rch-acc-hand\); approved row rch-acc-dup/.test(accOut));
+  const ss = run({ BUSINESS_MAILING_ADDRESS: '1 Main St, Auburn, AL 36830' });
+  ok('send-status now counts approved-then-stopped instead of dropping it', /approved, then stopped, not sent\s+\d+/.test(ss)
+    && /APPROVED, THEN STOPPED, BY REASON/.test(ss) && /was already sent to dup@acc\.x/.test(ss), ss.slice(-700));
+  await P.query(`DELETE FROM email_sends WHERE ref_id LIKE 'rch-acc-%'`).catch(() => {});
+
   await clean();
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));

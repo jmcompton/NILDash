@@ -5534,6 +5534,11 @@ const ADMIN_SCRIPTS = {
   // Read-only; no arguments.
   //   /api/admin/scripts/send-status?text=1
   'send-status': { file: 'scripts/send-status.js', args: () => [] },
+  // Every email approved and unsent when the release queue shipped, by
+  // business, with what became of it: sent, held, deduped, stopped, waiting.
+  // Read-only. before= overrides the cutoff (default: the queue's first act).
+  //   /api/admin/scripts/approved-accounting?text=1
+  'approved-accounting': { file: 'scripts/approved-accounting.js', args: (q) => (q.before && !isNaN(Date.parse(q.before)) ? ['--before=' + new Date(q.before).toISOString()] : []) },
   // Every sent email and DM signed with a stand-in name ("JohnMark", "Your
   // Agent", "NIL Agent", "Agent", an email local part), who received it, the
   // drafts still waiting with one, and the agents who now get no cards until
