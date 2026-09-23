@@ -373,8 +373,9 @@ async function main() {
   ok('the send path resolves the state through stateCodeFor, not the school alone',
     /compliance\.stateCodeFor\(pool, \{ athleteType, school: log\.school, city: log\.city \}\)/.test(cl) && !/compliance\.stateCodeForSchool\(/.test(cl));
   ok('  reads the type and city off the athlete row', /a\.athlete_type, a\.data->>'athleteType' AS athlete_type_data,\s*a\.data->>'city' AS city/.test(cl));
-  ok('  and hands the send window the city when there is no school', /athleteSchoolState: log\.school \|\| log\.city/.test(cl)
-    && /athleteSchoolState: log\.school \|\| log\.city/.test(src('server/routes/outreach.js')));
+  // The send window that took the city is gone (approve means send); the
+  // compliance gate above still resolves a pro's state from the city.
+  ok('  and there is no send window left to hand it to', !/athleteSchoolState/.test(cl + src('server/routes/outreach.js')));
   const aiSrc = src('server/ai.js');
   ok('Deal Scan takes the market from the city for a pro', /athlete\.athleteType !== 'pro' \|\| !athlete\.city\) return null;/.test(aiSrc)
     && /const loc = proLoc \|\| await getSchoolLocation\(/.test(aiSrc));

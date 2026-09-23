@@ -144,12 +144,16 @@ async function main() {
   ok('  a board failure never fails the action the agent took',
     /pipeline write failed/.test(idx), null);
   const closer = fs.readFileSync(ROOT + 'server/services/closer.js', 'utf8');
-  ok('APPROVING AN EMAIL LANDS ON THE BOARD TOO',
+  // CHANGED DELIBERATELY: the board says "Outreach Sent", so the email lands
+  // there when it actually SENDS (releaseDue), not when it is approved.
+  ok('A SENT EMAIL LANDS ON THE BOARD TOO',
     /PIPE\.enterOutreachSent\(pool/.test(closer), null);
+  ok('  at send time, not at approval',
+    /ONTO THE PIPELINE BOARD, NOW THAT IT HAS GONE[\s\S]{0,600}PIPE\.enterOutreachSent\(pool/.test(closer), null);
   ok('  carrying the address it was actually sent to',
-    /contactEmail: r\.sent_to_email/.test(closer), null);
-  ok('  and never unschedules an approved email if the board write fails',
-    /cannot un-send an email/.test(closer), null);
+    /contactEmail: log\.sent_to_email/.test(closer), null);
+  ok('  and a board write failing never makes a sent email look unsent',
+    /a board write failing\s*\n?\s*\/\/\s*must not make it look as though it did not/.test(closer), null);
 
   // ── THE BOARD READS THE PIPELINE ──────────────────────────────────────────
   ok('there is a pipeline endpoint', /app\.get\('\/api\/agent\/pipeline'/.test(idx), null);

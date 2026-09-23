@@ -43,8 +43,9 @@ async function main() {
   ok('  and that no local market means no local lane',
     /does not resolve has NO local lane/.test(T));
   ok('how outreach is approved, in one decision', /APPROVAL IS ONE DECISION/.test(T));
-  ok('WHY the agent does not pick the send time',
-    /DOES NOT PICK THE SEND TIME/.test(T) && /a fact about the recipient/.test(T));
+  // CHANGED DELIBERATELY: there is no send window. Approving sends, paced.
+  ok('that approving sends, paced, with no window to pick',
+    /APPROVE MEANS SEND/.test(T) && /20 to 50 seconds apart/.test(T) && /Sending on Home until/.test(T));
   ok('what happens when a reply lands', /stops the follow-up cadence for that business immediately/.test(T));
   ok('what the shift report numbers mean', /Across N of M athletes/.test(T));
   ok('  including that day work is counted separately', /counted separately/.test(T));

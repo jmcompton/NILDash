@@ -40,10 +40,13 @@ async function main() {
                  VALUES ($1,'A','sg@x.com','x','agent','America/Chicago')
                  ON CONFLICT DO NOTHING`, [AG]);
 
-  // ── THE DEFAULT IS 40, AND IT IS A DELIVERABILITY NUMBER ─────────────────
-  ok('the default ceiling is 40', G.DEFAULT_DAILY_CAP === 40, G.DEFAULT_DAILY_CAP);
+  // ── THE DEFAULT IS 500: GOOGLE'S OWN LIMIT ───────────────────────────────
+  // It was 40, a volume-per-day limit that turned a 150-email approval into
+  // four days of waiting. Approve means send now; the burst protection is the
+  // release queue's one-at-a-time pacing (jobs/closerRelease), not this.
+  ok('the default ceiling is 500', G.DEFAULT_DAILY_CAP === 500, G.DEFAULT_DAILY_CAP);
   const st0 = await G.status(P, AG);
-  ok('a fresh agent has the full allowance', st0.remaining === 40 && st0.used === 0, st0);
+  ok('a fresh agent has the full allowance', st0.remaining === 500 && st0.used === 0, st0);
   ok('  and is not blocked', st0.blocked === false, st0);
 
   // ── THE CAP HOLDS UNDER CONCURRENCY ──────────────────────────────────────

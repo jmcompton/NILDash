@@ -24,18 +24,10 @@ const ROOT = REPO;
 const store = require(ROOT + 'server/store.js');
 const Closer = require(ROOT + 'server/services/closer.js');
 const Home = require(ROOT + 'server/services/homeQueue.js');
-const sendWindow = require(ROOT + 'server/services/sendWindow.js');
-
-// A real instant inside the real send window, found with the shipping predicate
-// rather than hardcoded -- the window is Tue-Thu mid-morning in the RECIPIENT's
-// timezone, and hardcoding a timestamp would make this test fail on a Friday.
+// Any instant sends now: there is no send window (approve means send). A
+// minute ahead of the wall clock, so what was approved a moment ago is due.
 function aSendableTime() {
-  const t = new Date();
-  for (let i = 0; i < 24 * 14; i++) {
-    if (sendWindow.isSendable(t, {})) return new Date(t);
-    t.setUTCHours(t.getUTCHours() + 1);
-  }
-  throw new Error('no sendable hour found in two weeks');
+  return new Date(Date.now() + 60 * 1000);
 }
 
 const out = [];

@@ -94,7 +94,7 @@ async function main() {
   ok('  an athlete with more than one pitch gets an Approve all',
     /Approve all 3 for Peyton</.test(m.html), (m.html.match(/Approve all [^<]*/g) || []));
   ok('the single footer line, saying what approving actually does',
-    m.html.includes('Pitches expire in 14 days.') && /Tuesday to Thursday morning/.test(m.html)
+    m.html.includes('Pitches expire in 14 days.') && /Approving sends the email from your own mailbox/.test(m.html)
     && (m.html.match(/Pitches expire in 14 days/g) || []).length === 1);
   ok('plain: no header banner, no logo image, no marketing or feature copy', !/<img/i.test(m.html) && !/<h1|<h2/i.test(m.html) && !/upgrade|new feature|introducing|learn more|pro plan/i.test(m.html));
   ok('mobile friendly: viewport meta, one 560px table, no fixed widths wider than a phone', /viewport/.test(m.html) && /max-width:560px/.test(m.html) && !/width="6\d\d"|width:7\d\dpx/.test(m.html));

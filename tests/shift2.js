@@ -1,4 +1,5 @@
 'use strict';
+const fs = require('fs');
 // Moved out of a session scratchpad, which is reclaimed when the session ends.
 // Normalised so it runs from a checkout on any machine: repo-relative paths,
 // overridable Postgres settings, an overridable Chromium, and a startup wait the
@@ -20,7 +21,6 @@ const ROOT = REPO;
 const store = require(ROOT + 'server/store.js');
 const SR = require(ROOT + 'server/services/shiftReport.js');
 const { renderShiftEmail } = require(ROOT + 'server/services/shiftEmail.js');
-const SW = require(ROOT + 'server/services/sendWindow.js');
 
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g) : '')); } };
@@ -288,31 +288,10 @@ async function main() {
   ok('an empty queue gets its own subject', /nothing needs you/i.test(qm.subject), qm.subject);
   ok('  and says so in the body', /Nothing needs you right now/.test(qm.html), qm.subject);
 
-  // ── SEND WINDOW ──────────────────────────────────────────────────────────
-  const sat = new Date('2026-08-22T03:00:00Z');              // Saturday
-  const slot = SW.nextSendSlot(sat, { businessAddress: '1 Main St, Birmingham, AL 35203', key: 'k' });
-  const p = SW.partsIn(slot.at, slot.timezone);
-  ok('a Saturday draft releases on a WEEKDAY', [2, 3, 4].indexOf(p.dow) !== -1, p);
-  ok('  never a weekend', p.dow !== 0 && p.dow !== 6, p.dow);
-  ok('  mid-morning local', p.minutes >= 570 && p.minutes <= 660, p.minutes);
-  ok('  in the RECIPIENT\'s timezone, not ours', slot.timezone === 'America/Chicago', slot.timezone);
-  const ca = SW.nextSendSlot(sat, { businessAddress: '9 Ocean Ave, Santa Monica, CA 90401', key: 'k' });
-  ok('  a California business gets Pacific', ca.timezone === 'America/Los_Angeles', ca.timezone);
-  ok('  and lands mid-morning THERE', (() => { const q = SW.partsIn(ca.at, ca.timezone); return q.minutes >= 570 && q.minutes <= 660; })());
-  ok('  an unknown location falls back to Central, not UTC',
-    SW.nextSendSlot(sat, { key: 'k' }).timezone === 'America/Chicago');
-  // 3am is never sendable, in any zone.
-  ok('3am is never a legal send time', !SW.isSendable(new Date('2026-08-25T08:07:00Z'), { businessAddress: 'x, AL' }));
-  // Monday and Friday are excluded.
-  for (const day of ['2026-08-24T15:00:00Z', '2026-08-28T15:00:00Z']) {
-    ok('  ' + day.slice(0, 10) + ' (Mon/Fri) is not sendable',
-      !SW.isSendable(new Date(day), { businessAddress: 'x, AL' }));
-  }
-  // The slot is deterministic: the same draft always resolves to the same minute.
-  ok('the slot is deterministic for a given draft',
-    SW.nextSendSlot(sat, { key: 'abc' }).at.getTime() === SW.nextSendSlot(sat, { key: 'abc' }).at.getTime());
-  ok('  and spread across the window by key',
-    SW.slotMinute('abc') !== SW.slotMinute('xyz'));
+  // ── NO SEND WINDOW ───────────────────────────────────────────────────────
+  // There was a Tuesday-to-Thursday, mid-morning window. It is gone: approve
+  // means send, paced by the release queue (tests/sendqueue.js covers it).
+  ok('the send window module is deleted', !fs.existsSync(ROOT + 'server/services/sendWindow.js'));
 
   await wipe();
   OUT.push(''); OUT.push('failures: ' + F);

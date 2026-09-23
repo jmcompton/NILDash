@@ -656,7 +656,17 @@ async function overrideHold(pool, holdId, { agentId, reason }) {
     `UPDATE compliance_holds
         SET resolved_at = NOW(), resolved_by = $2, resolution = 'overridden', resolution_reason = $3
       WHERE id = $1 AND agent_id = $2 AND resolved_at IS NULL AND severity = 'hold'
-      RETURNING id, brand_name, rule_label`, [holdId, agentId, why]);
+      RETURNING id, brand_name, rule_label, outreach_log_id`, [holdId, agentId, why]);
+  // THE EMAIL IS DUE AGAIN NOW. The release queue waits a short while before
+  // re-checking a held email; an agent who has just overridden the hold should
+  // not wait for that. LEAST, so a not-before already in the past stays put.
+  if (r.rowCount && r.rows[0].outreach_log_id) {
+    await pool.query(
+      `UPDATE outreach_logs
+          SET scheduled_send_at = LEAST(COALESCE(scheduled_send_at, NOW()), NOW()),
+              send_hold_reason = NULL, send_hold_at = NULL, updated_at = NOW()
+        WHERE id = $1 AND status = 'approved' AND sent_at IS NULL`, [r.rows[0].outreach_log_id]).catch(() => {});
+  }
   if (!r.rowCount) {
     const cur = await pool.query(
       `SELECT severity, resolved_at FROM compliance_holds WHERE id = $1 AND agent_id = $2`, [holdId, agentId]);

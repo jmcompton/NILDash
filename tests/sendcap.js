@@ -44,7 +44,7 @@ const BIG = 'cap-big', STD = 'cap-std', TZ = 'cap-tz';
 
   console.log('\n1. The default, with the column left NULL');
   let s = await SG.status(P, STD);
-  check('a NULL daily_email_cap falls back to 40', s.cap === 40, 'cap=' + s.cap);
+  check('a NULL daily_email_cap falls back to the default (' + SG.DEFAULT_DAILY_CAP + ')', s.cap === SG.DEFAULT_DAILY_CAP, 'cap=' + s.cap);
   check('the day is the agent\'s own calendar date, not UTC', /^\d{4}-\d{2}-\d{2}$/.test(s.day), s.day + ' tz=' + s.tz);
 
   console.log('\n2. Raising ONE account');
@@ -52,9 +52,9 @@ const BIG = 'cap-big', STD = 'cap-std', TZ = 'cap-tz';
   s = await SG.status(P, BIG);
   check('the raised account reads 150', s.cap === 150, 'cap=' + s.cap);
   s = await SG.status(P, STD);
-  check('every other account is still 40', s.cap === 40, 'cap=' + s.cap);
+  check('every other account is still the default', s.cap === SG.DEFAULT_DAILY_CAP, 'cap=' + s.cap);
   s = await SG.status(P, TZ);
-  check('a third account is still 40', s.cap === 40, 'cap=' + s.cap);
+  check('a third account is still the default', s.cap === SG.DEFAULT_DAILY_CAP, 'cap=' + s.cap);
 
   console.log('\n3. The ceiling is actually enforced at the raised number');
   // Spend the old ceiling.
@@ -75,7 +75,7 @@ const BIG = 'cap-big', STD = 'cap-std', TZ = 'cap-tz';
   await SG.reserve(P, STD);
   const stamped = (await P.query(
     `SELECT cap FROM agent_send_budget WHERE agent_id=$1 ORDER BY local_date DESC LIMIT 1`, [STD])).rows[0];
-  check('the counter row snapshotted the old cap', Number(stamped.cap) === 40, 'stored cap=' + stamped.cap);
+  check('the counter row snapshotted the old cap', Number(stamped.cap) === SG.DEFAULT_DAILY_CAP, 'stored cap=' + stamped.cap);
   await P.query(`UPDATE users SET daily_email_cap = 150 WHERE id = $1`, [STD]);
   s = await SG.status(P, STD);
   check('status reports the NEW ceiling the same day', s.cap === 150, 'cap=' + s.cap);
@@ -110,7 +110,7 @@ const BIG = 'cap-big', STD = 'cap-std', TZ = 'cap-tz';
   console.log('\n8. Zero and negative are treated as unset, not as a ban');
   await P.query(`UPDATE users SET daily_email_cap = 0 WHERE id = $1`, [TZ]);
   check('0 falls back to the default rather than stopping all mail',
-    (await SG.status(P, TZ)).cap === 40, 'cap=' + (await SG.status(P, TZ)).cap);
+    (await SG.status(P, TZ)).cap === SG.DEFAULT_DAILY_CAP, 'cap=' + (await SG.status(P, TZ)).cap);
 
   const bad = out.filter((x) => !x.ok);
   console.log('\n' + (out.length - bad.length) + '/' + out.length + ' passed');

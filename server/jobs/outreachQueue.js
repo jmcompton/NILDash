@@ -529,7 +529,7 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
   // ── AN EMAIL CARD WRITES A DRAFT, NOT A SECOND SEND PATH ──────────────────
   //
   // outreach_logs already owns sending, and it owns all of it: sendGuard's daily
-  // ceiling, sendWindow's per-recipient timing, releaseDue, the follow-up
+  // ceiling, the release queue's pacing, releaseDue, the follow-up
   // cadence, reply capture, bounce suppression, the media kit, and the editable
   // draft. Giving outreach_queue its own send would mean two state machines over
   // one business, which is how a brand gets pitched twice.

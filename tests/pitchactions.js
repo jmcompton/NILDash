@@ -265,7 +265,8 @@ async function main() {
   ok('after the action it offers the next pitch, so the queue clears in a row',
     /T\.nextPending\(store\.pool, agentId/.test(idx) && /Next up/.test(idx));
   ok('  with fresh tokens, not the ones from the email', /T\.issueFor\(store\.pool, \{ pitchId: next\.id/.test(idx));
-  ok('the confirmation names the business', /Sent to \$\{row\.brand_name/.test(idx));
+  // "Sending to", not "Sent to": approval queues it, and it is Sent only once it has left.
+  ok('the confirmation names the business', /Sending to \$\{row\.brand_name/.test(idx));
 
   // ── NO RAW TOKEN IS EVER LOGGED ────────────────────────────────────────
   OUT.push('', '-- nothing leaks --');

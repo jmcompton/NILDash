@@ -46,7 +46,14 @@ const AG = 'ah-agent';
 const P = () => store.pool;
 const src = (p) => fs.readFileSync(REPO + p, 'utf8');
 const WHEN = new Date('2026-08-25T15:00:00Z');   // Tuesday 10am Central: the window is open
-const release = (opts = {}) => Closer.releaseDue(P(), Object.assign({ sleep: async () => {}, now: WHEN }, opts));
+// EACH RELEASE IS A LATER TICK. A held email is not re-checked until its
+// not-before time (a couple of minutes after the hold), so the clock moves on
+// between releases the way it does in production.
+let _clock = WHEN.getTime();
+const release = (opts = {}) => {
+  _clock += 15 * 60 * 1000;
+  return Closer.releaseDue(P(), Object.assign({ sleep: async () => {}, now: new Date(_clock) }, opts));
+};
 function recorder() {
   const sent = [];
   return { sent, fn: async (log) => { sent.push(log.brand_name); return { providerMessageId: 'm' + sent.length }; } };

@@ -129,15 +129,15 @@ async function main() {
         { encoding: 'utf8', env: { ...process.env, INIT_WAIT_MS: '5000', ...env }, timeout: 90000 });
     } catch (e) { return String(e.stdout || '') + String(e.stderr || ''); }
   };
-  const off = run({ CLOSER_RELEASE_ENABLED: '' });
-  ok('flag off: it says approved emails do not leave, with the count waiting',
-    /release scheduler OFF/.test(off) && /NO\. The release scheduler is OFF/.test(off), off.slice(0, 300));
-  const onNoAddr = run({ CLOSER_RELEASE_ENABLED: '1', BUSINESS_MAILING_ADDRESS: '' });
-  ok('flag on but no CAN-SPAM address: still NO, and it says why', /NO\. The scheduler is ON but the CAN-SPAM postal address is missing/.test(onNoAddr), onNoAddr.slice(0, 400));
-  const onAddr = run({ CLOSER_RELEASE_ENABLED: '1', BUSINESS_MAILING_ADDRESS: '1 Main St, Auburn, AL 36830' });
-  ok('flag on with an address: it reports what the scheduler released', /release scheduler ON/.test(onAddr) && /CAN-SPAM postal address\s+->\s+set/.test(onAddr)
-    && /approved and released\s+\d+/.test(onAddr), onAddr.slice(0, 400));
-  ok('  and the per-agent table tells released from hand-sent', /rch-a@x\.com\s+1\s+0\s+1\s+1/.test(onAddr), (onAddr.match(/rch-a@x\.com.*/) || [])[0]);
+  // There is no release switch any more (approve means send). The one thing
+  // that can still stop every send is the CAN-SPAM address, and it says so.
+  const noAddr = run({ BUSINESS_MAILING_ADDRESS: '' });
+  ok('no CAN-SPAM address: it says NO, and why', /NO\. The CAN-SPAM postal address is missing/.test(noAddr), noAddr.slice(-400));
+  const withAddr = run({ BUSINESS_MAILING_ADDRESS: '1 Main St, Auburn, AL 36830' });
+  ok('with an address it reports what is sending and what went', /CAN-SPAM postal address\s+->\s+set/.test(withAddr)
+    && /sending now \(approved, not held\)\s+\d+/.test(withAddr) && /sent after approval, last day\s+\d+/.test(withAddr), withAddr.slice(-500));
+  ok('  and nothing about a release switch', !/CLOSER_RELEASE_ENABLED/.test(withAddr));
+  ok('  the per-agent table tells sending, sent and hand-sent apart', /rch-a@x\.com\s+1\s+0\s+1\s+1/.test(withAddr), (withAddr.match(/rch-a@x\.com.*/) || [])[0]);
 
   await clean();
   OUT.push(''); OUT.push('failures: ' + F);

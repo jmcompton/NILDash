@@ -2034,6 +2034,12 @@ app.post('/api/agent/settings/media-kit', requireAuth, async (req, res) => {
   }
 });
 
+// Wake the release queue: an approved email starts sending now, not at the
+// next tick. Never throws into the route that approved it.
+function kickRelease() {
+  try { require('./jobs/closerRelease').kick(); } catch (_) { /* the tick will find it */ }
+}
+
 app.get('/api/agent/closer/batch', requireAuth, async (req, res) => {
   try {
     res.json(await Closer.buildBatch(store.pool, req.session.userId));
@@ -2044,9 +2050,9 @@ app.get('/api/agent/closer/batch', requireAuth, async (req, res) => {
 });
 
 // Approve all, or uncheck a few and approve the rest. `skip` is what the agent
-// unchecked; everything else in `ids` goes. The send TIME is not in this
-// payload and never will be -- sendWindow decides it, in the recipient's
-// timezone, because it is the business owner's Tuesday morning that matters.
+// unchecked; everything else in `ids` goes. Approve means send: each approved
+// email is due now, and the release queue sends it within seconds, spaced
+// behind whatever this agent already has going out (jobs/closerRelease).
 app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
   try {
     const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
@@ -2056,6 +2062,7 @@ app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
     // that athlete rather than trusting the posted id list.
     const out = await Closer.approveBatch(store.pool, req.session.userId,
       { ids, skip, athleteId: req.body.athleteId || null });
+    if (out.scheduled) kickRelease();
     // Logged with its channel, so approvals from the dashboard and approvals
     // from the digest email can be compared rather than guessed at. Only what
     // was actually scheduled: `when` is the per-draft record approveBatch
@@ -2261,6 +2268,7 @@ app.post('/api/agent/compliance/:id/override', requireAuth, async (req, res) => 
       { agentId: req.session.userId, reason: (req.body || {}).reason });
     if (!out.ok) return res.status(400).json(out);
     console.log(`[compliance] hold=${req.params.id} OVERRIDDEN by agent=${req.session.userId}`);
+    kickRelease();   // the email is due now; send it without waiting for the tick
     res.json(out);
   } catch (e) {
     console.error('[compliance/override]', e.message);
@@ -2307,8 +2315,8 @@ app.get('/api/agent/shift-report/detail', requireAuth, async (req, res) => {
 });
 
 // ── When the daily report arrives ────────────────────────────────────────────
-// The ONLY thing an agent configures about the report. Send timing for outreach
-// is deliberately not exposed: see services/sendWindow.js.
+// The ONLY thing an agent configures about the report. Outreach has no send
+// timing to configure: approving an email sends it (jobs/closerRelease).
 app.get('/api/agent/report-settings', requireAuth, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -4644,7 +4652,7 @@ app.get('/api/agent/deliverables/pinned', requireAuth, async (req, res) => {
 app.get('/api/agent/deliverables/digest/preview', requireAuth, async (req, res) => {
   try {
     const digest = require('./services/deliverableDigest');
-    const sw = require('./services/sendWindow');
+    const sw = require('./services/tzParts');
     const u = await store.getUser(req.session.userId);
     const p = sw.partsIn(new Date(), (u && u.report_tz) || sw.DEFAULT_TZ);
     const today = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
@@ -5181,7 +5189,7 @@ async function _sendDueShiftReports() {
   // link and the assistant; it just does not go out.
   if (!require('./services/agentEmail').enabled('shiftReport')) return;
   const { renderShiftEmail } = require('./services/shiftEmail');
-  const sw = require('./services/sendWindow');
+  const sw = require('./services/tzParts');
   const appUrl = process.env.APP_URL || 'https://mynildash.com';
   let due;
   try {
@@ -5296,7 +5304,7 @@ async function _sendDueDeliverableDigests() {
   // OFF (services/agentEmail). The pinned overdue block on Home carries this.
   if (!require('./services/agentEmail').enabled('deliverableDigest')) return;
   const digest = require('./services/deliverableDigest');
-  const sw = require('./services/sendWindow');
+  const sw = require('./services/tzParts');
   const appUrl = process.env.APP_URL || 'https://mynildash.com';
 
   let agents;
@@ -5520,9 +5528,9 @@ const ADMIN_SCRIPTS = {
       q.max ? ['--max', String(parseInt(q.max, 10) || 5)] : [],
       q.limit ? ['--limit', String(parseInt(q.limit, 10) || 5)] : []),
   },
-  // Whether approved emails are actually leaving: the running server's
-  // CLOSER_RELEASE_ENABLED and CAN-SPAM address, approved emails waiting and
-  // overdue, and how many the scheduler released versus were sent by hand.
+  // Whether approved emails are actually leaving: the CAN-SPAM address,
+  // emails sending now and held (with each hold's reason), and how many the
+  // release queue sent in the last hour and day versus were sent by hand.
   // Read-only; no arguments.
   //   /api/admin/scripts/send-status?text=1
   'send-status': { file: 'scripts/send-status.js', args: () => [] },
@@ -11654,7 +11662,7 @@ footer{margin-top:20px;padding-top:14px;border-top:1px solid #1f2937;color:#6b72
 //
 // THE WORK IS NOT DONE HERE. Approve calls Closer.approveBatch and skip calls
 // Closer.skipDraft -- the same two functions the dashboard calls, with the same
-// ceiling, the same send window, the same pipeline write. There is no second
+// ceiling, the same release queue, the same pipeline write. There is no second
 // send path to keep in step.
 const pitchActionLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -11745,7 +11753,7 @@ app.get('/a/:token', pitchActionLimiter, async (req, res) => {
         title: list.length === 1
           ? `Send this pitch for ${_paEsc(row.athlete_name || 'this athlete')}?`
           : `Send all ${list.length} pitches for ${_paEsc(row.athlete_name || 'this athlete')}?`,
-        sub: 'Each goes out Tuesday to Thursday, mid-morning in the business’s own timezone.',
+        sub: 'They start sending as soon as you tap, a short gap apart, from your own mailbox.',
         body: `<ul>${list.map((p) => `<li>${_paEsc(p.brand_name || 'A local business')}</li>`).join('')}</ul>
           <div style="margin-top:16px">${_pitchActionForm(req.params.token, list.length === 1 ? 'Send pitch' : `Send all ${list.length}`)}</div>`,
         note: 'Nothing is sent until you tap the button.',
@@ -11762,7 +11770,7 @@ app.get('/a/:token', pitchActionLimiter, async (req, res) => {
         ${_pitchActionForm(req.params.token, skip ? 'Skip pitch' : 'Send pitch', { skip })}`,
       note: skip
         ? 'Skipping stops the follow-up sequence for this business. Nothing is sent.'
-        : 'Nothing is sent until you tap the button. It then goes out Tuesday to Thursday, mid-morning in the business’s own timezone.',
+        : 'Nothing is sent until you tap the button. It then goes out from your own mailbox within a minute or two.',
     }));
   } catch (e) {
     console.error('[pitch-action/get]', e.message);
@@ -11787,11 +11795,13 @@ app.post('/a/:token', pitchActionLimiter, express.urlencoded({ extended: false, 
       const pending = await T.pendingForAthlete(store.pool, agentId, row.athlete_id);
       const ids = pending.map((p) => p.id);
       const out = await Closer.approveBatch(store.pool, agentId, { ids });
+      if (out.scheduled) kickRelease();
       await PA.logMany(store.pool, ids.slice(0, out.scheduled).map((id) => ({ pitchId: id, agentId, action: 'approve', source })));
-      title = `${out.scheduled} pitch${out.scheduled === 1 ? '' : 'es'} sent for ${row.athlete_name || 'your athlete'}`;
+      // SENDING, NOT SENT: approval queues them, and they leave a short gap apart.
+      title = `Sending ${out.scheduled} pitch${out.scheduled === 1 ? '' : 'es'} for ${row.athlete_name || 'your athlete'}`;
       sub = out.scheduled
-        ? 'They go out Tuesday to Thursday, mid-morning where each business is.'
-        : (out.note || 'Nothing was scheduled.');
+        ? 'They go out from your own mailbox a short gap apart, starting now. Each one says Sent in NILDash once it has left.'
+        : (out.note || 'Nothing was approved.');
       if (out.scheduled && out.note) sub += ' ' + out.note;
     } else if (row.action === 'skip') {
       const out = await Closer.skipDraft(store.pool, agentId, row.pitch_id);
@@ -11801,9 +11811,10 @@ app.post('/a/:token', pitchActionLimiter, express.urlencoded({ extended: false, 
       sub = 'Nothing was sent, and the follow-up sequence for this business is stopped.';
     } else {
       const out = await Closer.approveBatch(store.pool, agentId, { ids: [row.pitch_id] });
+      if (out.scheduled) kickRelease();
       if (!out.scheduled) {
-        // Approve is the one action that can legitimately refuse: the daily
-        // ceiling, or no send slot in the next window. Say which.
+        // Approve can refuse: the draft was already handled, or it is a
+        // follow-up that is not due yet. Say which.
         return res.status(409).send(_pitchActionPage({
           title: 'Not sent yet',
           sub: _paEsc(out.note || (out.blocked ? out.note : 'This pitch could not be scheduled just now.')),
@@ -11811,8 +11822,8 @@ app.post('/a/:token', pitchActionLimiter, express.urlencoded({ extended: false, 
         }));
       }
       await PA.log(store.pool, { pitchId: row.pitch_id, agentId, action: 'approve', source });
-      title = `Sent to ${row.brand_name || 'that business'}`;
-      sub = 'It goes out Tuesday to Thursday, mid-morning in their own timezone.';
+      title = `Sending to ${row.brand_name || 'that business'}`;
+      sub = 'It goes out from your own mailbox within a minute or two, and says Sent in NILDash once it has left.';
     }
 
     // ── AND THE NEXT ONE, so the queue clears in a row ──────────────────
@@ -12168,7 +12179,7 @@ app.get('/api/admin/digest/test', requireAuth, async (req, res) => {
     console.log(`[digest-test] ${user.email} sent themselves ${out.cards} pitch(es) across ${out.athletes} athlete(s)`);
     res.json({
       ok: true, sentTo: user.email, athletes: out.athletes, pitches: out.cards,
-      note: 'Check your inbox. The Approve and Skip links are real: approving schedules the pitch for the next send window.',
+      note: 'Check your inbox. The Approve and Skip links are real: approving sends the pitch within a minute or two.',
     });
   } catch (e) {
     console.error('[digest-test]', e.message);
@@ -14847,32 +14858,18 @@ try {
   console.warn('[analyst] refresh scheduler failed to start:', e.message);
 }
 
-// ── Closer release scheduler ─────────────────────────────────────────────────
-// Ticks every 10 minutes all day, which sounds aggressive and is not: the window
-// is 9:30-11:00 in each RECIPIENT's timezone, so almost every tick finds nothing
-// due and the few that do find a handful. Frequent ticks are what keep a message
-// from missing a 90-minute window by 20 minutes and waiting until Tuesday.
-//
-// Every real guard is inside releaseDue -- the per-agent ceiling, the bounce
-// list, the reply check and the window test are all re-checked at send time, not
-// at approval time, because all four can change in between.
-//
-// Off unless CLOSER_RELEASE_ENABLED=1.
+// ── The release queue ───────────────────────────────────────────────────────
+// Every real guard is inside releaseDue -- the reply check, the suppression
+// list, the compliance gate, the 4-day rule, the duplicate-subject rule and the
+// daily ceiling -- re-checked at send time, because all of them can change
+// between approval and send.
+// ALWAYS ON. There is no switch: approve means send, and an off switch that
+// silently stopped every email with nothing on screen is how 41 approved emails
+// sat unsent for days. See jobs/closerRelease.
 try {
-  const closerJob = require('./jobs/closerRelease');
-  if (!closerJob.ENABLED) {
-    console.log('[closer] release scheduler is OFF (set CLOSER_RELEASE_ENABLED=1 to enable)');
-  } else {
-    const CLOSER_TICK_MS = 10 * 60 * 1000;
-    const closerTick = () => {
-      closerJob.runOnce({}).catch((e) => console.error('[closer] release tick failed:', e.message));
-    };
-    setTimeout(closerTick, 3 * 60 * 1000);
-    setInterval(closerTick, CLOSER_TICK_MS);
-    console.log('[closer] release scheduler started, tick every 10 min, sends only inside each recipient\'s window');
-  }
+  require('./jobs/closerRelease').start();
 } catch (e) {
-  console.warn('[closer] release scheduler failed to start:', e.message);
+  console.error('[closer] release queue failed to start:', e.message);
 }
 
 // GET /api/digest/unsubscribe: public, no auth. The link in the email.

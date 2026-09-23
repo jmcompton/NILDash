@@ -117,8 +117,6 @@ const TUE = Date.parse('2026-08-25T15:00:00Z');
   ok('  in the note the agent reads', /not due yet/.test(early.note || ''), early.note);
   ok('  Home does not show it either (services/actionable EMAIL_WHERE)',
     /next_follow_up_at IS NULL OR l\.next_follow_up_at <= NOW\(\)/.test(src('server/services/actionable.js')));
-  const onTime = await approve([t2.id], TUE + 5 * DAY);
-  ok('once it is due it approves', onTime.scheduled === 1, onTime);
   // Approved early by an older build: the release still holds it.
   await draft('sr-d1x', 'sr-a2', 'Early Co', 'early@sr.example', 'Hello Early', { touch: 2, due: new Date(TUE + 9 * DAY), parent: 'sr-d1' });
   await P.query(`UPDATE outreach_logs SET status='approved', approved_at=NOW(), scheduled_send_at=$1 WHERE id='sr-d1x'`, [new Date(TUE + 5 * DAY)]);
@@ -126,6 +124,12 @@ const TUE = Date.parse('2026-08-25T15:00:00Z');
   const heldEarly = rEarly.detail.find((d) => d.id === 'sr-d1x');
   ok('the release holds a follow-up approved before it was due', !!heldEarly && heldEarly.result === 'held' && /not due until/.test(heldEarly.why), heldEarly);
   await P.query(`UPDATE outreach_logs SET cadence_stopped_at=NOW(), cadence_stop_reason='test' WHERE id='sr-d1x'`);
+  // Approved on the day it falls due. AFTER the release above: approve means
+  // send, so approving it before that release would have sent it there and
+  // then, which is right, but is not the scenario the four-day block below is
+  // about.
+  const onTime = await approve([t2.id], TUE + 5 * DAY);
+  ok('once it is due it approves', onTime.scheduled === 1, onTime);
 
   // ── NEVER TWO EMAILS TO ONE ADDRESS INSIDE FOUR DAYS, FROM ANY ATHLETE ───
   await draft('sr-d2', 'sr-a2', 'Mazur Motors', LUKE, 'An idea from Client 2 for Mazur Motors');

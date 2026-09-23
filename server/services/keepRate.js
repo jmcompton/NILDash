@@ -6,8 +6,9 @@
 //
 // Every placed card carries its own outcome on outreach_queue.state:
 //
-//   sent      KEPT. The agent approved it: an email approved (closer sets the
-//             card 'sent', sent_via 'email'), or a DM or call marked sent.
+//   sent      KEPT. The agent approved it: a DM or call marked sent, or an
+//   sending   approved email -- 'sending' until the email itself has a sent_at,
+//             then 'sent' (services/closer). Either way the agent said yes.
 //   skipped   SKIPPED. The card's Skip, or the email draft's Skip, which
 //             closer.skipDraft carries back to the card.
 //   expired   NEVER DECIDED. It sat unworked until the queue retired it.
@@ -44,7 +45,7 @@ async function keepRateRows(pool, agentId, { days = 14 } = {}) {
               AND EXTRACT(HOUR FROM q.created_at AT TIME ZONE $3) < $5) AS nightly,
             q.athlete_id, a.data->>'name' AS athlete_name,
             COUNT(*)::int                                        AS placed,
-            COUNT(*) FILTER (WHERE q.state = 'sent')::int        AS kept,
+            COUNT(*) FILTER (WHERE q.state IN ('sent', 'sending'))::int AS kept,
             COUNT(*) FILTER (WHERE q.state = 'skipped')::int     AS skipped,
             COUNT(*) FILTER (WHERE q.state = 'expired')::int     AS expired,
             COUNT(*) FILTER (WHERE q.state = 'queued')::int      AS waiting

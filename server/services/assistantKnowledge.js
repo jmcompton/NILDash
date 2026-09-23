@@ -81,6 +81,7 @@ function outreachText() {
   const slots = oq.NIGHTLY_SLOTS;
   const expiry = sr.DRAFT_EXPIRY_DAYS;
   const auto = C.AUTO_MODE_THRESHOLD;
+  const rc = { MIN_GAP_MS: C.MIN_GAP_MS, MAX_GAP_MS: C.MAX_GAP_MS };
 
   return `The nightly run drafts up to ${slots == null ? 'a few' : slots} pitches per athlete. Nothing sends on its own.
 
@@ -89,14 +90,16 @@ waiting by athlete. The agent opens a draft, reads exactly what will go out, edi
 in place or skips it, then approves the batch. There is deliberately no per-message
 send button: forty clicks a night is data entry, not review.
 
-THE AGENT DOES NOT PICK THE SEND TIME, and this is on purpose rather than an
-omission. A pitch lands better on a weekday morning in the RECIPIENT's timezone, and
-that is a fact about the recipient, not a preference the agent should have to hold in
-their head. Approved pitches are released into that window automatically.
+APPROVE MEANS SEND. There is no send window and no schedule to pick: approved
+emails start going out from the agent's own mailbox straight away, one at a time,
+${rc.MIN_GAP_MS && rc.MAX_GAP_MS ? `${rc.MIN_GAP_MS / 1000} to ${rc.MAX_GAP_MS / 1000} seconds apart` : 'a short gap apart'}, so a big batch drains over an hour or
+two instead of going out as one burst. Each one shows Sending on Home until it has
+actually left, then Sent. One that is held (a reply came in first, the address is
+suppressed, the same subject or another email reached that address in the last 4
+days, a compliance hold) says why on its row.
 
-${cap == null ? '' : `THE CEILING IS ${cap} EMAILS PER AGENT PER DAY. That is a deliverability limit, not a
-Google one: sending more from a new domain is how a mailbox starts landing in spam.
-DMs and calls are not affected by it.
+${cap == null ? '' : `THE CEILING IS ${cap} EMAILS PER AGENT PER DAY, Google's own limit for a personal Gmail
+account, so we stop before Gmail does. DMs and calls are not affected by it.
 
 `}${cadence.length ? `FOLLOW-UPS: ${cadence.length} touches${gaps.length ? `, the second after ${gaps[0]} days and the ${cadence.length === 3 ? 'third' : 'last'} after ${gaps[gaps.length - 1]}` : ''}.
 They stop immediately when someone replies, and stop and flag the address when one
