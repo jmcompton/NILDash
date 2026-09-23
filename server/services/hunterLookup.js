@@ -131,6 +131,50 @@ async function accountUsedThisMonth(force) {
   return { ladder, verify, used: ladder + verify };
 }
 
+// ── READ AND RESERVE IN ONE SYNCHRONOUS STEP ────────────────────────────────
+//
+// The gate below this used to read:
+//
+//   const acct = await accountUsedThisMonth();
+//   if (acct.used >= MONTHLY_BUDGET) return null;
+//   _reserved++;
+//
+// with a comment asserting "the await below may yield, but nothing runs between
+// it resolving and the ++". That was true when the await was creditsThisMonth()
+// on its own. It stopped being true the day the second consumer was added:
+// accountUsedThisMonth is a Promise.all of two async reads, and creditsThisMonth
+// BAKES `_reserved` INTO ITS RETURN VALUE. That number then travels through
+// Promise.all's resolution, this wrapper's return, and the caller's await --
+// three microtask hops, during which every other caller in the burst resumes,
+// passes the same gate on the same stale snapshot, and reserves.
+//
+// Twelve concurrent lookups spent 7 and 10 credits against a cap of 5, about
+// one run in five. The suite has caught this shape twice before (6 credits,
+// then 9) and each fix narrowed the window without closing it, because each
+// kept carrying the counter across an await.
+//
+// THE FIX IS TO STOP CARRYING IT. The DB refreshes are awaited first and their
+// return values deliberately discarded -- a snapshot is the thing that goes
+// stale. The live counters are then read in the SAME synchronous step as the
+// increment, so between the comparison and the ++ there is no yield point at
+// all, which on a single-threaded runtime is what atomic means.
+//
+// A reservation that never becomes a request (the fetch throws before leaving
+// the machine) is still reconciled down by the next DB read. Over-reserving is
+// the safe direction; over-spending is not.
+async function reserveCredit(force) {
+  // Awaited for their SIDE EFFECT -- refreshing _budgetCache and _verifyCache --
+  // not for what they return.
+  await Promise.all([creditsThisMonth(force), verifyCreditsThisMonth(force)]);
+  // ── NO await, NO yield, FROM HERE TO THE ++ ──────────────────────────────
+  const ladder = _budgetCache.used;
+  const verify = _verifyCache.used;
+  const used = ladder + verify + _reserved;
+  if (used >= MONTHLY_BUDGET) return { ok: false, used, ladder, verify };
+  _reserved++;
+  return { ok: true, used, ladder, verify };
+}
+
 async function budgetStatus() {
   const a = await accountUsedThisMonth(true);
   return { used: a.used, ladderUsed: a.ladder, verifyUsed: a.verify,
@@ -210,24 +254,19 @@ async function findDomainEmails(domain, opts = {}) {
   // spending a credit is a fact about us, not about the domain, and writing it
   // would occupy the cache key that the real answer needs later.
   //
-  // CHECK AND RESERVE IN ONE TICK. Incrementing only when the row is written let
-  // a burst of concurrent scans all read the same pre-burst count and each
-  // decide there was room: 12 concurrent lookups spent 6 credits against a cap
-  // of 5. The await below may yield, but nothing runs between it resolving and
-  // the ++, so the comparison and the reservation cannot interleave.
+  // CHECK AND RESERVE IN ONE TICK, which reserveCredit is what finally makes
+  // true -- the comparison and the increment happen in one synchronous step
+  // with no await between them. See the note on that function for why the two
+  // earlier attempts at this narrowed the window without closing it.
   //
-  // A reservation that never becomes a request (the fetch throws before leaving
-  // the machine) is reconciled down by the next DB read. Over-reserving is the
-  // safe direction; over-spending is not.
   // BOTH CONSUMERS. Domain Search and mailbox verification bill the same plan,
   // so a ceiling that counted only Domain Search was not a ceiling on the plan.
-  const acct = await accountUsedThisMonth();
-  if (acct.used >= MONTHLY_BUDGET) {
+  const acct = await reserveCredit();
+  if (!acct.ok) {
     console.warn(`[hunter] @${key} SKIPPED: monthly budget spent (${acct.used}/${MONTHLY_BUDGET}`
       + ` — ${acct.ladder} domain searches, ${acct.verify} verifications)`);
     return null;
   }
-  _reserved++;
 
   const params = new URLSearchParams({ domain: key, limit: String(LIMIT), api_key: apiKey });
   const ctrl = new AbortController();

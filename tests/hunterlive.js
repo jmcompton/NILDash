@@ -94,6 +94,25 @@ async function main() {
   await Promise.all(Array.from({ length: 12 }, (_, i) => H.findDomainEmails('burst' + i + '.com')));
   ok('12 CONCURRENT lookups still stop at the cap', CALLS.length <= 5, CALLS.length);
 
+  // ── A BURST BIG ENOUGH TO BE A DETECTOR ──────────────────────────────────
+  // Twelve caught the race about one run in five, which is the worst kind of
+  // test: it fails often enough to be noticed and rarely enough to be blamed on
+  // something else. This overshot at 7 and at 10 against a cap of 5 while the
+  // twelve-way burst next to it was passing.
+  //
+  // The race needed a yield point between reading the reservation counter and
+  // incrementing it, so its width scales with how many callers are queued when
+  // the gate opens. Forty makes it near-certain rather than occasional: with the
+  // old read-then-await-then-increment gate a burst this size overshot on every
+  // run, so a regression here fails immediately instead of a fifth of the time.
+  await clean(); H._resetBudgetCache();
+  CALLS = [];
+  await Promise.all(Array.from({ length: 40 }, (_, i) => H.findDomainEmails('flood' + i + '.com')));
+  ok('40 CONCURRENT lookups NEVER exceed the cap', CALLS.length <= H.MONTHLY_BUDGET,
+    { calls: CALLS.length, cap: H.MONTHLY_BUDGET });
+  ok('  and the reservation is what stopped them, not the row count',
+    CALLS.length === H.MONTHLY_BUDGET, { calls: CALLS.length, cap: H.MONTHLY_BUDGET });
+
   // Zero budget = off.
   await clean(); H._resetBudgetCache();
   const saved = process.env.HUNTER_MONTHLY_BUDGET;
