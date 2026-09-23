@@ -144,6 +144,8 @@ function athleteFacts(athlete) {
   return lines.join('\n');
 }
 
+const AgentName = require('./agentName');
+
 // The person on THIS card, as the greeting should say it ("Dana" for "Dana
 // Roberts", "Dr. Park" for "Dr. Lee Park"), or '' when the card names nobody
 // real. The same person test the queue's save gate uses, so a card whose
@@ -157,6 +159,7 @@ function greetNameFor(card) {
 }
 
 function buildPrompt(athlete, card, agentName, retryBecause) {
+  if (!AgentName.firstNameOrNull(agentName)) throw new Error('buildPrompt: ' + AgentName.NO_AGENT_NAME_REASON);
   const greet = greetNameFor(card);
   // On a retry, the FIRST thing the model reads is what it just got wrong. A bare
   // "try again" with an unchanged prompt mostly reproduces the same draft, which is
@@ -164,7 +167,7 @@ function buildPrompt(athlete, card, agentName, retryBecause) {
   const retryHead = retryBecause
     ? `YOUR PREVIOUS ATTEMPT WAS REJECTED: ${retryBecause}.\nFix exactly that and keep everything else. Do not restate the rejection.\n\n`
     : '';
-  return retryHead + `Write ONE short outreach email from ${_s(agentName) || 'an agent'} to the owner or manager of this business, proposing an NIL partnership with this athlete.
+  return retryHead + `Write ONE short outreach email from ${_s(agentName)} to the owner or manager of this business, proposing an NIL partnership with this athlete.
 
 THE ATHLETE
 ${athleteFacts(athlete)}
@@ -261,6 +264,8 @@ function toHtml(body) {
 
 // ── One draft ────────────────────────────────────────────────────────────────
 async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) {
+  // NO NAMED SENDER, NO DRAFT. The prompt used to say "from an agent".
+  if (!AgentName.firstNameOrNull(agentName)) return { skipped: 'no agent name' };
   const brand = _s(card && (card.brand || card.brand_name));
   if (!brand) return { skipped: 'no brand' };
   const brandKey = card.brandKey || ai.resolveBrandKey(card, lane);
@@ -391,6 +396,10 @@ async function prewarmScan({ agentId, athleteId, athlete, cards, agentName, lane
   // This does not make the batch faster. It makes the RACE winnable: an agent who
   // clicks the top card five seconds after the scan lands now finds a draft, where
   // before the answer depended on where that card sat in an unordered array.
+  // Refused for the whole batch before a single model call.
+  if (!AgentName.firstNameOrNull(agentName)) {
+    return { drafted: 0, cached: 0, failed: 0, skipped: (cards || []).length, reason: AgentName.NO_AGENT_NAME_REASON };
+  }
   const list = orderForPrewarm(cards).slice(0, MAX_CARDS);
   if (!list.length) return { drafted: 0, cached: 0, failed: 0, skipped: 0 };
   const t0 = Date.now();

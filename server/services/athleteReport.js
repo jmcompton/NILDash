@@ -20,6 +20,7 @@
 //     than silence; the agent gets nudged privately instead.
 
 'use strict';
+const AgentName = require('./agentName');
 
 const { pool } = require('../store');
 
@@ -45,6 +46,13 @@ async function collectReportData(athleteId, agentId, since, until) {
   if (!athleteRow) return null;
 
   const ath = athleteRow.data || {};
+  // NO STAND-IN NAMES. The report went out "Sent by Your agent" about
+  // "there" when either name was missing. It is signed by the agent and about
+  // the athlete, so without both it is not built; the route says which.
+  const _agentName = AgentName.agentFullName({ name: athleteRow.agent_name, email: athleteRow.agent_email });
+  const _athName = String(ath.name || '').trim();
+  if (!_agentName) return { missingName: AgentName.NO_AGENT_NAME_REASON };
+  if (!_athName) return { missingName: 'this athlete has no name on file' };
 
   // Brands pitched in the window, with the strongest signal each produced.
   // opened_at and replied_at turn "we emailed people" into "three of them read
@@ -126,15 +134,15 @@ async function collectReportData(athleteId, agentId, since, until) {
   return {
     athlete: {
       id: athleteId,
-      name: ath.name || 'Your athlete',
-      firstName: String(ath.name || '').trim().split(/\s+/)[0] || 'there',
+      name: _athName,
+      firstName: _athName.split(/\s+/)[0],
       sport: ath.sport || null,
       school: ath.school || null,
       email: ath.email || null,
       parentEmail: ath.parentEmail || ath.guardianEmail || null,
     },
     agent: {
-      name: athleteRow.agent_name || 'Your agent',
+      name: _agentName,
       email: athleteRow.agent_email || null,
     },
     period: { since, until },

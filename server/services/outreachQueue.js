@@ -500,7 +500,11 @@ function askFirstName(fullName) {
 // Anything this produces is marked angle=null, so the shift report and the
 // reply-learning never mistake a fallback for a reasoned pitch.
 function writeDm(athleteName, brandName, why, greetName) {
-  const who = String(athleteName || 'a college athlete I work with').trim();
+  // NO STAND-IN ATHLETE. This used to say "a college athlete I work with".
+  // Without the athlete's name there is no message: null, which the card
+  // carries as no text. fillAthlete refuses a nameless athlete before this.
+  const who = String(athleteName || '').trim();
+  if (!who) return null;
   const angle = String(why || '').trim().replace(/\s+/g, ' ');
   const first = angle ? angle.split(/(?<=[.!?])\s/)[0] : '';
   // The fallback opened "Hi," even when the ladder had named the owner. Only a

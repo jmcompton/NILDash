@@ -42,6 +42,7 @@ const SchoolGeo = require('../services/schoolGeocode');
 let canonicalRegionOf = (x) => String(x || '').trim().toLowerCase();
 try { canonicalRegionOf = require('../services/regionKey').canonicalRegion || canonicalRegionOf; }
 catch (_) { try { canonicalRegionOf = require('../ai').canonicalRegion || canonicalRegionOf; } catch (_2) {} }
+const AgentName = require('../services/agentName');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const BI = require('../services/brandIdentity');
@@ -713,6 +714,16 @@ async function fillAthlete(pool, ctx) {
   // What each lookup really cost, so the run can report a measured per-athlete
   // figure instead of a ceiling multiplied by a count.
   const spendLog = [];
+
+  // NO NAMES, NO CARDS -- the sender's or the athlete's. The run and the
+  // on-demand fill already refuse a nameless agent before calling this; this
+  // is the backstop for any other caller, and it spends nothing.
+  if (!AgentName.firstNameOrNull(ctx.agentFirstName)) {
+    return { filled: 0, open: 0, tried, note: AgentName.NO_AGENT_NAME_REASON, noAgentName: true };
+  }
+  if (!String(athleteName || '').trim()) {
+    return { filled: 0, open: 0, tried, note: 'this athlete has no name on file, so no pitch can be written for them' };
+  }
 
   // PAUSED ATHLETES COST NOTHING. Checked before the slot query, before the
   // candidate query, and long before any lookup -- the whole point is that a
@@ -1686,7 +1697,7 @@ async function fillAgent(pool, agent, opts) {
             data->>'school' AS school
        FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
     [agent.id])).rows;
-  const agentFirst = String(agent.name || '').trim().split(/\s+/)[0] || null;
+  const agentFirst = AgentName.agentFirstName(agent);
   // ONCE PER RUN. The signature is the same for every card this agent gets, so
   // reading it per business would be 45 identical queries a night.
   const signature = SIG.signatureOf(agent);
@@ -1930,15 +1941,20 @@ async function run(opts = {}) {
     // signature_text / scheduling_url travel with the agent so fillAgent can read
     // them once rather than querying per business.
     ? (await pool.query(
-      `SELECT id, name, signature_text, scheduling_url, last_login FROM users WHERE id = $1`,
+      `SELECT id, name, email, signature_text, scheduling_url, last_login FROM users WHERE id = $1`,
       [opts.agentId])).rows
     : (await pool.query(
-      `SELECT id, name, signature_text, scheduling_url, last_login FROM users
+      `SELECT id, name, email, signature_text, scheduling_url, last_login FROM users
         WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
   let filled = 0, spent = 0, skipped = 0;
   for (const a of agents) {
-    if (!opts.agentId && !opts.force) {
-      const why = inactiveSkip(a, opts.now);
+    // NO NAME, NO CARDS. Checked before the inactivity test's bypass, so a
+    // forced or single-agent run refuses too: every card this agent could get
+    // tonight would be signed by nobody. Recorded as the night's note, so Home
+    // says why the queue is empty rather than showing a blank page.
+    const nameless = AgentName.agentFirstName(a) ? null : AgentName.NO_AGENT_NAME_REASON;
+    if (nameless || (!opts.agentId && !opts.force)) {
+      const why = nameless || inactiveSkip(a, opts.now);
       if (why) {
         skipped++;
         console.log(`[queue] agent=${a.id} ${why}`);
@@ -1986,6 +2002,10 @@ const ONDEMAND_CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_ONDEMAND_USD) || 
 
 async function fillOnDemand(pool, ath, opts = {}) {
   const runDate = opts.runDate || today();
+  // Refused BEFORE the claim, so adding a name later the same day still gets
+  // this athlete a fill, and nothing is spent on cards nobody can sign.
+  const agentFirstName = AgentName.agentFirstName({ name: ath.agent_name, email: ath.agent_email });
+  if (!agentFirstName) return { filled: 0, spent: 0, claimed: false, reason: AgentName.NO_AGENT_NAME_REASON };
   const claim = await pool.query(
     `INSERT INTO outreach_queue_ondemand (athlete_id, run_date) VALUES ($1,$2)
      ON CONFLICT (athlete_id, run_date) DO NOTHING`, [ath.id, runDate]).catch(() => ({ rowCount: 0 }));
@@ -2001,7 +2021,7 @@ async function fillOnDemand(pool, ath, opts = {}) {
     const _ctx = await localContextFor(ath);
     r = await fillAthlete(pool, {
       agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name, runDate,
-      athleteProfile: _ctx.profile, agentFirstName: ath.agent_first_name || null,
+      athleteProfile: _ctx.profile, agentFirstName,
       signature: SIG.signatureOf(ath),
       // The raw record, same as the nightly path. Without it the on-demand fill
       // wrote pitches with no Instagram link and no content line -- a quietly
@@ -2045,7 +2065,7 @@ async function loadAthletesForQueue(pool, agentId, athleteId) {
   const r = await pool.query(
     `SELECT a.id, a.agent_id, a.data, a.data->>'name' AS name,
             a.data->>'hometown' AS hometown, a.data->>'school' AS school,
-            split_part(COALESCE(u.name,''), ' ', 1) AS agent_first_name,
+            u.name AS agent_name, u.email AS agent_email,
             u.signature_text, u.scheduling_url
        FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
       WHERE a.agent_id = $1 ${athleteId ? 'AND a.id = $2' : ''} ORDER BY a.created_at ASC`,

@@ -2682,6 +2682,7 @@ app.get('/api/athlete-report/preview/:athleteId', requireAuth, async (req, res) 
     const data = await athleteReport.collectReportData(
       req.params.athleteId, req.session.userId, since, until);
     if (!data) return res.status(404).json({ error: 'Athlete not found' });
+    if (data.missingName) return res.status(400).json({ error: 'Not sent: ' + data.missingName + '.' });
 
     const recipients = [];
     if (data.athlete.email) recipients.push(data.athlete.email);
@@ -2734,6 +2735,7 @@ app.post('/api/athlete-report/send', requireAuth, async (req, res) => {
     const { since, until } = _reportWindow(weeksBack);
     const data = await athleteReport.collectReportData(athleteId, req.session.userId, since, until);
     if (!data) return res.status(404).json({ error: 'Athlete not found' });
+    if (data.missingName) return res.status(400).json({ error: 'Not sent: ' + data.missingName + '.' });
     if (data.activityScore < athleteReport.MIN_ACTIVITY_TO_SEND) {
       return res.status(400).json({ error: 'Nothing happened this week. Sending an empty report does more harm than good.' });
     }
@@ -3571,8 +3573,8 @@ Return ONLY this JSON:
     // Attach the brand-personalized media kit link automatically when one exists
     const kitUrl = await findKitVariantUrl(athleteId, brand);
     if (kitUrl) {
-      const firstName = (athlete.name || '').split(/\s+/)[0] || 'the athlete';
-      if (parsedOut.email) parsedOut.email += `\n\nP.S. Here is ${firstName}'s media kit, put together for ${brand}: ${kitUrl}`;
+      const firstName = (athlete.name || '').split(/\s+/)[0];
+      if (firstName && parsedOut.email) parsedOut.email += `\n\nP.S. Here is ${firstName}'s media kit, put together for ${brand}: ${kitUrl}`;
       parsedOut.kitUrl = kitUrl;
     }
     res.json(parsedOut);
@@ -4045,6 +4047,17 @@ app.post('/api/ai/contract', requireAuth, aiLimiter, async (req, res) => {
   const athlete = athleteId ? await store.getAthlete(athleteId) : null;
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
+  // THE AGENT PARTY IS A REAL NAME OR THERE IS NO CONTRACT. This used to fill
+  // in "Agent (agent@email.com)" -- a party to a legal document that does not
+  // exist. What the form sent, else the signed-in agent's own record.
+  const _me = await store.getUser(req.session.userId).catch(() => null);
+  const partyAgentName = require('./services/agentName').agentFullName({ name: agentName, email: agentEmail || (_me && _me.email) })
+    || require('./services/agentName').agentFullName(_me);
+  const partyAgentEmail = (agentEmail && String(agentEmail).includes('@')) ? String(agentEmail).trim() : (_me && _me.email) || null;
+  if (!partyAgentName || !partyAgentEmail) {
+    return res.status(400).json({ error: 'Add your name in Settings before generating a contract; it goes on the contract as a party.' });
+  }
+
   // Contracts name the party by the athlete's full legal name when one is on file
   // (or one the agent supplied for this generation), falling back to the display
   // name. Contracts only: other surfaces keep using the display name.
@@ -4064,7 +4077,7 @@ app.post('/api/ai/contract', requireAuth, aiLimiter, async (req, res) => {
 
 PARTIES:
 - Athlete: ${partyName}, ${athlete.sport} athlete at ${athlete.school || 'their university'}
-- Agent/Manager: ${agentName || 'Agent'} (${agentEmail || 'agent@email.com'})
+- Agent/Manager: ${partyAgentName} (${partyAgentEmail})
 - Brand/Company: ${brand}
 
 DEAL TERMS:
@@ -6432,7 +6445,7 @@ app.get('/api/athlete/verify-token/:token', async (req, res) => {
     res.json({
       valid: true,
       athlete: { first_name: firstName, last_name: lastName, sport: row.sport, school: row.school, position: row.position, full_name: fullName },
-      agent: { name: row.agent_name || 'Your Agent', agency_name: row.agency_name || '' },
+      agent: { name: require('./services/agentName').firstNameOrNull(row.agent_name) ? String(row.agent_name).trim() : null, agency_name: row.agency_name || '' },
     });
   } catch (e) {
     console.error('[athlete/verify-token] SQL error:', e.message);
@@ -7116,16 +7129,17 @@ app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) 
     if (athleteEmail) {
       try {
         const agentRow = await store.getUser(req.session.userId);
-        const agentName = String((agentRow && agentRow.name) || 'Your agent').replace(/[<>]/g, '');
-        const firstName = String(athlete.name || 'there').replace(/[<>]/g, '');
+        // No stand-in names: the line is written around whichever name is missing.
+        const agentName = String(require('./services/agentName').agentFullName(agentRow) || '').replace(/[<>]/g, '');
+        const firstName = String(athlete.name || '').replace(/[<>]/g, '');
         await resend.emails.send({
           from: 'NILDash <noreply@mynildash.com>',
           to: [athleteEmail],
-          subject: `${agentName} invited you to your NILDash athlete portal`,
+          subject: agentName ? `${agentName} invited you to your NILDash athlete portal` : 'You are invited to your NILDash athlete portal',
           html: `
             <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px">
               <h2 style="color:#6366f1">You're invited to NILDash</h2>
-              <p>Hi ${firstName}, your agent <strong>${agentName}</strong> set up your athlete portal on NILDash.</p>
+              <p>${firstName ? `Hi ${firstName},` : 'Hi,'} your agent${agentName ? ` <strong>${agentName}</strong>` : ''} set up your athlete portal on NILDash.</p>
               <p>Use the link below to create your login and see your deals, rate card, and deliverables:</p>
               <a href="${inviteUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px">Set up your portal &rarr;</a>
               <p style="font-size:12px;color:#666;margin-top:16px">Or paste this link into your browser: ${inviteUrl}</p>
@@ -7472,9 +7486,15 @@ app.post('/api/athlete/ai-draft-outreach', verifyAthleteToken, requireAthleteSub
       [req.athlete.id]
     );
     const ath = athR.rows[0] || {};
+    // Written in the athlete's name, so it needs one. And no "@handle": a
+    // placeholder handle is a stand-in the model would copy into the email.
+    if (!String(ath.name || '').trim()) return res.status(400).json({ error: 'Add your name to your profile before writing outreach.' });
+    const _ig = ath.instagram_handle
+      ? ` Instagram: @${ath.instagram_handle}${ath.followers_ig ? ` (${ath.followers_ig} followers)` : ''}.`
+      : '';
 
     const systemPrompt = `You are an NIL outreach specialist. Write a professional, personable outreach email from a college athlete to a brand. The email should be concise (under 200 words), highlight the athlete's platform and relevance to the brand, and include a clear ask. Return only the email body, no subject line.`;
-    const userPrompt = `Athlete: ${ath.name || 'the athlete'}, ${ath.sport || 'college sport'} at ${ath.school || 'their university'}. Instagram: @${ath.instagram_handle || 'handle'} (${ath.followers_ig || 'unknown'} followers). Brand: ${brand_name}${brand_website ? ` (${brand_website})` : ''}. Why it's a good fit: ${sport_relevance || 'strong brand alignment with the athlete\'s sport and audience'}.`;
+    const userPrompt = `Athlete: ${ath.name}, ${ath.sport || 'college sport'} at ${ath.school || 'their university'}.${_ig} Brand: ${brand_name}${brand_website ? ` (${brand_website})` : ''}. Why it's a good fit: ${sport_relevance || 'strong brand alignment with the athlete\'s sport and audience'}.`;
 
     // Use the proven oneShot helper (matches the working /write-outreach
     // generator). The previous ai.chat() call did not exist on the ai module
@@ -7725,7 +7745,9 @@ async function _pushEventToGCal(athleteId, event) {
     // Get or create the NIL calendar
     let calId = athRow.google_calendar_id;
     if (!calId) {
-      const name = (athRow.data && athRow.data.name) || 'Athlete';
+      // The athlete's own name, or none: the calendar is named without one
+      // rather than "Athlete".
+      const name = (athRow.data && athRow.data.name) || null;
       calId = await gcal.getOrCreateNilCalendar(athRow.google_refresh_token, name);
       await store.pool.query('UPDATE athletes SET google_calendar_id=$1 WHERE id=$2', [calId, athleteId]);
     }
@@ -8330,7 +8352,7 @@ function _buildAgreementText({ athlete, deal, deliverables, amount, timeline, te
   lines.push('');
   lines.push('PARTIES');
   lines.push('-------');
-  lines.push('Athlete: ' + ((athlete.legal_name && String(athlete.legal_name).trim()) || athlete.name || 'Athlete'));
+  lines.push('Athlete: ' + ((athlete.legal_name && String(athlete.legal_name).trim()) || athlete.name));
   if (athlete.school) lines.push('School: ' + athlete.school);
   if (athlete.sport) lines.push('Sport: ' + athlete.sport + (athlete.position ? ' (' + athlete.position + ')' : ''));
   lines.push('Brand / Partner: ' + (deal.brand_name || '—'));
@@ -8391,6 +8413,10 @@ app.post('/api/athlete/deals/:id/agreement', verifyAthleteToken, async (req, res
     const deliverables = (b.deliverables || deal.deliverables || deal.description || '').trim() || null;
     const timeline = (b.timeline || deal.timeline || '').trim() || null;
     const terms = (b.terms || '').trim() || null;
+    // A party to an agreement is a real name or there is no agreement.
+    if (!String((athlete && (athlete.legal_name || athlete.name)) || '').trim()) {
+      return res.status(400).json({ error: 'Add your name to your profile before generating an agreement.' });
+    }
     const text = _buildAgreementText({ athlete, deal, deliverables, amount, timeline, terms });
     const json = { athlete: { name: athlete.name, school: athlete.school, sport: athlete.sport },
                    brand: deal.brand_name, deliverables, amount, timeline, terms,
@@ -9344,7 +9370,9 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // must not be able to fail afterwards.
     try {
       const _prewarm = require('./services/draftPrewarm');
-      const _agentName = (await store.getUser(req.session.userId).catch(() => null) || {}).name || null;
+      // The stored name, cleaned: a stand-in or an email local part is not a name,
+      // and prewarmScan refuses the batch when there is none.
+      const _agentName = require('./services/agentName').agentFullName(await store.getUser(req.session.userId).catch(() => null));
       _prewarm.prewarmScan({
         agentId: req.session.userId,
         athleteId,
@@ -16740,7 +16768,7 @@ async function notifyKitOpened(mk, brandName) {
   if (!(await require('./services/sendRules').check(store.pool, { email: row.agent_email, system: 'media-kit' })).ok) return;
 
   const athleteName = row.athlete_name || 'your athlete';
-  const agentFirst = String(row.agent_name || '').split(/\s+/)[0] || 'there';
+  const agentFirst = require('./services/agentName').agentFirstName({ name: row.agent_name, email: row.agent_email });
   const appUrl = process.env.APP_URL || 'https://mynildash.com';
 
   await resend.emails.send({
@@ -16756,7 +16784,7 @@ async function notifyKitOpened(mk, brandName) {
   <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:28px 24px">
     <h2 style="margin:0 0 10px;font-size:20px;color:#0f172a">${escapeHtml(brandName)} opened ${escapeHtml(athleteName)}'s media kit</h2>
     <p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 22px">
-      Hi ${escapeHtml(agentFirst)}, they clicked the tracked link you sent. That is the warmest signal you get before a reply, so it is worth a follow-up today.
+      ${agentFirst ? `Hi ${escapeHtml(agentFirst)},` : 'Hi,'} they clicked the tracked link you sent. That is the warmest signal you get before a reply, so it is worth a follow-up today.
     </p>
     <a href="${appUrl}" style="display:inline-block;background:#84CC16;color:#0A0E1A;font-weight:700;font-size:14px;padding:11px 22px;border-radius:6px;text-decoration:none">Open NILDash</a>
   </div>
@@ -16875,7 +16903,7 @@ app.get('/api/media-kit/:slug', async (req, res) => {
       sport: ath.sport || '',
       school: ath.school || '',
       position: ath.position || '',
-      agent_first_name: (ath.agent_name || '').split(/\s+/)[0] || '',
+      agent_first_name: require('./services/agentName').firstNameOrNull(ath.agent_name) || '',
       rateCards: rcR.rows,
       variant,
     });
@@ -17959,7 +17987,8 @@ app.post('/api/agent/daily-brief', requireAuth, requireAgentSubscription, aiLimi
       store.getUser(agentId),
     ]);
 
-    const firstName   = ((agentUser && agentUser.name) || 'there').split(' ')[0];
+    // null when there is no real name; the brief greets without one.
+    const firstName   = require('./services/agentName').agentFirstName(agentUser);
     const clientCount = parseInt(clientsR.rows[0]?.count || 0);
     const pipelineVal = parseFloat(pipelineR.rows[0]?.total_value || 0);
     const activeDealCt = parseInt(pipelineR.rows[0]?.deal_count || 0);
@@ -17993,7 +18022,7 @@ app.post('/api/agent/daily-brief', requireAuth, requireAgentSubscription, aiLimi
       : 'none';
     const pipelineStr = pipelineVal > 0 ? '$' + (pipelineVal / 1000).toFixed(0) + 'K' : '$0';
 
-    const prompt = `Write exactly 4 one-sentence status bullets for sports agent ${firstName}'s morning brief. Each sentence must be under 15 words. Return ONLY 4 lines — no dashes, no numbers, no labels, no extra text.
+    const prompt = `Write exactly 4 one-sentence status bullets for ${firstName ? 'sports agent ' + firstName + "'s" : "a sports agent's"} morning brief. Each sentence must be under 15 words. Return ONLY 4 lines — no dashes, no numbers, no labels, no extra text.
 
 Line 1 (urgent/overdue — be specific): Overdue deliverables today: ${overdueStr}
 Line 2 (deals needing action — name the brands): Stale deals (7+ days no update): ${staleStr}
@@ -18046,7 +18075,7 @@ app.post('/api/athlete/daily-brief', verifyAthleteToken, requireAthleteSubscript
       [athleteId]
     );
     const ath = athR.rows[0] || {};
-    const firstName = (ath.name || 'Athlete').split(' ')[0];
+    const firstName = String(ath.name || '').trim().split(' ')[0] || null;
 
     // ── Fetch all data in parallel ────────────────────────────────────────
     const [todayR, overdueR, dealsR, weekR, nilR, outreachR] = await Promise.all([
@@ -18128,7 +18157,7 @@ app.post('/api/athlete/daily-brief', verifyAthleteToken, requireAthleteSubscript
       : '$0';
     const negotiatingDeals = activeDeals.filter(d => d.stage === 'Negotiating' || d.stage === 'Closing');
 
-    const prompt = `Write exactly 4 one-sentence status bullets for ${firstName}'s morning NIL brief. Each sentence must be under 15 words. Return ONLY 4 lines — no dashes, no numbers, no labels, no extra text.
+    const prompt = `Write exactly 4 one-sentence status bullets for ${firstName ? firstName + "'s" : "an athlete's"} morning NIL brief. Each sentence must be under 15 words. Return ONLY 4 lines — no dashes, no numbers, no labels, no extra text.
 
 Line 1 (urgent/overdue — be specific, use brand names): Overdue deliverables: ${overdueStr}. Due today: ${todayStr}
 Line 2 (deals needing attention — name the brands): Active deals: ${dealsStr}. Deals in negotiation: ${negotiatingDeals.length ? negotiatingDeals.map(d => d.brand_name).join(', ') : 'none'}

@@ -166,7 +166,7 @@ async function main() {
   stub.handles = {};                       // no handles: every card is a form
   stub.igCalls.length = 0;
   const r1 = await job.fillAthlete(P, {
-    agentId: AG, athleteId: A1, athleteName: 'No School', budget: Q.newBudget(job.CAP_USD),
+    agentId: AG, agentFirstName: 'John', athleteId: A1, athleteName: 'No School', budget: Q.newBudget(job.CAP_USD),
     region: '', athleteProfile: profileOf(A1, d1),
   });
   const rows1 = (await P.query(
@@ -190,7 +190,7 @@ async function main() {
   // placed. Counting only the run would let five nights build five forms.
   stub.igCalls.length = 0;
   const r1b = await job.fillAthlete(P, {
-    agentId: AG, athleteId: A1, athleteName: 'No School', budget: Q.newBudget(job.CAP_USD),
+    agentId: AG, agentFirstName: 'John', athleteId: A1, athleteName: 'No School', budget: Q.newBudget(job.CAP_USD),
     region: '', athleteProfile: profileOf(A1, d1),
   });
   const rows1b = (await P.query(
@@ -222,7 +222,7 @@ async function main() {
   stub.handles = { 'PCAP Social': 'pcapsocial' };   // one has an account, one does not
   stub.igCalls.length = 0;
   const r2 = await job.fillAthlete(P, {
-    agentId: AG, athleteId: A2, athleteName: 'Rescue Case', budget: Q.newBudget(job.CAP_USD),
+    agentId: AG, agentFirstName: 'John', athleteId: A2, athleteName: 'Rescue Case', budget: Q.newBudget(job.CAP_USD),
     region: '', athleteProfile: profileOf(A2, d2),
   });
   const rows2 = (await P.query(

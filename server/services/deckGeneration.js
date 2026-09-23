@@ -53,6 +53,8 @@ function cleanBrand(name) {
 async function generateDeck(inputs) {
   const { agentId, athleteId, athlete, enrichment, matchScore, pitch } = inputs;
   const athleteData = extractAthleteData(athlete);
+  // The deck is the athlete's, cover first. It used to print "Athlete" there.
+  if (!String(athleteData.name || '').trim()) throw new Error('generateDeck: the athlete has no name on file');
 
   ensureOutputDir();
 
@@ -250,10 +252,10 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
 
     // Athlete name
     doc.fill(WHITE).fontSize(26).font('Helvetica-Bold')
-       .text(tr(athleteData.name || 'Athlete', 40), PAD, 36, { width: CW });
+       .text(tr(athleteData.name, 40), PAD, 36, { width: CW });
 
     // "for Brand" on same line as name
-    const nameWidth = doc.widthOfString(tr(athleteData.name || 'Athlete', 40), { fontSize: 26 });
+    const nameWidth = doc.widthOfString(tr(athleteData.name, 40), { fontSize: 26 });
     doc.fill(MUTED).fontSize(14).font('Helvetica')
        .text(`for ${tr(onePager.brandDisplayName || cleanBrand(enrichment.brand_name), 34)}`, PAD, 68, { width: CW });
 

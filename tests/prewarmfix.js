@@ -170,7 +170,7 @@ const reset = () => { prompts = []; psql('DELETE FROM outreach_logs;'); };
     reset();
     // CONCURRENCY is 3, so the first three prompts out are the first three cards.
     RESPOND = (p) => good((p.match(/- Business: (.+)/) || [])[1] || 'X');
-    await pw.prewarmScan({ agentId: 'usr_john', athleteId: 'ath_a', athlete: ATH, lane: 'local',
+    await pw.prewarmScan({ agentId: 'usr_john', agentName: 'John', athleteId: 'ath_a', athlete: ATH, lane: 'local',
       cards: [card('Tenth', 10, 40), card('First', 1, 95), card('Second', 2, 90), card('Ninth', 9, 45)] });
     const order = prompts.map((p) => (p.match(/- Business: (.+)/) || [])[1]);
     ok('the batch drafts the top card first, not the array head',
@@ -227,7 +227,7 @@ const reset = () => { prompts = []; psql('DELETE FROM outreach_logs;'); };
     reset();
     let n = 0;
     RESPOND = (p) => { n++; return n === 1 ? banned('A') : good((p.match(/- Business: (.+)/) || [])[1] || 'X'); };
-    const t = await pw.prewarmScan({ agentId: 'usr_john', athleteId: 'ath_a', athlete: ATH, lane: 'local',
+    const t = await pw.prewarmScan({ agentId: 'usr_john', agentName: 'John', athleteId: 'ath_a', athlete: ATH, lane: 'local',
       cards: [card('A', 1, 90), card('B', 2, 80)] });
     ok('both drafted', t.drafted === 2, t);
     ok('  and one is counted as a retry', t.retried === 1, t);

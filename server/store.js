@@ -2698,10 +2698,11 @@ async function recordReferralForInvoice(invoice) {
   return { recorded: inserted, duplicate: !inserted, id, row };
 }
 async function saveUser(id, data) {
-  // Never save an account nameless: fall back to the email's local-part.
-  const safeName = (data.name && String(data.name).trim())
-    || (data.email ? String(data.email).split('@')[0] : '')
-    || 'Agent';
+  // NO INVENTED NAME. This used to store the email's local part, or "Agent",
+  // for a signup that gave no name -- and that stand-in then signed pitches to
+  // real businesses. A missing name is stored as missing, and everything that
+  // signs something refuses until the agent adds one (services/agentName).
+  const safeName = (data.name && String(data.name).trim()) || null;
   // Stored normalised from here on. Lookups tolerate the old rows; new rows
   // simply never need tolerating.
   await pool.query(`

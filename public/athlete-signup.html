@@ -332,9 +332,10 @@ function showForm(data) {
     return '<div class="info-pill">' + p + '</div>';
   }).join('');
 
-  var agentStr = agent.name || 'Your Agent';
-  if (agent.agency_name) agentStr += ' at ' + agent.agency_name;
-  document.getElementById('info-invited').textContent = 'Invited by: ' + agentStr;
+  // No stand-in name: an agent with no name on file is left out of the line.
+  var agentStr = agent.name || '';
+  if (agent.agency_name) agentStr += (agentStr ? ' at ' : '') + agent.agency_name;
+  document.getElementById('info-invited').textContent = agentStr ? 'Invited by: ' + agentStr : 'Invited by your agent';
 }
 
 // ── Password helpers ─────────────────────────────────────────────
