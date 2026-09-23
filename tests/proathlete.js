@@ -277,7 +277,7 @@ async function main() {
     /const SYSTEM = SYSTEM_COLLEGE_HEAD \+ '\\n' \+ SHARED_RULES;/.test(src('server/services/pitchWriter.js'))
     && /const SYSTEM_PRO = SYSTEM_PRO_HEAD \+ '\\n' \+ SHARED_RULES;/.test(src('server/services/pitchWriter.js')));
   ok('  the college prompt is byte-for-byte what it was', /^You write short outreach messages for a sports agent pitching local businesses on partnering with a college athlete\./.test(PW.SYSTEM)
-    && /5\. The athlete's Instagram link on its own line, when one is given\.\n\nDO NOT WRITE ABOUT THE BRAND\./.test(PW.SYSTEM));
+    && /5\. The athlete's Instagram link on its own line, when one is given\.\n\nONE FACT ABOUT THE BUSINESS, FROM THE EVIDENCE, OR NONE\./.test(PW.SYSTEM));
   ok('systemFor picks by type', PW.systemFor({ athleteType: 'pro' }) === PW.SYSTEM_PRO && PW.systemFor({}) === PW.SYSTEM && PW.systemFor(null) === PW.SYSTEM);
   // writePitch hands the pro prompt to the model.
   let seenSystem = null;

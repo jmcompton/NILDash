@@ -43,6 +43,7 @@ let canonicalRegionOf = (x) => String(x || '').trim().toLowerCase();
 try { canonicalRegionOf = require('../services/regionKey').canonicalRegion || canonicalRegionOf; }
 catch (_) { try { canonicalRegionOf = require('../ai').canonicalRegion || canonicalRegionOf; } catch (_2) {} }
 const AgentName = require('../services/agentName');
+const WriterEvidence = require('../services/writerEvidence');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const BI = require('../services/brandIdentity');
@@ -1194,8 +1195,10 @@ async function fillAthlete(pool, ctx) {
               address: null, rating: null, userRatingCount: null,
               ownerName: pperson ? pperson.name : null, ownerTitle: pperson ? pperson.title : null,
               greetFirstName: pgreet || null,
-              siteSummary: cand.offerSummary || null,
-              isFranchise: false, sponsorsLocal: null,
+              // The programme's own page, and any public evidence, as the
+              // ONE thing the message may say about them.
+              evidence: WriterEvidence.evidenceFor(cand),
+              isFranchise: false,
             },
             athlete: { ...(ctx.athleteProfile || { name: athleteName }), partnershipCount,
               instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,
@@ -1508,9 +1511,12 @@ async function fillAthlete(pool, ctx) {
             // cleared gets here, so the prompt's instruction and the enforcement
             // that runs after the model cannot disagree.
             greetFirstName: Q.greetNameOf(ladder) || null,
-            siteSummary: (out && out.siteEmail && out.siteEmail.sourceUrl) ? null : null,
+            // WHAT DISCOVERY FOUND, AT LAST. Both fields here were hard-wired
+            // to null, so the marketing-activity evidence that ranked this
+            // business never reached the pitch. The writer may state one line
+            // of it and nothing else about the business; with none, nothing.
+            evidence: WriterEvidence.evidenceFor(cand),
             isFranchise: !!(out && out.siteEmail && out.siteEmail.corporate),
-            sponsorsLocal: null,
           },
           athlete: { ...(ctx.athleteProfile || { name: athleteName }), partnershipCount,
             instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,

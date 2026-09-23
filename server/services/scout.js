@@ -366,14 +366,18 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
   // pushes some athletes into the empty-slate skip. That is the intended trade:
   // an honest gap beats a wrong pitch sent under the agent's own name.
   const shown = await q('shown',
-    `SELECT be.brand_key, be.brand_name, be.lane, 'shown' AS pool
+    `SELECT be.brand_key, be.brand_name, be.lane, 'shown' AS pool,
+            -- The scan's evidence line, for the WRITER only. Not has_evidence:
+            -- this pool's ranking is deliberately unchanged.
+            (SELECT ms.evidence FROM market_business_seen ms
+              WHERE ms.market_key = $3 AND ms.brand = be.brand_name) AS evidence_text
        FROM brand_engagement be
       WHERE be.athlete_id = $1 AND be.state = 'shown'
         AND be.lane = 'local'
         AND NOT EXISTS (SELECT 1 FROM outreach_queue q
                          WHERE q.athlete_id = be.athlete_id AND q.brand_key = be.brand_key)
       ORDER BY be.last_shown_at DESC NULLS LAST
-      LIMIT $2`, [athlete.id, limit * 3]);
+      LIMIT $2`, [athlete.id, limit * 3, athlete.marketKey || null]);
 
   // b. THE POOL THAT WAS NEVER READ. Businesses the market scan discovered and
   //    passed over, plus any discovered since. This is what stops a market going
@@ -391,7 +395,7 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
             -- The scan knew both of these and the table used to drop them. NULL
             -- on rows written before, and NULL means UNKNOWN: an uncategorised
             -- business is not a category, and unknown evidence is not thin.
-            m.category, m.has_evidence
+            m.category, m.has_evidence, m.evidence AS evidence_text
        FROM market_business_seen m
       WHERE m.market_key = $1
         -- ── A BRAND FELL THROUGH BOTH POOLS AND VANISHED ───────────────────

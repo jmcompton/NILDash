@@ -40,8 +40,11 @@ const ATHLETE = {
 const BIZ = {
   name: 'Iron Tribe Fitness', category: 'gym', address: '412 University Dr, Auburn, AL',
   rating: 4.8, userRatingCount: 312, ownerName: 'Dana Kessler', ownerTitle: 'Owner',
+  // The one thing a message may say about the business now comes from here
+  // (services/writerEvidence). "Nine years and 4.8 stars" was never evidence.
+  evidence: ['Sponsors the Auburn High booster club'],
 };
-const GOOD = 'Hi Dana,\n\nSaw you have been on University Drive for nine years and still hold 4.8 stars. '
+const GOOD = 'Hi Dana,\n\nSaw you sponsor the Auburn High booster club. '
   + 'I work with Jeremiah Wilkinson, a junior linebacker at Auburn who grew up in Opelika and has '
   + '35,000 followers as of 14 Aug 2026, nearly all of them local. Two feed posts of a training session at your gym '
   + 'with a signup code, so you can count what it brings in. '

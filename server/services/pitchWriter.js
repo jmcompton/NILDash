@@ -912,6 +912,86 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
 // Everything we hold about both sides, as prose rather than JSON: a model reads
 // "4.7 stars from 312 reviews" better than {"rating":4.7,"userRatingCount":312},
 // and the difference shows up in the copy.
+// ── THE EVIDENCE, AND HOLDING THE MESSAGE TO IT ─────────────────────────────
+// evidenceOf normalises what the caller supplied (services/writerEvidence
+// builds it); checkEvidence enforces the rule the prompt states: at most one
+// line, stated as written, and nothing else about the business.
+function evidenceOf(b) {
+  const raw = Array.isArray(b && b.evidence) ? b.evidence : [];
+  const out = [];
+  for (const e of raw) {
+    const t = String(e == null ? '' : e).replace(/\s+/g, ' ').trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out.slice(0, 3);
+}
+
+const _EV_STOP = new Set(['that', 'this', 'with', 'from', 'their', 'they', 'have', 'been', 'into', 'about',
+  'your', 'what', 'when', 'were', 'also', 'more', 'some', 'very', 'just', 'local', 'area', 'here',
+  'the', 'and', 'for', 'you', 'our', 'her', 'his', 'she', 'him', 'was', 'has', 'are', 'not', 'but',
+  'all', 'any', 'can', 'its', 'who', 'how', 'why', 'one', 'out', 'too', 'saw', 'see', 'hi']);
+// Three letters and up: "ads" and "gym" are the fact, not filler.
+function _evWords(s) {
+  return [...new Set((String(s || '').toLowerCase().match(/[a-z0-9']{3,}/g) || [])
+    .filter((w) => !_EV_STOP.has(w)).map((w) => w.slice(0, 5)))];
+}
+// How much of an evidence line the message states: the share of its content
+// words (5-letter stems, so "sponsors"/"sponsored" match) that appear.
+function _evCoverage(message, line) {
+  const want = _evWords(line);
+  if (!want.length) return 0;
+  const have = new Set(_evWords(message));
+  return want.filter((w) => have.has(w)).length / want.length;
+}
+
+// The claims a writer reaches for when it has nothing real: reviews, age,
+// ownership, awards. Allowed only when the stated evidence line says so.
+const BUSINESS_CLAIMS = [
+  /\b\d(?:\.\d)?[- ]?stars?\b/i,
+  /\b\d[\d,]*\s+(?:google\s+|five[- ]star\s+|positive\s+)?reviews?\b/i,
+  /\b(?:well|highly|top|best)[- ]?(?:reviewed|rated)\b/i,
+  /\bsince (?:19|20)\d\d\b/i,
+  /\byears? in business\b/i,
+  /\b(?:for|over) (?:\d+|a decade|decades|many) (?:years?\s+)?(?:now\s+)?(?:in business|serving)\b/i,
+  /\bfamily[- ](?:owned|run)\b/i,
+  /\baward[- ]winning\b/i,
+  /\bvoted (?:the )?best\b/i,
+  /\bbest in (?:town|the city|the area|the state)\b/i,
+  /\ba (?:local )?(?:staple|institution|favorite|favourite)\b/i,
+];
+
+function checkEvidence(message, evidence, usedRaw) {
+  const ev = Array.isArray(evidence) ? evidence : [];
+  const msg = String(message || '');
+  const problems = [];
+  const n = Number(usedRaw);
+  let used = Number.isInteger(n) && n > 0 ? n : 0;
+  if (used && !ev.length) {
+    problems.push('claims to state evidence about the business, but none was supplied');
+    used = 0;
+  } else if (used > ev.length) {
+    problems.push('cites evidence line ' + used + ', which was not supplied');
+    used = 0;
+  } else if (used && _evCoverage(msg, ev[used - 1]) < 0.5) {
+    problems.push('says it states evidence line ' + used + ' ("' + ev[used - 1] + '") but the message does not say it');
+  }
+  // TWO FACTS IS ONE TOO MANY, declared or not.
+  const stated = ev.map((line, i) => ({ i: i + 1, c: _evCoverage(msg, line) })).filter((x) => x.c >= 0.6);
+  if (stated.length > 1) problems.push('states more than one fact about the business (evidence lines '
+    + stated.map((x) => x.i).join(' and ') + '); use one');
+  // An undeclared line that is plainly stated counts as the one used.
+  if (!used && stated.length === 1) used = stated[0].i;
+  const allowed = used ? ev[used - 1] : '';
+  for (const re of BUSINESS_CLAIMS) {
+    const m = msg.match(re);
+    if (m && !re.test(allowed)) {
+      problems.push('says something about the business that is not in the evidence ("' + m[0] + '")');
+      break;
+    }
+  }
+  return { ok: !problems.length, problems, used };
+}
+
 function describeBusiness(b) {
   const L = [];
   const name = b.name || b.brandName || 'this business';
@@ -945,8 +1025,16 @@ function describeBusiness(b) {
     const fn = firstNameOf(b.ownerName);
     L.push('OPEN THE MESSAGE WITH: "Hi ' + fn + '," — the person to write to. Never open with a greeting that has no name.');
   }
-  if (b.siteSummary) L.push('What their own website says: ' + b.siteSummary);
-  if (b.sponsorsLocal) L.push('They already sponsor local teams or events.');
+  // ── THE ONLY THINGS THE MESSAGE MAY SAY ABOUT THEM ──────────────────────
+  // Numbered, because the model reports which one it used and checkEvidence
+  // holds it to that. Everything else in this block is for judgement.
+  const ev = evidenceOf(b);
+  if (ev.length) {
+    L.push('EVIDENCE OF THEIR MARKETING ACTIVITY (what a search or a public page showed; the ONLY things the message may say about this business):');
+    ev.forEach((e, i) => L.push('  ' + (i + 1) + '. ' + e));
+  } else {
+    L.push('EVIDENCE OF THEIR MARKETING ACTIVITY: none supplied. The message says nothing about this business at all.');
+  }
   if (b.isFranchise || b.corporate) L.push('Part of a chain, so the local operator may not control the budget.');
   if (b.recentlyOpened) L.push('Recently opened or expanded.');
   if (b.notes) L.push('Other: ' + b.notes);
@@ -1096,12 +1184,17 @@ This structure comes from agents who send these for a living. Follow it in order
 5. The athlete's Instagram link on its own line, when one is given.
 `;
 
-const SHARED_RULES = `DO NOT WRITE ABOUT THE BRAND. Not what they do, not how long they have been
-there, not how well reviewed they are, not why they would be a good fit. They
-know their own business better than we do and every sentence spent describing it
-back to them is a sentence that says we are padding. The business details in
-this prompt are for YOUR judgement about whether to pitch at all, and for the
-angle field. They are not material for the message.
+const SHARED_RULES = `ONE FACT ABOUT THE BUSINESS, FROM THE EVIDENCE, OR NONE. THE BUSINESS block may
+list EVIDENCE OF THEIR MARKETING ACTIVITY, numbered: things a search or a public
+page actually showed. You may state exactly ONE of those lines, meaning exactly
+what it says: the same fact, not a stronger one, not a more specific one, with
+nothing added (no team, place, year or result the line does not contain). Put it
+where it says why you are writing to them. Say nothing else about the business:
+not what they sell, how long they have been there, how well reviewed they are,
+how big they are, or why they would be a good fit. When the block says no
+evidence was supplied, the message says nothing about the business at all. The
+other business details in this prompt are for YOUR judgement about whether to
+pitch at all, and for the angle field. They are not material for the message.
 
 SELL THE POTENTIAL, NOT A PACKAGE. Do not offer "a small number of posts" or
 enumerate a deliverable. This is a first message; the point is to open a
@@ -1240,6 +1333,7 @@ Return ONLY JSON, in exactly this order:
   "angleKey": "two-to-four word slug for the angle, lowercase, hyphenated",
   "ask": "what you would propose if they reply — for the agent's card, NOT for the message itself",
   "confidence": "strong" | "thin",
+  "evidenceUsed": the number of the ONE evidence line the message states, or 0 if it states none,
   "message": "the message itself, four to five sentences in the prescribed order, the Instagram link on its own line, signed off"
 }
 
@@ -1289,9 +1383,19 @@ async function writePitch(ctx, opts = {}) {
     return { skipped: true, reason: String(j.reason || 'no real connection to pitch').trim() };
   }
 
-  const factsOf = (m) => verifyAthleteFacts(m, ctx.athlete, {
-    businessNumbers: [ctx.business && ctx.business.userRatingCount].filter(Boolean),
-  });
+  // THE BUSINESS IS CHECKED LIKE THE ATHLETE. At most one supplied evidence
+  // line, stated as written, and no stock claim about the business that the
+  // evidence does not contain. Same path, same retry, same refusal.
+  const _evidence = evidenceOf(ctx.business || {});
+  let _usedFor = new Map();
+  const factsOf = (m, used) => {
+    const f = verifyAthleteFacts(m, ctx.athlete, {
+      businessNumbers: [ctx.business && ctx.business.userRatingCount].filter(Boolean),
+    });
+    const e = checkEvidence(m, _evidence, used);
+    _usedFor.set(m, e.used);
+    return { ok: f.ok && e.ok, problems: f.problems.concat(e.problems) };
+  };
 
   // REPAIRED BEFORE IT IS JUDGED. The sign-off is a string we control at the end
   // of the message; there is no reason for it to be able to fail a pitch.
@@ -1299,7 +1403,7 @@ async function writePitch(ctx, opts = {}) {
   let lint = lintMessage(message, lintOpts);
   // A FABRICATED FACT IS A LINT FAILURE. Same path, same retry, same refusal:
   // an invented hometown is worse than an em dash, not softer.
-  let facts = factsOf(message);
+  let facts = factsOf(message, j.evidenceUsed);
   if (!facts.ok) lint = { ok: false, problems: lint.problems.concat(facts.problems) };
   // RECORDED, so "how often does the retry fire" is a count and not a guess.
   // A retry is a second model call on the writer's model; the ledger shows it
@@ -1313,7 +1417,7 @@ async function writePitch(ctx, opts = {}) {
     if (al.changed) {
       const mFixed = repairSignOff(autoRepair(al.text), agentFirst);
       const lFixed = lintMessage(mFixed, lintOpts);
-      const fFixed = factsOf(mFixed);
+      const fFixed = factsOf(mFixed, j.evidenceUsed);
       if (lFixed.ok && fFixed.ok) {
         sportRepaired = { from: al.from, to: sportLabel((ctx.athlete || {}).sport) };
         console.log(`[writer] sport repaired for ${(ctx.business && ctx.business.name) || 'business'}: "${al.from}" -> "${sportRepaired.to}" (the record's value)`);
@@ -1328,12 +1432,13 @@ async function writePitch(ctx, opts = {}) {
     // a second call on the same mistake.
     const j2 = await attempt(`\n\nYour previous attempt was rejected for: ${lint.problems.join('; ')}. `
       + `Rewrite the message fixing every one of those. Keep the same angle and the same ask. `
-      + `Use ONLY facts listed in THE ATHLETE above. If a detail is not listed there, leave it out entirely.`);
+      + `Use ONLY facts listed in THE ATHLETE above. If a detail is not listed there, leave it out entirely. `
+      + `About the business, state at most ONE line of its EVIDENCE, as written, or nothing.`);
     if (j2 && j2.skip) return { skipped: true, reason: String(j2.reason || 'no real connection').trim() };
     if (j2 && j2.message) {
       const m2 = repairSignOff(autoRepair(j2.message), agentFirst);
       const l2 = lintMessage(m2, lintOpts);
-      const f2 = factsOf(m2);
+      const f2 = factsOf(m2, j2.evidenceUsed);
       if (l2.ok && f2.ok) { j = j2; message = m2; lint = l2; }
       else {
         // The second draft got the sport wrong too: repair rather than lose
@@ -1341,7 +1446,7 @@ async function writePitch(ctx, opts = {}) {
         const al2 = alignSport(m2, ctx.athlete || {});
         const m3 = al2.changed ? repairSignOff(autoRepair(al2.text), agentFirst) : null;
         const l3 = m3 ? lintMessage(m3, lintOpts) : null;
-        const f3 = m3 ? factsOf(m3) : null;
+        const f3 = m3 ? factsOf(m3, j2.evidenceUsed) : null;
         if (l3 && l3.ok && f3 && f3.ok) {
           sportRepaired = { from: al2.from, to: sportLabel((ctx.athlete || {}).sport) };
           j = j2; message = m3; lint = l3; facts = f3;
@@ -1355,7 +1460,7 @@ async function writePitch(ctx, opts = {}) {
     return { skipped: true, reason: 'could not write it in voice: ' + lint.problems.join('; '), lintFailed: true,
       retried, firstProblems, sportRepaired };
   }
-  if (!facts.ok && (facts = factsOf(message)) && !facts.ok) {
+  if (!facts.ok && (facts = factsOf(message, j.evidenceUsed)) && !facts.ok) {
     return { skipped: true, reason: 'invented a fact about the athlete: ' + facts.problems.join('; '), factsFailed: true,
       retried, firstProblems };
   }
@@ -1370,6 +1475,10 @@ async function writePitch(ctx, opts = {}) {
     ask: String(j.ask || '').trim() || null,
     confidence: j.confidence === 'thin' ? 'thin' : 'strong',
     categoryKey: play.key,
+    // What the writer was given about the business and which line it stated,
+    // so a run row can show the one fact a pitch rests on.
+    evidence: _evidence,
+    evidenceUsed: _usedFor.get(message) || 0,
   };
 }
 
@@ -1406,7 +1515,7 @@ async function learnedAngles(pool, categoryKey, opts = {}) {
 }
 
 module.exports = {
-  writePitch, lintMessage, autoRepair, containsPrice, verifyAthleteFacts,
+  writePitch, lintMessage, autoRepair, containsPrice, verifyAthleteFacts, checkEvidence, evidenceOf, BUSINESS_CLAIMS,
   playbookFor, describeBusiness, describeAthlete,
   buildPrompt, sentenceCount, stripSignOff, learnedAngles,
   signsOffAs, repairSignOff, firstNameOf,
