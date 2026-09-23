@@ -965,6 +965,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-who{font-size:12px;color:#9CA3AF;line-height:1.6}
 .hq-who b{color:#F0EDE6;font-weight:600}
 .hq-note{font-size:10.5px;color:#6B7280;line-height:1.5;margin-top:4px}
+/* A thin card is not a worse card to hide; it is one the agent should read
+   before spending a morning on it, so it is marked rather than dimmed. */
+.hq-thin{color:#92400E;background:#FEF3C7;border-radius:4px;padding:4px 6px}
 .hq-tag{font-size:8.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:1px}
 .hq-tag.brandacct{color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32)}
@@ -21050,6 +21053,10 @@ function hqRenderCard(c, i) {
     // Evidence of a tie to the school is the most useful line on a card when we
     // hold it, so it is not buried behind the fold with the message.
     + (c.sponsorNote ? '<p class="hq-why"><b>' + hqEscape(c.sponsorNote) + '</b></p>' : '')
+    // A THIN CARD SAYS SO, ABOVE THE FOLD. It reached a slot because nothing
+    // with marketing-activity evidence was left, and the agent is the one
+    // deciding whether to spend the morning on it.
+    + (c.thin && c.thinNote ? '<p class="hq-note hq-thin">' + hqEscape(c.thinNote) + '</p>' : '')
     + (c.sourceNote ? '<p class="hq-note">' + hqEscape(c.sourceNote) + '</p>' : '')
     // Why email was or was not offered: "Email not offered: info@x.com is
     // undeliverable (the domain publishes no mail server)" on a DM or call

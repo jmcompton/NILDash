@@ -33,7 +33,110 @@ const EXPIRE_COOLDOWN_DAYS = parseInt(process.env.OUTREACH_QUEUE_COOLDOWN_DAYS, 
 // A lane never takes the whole slate on its own unless the others are empty.
 // Without this a market with 200 unworked businesses would crowd out the social
 // and national results that are often the better pitch.
+//
+// STILL HERE, BUT NO LONGER THE ONLY SHAPE RULE. It was the whole of the
+// diversity story and it is a weak one: three restaurants, a coffee shop and a
+// bar is five local cards inside the cap and is not five different pitches. The
+// selection below treats this as a ceiling to respect while it fills for
+// CATEGORY spread and the social guarantee.
 const LANE_SOFT_CAP = 3;
+
+// ── HOW MANY DIFFERENT KINDS OF BUSINESS THE FIVE SHOULD COVER ─────────────
+// A morning of five near-identical pitches is one pitch with five names on it:
+// the agent writes the same message five times and learns nothing about which
+// angle works. Three distinct categories out of five is the bar -- high enough
+// to break up a monoculture, low enough that a market genuinely dominated by
+// one kind of business is not forced to reach for a bad fifth candidate.
+//
+// A TARGET, NOT A QUOTA. When the candidate pool cannot offer three kinds, the
+// slate takes what there is and reports the shortfall rather than padding. That
+// is the same rule the quality bar has always had here: five is a ceiling.
+const MIN_CATEGORIES = parseInt(process.env.SLATE_MIN_CATEGORIES, 10) || 3;
+
+// ── ONE SOCIAL BRAND, WHEN THE FOLLOWING JUSTIFIES IT ──────────────────────
+// A social brand is pitched on audience; a local business is pitched on
+// proximity. For an athlete with a real following the social lane is often the
+// better card, and the fit-ranking alone does not guarantee one gets a slot --
+// a deep local market outranks it five times over.
+//
+// THE THRESHOLD IS THE INDEX'S, NOT A NUMBER INVENTED HERE. store's
+// _socialBaseMatch already bands an athlete's reach (instagram + tiktok)
+// against each brand's stated tier_min/tier_max, so a non-empty social pool
+// already means "some real brand's own stated minimum accepts this athlete".
+// This adds a floor under that, because an index row with tier_min = 0 accepts
+// anybody: below it, a DM to a national programme competes against athletes
+// with ten times the audience for the same slot, and one of five mornings is
+// better spent on a business down the road.
+const SOCIAL_MIN_REACH = parseInt(process.env.SLATE_SOCIAL_MIN_REACH, 10) || 5000;
+
+// ── A SKIP IS THE ONLY NEGATIVE SIGNAL THE AGENT GIVES FOR FREE ────────────
+//
+// Nothing read skips. An agent could skip nine coffee shops and be handed a
+// tenth, because the slate's only memory was "has this athlete been offered
+// this exact business", and every rule in it was additive: fit, proximity,
+// sponsorship, NIL-active. There was no way to go down.
+//
+// THREE EFFECTS, AND THEY ARE DELIBERATELY DIFFERENT SIZES. Read against the
+// scale already in this file -- base fit 50, local +6, shown +4, a school
+// signal 6/12/18, NIL-active +30:
+//
+//   the exact business, for that athlete   NEVER AGAIN. Not a penalty: an
+//     exclusion, alongside queued and contacted. Re-offering a business the
+//     agent has personally turned down is the one outcome no weight should be
+//     able to buy back.
+//
+//   that category, for that athlete        -8 a skip, floor -16.
+//     One skip is noise: timing, mood, a bad morning. Two is a preference, and
+//     -16 is where that preference lands.
+//
+//     THE FLOOR IS SET BY WHAT MUST BE ABLE TO CLEAR IT, not by how strongly
+//     the preference feels. Our two strongest facts about a specific business
+//     are that this agent closed a deal with them at this school (+18) and that
+//     the business has an NIL deal logged on the platform (+30). Both have to
+//     outrank a disliked category, because they are evidence about THE
+//     BUSINESS and the penalty is only evidence about its KIND -- the agent is
+//     saying "not this sort, usually", not "never show me a gym again". So the
+//     floor sits just under the smaller of the two. At -24, which is where this
+//     started, a business the agent had closed with themselves stayed buried,
+//     and that is the wrong answer.
+//
+//     Not decayed: a judgement about what suits one athlete's brand is a
+//     durable fact about that athlete, and the cap already stops it
+//     compounding.
+//
+//   that category, for that agent's roster  -3 a skip, floor -9, half-life 21d.
+//     Smaller, because a roster-wide pattern is weaker evidence about any one
+//     athlete than that athlete's own skips. -9 is about the size of the local
+//     bonus plus the shown bonus, so it reorders within a lane and never
+//     outranks a real signal. Decayed so one bad week cannot kill a category:
+//     five skips in a week is the -9 floor, but three weeks later that same
+//     week counts -4.5, and six weeks later -2.2. The half-life lives in
+//     store.SKIP_HALF_LIFE_DAYS, applied per row by its own age in SQL.
+const SKIP_ATHLETE_PER = parseFloat(process.env.SKIP_ATHLETE_PENALTY) || 8;
+const SKIP_ATHLETE_MAX = parseFloat(process.env.SKIP_ATHLETE_PENALTY_MAX) || 16;
+const SKIP_AGENT_PER = parseFloat(process.env.SKIP_AGENT_PENALTY) || 3;
+const SKIP_AGENT_MAX = parseFloat(process.env.SKIP_AGENT_PENALTY_MAX) || 9;
+
+// ── EVIDENCE OF MARKETING ACTIVITY IS NEARLY A REQUIREMENT NOW ─────────────
+// "Sponsors the high school team", "runs local ads", "has done an athlete
+// partnership before" -- the scan looks for these and they were worth a ranking
+// nudge. A business that has never spent a dollar on marketing is not a
+// prospect in the same sense as one that has, and treating the two as the same
+// candidate with different scores is how five slots fill with businesses that
+// were never going to answer.
+//
+// So it is a SORT KEY ABOVE FIT, not a bonus: every candidate with evidence is
+// considered before any candidate without it, whatever their scores. A thin
+// candidate fills a slot only when the evidenced ones have run out -- which is
+// exactly "only when nothing better is available" -- and the card it becomes
+// says so, rather than presenting it as the same kind of find.
+//
+// UNKNOWN IS NOT THIN. A candidate whose source never looked for evidence
+// (every market-pool row written before has_evidence existed) is ranked with
+// the evidenced ones rather than punished for a column that did not exist when
+// it was written. Only a candidate we LOOKED at and found nothing for is thin.
+const THIN_NOTE = 'No marketing activity found for this business, so this is a '
+  + 'thin candidate: it filled a slot because nothing stronger was left tonight.';
 
 // Why an athlete got nothing. A SILENT ZERO IS THE BUG WE SPENT A DAY ON, so
 // every empty result carries one of these and the shift report prints it.
@@ -284,7 +387,11 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
   // brandIdentity can build an honest name-plus-market key from it.
   const seen = athlete.marketKey ? await q('seen',
     `SELECT m.brand AS brand_name, NULL::text AS brand_key, $1::text AS market_key,
-            'market-pool' AS pool
+            'market-pool' AS pool,
+            -- The scan knew both of these and the table used to drop them. NULL
+            -- on rows written before, and NULL means UNKNOWN: an uncategorised
+            -- business is not a category, and unknown evidence is not thin.
+            m.category, m.has_evidence
        FROM market_business_seen m
       WHERE m.market_key = $1
         -- ── A BRAND FELL THROUGH BOTH POOLS AND VANISHED ───────────────────
@@ -539,6 +646,17 @@ async function assembleSlate(pool, ctx) {
   // Rank. The sponsorship boost applies across ALL lanes: a brand that has done
   // a deal at this school is the better target whether it is the coffee shop
   // down the road or a national program.
+  // ── WHAT THE AGENT HAS ALREADY TURNED DOWN ───────────────────────────────
+  // One read, three uses: the exact businesses this athlete's agent skipped for
+  // them, this athlete's category counts, and the agent's decayed counts across
+  // the whole roster. Absent (or unreadable) means no penalty, never a crash.
+  let skips = { identities: new Set(), athleteCats: new Map(), agentCats: new Map() };
+  if (store && typeof store.loadSkipSignals === 'function') {
+    try { skips = await store.loadSkipSignals(agentId, athlete.id); }
+    catch (e) { console.error('[slate] skip signals:', e.message); }
+  }
+
+  const BC = require('./businessCategory');
   const ranked = all.map((c) => {
     let sig = signals.get(normBrand(c.brand_name)) || null;
     // A publicly reported deal does not boost the LOCAL lane. It is national
@@ -552,8 +670,44 @@ async function assembleSlate(pool, ctx) {
     if (sig) fit += sig.weight;
     const nilFlags = BF.flagsFrom(flagIndex, c);
     fit += BF.rankBonus(nilFlags);
-    return { ...c, fit, sponsorSignal: sig, nilFlags };
-  }).sort((a, b) => b.fit - a.fit);
+
+    // The kind of business, from whatever the candidate carries -- a stored
+    // category, a Places type, or last of all the name. null when we cannot
+    // tell, and null is never treated as a category.
+    const cat = BC.categoryOf(c);
+
+    // ── AND THEN IT CAN GO DOWN ────────────────────────────────────────────
+    const pen = { athlete: 0, agent: 0, category: cat.category };
+    if (cat.category) {
+      const mine = skips.athleteCats.get(cat.category) || 0;
+      if (mine > 0) pen.athlete = Math.min(mine * SKIP_ATHLETE_PER, SKIP_ATHLETE_MAX);
+      const across = skips.agentCats.get(cat.category) || 0;
+      if (across > 0) pen.agent = Math.min(across * SKIP_AGENT_PER, SKIP_AGENT_MAX);
+      fit -= pen.athlete + pen.agent;
+    }
+
+    // Evidence of marketing activity: TRUE, FALSE or unknown. A sponsorship
+    // signal or a logged NIL deal IS evidence of marketing activity -- stronger
+    // evidence than a scan note, since we watched it happen -- so either one
+    // answers the question on its own.
+    let evidenced = null;
+    if (c.has_evidence === true || c.hasEvidence === true) evidenced = true;
+    else if (c.has_evidence === false || c.hasEvidence === false) evidenced = false;
+    if (evidenced !== true && (sig || (nilFlags && nilFlags.nilActive))) evidenced = true;
+    // A social or national candidate reached us through its own athlete
+    // programme page. Running a programme IS marketing activity.
+    if (evidenced !== true && c.lane !== 'local' && c.programUrl) evidenced = true;
+
+    return { ...c, fit, sponsorSignal: sig, nilFlags,
+      businessCategory: cat.category, categoryFromName: cat.nameOnly,
+      evidenced, thin: evidenced === false, skipPenalty: pen };
+  }).sort((a, b) => {
+    // EVIDENCE FIRST, THEN FIT. Not a weight -- a sort key above fit, which is
+    // what makes a thin candidate "only when nothing better is available"
+    // rather than "when its score happens to fall below".
+    if (a.thin !== b.thin) return a.thin ? 1 : -1;
+    return b.fit - a.fit;
+  });
 
   // ONE BUSINESS, ONE SLOT. A brand can legitimately reach us down two lanes at
   // once -- the same company can sit in the local market pool AND in the
@@ -621,6 +775,13 @@ async function assembleSlate(pool, ctx) {
       for (const id of BI.identitiesOf(r, { market: athlete.marketKey || null })) priorKeys.add(id.key);
     }
   } catch (e) { console.error('[slate] prior lookup:', e.message); }
+  // ── AND NOT ONE THEY SKIPPED ───────────────────────────────────────────
+  // Joined to the same exclusion set rather than given a penalty of its own,
+  // because it is the same kind of fact: this athlete has had this business and
+  // the answer was no. A skip is a firmer no than an expiry -- the agent looked
+  // at it and declined -- so it has no cooldown and does not come back.
+  const skipKeysKnown = skips.identities.size;
+  for (const k of skips.identities) priorKeys.add(k);
 
   const beforePrior = scored.length;
   const fresh = [];
@@ -637,38 +798,163 @@ async function assembleSlate(pool, ctx) {
   const repeats = beforePrior - fresh.length;
   if (repeats) console.log(`[slate] athlete=${athlete.id} dropped ${repeats} business(es) already seen by this athlete`);
 
-  // Interleave under a soft lane cap so one lane cannot take the whole slate
-  // while another has something better waiting.
+  // ── THE FIVE, CHOSEN FOR SHAPE AS WELL AS SCORE ──────────────────────────
+  // `fresh` is already ordered evidenced-before-thin, then by fit. Taking the
+  // top five off it gives the best five candidates and frequently the same five
+  // kinds of business, which is one pitch with five names on it.
+  //
+  // Four rules, in the order they bind:
+  //
+  //   1. THE SOCIAL SEAT, when the athlete's reach justifies one. Taken first
+  //      because a deep local market outranks every social brand five times
+  //      over, so a seat reserved after the fact is never available.
+  //   2. THE BEST CANDIDATE, always. Whatever else is true, the top-ranked
+  //      candidate gets a slot: a diversity rule that can bump the single best
+  //      business of the night is worse than the monoculture it fixes.
+  //   3. CATEGORY SPREAD to MIN_CATEGORIES, by preferring the best candidate in
+  //      a kind not yet represented. A candidate whose category is UNKNOWN can
+  //      never satisfy this -- two businesses we know nothing about are not
+  //      demonstrably two kinds -- but it is still eligible for a seat.
+  //   4. THE LANE CEILING still applies while filling, and is dropped in the
+  //      final top-up rather than leaving the slate short.
+  //
+  // EVERY RULE YIELDS TO THE EVIDENCE ORDER. Filling for spread never reaches
+  // past an evidenced candidate to a thin one, because each pass walks `fresh`
+  // in order and thin candidates sit at the end of it.
   const picks = [];
   const chosen = new Set();
   const perLane = {};
-  for (const c of fresh) {
-    if (picks.length >= limit) break;
-    perLane[c.lane] = perLane[c.lane] || 0;
-    if (perLane[c.lane] >= LANE_SOFT_CAP) continue;
-    perLane[c.lane]++; picks.push(c); chosen.add(c);
+  const cats = new Set();
+  const shape = { socialSeat: null, spreadPicks: 0, categories: 0, laneCapHit: 0 };
+
+  const laneOk = (c) => (perLane[c.lane] || 0) < LANE_SOFT_CAP;
+  const take = (c, why) => {
+    if (!c || chosen.has(c) || picks.length >= limit) return false;
+    chosen.add(c); picks.push(c);
+    perLane[c.lane] = (perLane[c.lane] || 0) + 1;
+    if (c.businessCategory) cats.add(c.businessCategory);
+    if (why === 'spread') shape.spreadPicks++;
+    return true;
+  };
+
+  // 1. The social seat. `reach` is the same figure store._socialBaseMatch bands
+  //    against each brand's stated tier, so "enough following" means the same
+  //    thing here as it does where the pool is built.
+  const reach = (Number(athlete.instagram) || 0) + (Number(athlete.tiktok) || 0);
+  const socialEligible = reach >= SOCIAL_MIN_REACH;
+  if (socialEligible && limit > 0) {
+    const best = fresh.find((c) => c.lane === 'social');
+    if (best) { take(best, 'social'); shape.socialSeat = best.brand_name; }
   }
-  // Soft cap: if the slate is short only because of it, fill from what is left.
+  shape.socialEligible = socialEligible;
+  shape.reach = reach;
+
+  // 2. The best candidate overall.
+  take(fresh[0], 'top');
+
+  // 3. Spread: fill the remaining seats preferring an unrepresented category,
+  //    then fall back to rank order.
+  while (picks.length < limit) {
+    let next = null;
+    if (cats.size < MIN_CATEGORIES) {
+      next = fresh.find((c) => !chosen.has(c) && c.businessCategory
+        && !cats.has(c.businessCategory) && laneOk(c));
+    }
+    if (!next) next = fresh.find((c) => !chosen.has(c) && laneOk(c));
+    if (!next) break;
+    take(next, cats.has(next.businessCategory) ? 'rank' : 'spread');
+  }
+
+  // 4. Short only because of the lane ceiling: fill from what is left rather
+  //    than hand back four when five were available.
   if (picks.length < limit) {
     for (const c of fresh) {
       if (picks.length >= limit) break;
       if (chosen.has(c)) continue;
-      chosen.add(c); picks.push(c);
+      shape.laneCapHit++;
+      take(c, 'over-cap');
     }
   }
 
+  shape.categories = cats.size;
+  shape.categoryList = [...cats];
+  shape.thin = picks.filter((p) => p.thin).length;
+  shape.unknownCategory = picks.filter((p) => !p.businessCategory).length;
+  // SAY WHEN THE SHAPE COULD NOT BE MET, rather than quietly returning five of
+  // one kind. Both of these are facts about the market, not failures, and the
+  // morning report can repeat them.
+  if (picks.length && cats.size < MIN_CATEGORIES) {
+    shape.spreadShortfall = `only ${cats.size} distinct categor${cats.size === 1 ? 'y' : 'ies'} `
+      + `available across ${fresh.length} candidate(s)`;
+    console.log(`[slate] athlete=${athlete.id} category spread short: ${shape.spreadShortfall}`);
+  }
+  if (socialEligible && !shape.socialSeat) {
+    shape.socialShortfall = `reach ${reach} clears ${SOCIAL_MIN_REACH} but no social candidate was available`;
+    console.log(`[slate] athlete=${athlete.id} ${shape.socialShortfall}`);
+  }
+  if (shape.thin) {
+    console.log(`[slate] athlete=${athlete.id} ${shape.thin} of ${picks.length} pick(s) are THIN `
+      + '(no marketing activity found); they filled slots nothing stronger was left for');
+  }
+  if (skipKeysKnown || skips.athleteCats.size || skips.agentCats.size) {
+    const penalised = picks.filter((p) => p.skipPenalty && (p.skipPenalty.athlete || p.skipPenalty.agent));
+    // COUNTED, NOT ASSUMED. This printed the size of the skip set, which is how
+    // many businesses the agent has ever skipped -- not how many were on
+    // tonight's slate to exclude. The two are rarely the same number and the
+    // difference is the whole question "did the skip actually bite".
+    const reallyExcluded = ranked.filter((c) => BI.identitiesOf(c, { market: athlete.marketKey || null })
+      .some((id) => skips.identities.has(id.key))).length;
+    console.log(`[slate] athlete=${athlete.id} skip history: ${skipKeysKnown} business(es) skipped before, `
+      + `${reallyExcluded} of them on tonight's slate and excluded, `
+      + `${skips.athleteCats.size} categor(ies) penalised for this athlete, `
+      + `${skips.agentCats.size} across the roster`
+      + (penalised.length ? `; still picked: ${penalised.map((p) => `${p.brand_name} (-${(p.skipPenalty.athlete + p.skipPenalty.agent).toFixed(1)})`).join(', ')}` : ''));
+  }
+
   const laneCounts = picks.reduce((m, p) => { m[p.lane] = (m[p.lane] || 0) + 1; return m; }, {});
-  return {
-    picks, laneCounts, emptyReason: null, emptyText: null, lanes, dropped,
+  const out = {
+    picks, laneCounts, emptyReason: null, emptyText: null, lanes, dropped, shape,
     signalCount: signals.size,
     boosted: picks.filter((p) => p.sponsorSignal).length,
     collapsed,
     localExhausted: local.exhausted,
   };
+  // ── SHOW YOUR WORKING, ON REQUEST ────────────────────────────────────────
+  // Off by default and read-only: the selection above is untouched by it. What
+  // it adds is everything the ranking SAW, not just what it picked -- which is
+  // the only way to answer "why did that business not make the cut" or to
+  // compare this ranking against the one it replaced. scripts/
+  // slate-before-after.js is the caller.
+  if (ctx && ctx.explain) {
+    const slim = (c, extra) => Object.assign({
+      brand: c.brand_name, lane: c.lane, pool: c.pool, fit: Math.round(c.fit * 100) / 100,
+      category: c.businessCategory, categoryFromName: !!c.categoryFromName,
+      evidenced: c.evidenced, thin: !!c.thin,
+      signal: c.sponsorSignal ? c.sponsorSignal.kind : null,
+      nilActive: !!(c.nilFlags && c.nilFlags.nilActive),
+      skipPenalty: c.skipPenalty || { athlete: 0, agent: 0 },
+    }, extra || {});
+    out.considered = fresh.map((c) => slim(c, { picked: chosen.has(c) }));
+    // The ones the skip history removed outright, which never reach `fresh` and
+    // would otherwise be invisible in a comparison.
+    out.excludedBySkip = ranked
+      .filter((c) => BI.identitiesOf(c, { market: athlete.marketKey || null })
+        .some((id) => skips.identities.has(id.key)))
+      .map((c) => slim(c, { picked: false, excluded: 'skipped by this agent for this athlete' }));
+    out.weights = {
+      base: 50, local: 6, shown: 4, signal: SIGNAL_WEIGHT, nilActive: 30,
+      skipAthletePer: SKIP_ATHLETE_PER, skipAthleteMax: SKIP_ATHLETE_MAX,
+      skipAgentPer: SKIP_AGENT_PER, skipAgentMax: SKIP_AGENT_MAX,
+      minCategories: MIN_CATEGORIES, socialMinReach: SOCIAL_MIN_REACH, laneSoftCap: LANE_SOFT_CAP,
+    };
+  }
+  return out;
 }
 
 module.exports = {
   assembleSlate, schoolSponsorSignals, localCandidates, socialCandidates, nationalCandidates,
   normBrand, SLATE_MAX, LANE_SOFT_CAP, EMPTY, EMPTY_TEXT, SIGNAL_WEIGHT,
   EXPIRE_COOLDOWN_DAYS,
+  MIN_CATEGORIES, SOCIAL_MIN_REACH, THIN_NOTE,
+  SKIP_ATHLETE_PER, SKIP_ATHLETE_MAX, SKIP_AGENT_PER, SKIP_AGENT_MAX,
 };

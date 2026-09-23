@@ -605,9 +605,10 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
        (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
         source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
         dm_text, channel, state, angle, angle_key, category_key, ask, lane, program_url,
-        sponsor_signal, sponsor_note, identity_key, email, email_kind, outreach_log_id, email_note)
+        sponsor_signal, sponsor_note, identity_key, email, email_kind, outreach_log_id, email_note,
+        business_category, thin, thin_note)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20,
-             $21,$22,$23,$24,$25,$26,$27,$28,$29)
+             $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
      ON CONFLICT DO NOTHING RETURNING id`,
     [agentId, athleteId, slot, card.brandKey || identity, card.brandName, card.why, card.contactName,
      card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
@@ -625,7 +626,12 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
      // and reports it, exactly as it does for a taken slot.
      identity, card.email || null, card.emailKind || null, logId,
      // Why email was or was not offered, for the agent (services/emailValidation).
-     card.emailNote ? String(card.emailNote).slice(0, 400) : null]);
+     card.emailNote ? String(card.emailNote).slice(0, 400) : null,
+     // WHAT KIND OF BUSINESS, so a skip can be attributed to a category with no
+     // second lookup, and THIN, so the card says it filled a slot nothing
+     // stronger was left for instead of reading like any other find.
+     card.businessCategory || null, card.thin === true,
+     card.thin === true ? (card.thinNote || null) : null]);
   const wrote = (ins.rowCount || 0) > 0;
   if (!wrote) {
     console.log(`[queue] athlete=${athleteId} slot=${slot} "${card.brandName}" not written `
@@ -1571,6 +1577,19 @@ async function fillAthlete(pool, ctx) {
       card.lane = cand.lane || null;
       card.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
       card.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
+      // ── THE KIND, AND WHETHER IT IS A THIN ONE ─────────────────────────
+      // The Scout resolved both while ranking. The Places answer is better than
+      // anything the slate had, though -- primaryType is a lookup where the
+      // candidate's own category may have been read off its name -- so it is
+      // preferred when the lookup found one, and the slate's answer is the
+      // fallback rather than the other way round.
+      {
+        const BC = require('../services/businessCategory');
+        const fromPlaces = place ? BC.categoryOf(place).category : null;
+        card.businessCategory = fromPlaces || cand.businessCategory || null;
+        card.thin = cand.thin === true;
+        card.thinNote = card.thin ? Scout.THIN_NOTE : null;
+      }
       if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; break; }
       if (!(await slotStillOpen(pool, athleteId, slot))) {
         say(`slot ${slot}: taken by another fill while the writer ran; ${card.brandName} not offered`);

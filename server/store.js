@@ -3956,6 +3956,52 @@ async function ensureMarketSightings() {
     )
   `).then(() => console.log('[init] market_business_seen table ready'))
     .catch(e => console.error('[init] market_business_seen:', e.message));
+  // The scan knows what KIND of business it found and whether it found any
+  // marketing activity, and both were thrown away at the insert -- the table
+  // held a market and a name. The Scout needs them at slate time: the skip
+  // penalty groups by kind, the diversity rule counts kinds, and the evidence
+  // rule ranks on activity. Added rather than derived later, because a Places
+  // lookup per candidate to recover a fact we already had is the expensive way
+  // to learn it. NULL on every row written before this, and NULL means UNKNOWN
+  // everywhere it is read -- never "no evidence" and never a category bucket.
+  for (const sql of [
+    `ALTER TABLE market_business_seen ADD COLUMN IF NOT EXISTS category TEXT`,
+    `ALTER TABLE market_business_seen ADD COLUMN IF NOT EXISTS has_evidence BOOLEAN`,
+  ]) await pool.query(sql).catch(e => console.error('[init] market_business_seen col:', e.message));
+
+  // ── WHAT THE AGENT SAID NO TO ─────────────────────────────────────────────
+  // A skip was a state change and nothing more: outreach_queue went to
+  // 'skipped' and no part of discovery ever read it. An agent could skip nine
+  // coffee shops and get a tenth, which is the single loudest piece of feedback
+  // the product collects and the only one it threw away.
+  //
+  // One row per skip, not a running tally, because the ranking decays the
+  // agent-wide half on age and a tally cannot be decayed. Keyed by nothing: it
+  // is an append-only log.
+  //
+  // identity_key IS THE ONE THAT MATTERS for "never show me this again".
+  // brand_name is a display name and brand_key is NULL for anything that came
+  // out of the market pool, so the exact-business exclusion is built on the
+  // identity (services/brandIdentity), with the name kept for the log line.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS card_skips (
+      id           SERIAL PRIMARY KEY,
+      agent_id     TEXT NOT NULL,
+      athlete_id   TEXT NOT NULL,
+      brand_key    TEXT,
+      identity_key TEXT,
+      brand_name   TEXT,
+      category     TEXT,
+      lane         TEXT,
+      skipped_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `).then(async () => {
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_card_skips_athlete
+      ON card_skips (athlete_id, skipped_at DESC)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_card_skips_agent_cat
+      ON card_skips (agent_id, category, skipped_at DESC)`).catch(() => {});
+    console.log('[init] card_skips table ready');
+  }).catch(e => console.error('[init] card_skips:', e.message));
 
   // The names a market scan produced that are not businesses. Kept rather than
   // discarded: a scan returning placeholders is a broken scan, and the count is
@@ -4028,6 +4074,15 @@ async function ensureMarketSightings() {
   // (services/emailValidation via services/outreachQueue.emailNoteOf), and the
   // deliverability verdict on a stored contact (services/contactDiscovery).
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_note TEXT`).catch(() => {});
+  // What kind of business this card is for (services/businessCategory), so a
+  // skip can be attributed to a category without a second lookup, and the
+  // diversity rule can be checked against what was actually placed.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS business_category TEXT`).catch(() => {});
+  // THIN: placed because nothing better was left, not because it was good. The
+  // card says so rather than presenting a candidate with no marketing-activity
+  // evidence as though it were the same find as one with it.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS thin BOOLEAN NOT NULL DEFAULT FALSE`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS thin_note TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE brand_contacts ADD COLUMN IF NOT EXISTS email_check TEXT`).catch(() => {});
 
   // ── WHERE VERIFICATION CREDITS ACTUALLY WENT ──────────────────────────────
@@ -4133,7 +4188,10 @@ function placeholderReason(name) {
   return null;
 }
 
-async function markMarketNewcomers(marketKey, brands) {
+// meta: optional Map name -> { category, hasEvidence }, from the scan record the
+// name came off. Absent for callers that only have names, and an absent entry
+// writes NULL -- which reads as UNKNOWN, never as "no evidence".
+async function markMarketNewcomers(marketKey, brands, meta) {
   const out = new Set();
   try {
     const raw = Array.from(new Set((brands || []).filter(Boolean).map(b => String(b).trim())));
@@ -4178,11 +4236,21 @@ async function markMarketNewcomers(marketKey, brands) {
       }
     }
 
-    const vals = list.map((_, i) => `($1,$${i + 2})`).join(',');
+    // COALESCE ON UPDATE, so a rescan that happens to carry no category does
+    // not erase one an earlier scan established. A known fact is never
+    // downgraded to unknown by a thinner pass over the same market.
+    const m = meta instanceof Map ? meta : new Map();
     await pool.query(
-      `INSERT INTO market_business_seen (market_key, brand) VALUES ${vals}
-       ON CONFLICT (market_key, brand) DO UPDATE SET last_seen_at = NOW()`,
-      [marketKey, ...list]);
+      `INSERT INTO market_business_seen (market_key, brand, category, has_evidence)
+       SELECT $1, u.brand, u.category, u.has_evidence
+         FROM UNNEST($2::text[], $3::text[], $4::boolean[]) AS u(brand, category, has_evidence)
+       ON CONFLICT (market_key, brand) DO UPDATE SET
+         last_seen_at = NOW(),
+         category     = COALESCE(EXCLUDED.category, market_business_seen.category),
+         has_evidence = COALESCE(EXCLUDED.has_evidence, market_business_seen.has_evidence)`,
+      [marketKey, list,
+        list.map((b) => (m.get(b) ? m.get(b).category : null)),
+        list.map((b) => (m.get(b) ? m.get(b).hasEvidence : null))]);
   } catch (e) {
     console.error('[market-seen]', e.message);
   }
@@ -4206,19 +4274,108 @@ async function markMarketNewcomers(marketKey, brands) {
 // placeholder filtering and the idempotent upsert; this only routes the pool
 // to the right keys. Never throws: a pool that could not be recorded is logged,
 // and the scan that produced it still returns.
+// ── A SKIP IS FEEDBACK, AND IT IS THE ONLY KIND THE AGENT GIVES FOR FREE ────
+//
+// Approving a card takes a decision; skipping one takes a decision too, and it
+// is the cheaper of the two to give. Until now it moved outreach_queue to
+// 'skipped' and stopped there -- nothing in discovery read it, so an agent
+// could skip nine coffee shops and be handed a tenth.
+//
+// Written from the queue row that was just skipped, because that row already
+// carries the identity, the category and the lane: there is nothing to look up
+// and nothing to guess. Never throws -- losing the feedback must not fail the
+// skip the agent asked for.
+async function recordCardSkip(row) {
+  const r = row || {};
+  if (!r.agentId || !r.athleteId) return false;
+  try {
+    await pool.query(
+      `INSERT INTO card_skips (agent_id, athlete_id, brand_key, identity_key, brand_name, category, lane)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [String(r.agentId), String(r.athleteId), r.brandKey || null, r.identityKey || null,
+        r.brandName || null, r.category || null, r.lane || null]);
+    return true;
+  } catch (e) {
+    console.error('[card-skips] could not record a skip:', e.message);
+    return false;
+  }
+}
+
+// Everything the Scout needs to rank against this athlete's and this agent's
+// skips, in ONE round trip rather than three.
+//
+//   identities   every identity_key this ATHLETE has skipped -- the hard
+//                exclusion, so the exact business never comes back for them
+//   athleteCats  Map category -> count, this athlete only
+//   agentCats    Map category -> DECAYED weight, this agent across their whole
+//                roster. Decayed in SQL so the half-life is applied to each row
+//                by its own age rather than to a bucket by the bucket's.
+//
+// The agent half is windowed as well as decayed: past AGENT_SKIP_WINDOW_DAYS a
+// row's weight is under 5% and it is only noise in the sum.
+const SKIP_HALF_LIFE_DAYS = parseFloat(process.env.SKIP_HALF_LIFE_DAYS) || 21;
+const AGENT_SKIP_WINDOW_DAYS = parseInt(process.env.AGENT_SKIP_WINDOW_DAYS, 10) || 120;
+async function loadSkipSignals(agentId, athleteId) {
+  const out = { identities: new Set(), athleteCats: new Map(), agentCats: new Map() };
+  if (!agentId) return out;
+  try {
+    const mine = await pool.query(
+      `SELECT identity_key, category FROM card_skips
+        WHERE athlete_id = $1 AND agent_id = $2`, [String(athleteId || ''), String(agentId)]);
+    for (const r of mine.rows) {
+      if (r.identity_key) out.identities.add(r.identity_key);
+      if (r.category) out.athleteCats.set(r.category, (out.athleteCats.get(r.category) || 0) + 1);
+    }
+    // POWER(0.5, age/half-life): a skip today counts 1, one 21 days old counts
+    // 0.5, one 42 days old 0.25. Summed per category.
+    const across = await pool.query(
+      `SELECT category, SUM(POWER(0.5, EXTRACT(EPOCH FROM (NOW() - skipped_at)) / 86400.0 / $2))::float AS w
+         FROM card_skips
+        WHERE agent_id = $1 AND category IS NOT NULL
+          AND skipped_at > NOW() - ($3 || ' days')::interval
+        GROUP BY category`,
+      [String(agentId), SKIP_HALF_LIFE_DAYS, String(AGENT_SKIP_WINDOW_DAYS)]);
+    for (const r of across.rows) out.agentCats.set(r.category, Number(r.w) || 0);
+  } catch (e) {
+    // A ranking input that cannot be read is absent, not fatal: the slate is
+    // still built, just without the penalty. Said out loud so a broken read is
+    // not mistaken for an agent who has never skipped anything.
+    console.error('[card-skips] could not read skip signals:', e.message);
+  }
+  return out;
+}
+
 async function recordMarketPool(found, { schoolMarket, hometown } = {}) {
   const out = { schoolKey: null, hometownKey: null, school: 0, hometown: 0 };
   try {
     const { marketPoolKey } = require('./services/regionKey');
     const list = Array.isArray(found) ? found : [];
     const nameOf = (f) => (f && (f.name || f.brand)) ? String(f.name || f.brand).trim() : null;
+    // ── THE KIND, AND WHETHER THE SCAN FOUND ANY ACTIVITY ──────────────────
+    // Both are on the record the scan just produced and both were dropped here.
+    // Carried through by name so markMarketNewcomers can write them alongside
+    // the row it was already writing -- no second pass, no extra query.
+    const BC = require('./services/businessCategory');
+    const meta = new Map();
+    for (const f of list) {
+      const n = nameOf(f);
+      if (!n) continue;
+      const ev = f.evidence;
+      meta.set(n, {
+        category: BC.categoryOf(f).category,
+        // TRUE, FALSE, or UNKNOWN. A record that carries no evidence FIELD at
+        // all is not the same as one the scan looked at and found nothing for,
+        // and the ranking treats the two differently.
+        hasEvidence: ev === undefined ? null : !!(ev && String(ev).trim()),
+      });
+    }
     const school = list.filter((f) => f && f.market !== 'hometown').map(nameOf).filter(Boolean);
     const home = list.filter((f) => f && f.market === 'hometown').map(nameOf).filter(Boolean);
 
     const sk = schoolMarket ? marketPoolKey(schoolMarket) : null;
-    if (sk && school.length) { await markMarketNewcomers(sk, school); out.schoolKey = sk; out.school = school.length; }
+    if (sk && school.length) { await markMarketNewcomers(sk, school, meta); out.schoolKey = sk; out.school = school.length; }
     const hk = hometown ? marketPoolKey(hometown) : null;
-    if (hk && home.length) { await markMarketNewcomers(hk, home); out.hometownKey = hk; out.hometown = home.length; }
+    if (hk && home.length) { await markMarketNewcomers(hk, home, meta); out.hometownKey = hk; out.hometown = home.length; }
     if (out.school || out.hometown) {
       console.log(`[market-seen] recorded pool: ${out.school} under ${JSON.stringify(out.schoolKey)}`
         + (out.hometown ? `, ${out.hometown} under ${JSON.stringify(out.hometownKey)}` : ''));
@@ -4454,6 +4611,7 @@ async function getSocialDepth(athlete) {
 module.exports = {
   ready,
   recordMarketPool,
+  recordCardSkip, loadSkipSignals, SKIP_HALF_LIFE_DAYS, AGENT_SKIP_WINDOW_DAYS,
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers, normEmail,
   getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
