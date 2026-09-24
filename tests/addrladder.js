@@ -154,7 +154,11 @@ console.log('\n-- 2. two searches, and it is spent on the attempt --');
   ok('  and runs BEFORE Hunter', at('findSiteEmail') < at('_hunterEligible'));
   ok('Hunter re-checks the domain at the point of spend', at('_hunterDomainOk') < at('_hunterEligible'));
   ok('  and will not run without a confirmed one', /_hunterEligible = \(_deep \|\| localityRequired\) && _hunterDomainOk/.test(body));
-  ok('  nor when a step above already produced an address', /_addr\.step === null && !_seFoundEmail/.test(body));
+  ok('  nor when a step above already produced an address', /_addr\.step === null && \(!_seFoundEmail/.test(body));
+  // Except a GENERIC one: a site that published only info@ no longer stops
+  // Hunter when somebody named still has no address (Tier 4 is never emailed).
+  ok('  unless all the site gave was a generic mailbox and someone named has no address',
+    /\(!_seFoundEmail \|\| \(_seGenericOnly && _namedNoEmail\)\)/.test(body));
   ok('step 3 runs only when 1 and 2 both failed', /if \(_deep && _addr\.step === null\) \{/.test(body));
   ok('  and after Hunter', at('findPersonEmail') > at('_hunterEligible'));
   ok('  capped, from one constant', /_PERSON_SEARCH_CAP = parseInt\(process\.env\.PERSON_EMAIL_SEARCH_CAP/.test(body));

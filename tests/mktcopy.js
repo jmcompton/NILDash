@@ -46,11 +46,11 @@ console.log('-- THE NUMBERS MATCH THE CODE THAT PRODUCES THEM --');
   // The brief asked for six. The brand ladder searches SEVEN.
   const sources = /const _CONTACT_SOURCES = \[([^\]]+)\]/.exec(AI)[1]
     .split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean);
-  ok('the contact ladder has seven sources in code', sources.length === 7, sources);
-  ok('and the page says seven, not six', /searches seven sources/.test(TEXT)
-    && !/searches six sources/.test(TEXT), (TEXT.match(/searches \w+ sources/) || [])[0]);
-  ok('the stat says 7 per contact lookup',
-    /<div class="n">7<\/div><div class="l">Sources per contact lookup<\/div>/.test(TEXT));
+  ok('the contact ladder has eight sources in code', sources.length === 8, sources);
+  ok('and the page says eight, not seven', /searches eight sources/.test(TEXT)
+    && !/searches (six|seven) sources/.test(TEXT), (TEXT.match(/searches \w+ sources/) || [])[0]);
+  ok('the stat says 8 per contact lookup',
+    /<div class="n">8<\/div><div class="l">Sources per contact lookup<\/div>/.test(TEXT));
   // The copy names them in English ("business registries", "the site"), so the stem
   // is what to match -- checking the raw key reported a correct sentence as wrong.
   const stem = { site: 'the site', registry: 'registr' };
@@ -168,8 +168,14 @@ console.log('\n-- 2. THE HEADLINE NAMES WHAT WE DO --');
   ok('the app really does ship a fallback tier rather than a guess',
     /Fallback/.test(IDX) && /Generic inbox \(no named contact\)/.test(
       fs.readFileSync(R + 'server/services/contactDiscovery.js', 'utf8')));
-  ok('and the section below still states the no-guess rule',
-    /Never a guessed email address/.test(TEXT));
+  // THE RULE CHANGED, SO THE PROMISE DID. Addresses can now be BUILT from a
+  // domain's pattern (services/emailPattern, Tier 2). The page must not keep
+  // promising "never a guessed address"; it says every address is marked found
+  // or built -- which the code enforces (emailSource 'pattern', email_tier 2).
+  ok('and the section below states the found-or-built rule, not the old no-guess one',
+    /Every address says whether it was found or built/.test(TEXT) && !/Never a guessed email address/.test(TEXT));
+  ok('  and the code really marks a built address as built',
+    /emailSource = 'pattern'/.test(AI) && /pattern: 'pattern'/.test(fs.readFileSync(R + 'server/services/contactLadder.js', 'utf8')));
 }
 
 console.log('\n-- 3. THE CONTACT LADDER SECTION --');
@@ -203,7 +209,7 @@ console.log('\n-- 3. THE CONTACT LADDER SECTION --');
   ok('ranked above the general line', /ranked above the general line/i.test(block));
   ok('direct email, phone and Instagram', /Direct email, direct phone, and Instagram/.test(block));
   ok('honest confidence labels', /Confident, Likely or Fallback/.test(block));
-  ok('and never a guessed email', /Never a guessed email address/.test(block));
+  ok('and every address marked found or built', /Every address says whether it was found or built/.test(block));
   ok('the confidence words match the app\'s own labels',
     ['Confident', 'Likely', 'Fallback'].every((w) => new RegExp('_DS_CONF_STYLE[\\s\\S]{0,300}' + w).test(IDX)));
   // The three labels were demonstrated by the mockup; with it gone, the copy
@@ -211,8 +217,8 @@ console.log('\n-- 3. THE CONTACT LADDER SECTION --');
   // app's own words. Checked against index.js rather than against a picture.
   ok('the three labels are still named in the copy, now that no card shows them',
     /Confident, Likely or Fallback/.test(block));
-  ok('and the no-guess rule is stated rather than illustrated',
-    /If it was not found, it is not shown/.test(block));
+  ok('and a built address is never shown as found',
+    /marked that way, never shown as found/.test(block));
 }
 
 console.log('\n-- 4. THE PROGRAMS SECTION --');
@@ -250,7 +256,7 @@ console.log('\n-- 6. THE STATS ARE OURS --');
   ok('and the vague ones with it', !/AI-powered/.test(strip) && !/All-in-one/.test(strip), strip);
   ok('three stats', (strip.match(/class="stat"/g) || []).length === 3);
   ok('all three are countable facts',
-    /119/.test(strip) && /126/.test(strip) && />7</.test(strip), strip);
+    /119/.test(strip) && /126/.test(strip) && />8</.test(strip), strip);
 }
 
 console.log('\n-- EVERY IN-PAGE LINK GOES SOMEWHERE --');

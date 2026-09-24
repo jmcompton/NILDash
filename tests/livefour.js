@@ -68,9 +68,12 @@ async function main() {
     }
     // The fourth was a general inbox, which WAS on tier 3 and should always have
     // worked. Asserted so the fix is not credited for something that was fine.
+    // It no longer is: info@ is Tier 4 (services/emailTier) and never an
+    // email card. This fixture has the business line, so it becomes a call.
     const gen = ladderWith([], { genericInbox: 'info@primetimesportsbar.com' });
-    ok('info@ was on tier 3 and is an email card',
-      Q.channelFor(gen, { instagram: null }) === 'email');
+    ok('info@ with a main line is a CALL card now, not an email (Tier 4)',
+      Q.channelFor(gen, { instagram: null }) === 'call' && Q.routeOf(gen, { instagram: null }).route === 'call',
+      Q.routeOf(gen, { instagram: null }));
 
     // ── THE BAR HAD THE SAME BLIND SPOT, AND IT IS WORSE THERE ─────────────
     // channelFor misroutes; passesBar DISCARDS. A business reachable only by a
@@ -103,7 +106,8 @@ async function main() {
       { genericInbox: 'info@b.com' });
     ok('THE OWNER\'S MAILBOX BEATS info@', (Q.inboxOf(both) || {}).email === 'ronda@b.com',
       Q.inboxOf(both));
-    ok('  and every address we hold is still listed', Q.emailRowsOf(both).length === 2,
+    ok('  info@ is held but not offered: it is the Tier 4 row, not a sendable one',
+      Q.emailRowsOf(both).length === 1 && Q.genericRowsOf(both).map((r) => r.email).join() === 'info@b.com',
       Q.emailRowsOf(both).map((r) => r.email));
 
     // A handle must not outrank an address: an email sends itself, a DM is a

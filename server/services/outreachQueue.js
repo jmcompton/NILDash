@@ -284,14 +284,22 @@ function passesBar(ladder, ig) {
     // address was checked and found undeliverable is not a way in, whatever
     // its title says.
     || (((ladder && ladder.tiers) || []).find((t) => t.tier === 3) || { rows: [] })
-      .rows.some((r) => r && /inbox|mailbox|email/i.test(r.title || '') && !(r.emailCheck && r.emailCheck.ok === false));
+      .rows.some((r) => r && /inbox|mailbox|email/i.test(r.title || '') && !(r.emailCheck && r.emailCheck.ok === false)
+        // A generic mailbox is not a way in any more (Tier 4).
+        && !(r.email && _tierOf(r, ladder) === 4) && !(!r.email && /general inbox/i.test(r.title || '')));
 
   const reachable = !!(handle || phone || inbox);
   if (!reachable) {
+    const generic = genericRowsOf(ladder);
     return {
       ok: false,
       named: rows.length > 0,
-      reason: rows.length
+      // DROPPED FOR TIER 4, said in those words so the report can count it and
+      // an agent reading the run can see it was a rule, not a miss.
+      tier4Only: generic.length > 0,
+      reason: generic.length
+        ? `only a generic mailbox (${generic.map((g) => g.email).join(', ')}), which is never emailed, and no phone or Instagram to route to instead`
+        : rows.length
         ? 'found ' + rows.map((r) => r.name).join(', ') + ' but no way to reach them — no phone, no inbox, no handle'
         : (got.length
           ? 'nothing reachable — found only ' + got.join(', ')
@@ -550,7 +558,31 @@ const SENDABLE_EMAIL_KINDS = new Set([
   'published',   // a source found it printed for this person or business
   'hunter',      // paid domain lookup: a real mailbox, matched by surname
   'bio',         // off an Instagram profile; a real address, weaker provenance
+  'pattern',     // BUILT from the domain's pattern and the owner's name: Tier 2
 ]);
+
+// ── TIER 4 IS NEVER THE EMAIL ───────────────────────────────────────────────
+// info@, contact@, hello@ and the rest (services/emailTier). A pitch to a desk
+// reads as a mail merge and lands with whoever empties the inbox. No email card
+// is built from one: the business becomes a DM or a call if it has a handle or
+// a number, and is dropped otherwise so discovery fills the slot with a
+// business we can actually write to. The address stays on the ladder so the
+// card can say why it was not used.
+const ET = require('./emailTier');
+function _tierOf(row, ladder) { return ET.tierOfRow(row, ladder && ladder.businessDomain); }
+
+// Every Tier 4 address on the ladder, for the explanation and the report.
+function genericRowsOf(ladder) {
+  const out = [];
+  for (const t of ((ladder && ladder.tiers) || [])) {
+    for (const r of (t.rows || [])) {
+      if (r && r.email && !(r.emailCheck && r.emailCheck.ok === false) && _tierOf(r, ladder) === 4) {
+        out.push({ email: String(r.email).trim().toLowerCase(), tier: 4, row: r });
+      }
+    }
+  }
+  return out;
+}
 
 // Every row on the ladder that carries an address we would send to, best first.
 function emailRowsOf(ladder) {
@@ -568,7 +600,12 @@ function emailRowsOf(ladder) {
       // address stays on the row so the card can say why; it never becomes
       // the channel. An unchecked or unverified address (ok null) still is.
       if (r.emailCheck && r.emailCheck.ok === false) continue;
-      out.push({ email: String(r.email).trim().toLowerCase(), kind, tier: t.tier, row: r });
+      // A GENERIC MAILBOX IS NOT OFFERED EITHER. See genericRowsOf.
+      const emailTier = _tierOf(r, ladder);
+      if (emailTier === 4) continue;
+      out.push({ email: String(r.email).trim().toLowerCase(), kind, tier: t.tier, row: r,
+        emailTier, emailSourceUrl: r.emailSourceUrl || r.sourceUrl || null,
+        emailTierReason: r.emailTierReason || null });
     }
   }
   return out;
@@ -604,6 +641,7 @@ function emailNoteOf(ladder) {
   const parts = [];
   for (const a of all) {
     if (a.check && a.check.ok === false) parts.push(`${a.email} is undeliverable (${a.check.reason})`);
+    else if (ET.isGeneric(a.email)) parts.push(`${a.email} is a generic mailbox (Tier 4), and we only email a named person`);
     else if (!SENDABLE_EMAIL_KINDS.has(a.kind)) parts.push(`${a.email} was not published by a source we send to (${a.kind})`);
     else parts.push(`${a.email} could not be used`);
   }
@@ -616,7 +654,7 @@ function inboxOf(ladder) {
   // `kind` is the PROVENANCE now, not a label. It used to read
   // `row.kind || row.label`, neither of which tier 3 sets, so every email card
   // ever built recorded emailKind null.
-  return { email: hit.email, kind: hit.kind };
+  return { email: hit.email, kind: hit.kind, emailTier: hit.emailTier, sourceUrl: hit.emailSourceUrl, tierReason: hit.emailTierReason };
 }
 
 // ── EMAIL, THEN DM, THEN CALL ───────────────────────────────────────────────
@@ -635,6 +673,21 @@ function channelFor(ladder, ig) {
   const handle = (ig && ig.instagram) || null;
   if (handle && (ig && ig.instagramScope) !== 'brand') return 'dm';
   return 'call';
+}
+
+// ── WHAT THE ADDRESS TIER DID TO THIS BUSINESS ──────────────────────────────
+// For the run record and the nightly report: the tier of the address the card
+// uses, or -- when the only address was Tier 4 -- where the business went
+// instead: a DM, a call, or dropped. Same inputs as channelFor and passesBar,
+// so the three cannot disagree.
+//   { emailTier: 1|2|3|4|null, route: 'email'|'dm'|'call'|'dropped'|null, tier4Only }
+function routeOf(ladder, ig) {
+  const inbox = inboxOf(ladder);
+  if (inbox) return { emailTier: inbox.emailTier || null, route: 'email', tier4Only: false };
+  const tier4 = genericRowsOf(ladder).length > 0;
+  if (!tier4) return { emailTier: null, route: null, tier4Only: false };
+  const bar = passesBar(ladder, ig);
+  return { emailTier: 4, route: bar.ok ? channelFor(ladder, ig) : 'dropped', tier4Only: true };
 }
 
 // A plain subject, built rather than written. writePitch returns a message and
@@ -665,6 +718,8 @@ function buildCard(cand, ladder, ig) {
   // greet nobody.
   const _greet = greetNameOf(ladder);
   const inbox = inboxOf(ladder);
+  // The generic mailbox the card was routed away from, if that is all there was.
+  const _generic = inbox ? null : (genericRowsOf(ladder)[0] || null);
   const channel = channelFor(ladder, ig);
   const phone = (ladder && ladder.mainLine && ladder.mainLine.phone)
     || rows.map((r) => r.phone).find(Boolean) || null;
@@ -696,6 +751,12 @@ function buildCard(cand, ladder, ig) {
     greetName: _greet || null,
     email: inbox ? inbox.email : null,
     emailKind: inbox ? inbox.kind : null,
+    // THE ADDRESS TIER AND WHERE IT WAS STATED (services/emailTier). On a DM
+    // or call card routed away from a generic mailbox, the tier is 4 and the
+    // address is not carried: the card must not offer what the rule refused.
+    emailTier: inbox ? (inbox.emailTier || null) : (_generic ? 4 : null),
+    emailSourceUrl: inbox ? (inbox.sourceUrl || null)
+      : (_generic ? (_generic.row.emailSourceUrl || _generic.row.sourceUrl || null) : null),
     // Why email was or was not offered, for the agent (services/emailValidation).
     emailNote: emailNoteOf(ladder),
     subject: channel === 'email' ? subjectFor(c.brand || c.brandName) : null,
@@ -1112,7 +1173,7 @@ function fillingSince(athleteId) { return _filling.get(String(athleteId)) || nul
 module.exports = {
   markFilling, unmarkFilling, isFilling, fillingIds, fillingSince,
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
-  inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor,
+  inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor, routeOf, genericRowsOf,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
   passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,

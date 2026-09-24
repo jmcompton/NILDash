@@ -2120,6 +2120,11 @@ async function init() {
   // inbox and no handle became a call card and the address was gone.
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_kind TEXT`).catch(() => {});
+  // THE ADDRESS TIER (services/emailTier): 1 found at the business domain,
+  // 2 built from the domain's pattern, 3 a personal address tied to the
+  // business, 4 a generic mailbox (never emailed). And the page it was stated on.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_tier SMALLINT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_source_url TEXT`).catch(() => {});
   // THE LINK TO THE DRAFT THAT WILL ACTUALLY SEND IT.
   //
   // An email card does NOT get a second send path. outreach_logs already owns
@@ -2148,6 +2153,8 @@ async function init() {
   // guard and the writer both need to know which one they are looking at rather
   // than finding out from the reply.
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS email_kind TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS email_tier SMALLINT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS email_source_url TEXT`).catch(() => {});
 
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS scheduled_send_at TIMESTAMPTZ`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_timezone TEXT`).catch(() => {});

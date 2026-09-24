@@ -1435,7 +1435,7 @@ function _phoneLocalityOk(phone, reportedState, regionState) {
 // is published across several of these. Each is searched in PARALLEL so total
 // per-brand wall time stays close to a single search.
 const _CR = require('./services/contactRank');
-const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'site', 'linkedin'];
+const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'site', 'linkedin', 'reviews'];
 
 // Source order for the DEEP contact ladder, tuned from production hit rates. Wave 1
 // is the first 3, wave 2 the next 3, and so on (CONTACT_WAVE_SIZE).
@@ -1443,7 +1443,9 @@ const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'si
 //   wave 2: linkedin, maps, news      - person-specific and owner-naming fallbacks
 //   wave 3: registry                  - 5 runs, 1 contact, 0 Tier 1: last resort only
 // Single source of truth: every deep caller uses this instead of its own literal.
-const MANUAL_SOURCE_ORDER = ['site', 'facebook', 'chamber', 'linkedin', 'maps', 'news', 'registry'];
+// 'reviews' (owner replies to customer reviews) sits with the other
+// owner-naming fallbacks, ahead of the registry.
+const MANUAL_SOURCE_ORDER = ['site', 'facebook', 'chamber', 'linkedin', 'maps', 'news', 'reviews', 'registry'];
 
 // THE LEAN ORDER, for the morning outreach queue. Measured yield across the
 // sample runs, not intuition:
@@ -1459,7 +1461,12 @@ const MANUAL_SOURCE_ORDER = ['site', 'facebook', 'chamber', 'linkedin', 'maps', 
 // cost-sensitive background job, not an agent waiting on one business they
 // chose -- a miss here costs a card, not a customer, so it is the right lane
 // to trade recall for money. Manual "Add a Business" keeps the full order.
-const LEAN_SOURCE_ORDER = ['chamber', 'site', 'facebook'];
+//
+// REVIEWS JOINS FACEBOOK IN WAVE 2. An owner who replies to Google or Yelp
+// reviews usually signs the reply ("Thanks, Dana -- owner"), and that is the
+// business naming its owner on its own listing. It only runs when wave 1 found
+// nobody, like facebook, so it costs a search only where one is missing.
+const LEAN_SOURCE_ORDER = ['chamber', 'site', 'facebook', 'reviews'];
 const LEAN_WAVE_SIZE = 2;
 
 // THE DEEP CONTACT LOOKUP, STATED ONCE.
@@ -1561,6 +1568,13 @@ function _sourceLead(source, brand, loc, domain, regionState) {
       return `Search the ${stateFull || 'relevant state'} Secretary of State / business entity registry for the LLC or corporation record of "${brand}"${where}. Try queries like "${brand} ${stateFull || ''} Secretary of State business search" or the state's official business entity search. Extract the officers, members, managers, and the registered agent NAMED in the filing. Label each title EXACTLY as the filing does and add the provenance, e.g. "Registered Agent (state filing)", "Member (state filing)", "Officer (state filing)". Do NOT call a registered agent the owner.`;
     case 'facebook':
       return `Search Facebook for the official page of "${brand}"${where} (query "${brand} ${loc || ''} facebook"). From the page's About / contact section, extract any published email as businessEmail (unless the page names the specific person it belongs to), and any person the page names as owner, manager, or contact, with the title exactly as stated.`;
+    case 'reviews':
+      // THE PLACES API DOES NOT RETURN OWNER REPLIES: its review objects carry
+      // the text and rating a customer left and nothing the business wrote
+      // back. So this is a web search for the replies where they are public.
+      // (No apostrophes in this comment: tests/domgate.js lifts this function
+      // with a brace matcher that reads one as the start of a string.)
+      return `Find customer reviews of "${brand}"${where} on Google Maps, Yelp, or TripAdvisor that carry a RESPONSE FROM THE OWNER or business. Owners often sign these replies ("Thanks for coming in! - Dana, owner"). Extract the person who signed as owner or manager, with the title exactly as they signed it, and the review page URL as sourceUrl. Only report a full name (first and last) that the reply itself states; a first name alone, or a name you had to infer, is not a contact. Confirm the listing is this ${loc || ''} location.`;
     case 'maps':
       return `Find the Google Business Profile, Google Maps, or Yelp listing for "${brand}"${where}. Extract the published phone as businessPhone, the city and state of the listing, and any published email or named contact shown. Confirm this is the ${loc || 'correct'} location, not a same-name business elsewhere.`;
     case 'news':
@@ -1656,6 +1670,7 @@ function _labelTitle(source, title) {
   else if (filingHint) qual = '(state filing)';
   else if (source === 'news') qual = '(per news)';
   else if (source === 'registry') qual = '(state filing)';
+  else if (source === 'reviews') qual = '(review reply)';
   return qual ? `${core} ${qual}` : core; // facebook / maps / chamber / site: plain role
 }
 
@@ -2565,6 +2580,33 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
       console.warn('[dealScan] site email lookup failed:', e.message);
     }
   }
+  // ── THE OWNER, NAMED ON THE BUSINESS'S OWN ABOUT / TEAM / STAFF PAGE ─────
+  // siteEmail reads the pages it already fetched for "Name, Owner" and its
+  // like (services/siteEmail extractPeople). A person the fan-out did not
+  // already have joins the contact list as a site-sourced row -- the business
+  // stating its own owner, tied to this location by being on its own site. If
+  // the site's named address belongs to them, it is theirs.
+  if (_se && Array.isArray(_se.people) && _se.people.length) {
+    res.contacts = res.contacts || [];
+    for (const p of _se.people) {
+      const _k = _mergeNameKey(p.name);
+      const _have = res.contacts.find((c) => c && c.name && _mergeNameKey(c.name) === _k);
+      if (_have) {
+        _have.sources = Array.from(new Set([...(_have.sources || (_have.source ? [_have.source] : [])), 'site']));
+        continue;
+      }
+      res.contacts.push({
+        name: p.name, title: p.title, email: null, emailSource: null, phone: null, linkedinUrl: null,
+        sourceUrl: p.sourceUrl || null, confidence: 'high', source: 'site', sources: ['site'],
+        affiliationScope: 'this-location', affiliationEvidence: `named as ${p.title} on ${p.sourceUrl || 'the business website'}`,
+      });
+    }
+    if (_se.personalEmail) {
+      const _lp = String(_se.personalEmail).split('@')[0];
+      const _owner = res.contacts.find((c) => c && c.name && !c.email && _localPartMatchesName(_lp, c.name));
+      if (_owner) { _owner.email = _se.personalEmail; _owner.emailSource = 'published'; _owner.emailSourceUrl = _se.personalSourceUrl || null; }
+    }
+  }
   if (_se && _se.personalEmail) {
     _addr.step = 1; _addr.label = 'named person on the business website';
     _addr.email = _se.personalEmail; _addr.kind = 'personal'; _addr.sourceUrl = _se.personalSourceUrl;
@@ -2626,10 +2668,18 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     } catch (_) { return false; }
   })();
   const _seFoundEmail = !!(res.siteEmail && res.siteEmail.email);
-  // Step 1 already succeeded -> nothing to escalate to. _seFoundEmail keeps the
-  // old behaviour for a role-only site hit, which still suppresses a credit.
+  // A GENERAL INBOX NO LONGER ENDS THE SEARCH. A site that published only
+  // info@ used to suppress the credit, which left that business with a Tier 4
+  // address and nothing else -- and a Tier 4 address no longer becomes an email
+  // card (services/emailTier). So when the only thing the site gave us is a
+  // desk AND somebody named still has no address, Hunter runs: its surname
+  // match or its domain pattern is the way to that person.
+  const _ET = require('./services/emailTier');
+  const _seGenericOnly = _seFoundEmail && _ET.isGeneric(res.siteEmail.email);
+  const _namedNoEmail = (res.contacts || []).some((c) => c && c.name && !c.email);
+  // Step 1 already succeeded -> nothing to escalate to.
   const _hunterEligible = (_deep || localityRequired) && _hunterDomainOk
-    && _addr.step === null && !_seFoundEmail && process.env.HUNTER_API_KEY;
+    && _addr.step === null && (!_seFoundEmail || (_seGenericOnly && _namedNoEmail)) && process.env.HUNTER_API_KEY;
   if (_hunterEligible && !_deep) {
     // CHEAP PATH: warm the cache, never block the card on it. Same trick the
     // Instagram lookup uses -- this scan may not show the address, but it is
@@ -2654,9 +2704,14 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
       const _hT0 = Date.now();
       try {
         const { findDomainEmails } = require('./services/hunterLookup');
-        const _hunter = await findDomainEmails(_dom);
+        const _hunter = await findDomainEmails(_dom, { withPattern: true });
         const _emails = (_hunter && Array.isArray(_hunter.emails)) ? _hunter.emails.filter((e) => e && e.email) : [];
-        if (_emails.length) {
+        // THE DOMAIN'S PATTERN, Hunter's own or read off one of its addresses.
+        // Carried on the result so a name found LATER (the nightly job's owner
+        // search runs after this) can still be given an address.
+        const _pat = require('./services/emailPattern').patternFromHunter(_hunter);
+        if (_pat) res.hunterPattern = { domain: _dom, ..._pat };
+        if (_emails.length || _pat) {
           const _personal = _emails.filter((e) => e.type === 'personal')
             .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
           const _generic = _emails.filter((e) => e.type === 'generic')
@@ -2672,6 +2727,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
             if (_m) {
               c.email = _m.email;
               c.emailSource = 'hunter';       // NOT 'published' -- see contactLadder
+              c.emailSourceUrl = _m.sourceUrl || null;
               c.emailScore = _m.confidence;
               _filled = { name: c.name, email: _m.email, confidence: _m.confidence };
               break;
@@ -2687,6 +2743,31 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
             _addr.step = 2; _addr.label = 'Hunter, against the confirmed domain';
             _addr.email = _filled.email; _addr.kind = 'personal'; _addr.person = _filled.name;
             _note(2, 'Hunter', true, true, _filled.email);
+          }
+          // (c) NO SURNAME MATCH, BUT A PATTERN: BUILD THE OWNER'S ADDRESS.
+          // The most senior named person with no address gets one constructed
+          // from the domain's pattern. Marked emailSource 'pattern' -- Tier 2,
+          // never 'published', so the greeting guard does not treat it as a
+          // stated address and the card says it was built, not found.
+          if (!_filled && _pat) {
+            const _EP = require('./services/emailPattern');
+            const _who = (res.contacts || []).filter((c) => c && c.name && !c.email)
+              .sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title));
+            for (const c of _who) {
+              const _built = _EP.construct(_pat.pattern, c.name, _dom);
+              if (!_built) continue;
+              c.email = _built;
+              c.emailSource = 'pattern';
+              c.emailSourceUrl = _pat.exampleSourceUrl || null;
+              c.emailPattern = { pattern: _pat.pattern, from: _pat.from, example: _pat.example || null };
+              _filled = { name: c.name, email: _built, pattern: _pat.pattern };
+              if (_addr.step === null) {
+                _addr.step = 2; _addr.label = `built from ${_dom}'s address pattern (${_pat.pattern})`;
+                _addr.email = _built; _addr.kind = 'personal'; _addr.person = c.name;
+                _note(2, 'Hunter pattern', true, true, `${c.name} -> ${_built} (${_pat.from} ${_pat.pattern})`);
+              }
+              break;
+            }
           }
           // (b) GENERIC INBOX BACKFILL. No name attached, so nothing to greet.
           let _inbox = null;
@@ -2710,7 +2791,8 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     _note(2, 'Hunter', !!_hunterEligible && _deep, false,
       !_hunterDomainOk ? 'no confirmed domain, so Hunter was not called'
         : (!process.env.HUNTER_API_KEY ? 'no Hunter key'
-          : (_addr.step === 1 ? 'skipped, step 1 already had an address' : 'no surname match')));
+          : (_addr.step === 1 ? 'skipped, step 1 already had an address'
+            : (res.hunterPattern ? 'no surname match, and nobody named to build an address for' : 'no surname match and no pattern'))));
   }
 
   // ── STEP 3: A TARGETED SEARCH FOR ONE NAMED PERSON'S ADDRESS ───────────────
@@ -2872,6 +2954,9 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // websiteDropped says what was rejected so the card can show it.
   return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, siteEmail: res.siteEmail || null, approach, mapsUrl, website: effectiveWebsite, websiteDropped,
     websiteResolved, addressLadder: res.addressLadder || null,
+    // The domain's address pattern, when Hunter gave or implied one, so a name
+    // found after this (the nightly owner search) can still get a Tier 2 address.
+    hunterPattern: res.hunterPattern || null,
     // WAS COMPUTED AND THEN DROPPED. `source` two lines above this used res.cached
     // for the log line, but the returned object rebuilt itself from an explicit
     // field list that omitted it -- so every caller read `undefined`. The nightly

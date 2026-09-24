@@ -140,16 +140,19 @@ async function main() {
   const c1 = Q.buildCard({ brand: 'NoMX Shop', athleteName: 'Peyton' }, L1, { instagram: 'nomxshop', instagramScope: 'this-location' });
   ok('the card is a DM card with no email, and says why', c1.channel === 'dm' && c1.email === null && c1.emailNote === 'Email not offered: info@nomx.example.com is undeliverable (the domain publishes no mail server and no address (no MX, A or AAAA record))', c1.emailNote);
 
-  const L2 = ladderWith([{ title: 'General inbox', email: 'info@good.example.com', emailKind: 'published', channel: 'email' }, { title: 'Role email from their website', email: 'sales@gone.example.com', emailKind: 'published', channel: 'email' }],
+  // NAMED ADDRESSES, NOT info@/hello@. These cases are about deliverability;
+  // a generic mailbox is Tier 4 now (services/emailTier) and is never the email
+  // channel, which tests/emailtier.js covers. So the local part is a person.
+  const L2 = ladderWith([{ title: 'Email from their website', email: 'dana@good.example.com', emailKind: 'published', channel: 'email' }, { title: 'Role email from their website', email: 'sales@gone.example.com', emailKind: 'published', channel: 'email' }],
     [{ name: 'Dana Roberts', title: 'Owner', source: 'chamber' }]);
   await EVAL.validateLadder(P(), L2);
   const c2 = Q.buildCard({ brand: 'Good Shop' }, L2, { instagram: null });
-  ok('a deliverable address is the email channel, and the card says it was checked', c2.channel === 'email' && c2.email === 'info@good.example.com' && /^Email checked: info@good\.example\.com \(the domain accepts mail \(MX record found\)\); 1 other address undeliverable$/.test(c2.emailNote), c2.emailNote);
+  ok('a deliverable address is the email channel, and the card says it was checked', c2.channel === 'email' && c2.email === 'dana@good.example.com' && /^Email checked: dana@good\.example\.com \(the domain accepts mail \(MX record found\)\); 1 other address undeliverable$/.test(c2.emailNote), c2.emailNote);
 
-  const L3 = ladderWith([{ title: 'General inbox', email: 'hello@slow.example.com', emailKind: 'published', channel: 'email' }]);
+  const L3 = ladderWith([{ title: 'Email from their website', email: 'dana@slow.example.com', emailKind: 'published', channel: 'email' }]);
   await EVAL.validateLadder(P(), L3);
   const c3 = Q.buildCard({ brand: 'Slow Shop' }, L3, { instagram: null });
-  ok('an unverified address (resolver blip) is still offered, marked unverified', c3.channel === 'email' && /^Email unverified: hello@slow\.example\.com \(the MX lookup did not complete/.test(c3.emailNote), c3.emailNote);
+  ok('an unverified address (resolver blip) is still offered, marked unverified', c3.channel === 'email' && /^Email unverified: dana@slow\.example\.com \(the MX lookup did not complete/.test(c3.emailNote), c3.emailNote);
   const L4 = ladderWith([{ title: 'General inbox', email: 'info@nomx.example.com', emailKind: 'published', channel: 'email' }], [{ name: 'A B', title: 'Owner', source: 'chamber', email: 'ab@good.example.com', emailKind: 'searched' }]);
   await EVAL.validateLadder(P(), L4);
   ok('a good address of unsendable provenance is explained beside the dead one', /ab@good\.example\.com was not published by a source we send to \(searched\)/.test(Q.emailNoteOf(L4)) && /info@nomx\.example\.com is undeliverable/.test(Q.emailNoteOf(L4)), Q.emailNoteOf(L4));

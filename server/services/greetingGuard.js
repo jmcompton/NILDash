@@ -255,7 +255,9 @@ const MIN_EMAIL_CONFIDENCE = 0.6;
 // owner_search: the last door (services/ownerNameSearch), which refuses role
 // words, the business's own name and placeholder titles before a name gets
 // this far, and records the page it came from.
-const GREETABLE_SOURCES = new Set(['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps', 'owner_search']);
+// 'reviews': the owner signed a reply on the business's own listing -- the
+// business naming its owner, as on its own site.
+const GREETABLE_SOURCES = new Set(['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps', 'reviews', 'owner_search']);
 
 function _sourcesOf(c) {
   return Array.isArray(c.sources) && c.sources.length ? c.sources : (c.source ? [c.source] : []);

@@ -1,8 +1,10 @@
 'use strict';
 // ── Hunter.io Domain Search ──────────────────────────────────────────────────
 //
-// Given a business domain, return the addresses Hunter holds for it. NEVER
-// guesses: only addresses Hunter actually has.
+// Given a business domain, return the addresses Hunter holds for it, and the
+// domain's address PATTERN ("{first}.{last}") when Hunter knows it. This module
+// never guesses; building an address from the pattern is services/emailPattern,
+// and what it builds is marked Tier 2 (services/emailTier), never 'found'.
 //
 // RESTORED after fbf5865 removed it. Two things are different this time, and
 // both are the reason the removal happened:
@@ -212,7 +214,10 @@ async function _record(domain, outcome, evidence) {
   }
 }
 
-// opts: { force } -- force skips the cache read (not the write).
+// opts: { force, withPattern } -- force skips the cache read (not the write).
+// withPattern: a domain with NO listed addresses but a known pattern returns
+// { found:false, emails:[], pattern } instead of null, so the owner's address
+// can still be built. Off by default: every older caller reads null as "nothing".
 async function findDomainEmails(domain, opts = {}) {
   const key = String(domain || '').trim().toLowerCase();
   if (!key) return null;
@@ -235,7 +240,8 @@ async function findDomainEmails(domain, opts = {}) {
         const oc = cached.outcome || (ev.found ? OUTCOME.OK : OUTCOME.NONE);
         if (ANSWERED.has(oc)) {
           // A real answer, still fresh. Free.
-          return ev.found === false ? null : { ...ev, cached: true };
+          if (ev.found === false) return (opts.withPattern && ev.pattern) ? { found: false, emails: [], pattern: ev.pattern, cached: true } : null;
+          return { ...ev, cached: true };
         }
         // A failure row. Honour it only briefly, then allow a retry.
         const ageH = cached.refreshed_at
@@ -315,17 +321,22 @@ async function findDomainEmails(domain, opts = {}) {
     firstName: e.first_name || null,
     lastName: e.last_name || null,
     position: e.position || null,
+    // WHERE HUNTER SAW IT. Hunter lists the pages it found each address on;
+    // the first is kept so the card can say where the address was stated.
+    sourceUrl: (Array.isArray(e.sources) && e.sources[0] && e.sources[0].uri) || null,
   })).filter((e) => e.email);
+  // How this domain spells its people's addresses. Was discarded.
+  const pattern = (d && typeof d.pattern === 'string' && d.pattern.trim()) ? d.pattern.trim() : null;
 
   if (!emails.length) {
-    console.log(`[hunter] @${key} found=0 ms=${ms}`);
-    await _record(key, OUTCOME.NONE, { found: false, status: 200, ms });
-    return null;
+    console.log(`[hunter] @${key} found=0${pattern ? ' pattern=' + pattern : ''} ms=${ms}`);
+    await _record(key, OUTCOME.NONE, { found: false, status: 200, ms, pattern });
+    return (opts.withPattern && pattern) ? { found: false, emails: [], pattern, status: 200, ms } : null;
   }
 
   const p = emails.filter((e) => e.type === 'personal').length;
   console.log(`[hunter] @${key} found=${emails.length} personal=${p} generic=${emails.length - p} ms=${ms}`);
-  const out = { found: true, emails, status: 200, ms };
+  const out = { found: true, emails, pattern, status: 200, ms };
   await _record(key, OUTCOME.OK, out);
   return out;
 }
