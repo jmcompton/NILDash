@@ -32,6 +32,7 @@ const SOURCE_NOTES = {
   news: 'Named in a news article',
   chamber: 'Listed in a chamber of commerce directory',
   linkedin: 'Public LinkedIn profile naming this business',
+  reviews: 'Signed an owner reply to a customer review',
 };
 
 // Suggested call windows. Local businesses are reachable at different times by
@@ -66,6 +67,7 @@ const EMAIL_KIND = {
   hunter: 'hunter',         // paid domain lookup, matched to the person by surname
   bio: 'bio',               // off an Instagram profile, not the business website
   searched: 'searched',     // address ladder step 3: claimed, with a citation
+  pattern: 'pattern',       // BUILT from the domain's address pattern: Tier 2, never seen written down
 };
 
 function sourceNote(contact) {
@@ -296,6 +298,11 @@ function buildContactLadder(res, opts = {}) {
       // getBrandContacts, services/emailValidation); re-checked by the job.
       emailCheck: c.email ? (c.emailCheck || null) : null,
       emailDomainNote: c.email ? _xdom(c.email) : null,
+      // The page the ADDRESS was stated on, which is not always the page the
+      // name came from (a Hunter match, a targeted search). Falls back to the
+      // name's page, where the fan-out read both.
+      emailSourceUrl: c.email ? (c.emailSourceUrl || c.sourceUrl || null) : null,
+      emailPattern: c.email ? (c.emailPattern || null) : null,
       phone: isOwnLine ? c.phone : null,
       phoneKind: isOwnLine ? 'direct' : null,
       phoneNote: isOwnLine ? 'Direct number listed for this person' : null,
@@ -413,6 +420,7 @@ function buildContactLadder(res, opts = {}) {
       email: se.email,
       emailKind: 'published',
       emailType: se.type,
+      emailSourceUrl: se.sourceUrl || null,
       // A corporate address on a franchise is a real address and a dead end for a
       // local deal, so it is shown and labelled rather than hidden.
       corporate: !!se.corporate,
@@ -476,9 +484,16 @@ function buildContactLadder(res, opts = {}) {
   }
   if (t3.length) tiers.push({ tier: 3, label: 'Business channels', rows: t3 });
 
+  // EVERY ADDRESS GETS AN EMAIL TIER (services/emailTier), against the
+  // confirmed business domain only -- the same ground truth the cross-domain
+  // note uses, and for the same reason: an unconfirmed domain would invert it.
+  const businessDomain = websiteConfirmed ? (_rootFn(bizSite) || null) : null;
+  require('./emailTier').annotateLadder({ tiers }, businessDomain);
+
   return {
     mainLine,
     tiers,
+    businessDomain,
     // A website the domain gate rejected. Shown on the card, not hidden: an agent
     // seeing contacts with no website should know it is because the listed URL
     // belonged to someone else, not because the business has no web presence.

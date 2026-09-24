@@ -67,14 +67,18 @@ async function seed(P) {
   const P = store.pool;
   await seed(P);
 
+  // NAMED ADDRESSES (jeff@), NOT hello@. hello@ is a generic mailbox, Tier 4
+  // (services/emailTier), and is never the email channel any more; this suite
+  // is about the email channel's mechanics, which tests/emailtier.js does not
+  // repeat, so it uses an address that is allowed to take it.
   console.log('\n1. PRECEDENCE: EMAIL, THEN DM, THEN CALL');
   const igOk = { instagram: 'trakshak', instagramScope: 'business' };
   const igBrand = { instagram: 'rally_house', instagramScope: 'brand' };
 
   check('an inbox alone is an EMAIL card',
-    Q.channelFor(withInbox('hello@trakshak.com'), {}) === 'email');
+    Q.channelFor(withInbox('jeff@trakshak.com'), {}) === 'email');
   check('an inbox AND a handle is still an EMAIL card',
-    Q.channelFor(withInbox('hello@trakshak.com'), igOk) === 'email');
+    Q.channelFor(withInbox('jeff@trakshak.com'), igOk) === 'email');
   check('no inbox, a storefront handle is a DM card',
     Q.channelFor(noInbox(), igOk) === 'dm');
   check('no inbox, a national handle is a CALL card',
@@ -83,9 +87,9 @@ async function seed(P) {
 
   console.log('\n2. THE OTHER CHANNELS STAY ON THE CARD');
   const both = Q.buildCard({ brand: 'Trak Shak', pitch: { message: 'Hi Jeff, a real idea.\n\nMore.' } },
-    withInbox('hello@trakshak.com', 'Jeff Martinez'), igOk);
+    withInbox('jeff@trakshak.com', 'Jeff Martinez'), igOk);
   check('it is an email card', both.channel === 'email', both.channel);
-  check('  carrying the address', both.email === 'hello@trakshak.com', both.email);
+  check('  carrying the address', both.email === 'jeff@trakshak.com', both.email);
   check('  AND the handle is still there', both.instagram === 'trakshak', both.instagram);
   check('  AND the phone is still there', both.phone === '205-555-0100', both.phone);
   check('  AND who to ask for', both.phoneAskFor === 'Jeff', both.phoneAskFor);
@@ -104,12 +108,12 @@ async function seed(P) {
   const card = (await P.query(
     `SELECT * FROM outreach_queue WHERE agent_id=$1 AND slot=1`, [AG])).rows[0];
   check('the queue row is channel=email', card.channel === 'email', card.channel);
-  check('  with the address on it', card.email === 'hello@trakshak.com', card.email);
+  check('  with the address on it', card.email === 'jeff@trakshak.com', card.email);
   check('  and a link to a draft', !!card.outreach_log_id, card.outreach_log_id);
   const draft = (await P.query(
     `SELECT * FROM outreach_logs WHERE id=$1`, [card.outreach_log_id])).rows[0];
   check('the draft exists', !!draft);
-  check('  addressed to the same inbox', draft.sent_to_email === 'hello@trakshak.com', draft.sent_to_email);
+  check('  addressed to the same inbox', draft.sent_to_email === 'jeff@trakshak.com', draft.sent_to_email);
   check('  with the subject', draft.subject === 'Quick idea for Trak Shak', draft.subject);
   check('  the pitch as paragraphs', /<p>Hi Jeff, a real idea\.<\/p>/.test(draft.body_html), draft.body_html);
   check('  status draft, so it cannot send until approved', draft.status === 'draft');
@@ -187,7 +191,7 @@ async function seed(P) {
      VALUES ($1,'siteemail',$2,$3,'OK',NOW())
      ON CONFLICT (brand_key, lane) DO UPDATE SET evidence=EXCLUDED.evidence`,
     [brand.toLowerCase(), brand, JSON.stringify({ email, kind: 'generic' })]);
-  await cache('EC Recoverable', 'hello@ecrecoverable.com');
+  await cache('EC Recoverable', 'jeff@ecrecoverable.com');
   await cache('EC Bounced', 'bounced@ecbounced.com');
   // first_seen_at, not created_at. Seeded WITHOUT a .catch so a schema drift
   // here fails the test rather than silently un-suppressing the address and
@@ -202,7 +206,7 @@ async function seed(P) {
 
   const dry = run([]);
   check('the dry run names the athlete and the count', /Amber Bretton — 1/.test(dry), dry.split('\n').find((l) => /Amber/.test(l)));
-  check('  names the business and the address it recovered', /EC Recoverable\s+hello@ecrecoverable\.com/.test(dry));
+  check('  names the business and the address it recovered', /EC Recoverable\s+jeff@ecrecoverable\.com/.test(dry));
   check('  says why each one it left alone was left',
     /no address for this brand, cached or otherwise/.test(dry));
   check('  including the bounced one', /bounced before/.test(dry), dry.split('\n').find((l) => /bounced/.test(l)));
@@ -217,7 +221,7 @@ async function seed(P) {
     `SELECT brand_name, channel, email, phone, dm_text, outreach_log_id FROM outreach_queue
       WHERE agent_id=$1 ORDER BY slot`, [AG])).rows;
   check('the recovered card is now email', flipped[0].channel === 'email', flipped[0].channel);
-  check('  with the address it already had', flipped[0].email === 'hello@ecrecoverable.com');
+  check('  with the address it already had', flipped[0].email === 'jeff@ecrecoverable.com');
   check('  and it KEPT its phone', flipped[0].phone === '205-555-0199', flipped[0].phone);
   check('  and kept its dm_text, nothing deleted', !!flipped[0].dm_text);
   check('the other two are untouched call cards',
@@ -235,7 +239,7 @@ async function seed(P) {
   const back = (await P.query(
     `SELECT channel, email, outreach_log_id FROM outreach_queue WHERE agent_id=$1 ORDER BY slot`, [AG])).rows[0];
   check('  channel is call again', back.channel === 'call', back.channel);
-  check('  the recovered ADDRESS is kept, not deleted', back.email === 'hello@ecrecoverable.com', back.email);
+  check('  the recovered ADDRESS is kept, not deleted', back.email === 'jeff@ecrecoverable.com', back.email);
   const stopped = (await P.query(
     `SELECT status, cadence_stopped_at FROM outreach_logs WHERE source=$1`, ['backfill-email-channel'])).rows;
   check('  and the draft is stopped rather than deleted',
@@ -274,7 +278,7 @@ async function seed(P) {
   check('  it was not among the rows releaseDue considered',
     !consideredIds.includes(mine), JSON.stringify(consideredIds.slice(0, 3)));
   check('  and its address never reached the provider',
-    !sentTo.includes('hello@ecrecoverable.com'), JSON.stringify(sentTo.slice(0, 3)));
+    !sentTo.includes('jeff@ecrecoverable.com'), JSON.stringify(sentTo.slice(0, 3)));
   console.log('    (releaseDue considered ' + rel.considered + ' unrelated rows from other suites)');
   check('  because it selects status=approved with a scheduled time',
     /WHERE l\.status = 'approved'[\s\S]{0,200}scheduled_send_at IS NOT NULL/.test(

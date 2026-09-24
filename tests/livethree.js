@@ -59,16 +59,23 @@ async function main() {
     ];
     const six = ['flatpennies2022@gmail.com', 'smcc_va@yahoo.com', 'mrsfoxsteahouse@gmail.com',
       'a.yautosales2023@gmail.com', 'info@liquid-iv.com', 'admin@stixnstonesmarketplace.com'];
-    let routed = 0, total = 0;
+    // TWO OF THE SIX ARE GENERIC MAILBOXES (info@, admin@). Those are Tier 4
+    // now (services/emailTier) and never the email channel, from any field --
+    // the other four still route to email from every field.
+    const ET = require(ROOT + 'server/services/emailTier.js');
+    let routed = 0, total = 0, genericRouted = 0, genericTotal = 0;
     for (const email of six) {
       for (const [, mk] of placements) {
-        total++;
         const l = CL.buildContactLadder(Object.assign({}, base, mk(email)), { brand: 'X' });
-        if (Q.channelFor(l, { instagram: null }) === 'email') routed++;
+        const isEmail = Q.channelFor(l, { instagram: null }) === 'email';
+        if (ET.isGeneric(email)) { genericTotal++; if (isEmail) genericRouted++; }
+        else { total++; if (isEmail) routed++; }
       }
     }
-    ok('EVERY ONE OF THE SIX ROUTES TO EMAIL FROM EVERY FIELD', routed === total,
+    ok('EVERY ONE OF THE FOUR NAMED ADDRESSES ROUTES TO EMAIL FROM EVERY FIELD', routed === total && total === 20,
       { routed, total });
+    ok('  and the two generic mailboxes never do, from any field (Tier 4)', genericTotal === 10 && genericRouted === 0,
+      { genericRouted, genericTotal });
     ok('  including a free-mail address, which is not a reason to refuse',
       Q.channelFor(CL.buildContactLadder(
         Object.assign({}, base, { genericInbox: 'flatpennies2022@gmail.com' }), { brand: 'X' }),

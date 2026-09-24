@@ -115,7 +115,8 @@ function hedgeOf(title) {
 // 'owner_search' is the last door (services/ownerNameSearch): a person named
 // on a page the "[business] [city] owner" search returned. Below the sources
 // that publish a roster and above news, which merely mentions people.
-const SOURCE_ORDER = ['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps', 'owner_search', 'news', 'instagram', 'hunter'];
+// 'reviews': a name the owner signed on a reply to a customer review.
+const SOURCE_ORDER = ['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps', 'reviews', 'owner_search', 'news', 'instagram', 'hunter'];
 const SOURCE_RANK = {};
 SOURCE_ORDER.forEach((s, i) => { SOURCE_RANK[s] = i; });
 

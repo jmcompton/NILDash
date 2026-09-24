@@ -28,14 +28,25 @@
 // A corporate address on a franchise is not the local owner. It is still a real
 // address and still worth having, but it is TAGGED so the Closer and the writer
 // can treat it differently rather than discovering it at the reply.
+//
+// THE ADDRESS TIER (services/emailTier) travels with it. A generic mailbox --
+// info@, contact@, hello@ -- is Tier 4 and is NOT attached (see attach): a
+// Tier 4 address never becomes an email draft. A named address the same scrape
+// found (personalEmail) is preferred over the desk it would otherwise lose to.
 function classify(ev) {
   if (!ev) return null;
-  if (!ev.email) return null;
+  const ET = require('./emailTier');
+  const pick = (ev.personalEmail && !ET.isGeneric(ev.personalEmail)) ? ev.personalEmail : ev.email;
+  if (!pick) return null;
+  const email = String(pick).trim().toLowerCase();
+  const fromPersonal = pick === ev.personalEmail && pick !== ev.email;
+  const t = ET.classify({ email, emailKind: 'published', businessDomain: ev.siteRoot || null });
   return {
-    email: String(ev.email).trim().toLowerCase(),
-    kind: ev.corporate ? 'corporate' : (ev.type === 'personal' ? 'personal' : 'generic'),
+    email,
+    kind: ev.corporate ? 'corporate' : ((fromPersonal || ev.type === 'personal') ? 'personal' : 'generic'),
     corporate: !!ev.corporate,
-    sourceUrl: ev.sourceUrl || null,
+    emailTier: t ? t.tier : null,
+    sourceUrl: (fromPersonal ? ev.personalSourceUrl : ev.sourceUrl) || null,
     formUrl: ev.formUrl || null,
     siteRoot: ev.siteRoot || null,
   };
@@ -121,6 +132,8 @@ async function attach(pool, opts = {}) {
     const emailToAthlete = new Map();
     const addrs = rows.map((r) => {
       const h = found.get(String(r.brand_name || '').trim().toLowerCase());
+      // A Tier 4 address is never attached, so it is never worth a credit.
+      if (h && h.emailTier === 4) return null;
       if (h && h.email) {
         const a = String(h.email).trim().toLowerCase();
         emailToBusiness.set(a, r.brand_name);
@@ -222,6 +235,14 @@ async function attach(pool, opts = {}) {
       out.details.push({ id: r.id, brand: r.brand_name, result: 'no-address' });
       continue;
     }
+    // TIER 4 IS NOT ATTACHED. The draft keeps no address and says why, so it
+    // never reaches the Closer as an email to a desk.
+    if (hit.emailTier === 4) {
+      out.generic = (out.generic || 0) + 1;
+      out.details.push({ id: r.id, brand: r.brand_name, result: 'generic-mailbox', email: hit.email,
+        why: `${hit.email} is a generic mailbox (Tier 4); only a named person is emailed` });
+      continue;
+    }
     // A DEFINITE NO IS THE ONLY THING THAT STOPS AN ATTACH.
     const v = verdicts.get(String(hit.email).trim().toLowerCase());
     if (v && v.result === 'invalid') {
@@ -234,9 +255,9 @@ async function attach(pool, opts = {}) {
     if (!v || v.result === 'unknown') out.unverifiable++;
     await pool.query(
       `UPDATE outreach_logs
-          SET sent_to_email = $2, email_kind = $3, updated_at = NOW()
+          SET sent_to_email = $2, email_kind = $3, email_tier = $4, email_source_url = $5, updated_at = NOW()
         WHERE id = $1 AND (sent_to_email IS NULL OR sent_to_email = '')`,
-      [r.id, hit.email, hit.kind]).catch((e) =>
+      [r.id, hit.email, hit.kind, hit.emailTier || null, hit.sourceUrl || null]).catch((e) =>
       console.error('[draftAddress] attach ' + r.id + ':', e.message));
     out.attached++;
     if (hit.corporate) out.corporate++;

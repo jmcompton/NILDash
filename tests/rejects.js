@@ -102,9 +102,16 @@ ok('  and is marked as needing a generic greeting', handleOnly.greeting === 'gen
 
 const lineOnly = Q.passesBar(ladder({ named: false, phone: true }), {});
 ok('A MAIN LINE WITH NO NAMED OWNER NOW PASSES', lineOnly.ok === true, lineOnly);
+// ── A GENERAL INBOX ON ITS OWN NO LONGER PASSES ─────────────────────────────
+// It did, and this suite pinned it. The product rule changed: info@ and the
+// rest are Tier 4 (services/emailTier) and never become an email card, so a
+// business whose only way in is a generic mailbox is dropped and discovery
+// fills the slot -- unless it also has a phone or a handle to route to.
 const inboxOnly = Q.passesBar(ladder({ named: false, inbox: true }), {});
-ok('A GENERAL INBOX WITH NO NAMED OWNER NOW PASSES', inboxOnly.ok === true, inboxOnly);
-ok('  reached via the inbox', inboxOnly.via === 'inbox', inboxOnly);
+ok('A GENERAL INBOX ALONE NO LONGER PASSES (Tier 4 is never emailed)', inboxOnly.ok === false && inboxOnly.tier4Only === true, inboxOnly);
+ok('  and says it was the generic mailbox', /only a generic mailbox \(info@shop\.example\)/.test(inboxOnly.reason), inboxOnly.reason);
+const inboxAndLine = Q.passesBar(ladder({ named: false, inbox: true, phone: true }), {});
+ok('  with a main line as well it passes, reached by phone', inboxAndLine.ok === true && inboxAndLine.via === 'phone', inboxAndLine);
 
 // WHAT STILL FAILS.
 const nothing = Q.passesBar(ladder({ named: false }), {});

@@ -29,7 +29,9 @@ const CACHE_DAYS = 30;
 // v2: personalEmail / roleEmail split out. A v1 row carries one address and no
 // way to tell which rung of the address ladder it belongs on, so serving it would
 // make a general inbox look like a named person's address found at step 1.
-const CACHE_V = 'v2';
+// v3: `people` -- owners and founders named on the pages already fetched. A v2
+// row has none, so it is re-read once; the fetch is plain HTTP and free.
+const CACHE_V = 'v3';
 
 // Never a contact for a NIL pitch, whatever else is true of them.
 const REJECT_LOCALS = new Set([
@@ -196,6 +198,79 @@ function contactLinks(html, baseUrl) {
   return found.map((f) => f.url);
 }
 
+// ── WHO RUNS THE PLACE, FROM ITS OWN ABOUT / TEAM / STAFF PAGE ──────────────
+// The pages are already here for the address; reading them for the owner's
+// name costs nothing and needs no model. Only three shapes are accepted, all of
+// them the business stating a role against a name:
+//
+//   "Dana Whitfield, Owner"  "Dana Whitfield - Founder"  "Dana Whitfield (Owner)"
+//   "Owner: Dana Whitfield"  "Founder - Dana Whitfield"
+//   "founded by Dana Whitfield"  "owned and operated by Dana Whitfield"
+//
+// Prose that merely mentions a person ("our owner Dana said...") is not read:
+// a wrong name here becomes the greeting on a real email.
+const OWNER_TITLE = "(co-?owners?|owner\\s*(?:/|&|and)\\s*operator|owners?|co-?founders?|founders?|proprietor|franchise\\s+owner|franchisee|managing\\s+partner|general\\s+manager|president)";
+const PERSON = "([A-Z][a-z'\u2019\\-]+(?:\\s+[A-Z]\\.)?(?:\\s+[A-Z][a-zA-Z'\u2019\\-]+){1,2})";
+const PEOPLE_RES = [
+  new RegExp(PERSON + "\\s*(?:,|\\||\\u2013|\\u2014|-|\\(|:)\\s*(?:the\\s+)?" + OWNER_TITLE + "\\b", 'gi'),
+  new RegExp("\\b" + OWNER_TITLE + "\\s*(?::|,|\\u2013|\\u2014|-)\\s*" + PERSON + "\\b", 'gi'),
+  new RegExp("\\b(?:founded|owned(?:\\s+and\\s+operated)?|run)\\s+by\\s+" + PERSON + "\\b", 'gi'),
+];
+const NOT_A_NAME_WORD = /^(our|meet|the|about|contact|read|learn|call|visit|welcome|home|menu|book|order|shop|view|get|join|follow|team|staff|story|us|more|hours|location|locations|services|gallery|reviews|blog|news|faq|careers|privacy|terms|copyright|all|rights|reserved|since|family|local|owned|operated|and|of|at|in|for|with|by)$/i;
+
+function _pageText(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<\/(p|h[1-6]|li|div|td|tr|section|article|figcaption|span)>|<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&#0?39;|&rsquo;|&apos;/gi, "'")
+    .replace(/&ndash;/gi, '\u2013').replace(/&mdash;/gi, '\u2014').replace(/&[a-z#0-9]+;/gi, ' ')
+    .split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trim()).filter(Boolean).join('\n');
+}
+
+function _titleCase(t) {
+  return String(t || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    .replace(/(^|[\s/&-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+}
+
+function extractPeople(html, sourceUrl, brand) {
+  const text = _pageText(html);
+  const out = [];
+  const seen = new Set();
+  const ONS = require('./ownerNameSearch');
+  for (const line of text.split('\n')) {
+    if (line.length > 400) continue;           // a paragraph, not a caption
+    for (const re of PEOPLE_RES) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(line))) {
+        // Which group is the name depends on the shape.
+        const nameFirst = re === PEOPLE_RES[0];
+        let name = (nameFirst ? m[1] : (re === PEOPLE_RES[2] ? m[1] : m[2])).trim();
+        const title = re === PEOPLE_RES[2]
+          ? (/founded/i.test(m[0]) ? 'Founder' : 'Owner')
+          : _titleCase(nameFirst ? m[2] : m[1]).replace(/s$/, '');
+        // Case-insensitive for the TITLE ("Owner", "OWNER", "owner"); the name
+        // itself must be capitalised word by word, or it is prose. A capture
+        // that ran on into prose ("Tom Hardy since") keeps its capitalised
+        // head; one that starts in prose is not a name.
+        let words = name.split(/\s+/);
+        const cut = words.findIndex((w) => !/^[A-Z]/.test(w));
+        if (cut === 0) continue;
+        if (cut > 0) { words = words.slice(0, cut); name = words.join(' '); }
+        if (words.some((w) => NOT_A_NAME_WORD.test(w.replace(/[.'\u2019]/g, '')))) continue;
+        if (!ONS.looksLikePerson(name, brand)) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ name, title, sourceUrl });
+        if (out.length >= 4) return out;
+      }
+    }
+  }
+  return out;
+}
+
 // A contact FORM, for the case where there is no address anywhere. Only counted
 // when the page actually contains a form with an input -- a "Contact" link to a
 // page with no form is not a channel.
@@ -290,7 +365,15 @@ async function findSiteEmail(website, opts = {}) {
   // Only pages the homepage actually links to. No guessing at /contact and no
   // crawling: the cap is the cap.
   if (home && home.html) {
-    for (const link of contactLinks(home.html, homeUrl)) {
+    // ONE OF THE TWO SLOTS GOES TO AN ABOUT / TEAM / STAFF PAGE when the site
+    // has one. The ranking puts contact pages first, which is right for the
+    // address, but two contact pages left no room for the page that names the
+    // owner. The contact page still comes first.
+    const _links = contactLinks(home.html, homeUrl);
+    const _isAbout = (u) => /\/(about|our-?team|team|staff)/i.test(u.replace(/^https?:\/\/[^/]+/, ''));
+    const _ordered = [..._links.filter((u) => !_isAbout(u)).slice(0, 1), ..._links.filter(_isAbout).slice(0, 1)];
+    for (const u of _links) if (!_ordered.includes(u)) _ordered.push(u);
+    for (const link of _ordered) {
       if (pages.length >= MAX_PAGES) break;
       const got = await fetchPage(link, opts.fetchImpl);
       if (got && got.html) pages.push({ url: link, html: got.html, thin: !!got.thin });
@@ -386,8 +469,17 @@ async function findSiteEmail(website, opts = {}) {
   const bestRole = candidates.find((c) => c.type === 'role')
     || (best && best.type === 'role' ? best : null);
 
+  // Owners and founders the site names, from every page already fetched.
+  const people = [];
+  for (const p of pages) {
+    for (const x of extractPeople(p.html, p.url, opts.brand)) {
+      if (people.length < 4 && !people.some((y) => y.name.toLowerCase() === x.name.toLowerCase())) people.push(x);
+    }
+  }
+
   const out = {
     v: CACHE_V,
+    people,
     email: best ? best.email : null,
     type: best ? best.type : (formUrl ? 'form' : null),
     // Named-person address and general inbox, kept apart. Either may be null.
@@ -431,7 +523,7 @@ async function findSiteEmail(website, opts = {}) {
 module.exports = {
   findSiteEmail,
   rootDomain, emailDomain, localPart, screenEmail, classifyEmail, rankEmail,
-  extractMailtos, extractPlainEmails, contactLinks, hasContactForm,
+  extractMailtos, extractPlainEmails, contactLinks, hasContactForm, extractPeople,
   MAX_PAGES, REJECT_LOCALS, ROLE_LOCALS, corporateDomainsFrom,
   // Exported for pitchRoute.js, which needs the SAME named-reason fetch
   // behaviour: "403 blocked" and "dns failure" mean very different things when

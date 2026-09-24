@@ -590,12 +590,13 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
       await pool.query(
         `INSERT INTO outreach_logs
            (id, agent_id, athlete_id, brand_name, brand_key, subject, body_html, status, source,
-            sent_to_email, email_kind, angle, angle_key, category_key, ask, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'draft','nightly-queue',$8,$9,$10,$11,$12,$13,NOW(),NOW())`,
+            sent_to_email, email_kind, angle, angle_key, category_key, ask, email_tier, email_source_url, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'draft','nightly-queue',$8,$9,$10,$11,$12,$13,$14,$15,NOW(),NOW())`,
         [logId, agentId, athleteId, card.brandName, card.brandKey || identity,
           card.subject, textToParagraphs(card.emailBody),
           card.email, card.emailKind || null,
-          card.angle || null, card.angleKey || null, card.categoryKey || null, card.ask || null]);
+          card.angle || null, card.angleKey || null, card.categoryKey || null, card.ask || null,
+          card.emailTier || null, card.emailSourceUrl || null]);
     } catch (e) {
       console.error(`[queue] athlete=${athleteId} "${card.brandName}" email draft failed: ${e.message}`);
       return false;
@@ -608,9 +609,9 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
         source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
         dm_text, channel, state, angle, angle_key, category_key, ask, lane, program_url,
         sponsor_signal, sponsor_note, identity_key, email, email_kind, outreach_log_id, email_note,
-        business_category, thin, thin_note)
+        business_category, thin, thin_note, email_tier, email_source_url)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20,
-             $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
+             $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
      ON CONFLICT DO NOTHING RETURNING id`,
     [agentId, athleteId, slot, card.brandKey || identity, card.brandName, card.why, card.contactName,
      card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
@@ -633,7 +634,9 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
      // second lookup, and THIN, so the card says it filled a slot nothing
      // stronger was left for instead of reading like any other find.
      card.businessCategory || null, card.thin === true,
-     card.thin === true ? (card.thinNote || null) : null]);
+     card.thin === true ? (card.thinNote || null) : null,
+     // The address tier and the page it was stated on (services/emailTier).
+     card.emailTier || null, card.emailSourceUrl || null]);
   const wrote = (ins.rowCount || 0) > 0;
   if (!wrote) {
     console.log(`[queue] athlete=${athleteId} slot=${slot} "${card.brandName}" not written `
@@ -1399,7 +1402,9 @@ async function fillAthlete(pool, ctx) {
       // DECIDED BEFORE THE WRITER RUNS, because the writer is told the channel and
       // writes differently for one. buildCard reaches the same answer from the
       // same two inputs further down; this is the same function, called early.
-      const channel = Q.channelFor(ladder, ig);
+      // `let`: a name found by the owner search below can be given a Tier 2
+      // address built from the domain pattern, which changes the channel.
+      let channel = Q.channelFor(ladder, ig);
       const bar = Q.passesBar(ladder, ig);
 
       // ── WHY THIS CARD IS THE CHANNEL IT IS ────────────────────────────────
@@ -1441,6 +1446,10 @@ async function fillAthlete(pool, ctx) {
         website: out.website || null,
         handle: ig.instagram || null,
         cached: !!out.cached,
+        // THE ADDRESS TIER (services/emailTier) and, when the only address was
+        // a generic mailbox, where the business went instead. The nightly
+        // report counts these.
+        emailRoute: Q.routeOf(ladder, ig),
       };
       say(`${cand.brand_name}: channel=${channel}`
         + ` ladderEmails=${_emailRows.length}`
@@ -1472,6 +1481,28 @@ async function fillAthlete(pool, ctx) {
         } catch (e) { say(`${cand.brand_name}: owner search failed (${e.message})`); found = null; }
         if (found) {
           ONS.attachToLadder(ladder, found);
+          // ── THE NAME CAME LATE; THE PATTERN WAS ALREADY HERE ──────────────
+          // getBrandContacts could only build an address for people it had
+          // named. This person was named after it returned, so when the ladder
+          // still has nothing we would email and Hunter gave the domain's
+          // pattern, their address is built now -- Tier 2, marked as built.
+          if (channel !== 'email' && out.hunterPattern) {
+            const _hp = out.hunterPattern;
+            const _built = require('../services/emailPattern').construct(_hp.pattern, found.name, _hp.domain);
+            const _row = ((ladder.tiers || []).flatMap((t) => t.rows || [])).find((r) => r && r.name === found.name && !r.email);
+            if (_built && _row) {
+              _row.email = _built; _row.emailKind = 'pattern';
+              _row.emailSourceUrl = _hp.exampleSourceUrl || null;
+              _row.emailPattern = { pattern: _hp.pattern, from: _hp.from, example: _hp.example || null };
+              require('../services/emailTier').annotateLadder(ladder);
+              try { await EVAL.validateLadder(pool, ladder); } catch (_) { /* unchecked is still offered, marked */ }
+              const _was = channel;
+              channel = Q.channelFor(ladder, ig);
+              _why.channel = channel;
+              _why.emailRoute = Q.routeOf(ladder, ig);
+              say(`${cand.brand_name}: built ${_built} for ${found.name} from ${_hp.domain}'s pattern ${_hp.pattern} (Tier 2); channel ${_was} -> ${channel}`);
+            }
+          }
           say(`${cand.brand_name}: no name from the ladder; the ${found.query} search found ${found.name} (${found.title})`);
           _why.finalName = { name: found.name, title: found.title, query: found.query, sourceUrl: found.sourceUrl || null };
         } else {

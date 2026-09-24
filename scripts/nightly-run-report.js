@@ -6,7 +6,8 @@
 //   node scripts/nightly-run-report.js --agent someone@example.com --nights 4
 //
 // For each of the last N nightly runs: how many athletes were tried, how many
-// cards were written, THE KEEP RATE (cards approved versus skipped, per night
+// cards were written, the EMAIL TIERS (Tier 1/2/3 email cards, and generic-
+// mailbox-only businesses routed to a call, a DM, or dropped), THE KEEP RATE (cards approved versus skipped, per night
 // and per athlete: services/keepRate), and for every athlete who got nothing,
 // the reason the run recorded. "0 tried" on twenty-eight athletes is the question this
 // answers; it was previously only recoverable from the process log, which is
@@ -17,6 +18,7 @@
 
 const store = require('../server/store');
 const KR = require('../server/services/keepRate');
+const ET = require('../server/services/emailTier');
 const INIT_WAIT_MS = parseInt(process.env.INIT_WAIT_MS, 10) || 3000;
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 
@@ -81,6 +83,16 @@ async function main() {
       + `${run.filled != null && Number(run.filled) !== cards ? `   (run row says ${run.filled})` : ''}`
       + `${run.finished_at ? '' : '   [UNFINISHED]'}`);
     if (run.note) console.log(`  note: ${short(run.note, 300)}`);
+    // ── THE ADDRESS TIERS ─────────────────────────────────────────────────
+    // Email cards by address tier (services/emailTier), and what became of the
+    // businesses whose only address was a generic mailbox. Runs recorded before
+    // tiers existed carry no route and read as zeros.
+    {
+      const tt = ET.routeTally(details);
+      console.log(`  email tiers: Tier 1 ${tt.tier1}   Tier 2 ${tt.tier2}   Tier 3 ${tt.tier3}`
+        + `   |   generic mailbox only: routed to phone ${tt.toPhone}, routed to DM ${tt.toDm}, dropped ${tt.dropped}`
+        + (tt.untiered ? `   (${tt.untiered} email card(s) with no tier recorded)` : ''));
+    }
     // This night's keep rate, athlete by athlete.
     // node-pg hands a DATE back as local midnight: read its local parts, since
     // toISOString would move it a day anywhere west of UTC.
