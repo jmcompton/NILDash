@@ -14628,6 +14628,10 @@ app.post('/api/admin/requests/:id/deny', requireAuth, async (req, res) => {
 
 
 // ── Visual Demo Page ─────────────────────────────────────────────────────
+// PUBLIC. https://mynildash.com/demo is a self-contained marketing page for
+// anyone, logged in or not: no auth middleware, no session, and it sits above
+// the app catch-all, so it never becomes the login screen. To update it,
+// replace public/demo.html. tests/demopage.js keeps it this way.
 app.get('/demo', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'demo.html'));
 });
