@@ -1,579 +1,1070 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NILDash — Visual Concept Demo</title>
-<link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
-<link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<title>NILDash Live Demo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --navy:#060d1f;
-  --navy2:#091428;
-  --navy3:#0d1c38;
-  --navy4:#122348;
-  --green:#00FF87;
-  --green2:#00cc6a;
-  --green-glow:rgba(0,255,135,0.15);
-  --white:#ffffff;
-  --gray1:#e2e8f5;
-  --gray2:#8896b3;
-  --gray3:#4a5878;
-  --border:rgba(255,255,255,0.07);
-  --card:rgba(255,255,255,0.03);
-  --mono:'Space Grotesk',sans-serif;
-  --body:'Inter',sans-serif;
-  --r:12px;
-  --r-sm:8px;
-  --shadow:0 4px 32px rgba(0,0,0,0.5);
+  --ink:#080C14; --panel:#0C111B; --card:#111823; --sunk:#0C121C;
+  --line:#1E2735; --line-2:#2E3D55; --line-3:#222D3F;
+  --lime:#A3E635; --lime-dim:#7FA82A;
+  --text:#EDF1F7; --muted:#98A2B3; --dim:#7A8496; --dimmer:#6B7688;
+  --blue:#8FB6FF; --blue-line:#3A557F;
+  --green:#A9D77E; --green-line:#44603A;
+  --amber:#E8B86B; --amber-line:#6B5330;
+  --violet:#C08BF5; --violet-line:#5A4275;
+  --sent-fill:#121E14; --sent-line:#2E4A2E;
+  --display:"Space Grotesk",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
 }
-html{scroll-behavior:smooth;background:var(--navy)}
-body{font-family:var(--body);color:var(--white);overflow-x:hidden;background:var(--navy)}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ink);color:var(--text);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+a{color:inherit}
+h1,h2,h3{text-wrap:balance}
 
-/* ── SCROLLBAR ── */
-::-webkit-scrollbar{width:4px}
-::-webkit-scrollbar-track{background:var(--navy)}
-::-webkit-scrollbar-thumb{background:var(--green2);border-radius:2px}
-
-/* ── NOISE TEXTURE ── */
-body::before{
-  content:'';position:fixed;inset:0;
-  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
-  pointer-events:none;z-index:0;opacity:0.4
+.ribbon{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:9px 20px;padding-top:calc(9px + env(safe-area-inset-top,0px));
+  background:#151B12;border-bottom:1px solid #2A3520;
+  font-family:var(--mono);font-size:12px;color:#C9DFA0;
 }
+.ribbon b{color:var(--lime);font-weight:500}
+.ribbon .spacer{flex:1 1 auto}
+.ribbon button{font-family:var(--mono);font-size:11px;color:#C9DFA0;border:1px solid #2A3520;border-radius:6px;padding:4px 10px}
+.ribbon button:hover{border-color:var(--lime-dim);color:var(--lime)}
 
-/* ── ANIMATED BG GRID ── */
-.bg-grid{
-  position:fixed;inset:0;z-index:0;pointer-events:none;
-  background-image:
-    linear-gradient(rgba(0,255,135,0.025) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(0,255,135,0.025) 1px,transparent 1px);
-  background-size:80px 80px;
-  animation:gridDrift 20s linear infinite;
-}
-@keyframes gridDrift{0%{background-position:0 0}100%{background-position:80px 80px}}
+.shell{display:flex;min-height:calc(100% - 40px)}
 
-/* ── GLOWS ── */
-.glow-orb{
-  position:fixed;pointer-events:none;z-index:0;
-  border-radius:50%;filter:blur(120px);opacity:0.12;
-  animation:orbPulse 8s ease-in-out infinite alternate;
-}
-.glow-orb.g1{width:600px;height:600px;background:var(--green);top:-200px;left:-150px;animation-delay:0s}
-.glow-orb.g2{width:400px;height:400px;background:#4f46e5;bottom:-100px;right:-100px;animation-delay:3s}
-.glow-orb.g3{width:300px;height:300px;background:#0ea5e9;top:50%;left:60%;animation-delay:6s}
-@keyframes orbPulse{0%{transform:scale(1);opacity:0.08}100%{transform:scale(1.3);opacity:0.18}}
+nav.side{width:206px;flex:0 0 206px;padding:22px 14px 18px;background:var(--panel);border-right:1px solid #1B2433;display:flex;flex-direction:column;gap:14px}
+.brand{display:flex;align-items:center;gap:9px;padding:0 4px}
+.brand .mark{width:28px;height:28px;border-radius:8px;background:var(--lime);color:#0A0F17;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:16px}
+.brand .word{font-family:var(--mono);font-size:14px;line-height:1.15;color:var(--lime)}
+.eyebrow{padding:0 4px;font-family:var(--mono);font-size:10px;letter-spacing:1.3px;color:var(--dimmer)}
+.navlist{display:flex;flex-direction:column;gap:1px}
+.navlist button{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border-radius:8px;font-family:var(--mono);font-size:14px;color:var(--muted);text-align:left;border:1px solid transparent}
+.navlist button i{width:5px;height:5px;border-radius:50%;background:#39445A;flex:0 0 auto}
+.navlist button:hover{color:var(--text);background:#121A26}
+.navlist button.on{background:#16202F;border-color:#263248;color:var(--lime)}
+.navlist button.on i{background:var(--lime)}
+.navlist .pill{margin-left:auto;padding:1px 7px;border-radius:999px;background:var(--lime);color:#0A0F17;font-size:11px}
+.who{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;border:1px solid #1B2433}
+.who .av{width:32px;height:32px;border-radius:50%;background:#16202F;border:1px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:0 0 auto}
+.who .nm{display:flex;flex-direction:column;min-width:0}
+.who .nm b{font-size:13px;font-weight:500}
+.who .nm small{font-size:11px;color:var(--dim)}
 
-/* ── LAYOUT ── */
-.page{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:0 32px}
+main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.crumb{padding:15px 30px;border-bottom:1px solid #141C28;display:flex;align-items:center;gap:18px}
+.crumb .path{font-family:var(--mono);font-size:13px;color:var(--dim)}
+.crumb .path b{color:var(--text);font-weight:400}
+.crumb .grow{flex:1 1 auto}
+.crumb .search{width:210px;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line-3);background:#0E1520;color:var(--dimmer);font-family:var(--mono);font-size:13px;display:flex;align-items:center}
+.crumb .ready{display:flex;align-items:center;gap:7px;white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--lime)}
+.crumb .ready i{width:6px;height:6px;border-radius:50%;background:var(--lime)}
 
-/* ── NAV ── */
-nav{
-  position:fixed;top:0;left:0;right:0;z-index:100;
-  background:rgba(6,13,31,0.85);backdrop-filter:blur(20px);
-  border-bottom:1px solid var(--border);
-  padding:0 32px;height:60px;
-  display:flex;align-items:center;justify-content:space-between;
-}
-.nav-logo{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--green);letter-spacing:-0.04em}
-.nav-badge{font-size:10px;background:rgba(0,255,135,0.12);color:var(--green);border:1px solid rgba(0,255,135,0.3);padding:3px 10px;border-radius:20px;font-weight:600;letter-spacing:0.08em}
-.nav-cta{background:var(--green);color:#000;font-weight:700;font-size:12px;padding:8px 20px;border-radius:6px;border:none;cursor:pointer;font-family:var(--body);letter-spacing:0.03em;transition:transform 0.15s,box-shadow 0.15s}
-.nav-cta:hover{transform:translateY(-1px);box-shadow:0 4px 24px rgba(0,255,135,0.4)}
+.tabs{padding:16px 30px 0;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{display:flex;align-items:center;gap:8px;padding:10px 16px;white-space:nowrap;border-radius:10px 10px 0 0;color:var(--muted);font-size:15px;border:1px solid transparent;border-bottom:none}
+.tabs button .n{padding:1px 7px;border-radius:999px;background:#1C2637;color:var(--muted);font-size:11px}
+.tabs button:hover{color:var(--text)}
+.tabs button.on{background:var(--card);border-color:var(--line-2);color:var(--text);font-weight:600}
+.tabs button.on .n{background:var(--lime);color:#0A0F17;font-weight:600}
+.tabs button.done .n{background:var(--sent-fill);color:var(--green);border:1px solid var(--sent-line)}
+.tabrule{border-top:1px solid var(--line-2);margin:0 0 -1px}
 
-/* ── HERO ── */
-.hero{
-  min-height:100vh;display:flex;align-items:center;
-  padding:100px 0 80px;
-  position:relative;
-}
-.hero-eyebrow{
-  font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;
-  color:var(--green);margin-bottom:16px;display:flex;align-items:center;gap:8px
-}
-.hero-eyebrow::before{content:'';width:24px;height:1px;background:var(--green)}
-.hero-h1{
-  font-family:var(--mono);font-size:clamp(40px,6vw,80px);font-weight:700;
-  line-height:1.05;letter-spacing:-0.04em;
-  background:linear-gradient(135deg,var(--white) 0%,rgba(255,255,255,0.6) 100%);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
-  margin-bottom:12px;
-}
-.hero-h1 .hl{
-  -webkit-text-fill-color:transparent;
-  background:linear-gradient(90deg,var(--green),#00e5ff);
-  -webkit-background-clip:text;background-clip:text;
-}
-.hero-sub{font-size:18px;color:var(--gray2);line-height:1.7;max-width:560px;margin-bottom:40px}
-.hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:60px}
-.btn-primary{background:var(--green);color:#000;font-weight:700;font-size:14px;padding:13px 32px;border-radius:8px;border:none;cursor:pointer;font-family:var(--body);letter-spacing:0.02em;transition:all 0.2s;display:flex;align-items:center;gap:8px}
-.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,255,135,0.35)}
-.btn-ghost{background:transparent;color:var(--white);font-weight:600;font-size:14px;padding:13px 28px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:var(--body);transition:all 0.2s}
-.btn-ghost:hover{border-color:rgba(255,255,255,0.4);background:rgba(255,255,255,0.05)}
+.board{padding:20px 30px 28px;display:flex;flex-direction:column;gap:16px;flex:1 1 auto}
+.head h1{margin:0;font-family:var(--display);font-size:32px;font-weight:700;letter-spacing:-.8px}
+.head p{margin:3px 0 0;font-size:15px;color:var(--muted)}
+.rows{display:flex;flex-direction:column;gap:9px}
 
-/* ── METRIC PILLS ── */
-.metric-strip{display:flex;gap:12px;flex-wrap:wrap}
-.m-pill{
-  background:rgba(255,255,255,0.04);border:1px solid var(--border);
-  border-radius:8px;padding:10px 16px;
-  display:flex;flex-direction:column;gap:2px;
-  transition:border-color 0.2s;
+.row{background:var(--card);border:1px solid var(--line);border-radius:13px;transition:border-color .15s ease,opacity .2s ease}
+.row.open{border-color:var(--line-2)}
+.row.sent{background:var(--sent-fill);border-color:var(--sent-line)}
+.row.skipped{opacity:.42}
+.rowtop{display:flex;align-items:center;gap:13px;min-height:66px;padding:12px 16px 12px 20px}
+.rowhit{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:13px;text-align:left;padding:0}
+.rowhit:hover .biz{color:var(--lime)}
+.rowhit:disabled{cursor:default}
+.rowhit:disabled:hover .biz{color:var(--text)}
+.chev{flex:0 0 auto;transition:transform .18s ease}
+.row.open .chev{transform:rotate(90deg)}
+.meta{min-width:0;flex:1 1 auto;display:flex;flex-direction:column;gap:2px}
+.biz{font-size:18px;font-weight:600;transition:color .15s ease}
+.sub{font-size:14px;color:var(--muted)}
+
+.tag{flex:0 0 auto;padding:3px 9px;border-radius:6px;font-family:var(--mono);font-size:11px;letter-spacing:.5px;white-space:nowrap}
+.tag.email{border:1px solid var(--green-line);color:var(--green)}
+.tag.dm{border:1px solid var(--blue-line);color:var(--blue)}
+.tag.call{border:1px solid var(--amber-line);color:var(--amber)}
+.tag.state{border:1px solid var(--sent-line);color:var(--green);background:#0F1A11}
+.tag.state.off{border-color:#2B3648;color:var(--dim);background:none}
+
+.acts{flex:0 0 auto;display:flex;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:42px;padding:0 20px;border-radius:9px;font-size:14px;white-space:nowrap;transition:filter .15s ease,border-color .15s ease,color .15s ease}
+.btn.go{background:var(--lime);color:#0A0F17;font-weight:600}
+.btn.go:hover{filter:brightness(1.08)}
+.btn.ghost{border:1px solid #2B3648;color:var(--muted);padding:0 17px}
+.btn.ghost:hover{border-color:#3E4C64;color:var(--text)}
+.btn.sm{height:34px;padding:0 14px;font-size:13px}
+
+.body{padding:0 16px 16px 20px;display:flex;flex-direction:column;gap:11px}
+.pitch{padding:16px 18px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;font-size:15px;line-height:1.58;color:#D6DEE9;white-space:pre-wrap}
+.pitch .subj{display:block;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--dim)}
+.pitch .subj b{color:var(--text);font-weight:500}
+.tools{display:flex;flex-wrap:wrap;gap:11px}
+.tool{display:inline-flex;align-items:center;height:40px;padding:0 16px;border-radius:9px;border:1px solid #2B3648;color:#D6DEE9;font-size:14px}
+.tool.alt{border-color:var(--blue-line);color:var(--blue)}
+.tool.amber{border-color:var(--amber-line);color:var(--amber)}
+.tool:hover{filter:brightness(1.25)}
+
+/* generic panels */
+.panel{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:20px 22px}
+.panel h3{margin:0 0 4px;font-family:var(--display);font-size:18px;font-weight:700}
+.panel p.lede{margin:0;color:var(--muted);font-size:14px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(165px,1fr))}
+
+.stat{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:16px 18px;display:flex;flex-direction:column;gap:4px}
+.stat .k{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer)}
+.stat .v{font-family:var(--display);font-size:28px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.stat .v.lime{color:var(--lime)}
+.stat .n{font-size:13px;color:var(--dim)}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:13px;background:var(--card)}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:620px}
+th{text-align:left;padding:12px 16px;font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer);border-bottom:1px solid var(--line);font-weight:400;white-space:nowrap}
+td{padding:13px 16px;border-bottom:1px solid #161E2A;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#131C28}
+td .b{font-weight:600}
+td .s{color:var(--dim);font-size:13px}
+
+.chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-family:var(--mono);font-size:11px;letter-spacing:.4px;white-space:nowrap}
+.chip.grey{border:1px solid #2B3648;color:var(--dim)}
+.chip.blue{border:1px solid var(--blue-line);color:var(--blue)}
+.chip.amber{border:1px solid var(--amber-line);color:var(--amber)}
+.chip.green{border:1px solid var(--sent-line);color:var(--green);background:#0F1A11}
+.chip.lime{border:1px solid var(--lime-dim);color:var(--lime)}
+.chip.violet{border:1px solid var(--violet-line);color:var(--violet)}
+
+/* kanban */
+.kan{display:grid;grid-template-columns:repeat(4,minmax(215px,1fr));gap:12px;overflow-x:auto;padding-bottom:4px}
+.kancol{background:#0D1420;border:1px solid var(--line);border-radius:13px;padding:13px;display:flex;flex-direction:column;gap:10px;min-width:215px}
+.kanhead{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer)}
+.kanhead b{padding:1px 7px;border-radius:999px;background:#1C2637;color:var(--muted);font-size:11px;font-weight:400}
+.kancard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 13px;display:flex;flex-direction:column;gap:5px}
+.kancard .t{font-weight:600;font-size:15px;line-height:1.3}
+.kancard .m{font-size:13px;color:var(--dim)}
+.kancard .v{font-family:var(--mono);font-size:12px;color:var(--lime)}
+
+/* media kit */
+.kit{border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--card)}
+.kithero{position:relative;height:190px;background:linear-gradient(135deg,#16202F 0%,#0E1A14 55%,#1A2410 100%);display:flex;align-items:flex-end;padding:20px 24px;gap:18px}
+.kithero:after{content:"ACTION SHOT";position:absolute;top:14px;right:18px;font-family:var(--mono);font-size:10px;letter-spacing:1.4px;color:#3E4C64}
+.kitav{width:96px;height:96px;border-radius:50%;background:#0C121C;border:2px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:32px;font-weight:700;flex:0 0 auto}
+.kitname h2{margin:0;font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:-.6px}
+.kitname p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.kitbody{padding:22px 24px;display:flex;flex-direction:column;gap:20px}
+.kitrow{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.kitnum{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+.kitnum .k{font-family:var(--mono);font-size:10px;letter-spacing:1.1px;color:var(--dimmer)}
+.kitnum .v{font-family:var(--display);font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.kitsec h4{margin:0 0 7px;font-family:var(--mono);font-size:11px;letter-spacing:1.2px;color:var(--dimmer);font-weight:400}
+.kitsec p{margin:0;color:#D6DEE9;max-width:70ch}
+.ratelist{display:flex;flex-direction:column;gap:1px}
+.rateline{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #161E2A;font-size:14px}
+.rateline:last-child{border-bottom:none}
+.rateline span:last-child{font-family:var(--mono);color:var(--lime)}
+
+/* forms */
+.formgrid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer)}
+.field input,.field select{height:42px;padding:0 13px;border-radius:9px;border:1px solid var(--line-3);background:#0E1520;color:var(--text);font:inherit;font-size:14px}
+.field input:focus,.field select:focus{outline:2px solid var(--lime-dim);outline-offset:1px;border-color:transparent}
+.drop{border:1px dashed var(--line-2);border-radius:12px;padding:26px;text-align:center;color:var(--muted);background:#0D1420}
+.drop b{display:block;color:var(--text);font-family:var(--display);font-size:17px;margin-bottom:4px}
+
+/* ai command */
+.chatlog{display:flex;flex-direction:column;gap:12px}
+.bub{max-width:min(62ch,100%);padding:13px 16px;border-radius:12px;font-size:14.5px;line-height:1.55;white-space:pre-wrap}
+.bub.me{align-self:flex-end;background:#16202F;border:1px solid #263248}
+.bub.ai{align-self:flex-start;background:var(--sunk);border:1px solid var(--line)}
+.prompts{display:flex;flex-wrap:wrap;gap:9px}
+.prompts button{border:1px solid var(--line-2);border-radius:999px;padding:8px 15px;font-size:13.5px;color:#D6DEE9}
+.prompts button:hover{border-color:var(--lime-dim);color:var(--lime)}
+
+/* inbox */
+.mail{display:flex;flex-direction:column;gap:9px}
+.mailrow{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:15px 18px;display:flex;flex-direction:column;gap:9px}
+.mailrow.new{border-color:var(--line-2)}
+.mailtop{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.mailtop .from{font-weight:600;font-size:16px}
+.mailtop .when{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--dim)}
+.mailsubj{font-size:14px;color:var(--muted)}
+.mailtext{padding:14px 16px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;white-space:pre-wrap;font-size:14.5px;line-height:1.55;color:#D6DEE9}
+
+.empty{padding:34px 22px;border:1px dashed var(--line-2);border-radius:13px;text-align:center;color:var(--muted)}
+.empty b{display:block;font-family:var(--display);font-size:20px;color:var(--text);margin-bottom:6px}
+
+.statusbar{position:sticky;bottom:0;margin-top:auto;padding:15px 30px;padding-bottom:calc(15px + env(safe-area-inset-bottom,0px));border-top:1px solid #141C28;background:#0A0F18;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.statusbar .btn.go{height:50px;padding:0 27px;border-radius:11px;font-size:16px}
+.statusbar .grow{flex:1 1 auto}
+.stats{display:flex;align-items:center;gap:16px;font-family:var(--mono);font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums}
+.stats b{color:var(--lime);font-weight:500}
+.stats .sep{color:#2B3648}
+
+.close{margin:0 30px 30px;padding:26px 28px;border-radius:14px;background:linear-gradient(180deg,#121A24 0%,#0E141D 100%);border:1px solid var(--line-2);display:flex;flex-direction:column;gap:14px}
+.close h2{margin:0;font-family:var(--display);font-size:26px;font-weight:700;letter-spacing:-.5px}
+.close h2 em{font-style:normal;color:var(--lime)}
+.close p{margin:0;color:var(--muted);max-width:64ch}
+.close .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:2px}
+.close .cta a{display:inline-flex;align-items:center;height:46px;padding:0 22px;border-radius:10px;font-size:15px;font-weight:600;text-decoration:none}
+.close .cta a.go{background:var(--lime);color:#0A0F17}
+.close .cta a.go:hover{filter:brightness(1.08)}
+.close .cta a.ghost{border:1px solid #2B3648;color:var(--text);font-weight:400}
+.close .cta a.ghost:hover{border-color:#3E4C64}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+@media (max-width:900px){
+  .shell{flex-direction:column}
+  nav.side{width:auto;flex:0 0 auto;padding:12px 16px;border-right:none;border-bottom:1px solid #1B2433;gap:10px}
+  nav.side .eyebrow,nav.side .who{display:none}
+  nav.side .brand{padding:0}
+  .navlist{flex-direction:row;overflow-x:auto;gap:6px;scrollbar-width:none}
+  .navlist::-webkit-scrollbar{display:none}
+  .navlist button{width:auto;white-space:nowrap;padding:8px 12px;font-size:13px}
+  .navlist button i{display:none}
+  .crumb{padding:12px 16px;gap:12px}
+  .crumb .search{display:none}
+  .tabs{padding:14px 16px 0}
+  .board{padding:18px 16px 24px}
+  .head h1{font-size:26px}
+  .close{margin:0 16px 22px;padding:22px 20px}
+  .close h2{font-size:22px}
+  .statusbar{padding:14px 16px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  .statusbar .btn.go{width:100%}
+  .rowtop{flex-wrap:wrap;gap:10px;padding:14px 16px}
+  .rowhit{flex:1 1 100%}
+  .biz{font-size:16px}
+  .acts{flex:1 1 100%;gap:8px}
+  .acts .btn{flex:1 1 auto}
+  .body{padding:0 16px 16px}
+  .kan{grid-template-columns:repeat(4,minmax(200px,1fr))}
+  .kithero{height:auto;flex-direction:column;align-items:flex-start;padding-top:44px}
 }
-.m-pill:hover{border-color:rgba(0,255,135,0.3)}
-.m-val{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green);line-height:1}
-.m-lbl{font-size:10px;color:var(--gray2);text-transform:uppercase;letter-spacing:0.1em}
-
-/* ── APP PREVIEW MOCKUP ── */
-.app-preview{
-  position:relative;margin-top:0;
-  background:var(--navy2);
-  border:1px solid rgba(255,255,255,0.1);
-  border-radius:16px;overflow:hidden;
-  box-shadow:0 24px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(0,255,135,0.05);
-}
-.ap-bar{
-  height:40px;background:var(--navy3);
-  border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 14px;gap:6px
-}
-.ap-dot{width:10px;height:10px;border-radius:50%}
-.ap-bar-title{flex:1;text-align:center;font-size:11px;color:var(--gray3)}
-.ap-body{display:grid;grid-template-columns:200px 1fr;min-height:380px}
-.ap-sidebar{
-  background:#090e1e;border-right:1px solid var(--border);
-  padding:16px 12px;display:flex;flex-direction:column;gap:6px
-}
-.ap-logo{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--green);padding:8px 8px 16px;letter-spacing:-0.03em}
-.ap-nav-sect{font-size:9px;color:var(--gray3);text-transform:uppercase;letter-spacing:0.12em;padding:4px 8px 2px;margin-top:4px}
-.ap-nav-item{
-  display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;
-  font-size:11px;color:var(--gray2);cursor:pointer;transition:all 0.15s
-}
-.ap-nav-item.active,.ap-nav-item:hover{background:rgba(0,255,135,0.08);color:var(--green)}
-.ap-nav-item::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;opacity:0.5;flex-shrink:0}
-.ap-nav-item.active::before{opacity:1;box-shadow:0 0 6px var(--green)}
-.ap-main{padding:20px 24px;background:var(--navy2)}
-.ap-page-title{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--white);margin-bottom:4px}
-.ap-page-sub{font-size:11px;color:var(--gray2);margin-bottom:16px}
-.ap-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
-.ap-kpi{background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
-.ap-kpi-val{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--green);margin-bottom:2px}
-.ap-kpi-lbl{font-size:9px;color:var(--gray3);text-transform:uppercase;letter-spacing:0.08em}
-.ap-card{background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:14px}
-.ap-card-hdr{font-size:10px;color:var(--gray3);font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;display:flex;justify-content:space-between}
-.ap-card-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px;color:var(--gray2)}
-.ap-card-row:last-child{border:none}
-.ap-card-row span{color:var(--white);font-weight:500}
-.chip{font-size:9px;padding:2px 7px;border-radius:4px;font-weight:700;text-transform:uppercase}
-.chip-g{background:rgba(0,255,135,0.12);color:var(--green);border:1px solid rgba(0,255,135,0.25)}
-.chip-b{background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.25)}
-.chip-y{background:rgba(245,158,11,0.12);color:#f59e0b;border:1px solid rgba(245,158,11,0.25)}
-
-/* ── SECTIONS ── */
-section.feat{padding:80px 0}
-.sect-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--green);margin-bottom:12px}
-.sect-h2{font-family:var(--mono);font-size:clamp(28px,4vw,48px);font-weight:700;letter-spacing:-0.03em;color:var(--white);margin-bottom:16px;line-height:1.1}
-.sect-sub{font-size:16px;color:var(--gray2);line-height:1.7;max-width:540px;margin-bottom:40px}
-
-/* ── FEATURE GRID ── */
-.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-@media(max-width:900px){.feat-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:600px){.feat-grid{grid-template-columns:1fr}}
-.feat-card{
-  background:rgba(255,255,255,0.025);
-  border:1px solid var(--border);border-radius:var(--r);
-  padding:24px;cursor:default;
-  transition:all 0.3s;position:relative;overflow:hidden;
-}
-.feat-card::before{
-  content:'';position:absolute;inset:0;
-  background:radial-gradient(ellipse at top left,rgba(0,255,135,0.04) 0%,transparent 60%);
-  opacity:0;transition:opacity 0.3s;
-}
-.feat-card:hover{border-color:rgba(0,255,135,0.25);transform:translateY(-3px);box-shadow:0 8px 40px rgba(0,0,0,0.3)}
-.feat-card:hover::before{opacity:1}
-.feat-icon{
-  width:44px;height:44px;border-radius:10px;
-  background:rgba(0,255,135,0.08);border:1px solid rgba(0,255,135,0.15);
-  display:flex;align-items:center;justify-content:center;
-  font-size:20px;margin-bottom:16px;
-}
-.feat-card-title{font-size:15px;font-weight:700;color:var(--white);margin-bottom:8px;font-family:var(--mono)}
-.feat-card-body{font-size:13px;color:var(--gray2);line-height:1.6}
-
-/* ── PIPELINE DEMO ── */
-.pipeline-demo{
-  display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:32px
-}
-.pd-col{background:rgba(255,255,255,0.025);border:1px solid var(--border);border-radius:10px;padding:10px}
-.pd-col-hdr{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--gray3);margin-bottom:8px;display:flex;justify-content:space-between}
-.pd-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:7px;padding:10px;margin-bottom:6px}
-.pd-brand{font-size:12px;font-weight:600;color:var(--white);margin-bottom:2px}
-.pd-ath{font-size:10px;color:var(--gray3)}
-.pd-val{font-size:14px;font-weight:700;color:var(--green);margin-top:6px;font-family:var(--mono)}
-.pd-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:4px}
-
-/* ── STAT BAR ── */
-.stat-bar-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
-.stat-bar-lbl{font-size:11px;color:var(--gray2);width:120px;flex-shrink:0}
-.stat-bar-track{flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden}
-.stat-bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),#00e5ff);transition:width 1.5s cubic-bezier(.4,0,0,1)}
-.stat-bar-val{font-size:11px;color:var(--green);font-weight:700;font-family:var(--mono);width:44px;text-align:right}
-
-/* ── DARK PANEL ── */
-.dark-panel{
-  background:var(--navy2);border:1px solid var(--border);border-radius:16px;
-  padding:32px;position:relative;overflow:hidden;
-}
-.dark-panel::before{
-  content:'';position:absolute;top:-60px;right:-60px;
-  width:200px;height:200px;
-  background:radial-gradient(circle,rgba(0,255,135,0.12),transparent 70%);
-  pointer-events:none
-}
-
-/* ── SCORE RING ── */
-.score-ring-wrap{position:relative;width:120px;height:120px;flex-shrink:0}
-.score-ring-wrap svg{transform:rotate(-90deg)}
-.score-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--mono)}
-.score-num{font-size:28px;font-weight:700;color:var(--green);line-height:1}
-.score-sub{font-size:9px;color:var(--gray3);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px}
-
-/* ── TWO COL ── */
-.two-col{display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:center}
-@media(max-width:700px){.two-col{grid-template-columns:1fr}}
-
-/* ── TICKER ── */
-.ticker-wrap{overflow:hidden;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:10px 0;margin:48px 0;background:rgba(0,255,135,0.02)}
-.ticker{display:flex;gap:48px;animation:tickerScroll 25s linear infinite;white-space:nowrap;width:max-content}
-@keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-.tick-item{font-size:11px;color:var(--gray3);font-weight:600;text-transform:uppercase;letter-spacing:0.12em;display:flex;align-items:center;gap:10px}
-.tick-dot{width:4px;height:4px;border-radius:50%;background:var(--green);opacity:0.5}
-
-/* ── FOOTER ── */
-footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;font-size:12px;color:var(--gray3)}
-footer strong{color:var(--green)}
-
-/* ── ANIMATE IN ── */
-.fade-up{opacity:0;transform:translateY(24px);transition:opacity 0.6s ease,transform 0.6s ease}
-.fade-up.in{opacity:1;transform:translateY(0)}
-
-/* ── GLOW LINE ── */
-.glow-line{height:1px;background:linear-gradient(90deg,transparent,var(--green),transparent);margin:0 auto;opacity:0.35}
-
-/* ── CURSOR DOT ── */
-#cursor{
-  position:fixed;z-index:9999;pointer-events:none;
-  width:8px;height:8px;border-radius:50%;
-  background:var(--green);
-  transition:transform 0.1s ease;
-  mix-blend-mode:screen;
-  box-shadow:0 0 12px var(--green);
-  display:none;
-}
-@media(hover:hover){#cursor{display:block}}
 </style>
-</head>
-<body>
-<div id="cursor"></div>
-<div class="bg-grid"></div>
-<div class="glow-orb g1"></div>
-<div class="glow-orb g2"></div>
-<div class="glow-orb g3"></div>
 
-<!-- NAV -->
-<nav>
-  <div class="nav-logo"><img src="/images/nildash-logo-header.png" alt="NILDash" style="height:36px;width:auto;vertical-align:middle;"></div>
-  <div class="nav-badge">Visual Concept Demo</div>
-  <button class="nav-cta" onclick="window.location.href='https://mynildash.com'">Open App →</button>
-</nav>
-
-<div class="page">
-
-  <!-- HERO -->
-  <div class="hero">
-    <div style="width:100%">
-      <div class="hero-eyebrow">NIL Intelligence Platform</div>
-      <h1 class="hero-h1">
-        The command center<br>for <span class="hl">NIL deal-making</span>
-      </h1>
-      <p class="hero-sub">AI-powered deal intelligence, athlete valuation, pitch decks, and pipeline management — built for agents who move fast.</p>
-      <div class="hero-actions">
-        <button class="btn-primary" onclick="window.location.href='https://mynildash.com'">Open NILDash <span>→</span></button>
-        <button class="btn-ghost" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">See Features</button>
-      </div>
-      <div class="metric-strip">
-        <div class="m-pill"><div class="m-val">7</div><div class="m-lbl">AI Modules</div></div>
-        <div class="m-pill"><div class="m-val">$4.2M</div><div class="m-lbl">NIL Tracked</div></div>
-        <div class="m-pill"><div class="m-val">95</div><div class="m-lbl">Top Fit Score</div></div>
-        <div class="m-pill"><div class="m-val">2.8s</div><div class="m-lbl">Avg AI Response</div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- APP MOCKUP -->
-  <div class="app-preview fade-up" style="margin-bottom:80px">
-    <div class="ap-bar">
-      <div class="ap-dot" style="background:#ff5f57"></div>
-      <div class="ap-dot" style="background:#febc2e"></div>
-      <div class="ap-dot" style="background:#28c840"></div>
-      <div class="ap-bar-title">mynildash.com — Command Center</div>
-    </div>
-    <div class="ap-body">
-      <div class="ap-sidebar">
-        <div class="ap-logo"><img src="/images/nildash-logo-header.png" alt="NILDash" style="height:28px;width:auto;"></div>
-        <div class="ap-nav-sect">Command</div>
-        <div class="ap-nav-item active">AI Command</div>
-        <div class="ap-nav-item">Deal Scan</div>
-        <div class="ap-nav-item">Rate Calculator</div>
-        <div class="ap-nav-item">Negotiate</div>
-        <div class="ap-nav-item">Team Match</div>
-        <div class="ap-nav-sect">Roster</div>
-        <div class="ap-nav-item">My Roster</div>
-        <div class="ap-nav-item">Add Client</div>
-      </div>
-      <div class="ap-main">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
-          <div>
-            <div class="ap-page-title">Command Center</div>
-            <div class="ap-page-sub">Ask anything about your client — deals, pricing, leverage, strategy</div>
-          </div>
-          <div style="font-size:10px;background:rgba(0,255,135,0.1);color:#00FF87;border:1px solid rgba(0,255,135,0.25);padding:4px 10px;border-radius:20px;font-weight:700">AI READY</div>
-        </div>
-        <div class="ap-kpi-row">
-          <div class="ap-kpi"><div class="ap-kpi-val">$412K</div><div class="ap-kpi-lbl">Pipeline Value</div></div>
-          <div class="ap-kpi"><div class="ap-kpi-val">8</div><div class="ap-kpi-lbl">Active Deals</div></div>
-          <div class="ap-kpi"><div class="ap-kpi-val">12</div><div class="ap-kpi-lbl">Clients</div></div>
-          <div class="ap-kpi"><div class="ap-kpi-val">$89K</div><div class="ap-kpi-lbl">NIL Gained</div></div>
-        </div>
-        <div class="ap-card">
-          <div class="ap-card-hdr"><span>Recent Deals</span><span style="color:#00FF87;font-size:9px">VIEW ALL →</span></div>
-          <div class="ap-card-row">Nike Apparel — Tyler Jacobs <span>$24,000 <span class="chip chip-g">Closing</span></span></div>
-          <div class="ap-card-row">Gatorade — Aidan Sherrill <span>$18,500 <span class="chip chip-b">Negotiating</span></span></div>
-          <div class="ap-card-row">Celsius — Jordan Lee <span>$9,200 <span class="chip chip-y">Outreach</span></span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- TICKER -->
-  <div class="ticker-wrap">
-    <div class="ticker">
-      <span class="tick-item">AI Rate Calculator <span class="tick-dot"></span></span>
-      <span class="tick-item">Drag & Drop Pipeline <span class="tick-dot"></span></span>
-      <span class="tick-item">Team Match Engine <span class="tick-dot"></span></span>
-      <span class="tick-item">Brand Pitch Decks <span class="tick-dot"></span></span>
-      <span class="tick-item">NILViewVal v5 <span class="tick-dot"></span></span>
-      <span class="tick-item">Compliance Check <span class="tick-dot"></span></span>
-      <span class="tick-item">Contract AI <span class="tick-dot"></span></span>
-      <span class="tick-item">Outreach Generator <span class="tick-dot"></span></span>
-      <span class="tick-item">AI Rate Calculator <span class="tick-dot"></span></span>
-      <span class="tick-item">Drag & Drop Pipeline <span class="tick-dot"></span></span>
-      <span class="tick-item">Team Match Engine <span class="tick-dot"></span></span>
-      <span class="tick-item">Brand Pitch Decks <span class="tick-dot"></span></span>
-      <span class="tick-item">NILViewVal v5 <span class="tick-dot"></span></span>
-      <span class="tick-item">Compliance Check <span class="tick-dot"></span></span>
-      <span class="tick-item">Contract AI <span class="tick-dot"></span></span>
-      <span class="tick-item">Outreach Generator <span class="tick-dot"></span></span>
-    </div>
-  </div>
-
-  <!-- FEATURES -->
-  <section class="feat" id="features">
-    <div class="sect-eyebrow">Core Modules</div>
-    <h2 class="sect-h2">Everything an agent needs.<br>Nothing they don't.</h2>
-    <p class="sect-sub">Seven AI-powered modules that cover the full deal lifecycle — from first contact to closed.</p>
-
-    <div class="feat-grid">
-      <div class="feat-card fade-up">
-        <div class="feat-icon">⚡</div>
-        <div class="feat-card-title">AI Command Center</div>
-        <div class="feat-card-body">Natural language queries for any client situation. "What should I charge Nike?" or "Give me negotiation leverage." Instant, context-aware answers.</div>
-      </div>
-      <div class="feat-card fade-up">
-        <div class="feat-icon">📡</div>
-        <div class="feat-card-title">Deal Scan</div>
-        <div class="feat-card-body">AI-ranked brand opportunities matched to your athlete's sport, audience, and market position. Scores and reasoning included.</div>
-      </div>
-      <div class="feat-card fade-up">
-        <div class="feat-icon">💎</div>
-        <div class="feat-card-title">Rate Calculator</div>
-        <div class="feat-card-body">Exact NILViewVal pricing for every deliverable type. IG Reels, TikToks, bundles, retainers — all backed by live market benchmarks.</div>
-      </div>
-      <div class="feat-card fade-up">
-        <div class="feat-icon">🎯</div>
-        <div class="feat-card-title">Team Match</div>
-        <div class="feat-card-body">AI finds the 5-10 best college programs for a transferring athlete, with NIL offers, fit scores, and negotiation playbooks.</div>
-      </div>
-      <div class="feat-card fade-up">
-        <div class="feat-icon">📊</div>
-        <div class="feat-card-title">Deal Pipeline</div>
-        <div class="feat-card-body">Kanban-style deal tracking across all clients. Drag to advance stages, see total pipeline value, and trigger commission reports instantly.</div>
-      </div>
-      <div class="feat-card fade-up">
-        <div class="feat-icon">🚀</div>
-        <div class="feat-card-title">Brand Pitch Decks</div>
-        <div class="feat-card-body">Generate a full, brand-targeted pitch deck in 15 seconds. Athlete photo, brand colors, engagement data, sponsorship tiers — ready to send.</div>
-      </div>
-    </div>
-  </section>
-
-  <div class="glow-line" style="width:60%;margin-bottom:80px"></div>
-
-  <!-- PIPELINE DEMO -->
-  <section class="feat">
-    <div class="sect-eyebrow">Deal Pipeline</div>
-    <h2 class="sect-h2">Every deal,<br>always visible.</h2>
-
-    <div class="pipeline-demo fade-up">
-      <div class="pd-col">
-        <div class="pd-col-hdr"><span style="color:#6b7280">Prospecting</span><span>2</span></div>
-        <div class="pd-card"><div class="pd-brand">Red Bull</div><div class="pd-ath">Marcus Webb</div><div class="pd-val">$6,000</div></div>
-        <div class="pd-card"><div class="pd-brand">Dunkin'</div><div class="pd-ath">Priya Nair</div><div class="pd-val">$3,200</div></div>
-      </div>
-      <div class="pd-col">
-        <div class="pd-col-hdr"><span style="color:#60a5fa">Outreach Sent</span><span>1</span></div>
-        <div class="pd-card"><div class="pd-brand">Gatorade</div><div class="pd-ath">Aidan Sherrill</div><div class="pd-val">$18,500</div></div>
-      </div>
-      <div class="pd-col">
-        <div class="pd-col-hdr"><span style="color:#C8F135">Negotiating</span><span>2</span></div>
-        <div class="pd-card"><div class="pd-brand">Celsius</div><div class="pd-ath">Jordan Lee</div><div class="pd-val">$9,200</div></div>
-        <div class="pd-card"><div class="pd-brand">Amazon</div><div class="pd-ath">Tyler Jacobs</div><div class="pd-val">$11,000</div></div>
-      </div>
-      <div class="pd-col">
-        <div class="pd-col-hdr"><span style="color:#4ade80">Closing</span><span>1</span></div>
-        <div class="pd-card" style="border-color:rgba(0,255,135,0.2)"><div class="pd-brand">Nike Apparel</div><div class="pd-ath">Tyler Jacobs</div><div class="pd-val" style="color:#4ade80">$24,000</div></div>
-      </div>
-      <div class="pd-col">
-        <div class="pd-col-hdr"><span style="color:#a78bfa">Closed</span><span>1</span></div>
-        <div class="pd-card"><div class="pd-brand">Chipotle</div><div class="pd-ath">Jeremiah W.</div><div class="pd-val">$7,500</div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- NIL SCORES DEMO -->
-  <section class="feat">
-    <div class="sect-eyebrow">NILViewVal v5.2</div>
-    <h2 class="sect-h2">Scores that hold up<br>in the room.</h2>
-
-    <div class="two-col">
-      <div class="dark-panel fade-up" style="padding:32px">
-        <div style="display:flex;align-items:center;gap:24px;margin-bottom:28px">
-          <div class="score-ring-wrap">
-            <svg width="120" height="120" viewBox="0 0 120 120">
-              <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="8"/>
-              <circle cx="60" cy="60" r="52" fill="none" stroke="url(#sg)" stroke-width="8"
-                stroke-dasharray="326.7" stroke-dashoffset="49" stroke-linecap="round"/>
-              <defs>
-                <linearGradient id="sg" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stop-color="#00FF87"/>
-                  <stop offset="100%" stop-color="#00e5ff"/>
-                </linearGradient>
-              </defs>
-            </svg>
-            <div class="score-center"><div class="score-num" id="score-anim">85</div><div class="score-sub">/100</div></div>
-          </div>
-          <div>
-            <div style="font-size:18px;font-weight:700;color:var(--white);font-family:var(--mono);margin-bottom:4px">Tyler Jacobs</div>
-            <div style="font-size:12px;color:var(--gray2)">WR · Georgia · Junior</div>
-            <div style="font-size:11px;color:var(--green);margin-top:8px;font-weight:600">Marketability Score</div>
-          </div>
-        </div>
-
-        <div class="stat-bar-row"><div class="stat-bar-lbl">Sponsorship Readiness</div><div class="stat-bar-track"><div class="stat-bar-fill" style="width:92%"></div></div><div class="stat-bar-val">92</div></div>
-        <div class="stat-bar-row"><div class="stat-bar-lbl">Audience Quality</div><div class="stat-bar-track"><div class="stat-bar-fill" style="width:78%"></div></div><div class="stat-bar-val">78</div></div>
-        <div class="stat-bar-row"><div class="stat-bar-lbl">Brand Archetype</div><div class="stat-bar-track"><div class="stat-bar-fill" style="width:88%"></div></div><div class="stat-bar-val">88</div></div>
-        <div class="stat-bar-row"><div class="stat-bar-lbl">Content Velocity</div><div class="stat-bar-track"><div class="stat-bar-fill" style="width:65%"></div></div><div class="stat-bar-val">65</div></div>
-      </div>
-
-      <div>
-        <div class="dark-panel fade-up" style="margin-bottom:16px">
-          <div style="font-size:10px;color:var(--gray3);font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px">Rate Ranges (NILViewVal)</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid var(--border)">
-              <div style="font-size:10px;color:var(--gray3);margin-bottom:3px">IG Reel</div>
-              <div style="font-size:15px;font-weight:700;color:var(--green);font-family:var(--mono)">$2.4K–$4.8K</div>
-            </div>
-            <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid var(--border)">
-              <div style="font-size:10px;color:var(--gray3);margin-bottom:3px">TikTok Video</div>
-              <div style="font-size:15px;font-weight:700;color:var(--green);font-family:var(--mono)">$1.8K–$3.6K</div>
-            </div>
-            <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid var(--border)">
-              <div style="font-size:10px;color:var(--gray3);margin-bottom:3px">Monthly Retainer</div>
-              <div style="font-size:15px;font-weight:700;color:var(--green);font-family:var(--mono)">$8K–$18K</div>
-            </div>
-            <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid var(--border)">
-              <div style="font-size:10px;color:var(--gray3);margin-bottom:3px">IG Bundle</div>
-              <div style="font-size:15px;font-weight:700;color:var(--green);font-family:var(--mono)">$4.2K–$8.5K</div>
-            </div>
-          </div>
-        </div>
-        <div class="dark-panel fade-up">
-          <div style="font-size:10px;color:var(--gray3);font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Top Brand Categories</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">
-            <span class="chip chip-g" style="font-size:11px;padding:5px 12px">Nutrition / Supplements</span>
-            <span class="chip chip-g" style="font-size:11px;padding:5px 12px">Apparel / Footwear</span>
-            <span class="chip chip-b" style="font-size:11px;padding:5px 12px">Automotive</span>
-            <span class="chip chip-b" style="font-size:11px;padding:5px 12px">Tech / Gaming</span>
-            <span class="chip chip-y" style="font-size:11px;padding:5px 12px">Food / Restaurant</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- CTA -->
-  <section class="feat" style="text-align:center;padding-bottom:120px">
-    <div style="max-width:600px;margin:0 auto">
-      <div class="sect-eyebrow" style="justify-content:center;display:flex">Ready to run</div>
-      <h2 class="sect-h2" style="font-size:clamp(32px,5vw,56px)">Your deals. Your clients.<br>Your edge.</h2>
-      <p class="sect-sub" style="margin:0 auto 32px;text-align:center">NILDash is live and running. Log in now and run a deal scan, fire up the rate calculator, or generate a pitch deck in under 30 seconds.</p>
-      <button class="btn-primary" style="margin:0 auto;font-size:15px;padding:15px 40px" onclick="window.location.href='https://mynildash.com'">Open NILDash →</button>
-    </div>
-  </section>
-
+<div class="ribbon">
+  <b>Interactive demo</b>
+  <span>Sample data. Click anything. Nothing is sent.</span>
+  <span class="spacer"></span>
+  <button type="button" id="reset">Start over</button>
 </div>
 
-<footer>
-  <div class="page">
-    Built by <strong>Compton Sales</strong> · <strong>NILDash</strong> v1.0 · AI-powered NIL deal intelligence
-  </div>
-</footer>
+<div class="shell">
+  <nav class="side">
+    <div class="brand"><span class="mark">N</span><span class="word">NIL<br>DASH</span></div>
+    <div class="eyebrow">AGENT PORTAL</div>
+    <div class="navlist" id="nav1"></div>
+    <div class="eyebrow">COMMUNICATION</div>
+    <div class="navlist" id="nav2" style="margin-top:-8px"></div>
+    <div class="who">
+      <span class="av">RK</span>
+      <span class="nm"><b>ross kellner</b><small>Kellner Sports Group</small></span>
+    </div>
+  </nav>
+
+  <main class="stage">
+    <div class="crumb">
+      <span class="path">NILDash / <b id="crumbNow">Home</b></span>
+      <span class="grow"></span>
+      <span class="search">Search...</span>
+      <span class="ready"><i></i>AI READY</span>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
 
 <script>
-// Cursor dot
-const cursor = document.getElementById('cursor');
-document.addEventListener('mousemove', e => {
-  cursor.style.left = (e.clientX - 4) + 'px';
-  cursor.style.top = (e.clientY - 4) + 'px';
-});
-document.addEventListener('mousedown', () => cursor.style.transform = 'scale(2.5)');
-document.addEventListener('mouseup', () => cursor.style.transform = 'scale(1)');
+/* ============================ DATA ============================ */
+const CALENDLY = "https://calendly.com/john-comptongroupllc/30min";
+const SIGNUP   = "https://mynildash.com";
+const SIGN = "Ross Kellner\nKellner Sports Group";
 
-// Scroll-in observer
-const io = new IntersectionObserver(entries => {
-  entries.forEach(e => { if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }});
-},{threshold:0.1});
-document.querySelectorAll('.fade-up').forEach(el => io.observe(el));
+const ATHLETES = [
+  { id:"alcott", name:"Trey Alcott", initials:"TA", pos:"WR", school:"Samford University",
+    city:"Birmingham, AL", year:"Junior", hometown:"Vestavia Hills, AL",
+    ig:8420, tiktok:3110, igHandle:"@treyalcott", stat:"34 rec · 512 yds · 5 TD",
+    about:"Wide receiver at Samford, third year in the program. Grew up fifteen minutes from campus in Vestavia Hills. Posts training, film breakdowns, and day in the life. Audience skews local, college age, and heavily Birmingham metro.",
+    rates:[["Instagram post","$350"],["Instagram story","$150"],["TikTok video","$400"],["In person appearance","$500"]],
+    cards:[
+      { biz:"Red Mountain Smoke Co.", who:"Bryce Talley, owner", ch:"email", cat:"Restaurant",
+        subj:"Trey Alcott, Samford football",
+        text:`Hi Bryce,
 
-// Score counter animation
-const scoreEl = document.getElementById('score-anim');
-function animScore() {
-  let count = 0;
-  const target = 85;
-  const step = () => {
-    count = Math.min(count + 2, target);
-    scoreEl.textContent = count;
-    if (count < target) requestAnimationFrame(step);
-  };
-  step();
+I represent Trey Alcott, a wide receiver at Samford. He grew up in Vestavia and he's putting together a few local partnerships for the season.
+
+Nothing complicated. He'd post from the restaurant a couple times a month and tag you after home games. Most of his following is students and families inside about 20 miles of you.
+
+Want me to send his media kit over?
+
+${SIGN}` },
+      { biz:"Hoover Barbell Club", who:"Nate Prescott, owner", ch:"email", cat:"Gym",
+        subj:"NIL partnership, Trey Alcott",
+        text:`Hi Nate,
+
+Quick one. I represent Trey Alcott, a receiver at Samford, and he trains six days a week year round.
+
+He's looking for a gym to partner with this season. Training is most of what he posts, so it would read as him rather than as an ad.
+
+Would a short call next week work?
+
+${SIGN}` },
+      { biz:"Sixth Ave Barber Studio", who:"Marcus Quill, owner · @sixthavebarber", ch:"dm", cat:"Barber",
+        text:`Hey Marcus, I represent Trey Alcott, a receiver at Samford. He's setting up a few local partnerships this season and your shop came up.
+
+Simple idea: he comes in before home games, posts the cut, tags the shop. Happy to send details if you're open to it.` },
+      { biz:"Vulcan Nutrition", who:"Dana Whitfield, owner", ch:"email", cat:"Supplements",
+        subj:"Trey Alcott, Samford WR",
+        text:`Hi Dana,
+
+I represent Trey Alcott, a wide receiver at Samford. He's building out his partnerships for the season and looking at local businesses in Birmingham first.
+
+He posts training and nutrition pretty consistently, so a supplement partnership lands naturally with the people already following him.
+
+Can I send you his media kit?
+
+${SIGN}` },
+      { biz:"Sowers Auto Detail", who:"Ray Sowers, owner", ch:"call", cat:"Auto",
+        text:`Ask for Ray Sowers.
+
+Open with: Hi Ray, this is Ross Kellner. I represent Trey Alcott, a wide receiver at Samford.
+
+Why you're calling: He's setting up a handful of local partnerships for the season and your shop is a few minutes from campus.
+
+The ask: Something simple, a post or two a month and a mention after home games. Would you be open to me sending over his information?
+
+If he asks what it costs: Deals at this level usually run a few hundred dollars for the season, and we can shape it around whatever works for you.` }
+    ] },
+  { id:"vega", name:"Marisol Vega", initials:"MV", pos:"Forward", school:"Loyola Marymount",
+    city:"Los Angeles, CA", year:"Sophomore", hometown:"Long Beach, CA",
+    ig:12900, tiktok:21400, igHandle:"@marisolvega", stat:"11 goals · 6 assists",
+    about:"Forward on the LMU soccer team, second year, from Long Beach. Her TikTok outruns her Instagram by a wide margin, mostly training clips, recovery, and what she eats in a day. Strong reach with high school players across Southern California.",
+    rates:[["Instagram post","$400"],["Instagram story","$175"],["TikTok video","$650"],["In person appearance","$500"]],
+    cards:[
+      { biz:"Playa Recovery Lab", who:"Simone Bautista, owner", ch:"email", cat:"Recovery",
+        subj:"Marisol Vega, LMU soccer",
+        text:`Hi Simone,
+
+I represent Marisol Vega, a forward on the soccer team at Loyola Marymount. She's from Long Beach and she's lining up local partnerships for the spring.
+
+Recovery is something she already talks about on her own, so this one would be easy to keep real instead of scripted.
+
+Would you be open to a short call?
+
+${SIGN}` },
+      { biz:"Sunburst Juice Co.", who:"Kiana Reyes, owner · @sunburstjuiceco", ch:"dm", cat:"Food & drink",
+        text:`Hey Kiana, I represent Marisol Vega, a forward on the LMU soccer team. She's putting together a few local partnerships this spring.
+
+Thought of you because training and food are most of what she posts. Open to hearing more?` },
+      { biz:"Coastline Athletic Club", who:"Rick Devaney, general manager", ch:"email", cat:"Gym",
+        subj:"LMU soccer partnership",
+        text:`Hi Rick,
+
+I represent Marisol Vega, a forward at Loyola Marymount. She trains year round and she's looking for a club to partner with this spring.
+
+Her audience is mostly local, college age, and already in a gym. Straightforward fit if that's who you want walking in.
+
+Happy to send her media kit over.
+
+${SIGN}` },
+      { biz:"Westside Dental Arts", who:"Dr. Elaine Mo, owner", ch:"email", cat:"Dental",
+        subj:"Local athlete partnership",
+        text:`Hi Dr. Mo,
+
+I represent Marisol Vega, a soccer player at Loyola Marymount, and she's setting up a few community partnerships for the spring.
+
+For a practice this usually looks like a couple of posts and an appearance at a youth clinic. Low lift on your end.
+
+Would you like me to send the details?
+
+${SIGN}` },
+      { biz:"Del Rey Bowls", who:"Tomas Serrano, owner · @delreybowls", ch:"dm", cat:"Food & drink",
+        text:`Hey Tomas, I represent Marisol Vega, a forward on the LMU soccer team. She's setting up a few local partnerships this spring and your shop is minutes from campus.
+
+Would a post and a story trade work on your end? Happy to send details.` }
+    ] },
+  { id:"whitlock", name:"DeAndre Whitlock", initials:"DW", pos:"LB", school:"Middle Tennessee State",
+    city:"Murfreesboro, TN", year:"Senior", hometown:"Clarksville, TN",
+    ig:5240, tiktok:1890, igHandle:"@dwhitlock44", stat:"78 tackles · 6.5 sacks",
+    about:"Senior linebacker at Middle Tennessee State and a team captain, from Clarksville. Hunts and fishes most of the offseason and posts a lot of it. Smaller following than the others but unusually local, which makes him a strong fit for Murfreesboro businesses.",
+    rates:[["Instagram post","$250"],["Instagram story","$100"],["TikTok video","$250"],["In person appearance","$400"]],
+    cards:[
+      { biz:"Stones River Outfitters", who:"Cal Buckner, owner", ch:"email", cat:"Outdoors",
+        subj:"DeAndre Whitlock, MTSU football",
+        text:`Hi Cal,
+
+I represent DeAndre Whitlock, a linebacker at Middle Tennessee State. He hunts and fishes most of the offseason and he's setting up local partnerships for the year.
+
+This is one of the few where the fit is obvious before anybody writes a line of copy.
+
+Want me to send his information over?
+
+${SIGN}` },
+      { biz:"Broad Street Wing House", who:"Jamie Dunn, owner", ch:"email", cat:"Restaurant",
+        subj:"MTSU football partnership",
+        text:`Hi Jamie,
+
+I represent DeAndre Whitlock, a linebacker at Middle Tennessee State. He's building out a few local partnerships this season.
+
+Simple version: he posts from the restaurant after home games and brings teammates. Your Saturday crowd is already his audience.
+
+Can I send over the details?
+
+${SIGN}` },
+      { biz:"Copper Kettle Coffee", who:"Nina Alvarado, owner · @copperkettlembo", ch:"dm", cat:"Coffee",
+        text:`Hey Nina, I represent DeAndre Whitlock, a linebacker at Middle Tennessee State. He's setting up a handful of local partnerships this season.
+
+Nothing complicated, a couple of posts a month and a mention on game days. Open to hearing more?` },
+      { biz:"Murfreesboro Powersports", who:"Wes Kimbro, owner", ch:"call", cat:"Auto",
+        text:`Ask for Wes Kimbro.
+
+Open with: Hi Wes, this is Ross Kellner. I represent DeAndre Whitlock, a linebacker at Middle Tennessee State.
+
+Why you're calling: He's putting together local partnerships for the season, and you're one of the few places in town already marketing to the same people he reaches.
+
+The ask: Would you be open to me sending over what a partnership would look like?
+
+If he asks what's involved: A few posts during the season and a mention at home games. We can keep it simple.` },
+      { biz:"Rutherford Family Dentistry", who:"Dr. Amy Teague, owner", ch:"email", cat:"Dental",
+        subj:"Community partnership, MTSU athlete",
+        text:`Hi Dr. Teague,
+
+I represent DeAndre Whitlock, a linebacker at Middle Tennessee State. He's setting up a few community partnerships this season.
+
+For a practice this is usually a couple of social posts and a visit to a local school or youth team. Easy to run and it plays well locally.
+
+Would you like the details?
+
+${SIGN}` }
+    ] }
+];
+
+const HISTORY = [
+  { biz:"Avondale Wing Co.", who:"Dell Rios, owner", ath:"alcott", ch:"email", cat:"Restaurant", sent:"Sep 18", stage:"replied", value:"" },
+  { biz:"Cahaba Bike Works", who:"Pete Lansing, owner", ath:"alcott", ch:"email", cat:"Retail", sent:"Sep 15", stage:"contacted", value:"" },
+  { biz:"Southside Chiropractic", who:"Dr. Rob Feltner, owner", ath:"alcott", ch:"email", cat:"Health", sent:"Sep 9", stage:"closed", value:"$1,200 / season" },
+  { biz:"Manhattan Beach Pilates", who:"Gwen Ortiz, owner", ath:"vega", ch:"dm", cat:"Fitness", sent:"Sep 17", stage:"replied", value:"" },
+  { biz:"El Segundo Taqueria", who:"Hector Nieves, owner", ath:"vega", ch:"email", cat:"Restaurant", sent:"Sep 14", stage:"contacted", value:"" },
+  { biz:"Cannonsburgh Fitness", who:"Trent Wheeler, owner", ath:"whitlock", ch:"email", cat:"Gym", sent:"Sep 16", stage:"negotiating", value:"$600 proposed" },
+  { biz:"Boro Barbers", who:"Silas Reed, owner", ath:"whitlock", ch:"dm", cat:"Barber", sent:"Sep 11", stage:"closed", value:"$450 / season" }
+];
+
+const INBOX = [
+  { from:"Dell Rios", biz:"Avondale Wing Co.", ath:"alcott", when:"7:42 AM", unread:true,
+    subj:"Re: Trey Alcott, Samford football",
+    text:`Ross,
+
+This is interesting. We've never done anything like this but we're across the street from campus so it makes sense.
+
+Can you send over what he charges and what we'd get? Also, does he do in person stuff? We run a wing night every other Thursday.
+
+Dell` },
+  { from:"Gwen Ortiz", biz:"Manhattan Beach Pilates", ath:"vega", when:"Yesterday", unread:true,
+    subj:"Instagram message",
+    text:`Hi Ross, thanks for reaching out. What would this look like on our end? We're a small studio so the budget is tight, but I like the idea of working with a local athlete.` },
+  { from:"Dr. Rob Feltner", biz:"Southside Chiropractic", ath:"alcott", when:"Sep 12", unread:false,
+    subj:"Re: Trey Alcott, Samford football",
+    text:`Sounds good, let's do it. Send the agreement over and we'll get it signed this week.` }
+];
+
+const DELIVERABLES = [
+  { biz:"Southside Chiropractic", ath:"alcott", what:"Story after home opener", due:"Sep 20", status:"done" },
+  { biz:"Boro Barbers", ath:"whitlock", what:"Instagram post, pregame cut", due:"Sep 30", status:"due" },
+  { biz:"Southside Chiropractic", ath:"alcott", what:"Instagram post, clinic visit", due:"Oct 3", status:"due" },
+  { biz:"Boro Barbers", ath:"whitlock", what:"In store appearance", due:"Oct 11", status:"scheduled" },
+  { biz:"Southside Chiropractic", ath:"alcott", what:"Instagram post, second of two", due:"Nov 7", status:"scheduled" }
+];
+
+const SCAN = {
+  local:[
+    { biz:"Red Mountain Smoke Co.", who:"Bryce Talley", cat:"Restaurant", fit:94, why:"Runs paid social weekly, 2.1 mi from campus" },
+    { biz:"Hoover Barbell Club", who:"Nate Prescott", cat:"Gym", fit:91, why:"Sponsored a local 5K in August" },
+    { biz:"Vulcan Nutrition", who:"Dana Whitfield", cat:"Supplements", fit:88, why:"Three athlete posts in the last 90 days" },
+    { biz:"Sixth Ave Barber Studio", who:"Marcus Quill", cat:"Barber", fit:84, why:"Posts client work daily, 6.4k followers" },
+    { biz:"Sowers Auto Detail", who:"Ray Sowers", cat:"Auto", fit:79, why:"Billboard on Lakeshore Dr, no social presence" }
+  ],
+  social:[
+    { biz:"Clutch Grip Co.", who:"Ari Solano", cat:"Training gear", fit:86, why:"Works with 40+ college athletes" },
+    { biz:"Field Level Apparel", who:"Dre Mathis", cat:"Apparel", fit:81, why:"Ran an NIL campaign last spring" }
+  ],
+  national:[
+    { biz:"Sideline Hydration", who:"partnerships team", cat:"Beverage", fit:62, why:"Open athlete program, application only" }
+  ]
+};
+
+const AI_REPLIES = {
+  "Who hasn't been contacted in 30 days?":
+    "Two businesses are going cold. Cahaba Bike Works for Trey Alcott, sent Sep 15, no reply. El Segundo Taqueria for Marisol Vega, sent Sep 14, no reply.\n\nWant me to draft follow ups for both?",
+  "Draft a follow up to Dell Rios":
+    "Dell asked what Trey charges and whether he does appearances. Here is a draft:\n\nHi Dell,\n\nThanks for coming back so fast. Trey's rate is $350 for an Instagram post and $500 for an appearance.\n\nA wing night makes a lot of sense. He could show up, post from it, and bring a couple teammates. Easiest version would be two posts and one appearance for $1,200 across the season, and I'm happy to shape it differently if that's not the right size.\n\nWant me to put it in writing?",
+  "Which athlete has the best reply rate?":
+    "Marisol Vega, one reply from two sent. Trey Alcott is one from three. DeAndre Whitlock is one from two, and his closed.\n\nThe sample is small enough that I would not read much into it yet. Ask me again in two weeks.",
+  "Summarize this week":
+    "Seven businesses contacted, two replies, one deal closed at $1,200.\n\nFifteen new pitches are waiting on Home across your three athletes. The Southside Chiropractic post is due Oct 3 and has not been scheduled yet."
+};
+
+/* ============================ STATE ============================ */
+const NAV1 = [
+  ["home","Home"],["scan","Deal Scan"],["brands","My Brands"],["kit","Media Kit"],
+  ["outreach","Outreach"],["pipeline","Pipeline"],["roster","My Roster"],
+  ["deliver","Deliverables"],["add","Add Client"],["ai","AI Command"]
+];
+const NAV2 = [["inbox","Email Inbox"],["settings","Settings"]];
+const LABEL = Object.fromEntries([...NAV1,...NAV2]);
+
+let route = "home";
+let tab = 0;          // Home athlete tab
+let kitTab = 0;       // Media kit athlete tab
+let scanAth = 0, scanRun = false, scanning = false;
+let openKey = "alcott:0";
+let openMail = null;
+let chat = [];
+let state = {};       // "athId:index" -> "sent" | "skipped"
+let t0 = null, ticker = null;
+
+const $ = id => document.getElementById(id);
+const key = (a,i) => a.id + ":" + i;
+const byId = id => ATHLETES.find(a => a.id === id);
+const esc = s => String(s).replace(/[&<>]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
+const num = n => n.toLocaleString("en-US");
+
+function pending(a){ return a.cards.filter((c,i)=>!state[key(a,i)]).length }
+function countBy(v){ return Object.values(state).filter(x=>x===v).length }
+function allDone(){ return ATHLETES.every(a=>pending(a)===0) }
+function approvedList(){
+  const out = [];
+  ATHLETES.forEach(a => a.cards.forEach((c,i)=>{
+    if (state[key(a,i)] === "sent")
+      out.push({ biz:c.biz, who:c.who, ath:a.id, ch:c.ch, cat:c.cat, sent:"Today", stage:"contacted", value:"", fresh:true });
+  }));
+  return out;
 }
-const scoreObs = new IntersectionObserver(entries => {
-  if(entries[0].isIntersecting){ animScore(); scoreObs.disconnect(); }
-},{threshold:0.5});
-if(scoreEl) scoreObs.observe(scoreEl);
+function allBrands(){ return approvedList().concat(HISTORY) }
+
+function startClock(){ if (t0) return; t0 = Date.now(); ticker = setInterval(tickClock, 250) }
+function stopClock(){ if (ticker){ clearInterval(ticker); ticker = null } }
+function elapsed(){
+  if (!t0) return "0:00";
+  const s = Math.floor((Date.now()-t0)/1000);
+  return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0");
+}
+function tickClock(){
+  const c = $("sClock"); if (c) c.textContent = elapsed();
+  const t = $("closeTime"); if (t) t.textContent = elapsed();
+}
+
+const chev = hot => '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="'
+  + (hot ? "#A3E635" : "#7A8496")
+  + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
+const CH = {
+  email:{ label:"EMAIL", tool:"Preview in Gmail" },
+  dm:{ label:"DM", tool:"Copy DM and open Instagram" },
+  call:{ label:"CALL", tool:"Copy call script" }
+};
+const STAGE = {
+  contacted:["grey","Contacted"], replied:["blue","Replied"],
+  negotiating:["amber","Negotiating"], closed:["green","Closed"]
+};
+
+/* ============================ SCREENS ============================ */
+
+function screenHome(){
+  const a = ATHLETES[tab];
+  const left = pending(a);
+  const byCh = {email:0,dm:0,call:0};
+  a.cards.forEach((c,i)=>{ if(!state[key(a,i)]) byCh[c.ch]++ });
+  const bits = [];
+  if (byCh.email) bits.push(byCh.email + " email");
+  if (byCh.dm) bits.push(byCh.dm + " DM");
+  if (byCh.call) bits.push(byCh.call + " call");
+
+  const tabsHtml = ATHLETES.map((x,n)=>{
+    const l = pending(x);
+    const cls = [n===tab?"on":"", l===0?"done":""].filter(Boolean).join(" ");
+    return `<button type="button" data-tab="${n}" class="${cls}">${esc(x.name)}<span class="n">${l===0?"done":l}</span></button>`;
+  }).join("");
+
+  const rowsHtml = a.cards.map((c,i)=>{
+    const k = key(a,i), st = state[k], open = openKey===k && !st;
+    const cls = ["row", open?"open":"", st==="sent"?"sent":"", st==="skipped"?"skipped":""].filter(Boolean).join(" ");
+    const tag = st==="sent" ? '<span class="tag state">SENT</span>'
+      : st==="skipped" ? '<span class="tag state off">SKIPPED</span>'
+      : `<span class="tag ${c.ch}">${CH[c.ch].label}</span>`;
+    const acts = st ? "" : `<span class="acts">
+        <button type="button" class="btn go" data-do="sent" data-i="${i}">Approve</button>
+        <button type="button" class="btn ghost" data-do="skipped" data-i="${i}">Skip</button></span>`;
+    const body = open ? `<div class="body">
+        <div class="pitch">${c.subj?`<span class="subj">Subject: <b>${esc(c.subj)}</b></span>`:""}${esc(c.text)}</div>
+        <div class="tools"><span class="tool">Edit</span>
+          <span class="tool ${c.ch==="dm"?"alt":c.ch==="call"?"amber":""}">${CH[c.ch].tool}</span></div>
+      </div>` : "";
+    return `<div class="${cls}"><div class="rowtop">
+        <button type="button" class="rowhit" data-open="${i}" ${st?"disabled":""} aria-expanded="${open}">
+          ${chev(open)}
+          <span class="meta"><span class="biz">${esc(c.biz)}</span><span class="sub">${esc(c.who)}</span></span>
+          ${tag}
+        </button>${acts}</div>${body}</div>`;
+  }).join("");
+
+  const sent = countBy("sent");
+  const showClose = sent >= 3 || allDone();
+  const n = sent + countBy("skipped");
+  const touched = ATHLETES.filter(x => x.cards.some((c,i)=>state[key(x,i)])).length;
+  const who = touched <= 1 ? "one athlete" : `${touched} athletes in ${touched} different towns`;
+
+  return `
+    <div class="tabs">${tabsHtml}</div><div class="tabrule"></div>
+    <div class="board">
+      <div class="head">
+        <h1>${esc(a.name)}</h1>
+        <p>${left ? `${left} to work · ${bits.join(", ")} · ${esc(a.pos)} · ${esc(a.school)} · ${esc(a.city)}`
+                  : `All clear · ${esc(a.pos)} · ${esc(a.school)} · ${esc(a.city)}`}</p>
+      </div>
+      <div class="rows">${rowsHtml}</div>
+    </div>
+    ${showClose ? `<div class="close">
+      <h2>That took you <em id="closeTime">${elapsed()}</em>. By hand it's an afternoon.</h2>
+      <p>You just worked ${n} pitch${n===1?"":"es"} for ${who}. NILDash found each business, pulled the owner's name, wrote the message, and had it waiting before you woke up. By hand that means searching, digging for a contact, and writing every one from scratch.</p>
+      <div class="cta">
+        <a class="go" href="${SIGNUP}" target="_blank" rel="noopener">Start free</a>
+        <a class="ghost" href="${CALENDLY}" target="_blank" rel="noopener">Book a call</a>
+      </div></div>` : ""}
+    <div class="statusbar">
+      <button type="button" class="btn go" id="approveAll" ${left?"":"disabled style=opacity:.4"}>
+        ${left ? `Approve all ${left} for ${esc(a.name)}` : `${esc(a.name)} is clear`}</button>
+      <span class="grow"></span>
+      <span class="stats">
+        <span><b>${sent}</b> approved</span><span class="sep">·</span>
+        <span><b>${countBy("skipped")}</b> skipped</span><span class="sep">·</span>
+        <span><b id="sClock">${elapsed()}</b></span>
+      </span>
+    </div>`;
+}
+
+function screenScan(){
+  const a = ATHLETES[scanAth];
+  const lane = (title, note, items) => `
+    <div class="panel" style="padding:0;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h3 style="margin:0">${title}</h3>
+        <span class="chip grey">${items.length} found</span>
+        <span style="flex:1 1 auto"></span>
+        <span style="font-size:13px;color:var(--dim)">${note}</span>
+      </div>
+      ${items.map(r=>`<div style="padding:14px 20px;border-bottom:1px solid #161E2A;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <span style="flex:1 1 220px;min-width:0">
+          <span class="b" style="font-size:16px;font-weight:600">${esc(r.biz)}</span>
+          <span class="s" style="display:block">${esc(r.who)} · ${esc(r.cat)}</span>
+        </span>
+        <span style="flex:2 1 260px;font-size:13.5px;color:var(--muted)">${esc(r.why)}</span>
+        <span class="chip ${r.fit>=85?"lime":r.fit>=75?"green":"grey"}">FIT ${r.fit}</span>
+        <button class="btn go sm" type="button">AI Outreach</button>
+      </div>`).join("")}
+    </div>`;
+
+  const results = !scanRun ? `
+    <div class="empty"><b>No scan run yet</b>
+      Pick an athlete and run a scan. NILDash searches the businesses around ${esc(a.city)} that are actively spending on marketing, then ranks them against ${esc(a.name.split(" ")[0])}.</div>`
+    : scanning ? `<div class="empty"><b>Scanning ${esc(a.city)}…</b>Checking local businesses, social brands, and national programs.</div>`
+    : `<div class="grid" style="gap:14px">
+        ${lane("Local businesses","Within 25 miles of campus",SCAN.local)}
+        ${lane("Social media brands","Already running athlete campaigns",SCAN.social)}
+        ${lane("National programs","Lower priority, application based",SCAN.national)}
+      </div>`;
+
+  return `<div class="board">
+    <div class="head"><h1>Deal Scan</h1>
+      <p>Find businesses worth pitching, then hand the good ones to the writer.</p></div>
+    <div class="panel">
+      <div class="formgrid" style="align-items:end">
+        <div class="field"><label>ATHLETE</label>
+          <select id="scanAth">${ATHLETES.map((x,n)=>`<option value="${n}" ${n===scanAth?"selected":""}>${esc(x.name)}</option>`).join("")}</select></div>
+        <div class="field"><label>MARKET</label><input value="${esc(a.city)}" readonly></div>
+        <div class="field"><label>RADIUS</label><input value="25 miles" readonly></div>
+        <div class="field"><label>&nbsp;</label>
+          <button class="btn go" type="button" id="runScan" ${scanning?"disabled":""}>${scanning?"Scanning…":"Run scan"}</button></div>
+      </div>
+    </div>
+    ${results}
+  </div>`;
+}
+
+function screenBrands(){
+  const rows = allBrands();
+  const counts = { contacted:0, replied:0, negotiating:0, closed:0 };
+  rows.forEach(r => counts[r.stage]++);
+  return `<div class="board">
+    <div class="head"><h1>My Brands</h1>
+      <p>Every business NILDash has sourced for you, and where each one stands.</p></div>
+    <div class="grid g4">
+      <div class="stat"><span class="k">TOTAL SOURCED</span><span class="v">${rows.length}</span><span class="n">across 3 athletes</span></div>
+      <div class="stat"><span class="k">CONTACTED</span><span class="v">${counts.contacted}</span><span class="n">awaiting reply</span></div>
+      <div class="stat"><span class="k">REPLIED</span><span class="v lime">${counts.replied}</span><span class="n">needs a response</span></div>
+      <div class="stat"><span class="k">CLOSED</span><span class="v lime">${counts.closed}</span><span class="n">$1,650 booked</span></div>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Business</th><th>Owner</th><th>Athlete</th><th>Category</th><th>Channel</th><th>Sent</th><th>Stage</th></tr></thead>
+      <tbody>${rows.map(r=>{
+        const [c,l] = STAGE[r.stage];
+        return `<tr>
+          <td><span class="b">${esc(r.biz)}</span></td>
+          <td class="s">${esc(r.who)}</td>
+          <td class="s">${esc(byId(r.ath).name)}</td>
+          <td class="s">${esc(r.cat)}</td>
+          <td><span class="tag ${r.ch}">${CH[r.ch].label}</span></td>
+          <td class="s" style="white-space:nowrap">${esc(r.sent)}</td>
+          <td><span class="chip ${c}">${l}</span></td></tr>`;
+      }).join("")}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function screenKit(){
+  const a = ATHLETES[kitTab];
+  return `<div class="board">
+    <div class="head"><h1>Media Kit</h1>
+      <p>One page you can send a business owner. Built from the roster, no design work.</p></div>
+    <div class="tabs" style="padding:0">${ATHLETES.map((x,n)=>
+      `<button type="button" data-kit="${n}" class="${n===kitTab?"on":""}">${esc(x.name)}</button>`).join("")}</div>
+    <div class="kit">
+      <div class="kithero">
+        <div class="kitav">${a.initials}</div>
+        <div class="kitname"><h2>${esc(a.name)}</h2>
+          <p>${esc(a.pos)} · ${esc(a.school)} · ${esc(a.year)} · ${esc(a.hometown)}</p></div>
+      </div>
+      <div class="kitbody">
+        <div class="kitrow">
+          <div class="kitnum"><div class="k">INSTAGRAM</div><div class="v">${num(a.ig)}</div></div>
+          <div class="kitnum"><div class="k">TIKTOK</div><div class="v">${num(a.tiktok)}</div></div>
+          <div class="kitnum"><div class="k">TOTAL REACH</div><div class="v">${num(a.ig + a.tiktok)}</div></div>
+          <div class="kitnum"><div class="k">2025 SEASON</div><div class="v" style="font-size:15px;padding-top:5px">${esc(a.stat)}</div></div>
+        </div>
+        <div class="kitsec"><h4>ABOUT</h4><p>${esc(a.about)}</p></div>
+        <div class="kitsec"><h4>RATE CARD</h4>
+          <div class="ratelist">${a.rates.map(([k,v])=>`<div class="rateline"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div></div>
+        <div class="kitsec"><h4>CONTACT</h4>
+          <p>Ross Kellner · Kellner Sports Group · ${esc(a.igHandle)}</p></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:11px;flex-wrap:wrap">
+      <button class="btn go" type="button">Copy shareable link</button>
+      <button class="btn ghost" type="button">Download PDF</button>
+      <button class="btn ghost" type="button">Upload headshot and action shot</button>
+    </div>
+  </div>`;
+}
+
+function screenOutreach(){
+  const rows = allBrands();
+  return `<div class="board">
+    <div class="head"><h1>Outreach</h1>
+      <p>Everything that has actually left your mailbox, in order.</p></div>
+    <div class="grid g3">
+      <div class="stat"><span class="k">SENT, ALL TIME</span><span class="v">${rows.length}</span><span class="n">since Sep 9</span></div>
+      <div class="stat"><span class="k">REPLIES</span><span class="v lime">3</span><span class="n">${Math.round(3/rows.length*100)}% reply rate</span></div>
+      <div class="stat"><span class="k">DAILY LIMIT</span><span class="v">${rows.filter(r=>r.fresh).length} / 500</span><span class="n">resets at midnight</span></div>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Sent</th><th>Business</th><th>Athlete</th><th>Channel</th><th>Status</th></tr></thead>
+      <tbody>${rows.map(r=>{
+        const [c,l] = STAGE[r.stage];
+        return `<tr><td class="s" style="white-space:nowrap">${esc(r.sent)}</td>
+          <td><span class="b">${esc(r.biz)}</span><span class="s" style="display:block">${esc(r.who)}</span></td>
+          <td class="s">${esc(byId(r.ath).name)}</td>
+          <td><span class="tag ${r.ch}">${CH[r.ch].label}</span></td>
+          <td><span class="chip ${c}">${l}</span></td></tr>`;
+      }).join("")}</tbody></table></div>
+  </div>`;
+}
+
+function screenPipeline(){
+  const rows = allBrands();
+  const col = (stage, title) => {
+    const items = rows.filter(r=>r.stage===stage);
+    return `<div class="kancol">
+      <div class="kanhead"><span>${title}</span><b>${items.length}</b></div>
+      ${items.length ? items.map(r=>`<div class="kancard">
+          <span class="t">${esc(r.biz)}</span>
+          <span class="m">${esc(byId(r.ath).name)} · ${esc(r.cat)}</span>
+          ${r.value?`<span class="v">${esc(r.value)}</span>`:`<span class="m">${esc(r.sent)}</span>`}
+        </div>`).join("")
+        : `<div style="padding:14px 2px;font-size:13px;color:var(--dimmer)">Nothing here</div>`}
+    </div>`;
+  };
+  return `<div class="board">
+    <div class="head"><h1>Pipeline</h1>
+      <p>Where every conversation sits. Deals move as replies come in.</p></div>
+    <div class="kan">
+      ${col("contacted","CONTACTED")}${col("replied","REPLIED")}
+      ${col("negotiating","NEGOTIATING")}${col("closed","CLOSED")}
+    </div>
+    <div class="panel"><h3>Closed this season</h3>
+      <p class="lede">Southside Chiropractic with Trey Alcott at $1,200 for the season, and Boro Barbers with DeAndre Whitlock at $450. NILDash tracks the deal to signature and leaves the money between you and the business.</p></div>
+  </div>`;
+}
+
+function screenRoster(){
+  return `<div class="board">
+    <div class="head"><h1>My Roster</h1>
+      <p>Three athletes. Add one at a time or drop in a spreadsheet.</p></div>
+    <div class="grid g2">${ATHLETES.map(a=>`
+      <div class="panel" style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:14px">
+          <span class="kitav" style="width:54px;height:54px;font-size:19px">${a.initials}</span>
+          <span style="min-width:0"><span style="display:block;font-family:var(--display);font-size:20px;font-weight:700">${esc(a.name)}</span>
+            <span style="display:block;font-size:14px;color:var(--muted)">${esc(a.pos)} · ${esc(a.school)}</span></span>
+        </div>
+        <div class="grid g3" style="gap:10px">
+          <div class="kitnum"><div class="k">INSTAGRAM</div><div class="v" style="font-size:18px">${num(a.ig)}</div></div>
+          <div class="kitnum"><div class="k">TIKTOK</div><div class="v" style="font-size:18px">${num(a.tiktok)}</div></div>
+          <div class="kitnum"><div class="k">PITCHES LEFT</div><div class="v" style="font-size:18px">${pending(a)}</div></div>
+        </div>
+        <div style="display:flex;gap:9px;flex-wrap:wrap">
+          <button class="btn ghost sm" type="button" data-goto="kit" data-kitn="${ATHLETES.indexOf(a)}">Media kit</button>
+          <button class="btn ghost sm" type="button" data-goto="scan" data-scann="${ATHLETES.indexOf(a)}">Run a scan</button>
+        </div>
+      </div>`).join("")}
+      <button class="panel" type="button" data-goto="add" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border-style:dashed;min-height:180px;color:var(--muted);cursor:pointer">
+        <span style="font-family:var(--display);font-size:19px;color:var(--text)">Add an athlete</span>
+        <span style="font-size:14px">One at a time, or import a spreadsheet</span>
+      </button>
+    </div>
+  </div>`;
+}
+
+function screenDeliver(){
+  const pill = s => s==="done" ? '<span class="chip green">Done</span>'
+    : s==="due" ? '<span class="chip amber">Due</span>' : '<span class="chip grey">Scheduled</span>';
+  return `<div class="board">
+    <div class="head"><h1>Deliverables</h1>
+      <p>What each athlete owes a business once a deal closes.</p></div>
+    <div class="grid g3">
+      <div class="stat"><span class="k">DUE THIS MONTH</span><span class="v">2</span><span class="n">Sep 30 and Oct 3</span></div>
+      <div class="stat"><span class="k">COMPLETED</span><span class="v lime">1</span><span class="n">on time</span></div>
+      <div class="stat"><span class="k">SCHEDULED</span><span class="v">2</span><span class="n">October and November</span></div>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Due</th><th>Deliverable</th><th>Business</th><th>Athlete</th><th>Status</th></tr></thead>
+      <tbody>${DELIVERABLES.map(d=>`<tr>
+        <td class="s" style="white-space:nowrap">${esc(d.due)}</td>
+        <td><span class="b">${esc(d.what)}</span></td>
+        <td class="s">${esc(d.biz)}</td>
+        <td class="s">${esc(byId(d.ath).name)}</td>
+        <td>${pill(d.status)}</td></tr>`).join("")}</tbody></table></div>
+  </div>`;
+}
+
+function screenAdd(){
+  return `<div class="board">
+    <div class="head"><h1>Add Client</h1>
+      <p>Type in one athlete, or drop a spreadsheet and let AI fill the rest.</p></div>
+    <div class="panel">
+      <h3>One athlete</h3>
+      <p class="lede" style="margin-bottom:16px">Put in a name and a sport and AI Lookup fills in the school, position, class year, and socials.</p>
+      <div class="formgrid">
+        <div class="field"><label>FULL NAME</label><input id="f-name" placeholder="Trey Alcott"></div>
+        <div class="field"><label>SPORT</label>
+          <select id="f-sport"><option>Football</option><option>Men's basketball</option><option>Women's basketball</option><option>Soccer</option><option>Baseball</option><option>Softball</option><option>Track and field</option></select></div>
+        <div class="field"><label>SCHOOL</label><input id="f-school" placeholder="AI fills this in"></div>
+        <div class="field"><label>POSITION</label><input id="f-pos" placeholder="AI fills this in"></div>
+        <div class="field"><label>INSTAGRAM</label><input id="f-ig" placeholder="AI fills this in"></div>
+        <div class="field"><label>&nbsp;</label><button class="btn go" type="button">AI Lookup</button></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>A whole roster</h3>
+      <p class="lede" style="margin-bottom:16px">One agent brought over 30 clients this way. A school can bring 250.</p>
+      <div class="drop"><b>Drop a spreadsheet here</b>
+        Name, sport and school is enough. AI pulls stats and socials for every row.</div>
+    </div>
+  </div>`;
+}
+
+function screenAi(){
+  const log = chat.length ? chat.map(m=>`<div class="bub ${m.r}">${esc(m.t)}</div>`).join("")
+    : `<div class="bub ai">Ask me anything about your roster, your outreach, or what needs attention today.</div>`;
+  return `<div class="board">
+    <div class="head"><h1>AI Command</h1>
+      <p>Ask about your own data instead of clicking through five screens.</p></div>
+    <div class="panel" style="display:flex;flex-direction:column;gap:18px">
+      <div class="chatlog">${log}</div>
+      <div class="prompts">${Object.keys(AI_REPLIES).map(q=>
+        `<button type="button" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+    </div>
+  </div>`;
+}
+
+function screenInbox(){
+  return `<div class="board">
+    <div class="head"><h1>Email Inbox</h1>
+      <p>Replies from businesses, matched back to the athlete they were about.</p></div>
+    <div class="mail">${INBOX.map((m,i)=>{
+      const open = openMail === i;
+      return `<div class="mailrow ${m.unread?"new":""}">
+        <button type="button" data-mail="${i}" style="text-align:left;width:100%;padding:0">
+          <div class="mailtop">
+            ${m.unread?'<span class="chip lime">NEW</span>':''}
+            <span class="from">${esc(m.from)}</span>
+            <span class="chip grey">${esc(m.biz)}</span>
+            <span class="chip violet">${esc(byId(m.ath).name)}</span>
+            <span class="when">${esc(m.when)}</span>
+          </div>
+          <div class="mailsubj">${esc(m.subj)}</div>
+        </button>
+        ${open?`<div class="mailtext">${esc(m.text)}</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn go sm" type="button" data-goto="ai">Draft a reply with AI</button>
+            <button class="btn ghost sm" type="button">Mark as a deal</button>
+          </div>`:""}
+      </div>`;
+    }).join("")}</div>
+  </div>`;
+}
+
+function screenSettings(){
+  return `<div class="board">
+    <div class="head"><h1>Settings</h1>
+      <p>Connect a mailbox, set your sending rules, and stay compliant.</p></div>
+    <div class="grid g2">
+      <div class="panel"><h3>Mailbox</h3>
+        <p class="lede" style="margin-bottom:14px">Outreach sends from your own address, so replies come back to you.</p>
+        <div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap">
+          <span class="chip green">Gmail connected</span>
+          <span style="font-size:14px;color:var(--muted)">ross@kellnersports.com</span>
+        </div>
+      </div>
+      <div class="panel"><h3>Sending rules</h3>
+        <p class="lede" style="margin-bottom:14px">Guardrails so nothing gets you marked as spam.</p>
+        <div class="ratelist">
+          <div class="rateline"><span>Gap between sends</span><span>20 to 50 sec</span></div>
+          <div class="rateline"><span>Same address again</span><span>after 4 days</span></div>
+          <div class="rateline"><span>Duplicate subject lines</span><span>blocked</span></div>
+          <div class="rateline"><span>Daily cap</span><span>500</span></div>
+        </div>
+      </div>
+      <div class="panel"><h3>Compliance</h3>
+        <p class="lede" style="margin-bottom:14px">Held before sending, never after.</p>
+        <div class="ratelist">
+          <div class="rateline"><span>Alcohol, for athletes under 21</span><span>blocked</span></div>
+          <div class="rateline"><span>Gambling and sportsbooks</span><span>blocked</span></div>
+          <div class="rateline"><span>Cannabis and vape</span><span>blocked</span></div>
+          <div class="rateline"><span>Unverifiable category</span><span>held for review</span></div>
+        </div>
+      </div>
+      <div class="panel"><h3>Plan</h3>
+        <p class="lede" style="margin-bottom:14px">One flat price. Every athlete, every scan.</p>
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-family:var(--display);font-size:38px;font-weight:700;letter-spacing:-1px">$99</span>
+          <span style="color:var(--muted)">per month</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+const SCREENS = { home:screenHome, scan:screenScan, brands:screenBrands, kit:screenKit,
+  outreach:screenOutreach, pipeline:screenPipeline, roster:screenRoster, deliver:screenDeliver,
+  add:screenAdd, ai:screenAi, inbox:screenInbox, settings:screenSettings };
+
+/* ============================ RENDER ============================ */
+function renderNav(){
+  const unread = INBOX.filter(m=>m.unread).length;
+  $("nav1").innerHTML = NAV1.map(([id,l])=>
+    `<button type="button" data-goto="${id}" class="${route===id?"on":""}"><i></i>${l}</button>`).join("");
+  $("nav2").innerHTML = NAV2.map(([id,l])=>
+    `<button type="button" data-goto="${id}" class="${route===id?"on":""}"><i></i>${l}${
+      id==="inbox"&&unread?`<span class="pill">${unread}</span>`:""}</button>`).join("");
+}
+
+function render(){
+  renderNav();
+  $("crumbNow").textContent = LABEL[route];
+  $("view").innerHTML = SCREENS[route]();
+  tickClock();
+}
+
+/* ============================ EVENTS ============================ */
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-goto],[data-tab],[data-do],[data-open],[data-kit],[data-mail],[data-ask],#approveAll,#runScan,#reset");
+  if (!t) return;
+
+  if (t.id === "reset"){
+    state = {}; tab = 0; kitTab = 0; scanAth = 0; scanRun = false; scanning = false;
+    openKey = "alcott:0"; openMail = null; chat = []; route = "home";
+    stopClock(); t0 = null; render(); return;
+  }
+  if (t.dataset.goto){
+    route = t.dataset.goto;
+    if (t.dataset.kitn !== undefined) kitTab = +t.dataset.kitn;
+    if (t.dataset.scann !== undefined){ scanAth = +t.dataset.scann; scanRun = false }
+    window.scrollTo({ top:0, behavior:"smooth" });
+    render(); return;
+  }
+  if (t.dataset.kit !== undefined){ kitTab = +t.dataset.kit; render(); return }
+  if (t.dataset.mail !== undefined){
+    const i = +t.dataset.mail;
+    openMail = openMail === i ? null : i;
+    INBOX[i].unread = false;
+    render(); return;
+  }
+  if (t.dataset.ask){
+    chat.push({ r:"me", t:t.dataset.ask });
+    chat.push({ r:"ai", t:AI_REPLIES[t.dataset.ask] });
+    render();
+    return;
+  }
+  if (t.id === "runScan"){
+    scanning = true; render();
+    setTimeout(()=>{ scanning = false; scanRun = true; render() }, 1100);
+    return;
+  }
+
+  const a = ATHLETES[tab];
+  if (t.id === "approveAll"){
+    startClock();
+    a.cards.forEach((c,i)=>{ if(!state[key(a,i)]) state[key(a,i)] = "sent" });
+    openKey = null; if (allDone()) stopClock(); render(); return;
+  }
+  if (t.dataset.tab !== undefined){
+    tab = +t.dataset.tab;
+    const nx = ATHLETES[tab].cards.findIndex((c,i)=>!state[key(ATHLETES[tab],i)]);
+    openKey = nx === -1 ? null : key(ATHLETES[tab], nx);
+    render(); return;
+  }
+  if (t.dataset.do){
+    startClock();
+    state[key(a, +t.dataset.i)] = t.dataset.do;
+    if (openKey === key(a, +t.dataset.i)) openKey = null;
+    if (allDone()) stopClock();
+    render(); return;
+  }
+  if (t.dataset.open !== undefined){
+    const k = key(a, +t.dataset.open);
+    openKey = openKey === k ? null : k;
+    render();
+  }
+});
+
+document.addEventListener("change", e => {
+  if (e.target.id === "scanAth"){ scanAth = +e.target.value; scanRun = false; render() }
+});
+
+render();
 </script>
-</body>
-</html>
