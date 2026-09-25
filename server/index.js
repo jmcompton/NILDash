@@ -425,7 +425,13 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, ...BUILD, uptimeSeconds: Math.round(process.uptime()) });
 });
 
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// /demo.html reaches the same file through here, so it gets the same no-cache
+// header as /demo (see the /demo route).
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders: (res, filePath) => {
+    if (path.basename(filePath) === 'demo.html') res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  },
+}));
 app.set('trust proxy', 1);
 app.use(session({
   store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
@@ -14632,8 +14638,16 @@ app.post('/api/admin/requests/:id/deny', requireAuth, async (req, res) => {
 // anyone, logged in or not: no auth middleware, no session, and it sits above
 // the app catch-all, so it never becomes the login screen. To update it,
 // replace public/demo.html. tests/demopage.js keeps it this way.
+//
+// NOT CACHED. The file is read from disk on every request, and Cache-Control
+// no-cache makes every browser, proxy and CDN revalidate before reusing a copy
+// (the ETag changes with the file), so a replaced page is what the next
+// visitor sees. The default here was "public, max-age=0", which let a shared
+// cache hold it.
+const DEMO_NO_CACHE = 'no-cache, must-revalidate';
 app.get('/demo', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'demo.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'demo.html'),
+    { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
 });
 
 // ── Pitch Deck (Shareable) ────────────────────────────────────────────────
