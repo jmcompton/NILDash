@@ -22,20 +22,15 @@ body{margin:0;background:var(--ink);color:var(--text);font-family:var(--body);fo
 button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 a{color:inherit}
 h1,h2,h3{text-wrap:balance}
+input,select{font:inherit}
 
-.ribbon{
-  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  padding:9px 20px;padding-top:calc(9px + env(safe-area-inset-top,0px));
-  background:#151B12;border-bottom:1px solid #2A3520;
-  font-family:var(--mono);font-size:12px;color:#C9DFA0;
-}
+.ribbon{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 20px;padding-top:calc(9px + env(safe-area-inset-top,0px));background:#151B12;border-bottom:1px solid #2A3520;font-family:var(--mono);font-size:12px;color:#C9DFA0}
 .ribbon b{color:var(--lime);font-weight:500}
 .ribbon .spacer{flex:1 1 auto}
 .ribbon button{font-family:var(--mono);font-size:11px;color:#C9DFA0;border:1px solid #2A3520;border-radius:6px;padding:4px 10px}
 .ribbon button:hover{border-color:var(--lime-dim);color:var(--lime)}
 
 .shell{display:flex;min-width:0;max-width:100%;min-height:calc(100% - 40px)}
-
 nav.side{width:206px;flex:0 0 206px;padding:22px 14px 18px;background:var(--panel);border-right:1px solid #1B2433;display:flex;flex-direction:column;gap:14px}
 .brand{display:flex;align-items:center;gap:9px;padding:0 4px}
 .brand .mark{width:28px;height:28px;border-radius:8px;background:var(--lime);color:#0A0F17;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:16px}
@@ -47,6 +42,8 @@ nav.side{width:206px;flex:0 0 206px;padding:22px 14px 18px;background:var(--pane
 .navlist button:hover{color:var(--text);background:#121A26}
 .navlist button.on{background:#16202F;border-color:#263248;color:var(--lime)}
 .navlist button.on i{background:var(--lime)}
+.navlist button.vio{color:var(--violet)}
+.navlist button.vio i{background:#7A5A9E}
 .navlist .pill{margin-left:auto;padding:1px 7px;border-radius:999px;background:var(--lime);color:#0A0F17;font-size:11px}
 .who{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;border:1px solid #1B2433}
 .who .av{width:32px;height:32px;border-radius:50%;background:#16202F;border:1px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:0 0 auto}
@@ -63,6 +60,50 @@ main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 .crumb .ready{display:flex;align-items:center;gap:7px;white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--lime)}
 .crumb .ready i{width:6px;height:6px;border-radius:50%;background:var(--lime)}
 
+.board{padding:20px 30px 28px;display:flex;flex-direction:column;gap:16px;flex:1 1 auto}
+.head h1{margin:0;font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:-.7px}
+.head p{margin:4px 0 0;font-size:15px;color:var(--muted);max-width:78ch}
+.toolrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.toolrow .grow{flex:1 1 auto}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;height:42px;padding:0 20px;border-radius:9px;font-size:14px;white-space:nowrap;transition:filter .15s,border-color .15s,color .15s}
+.btn.go{background:var(--lime);color:#0A0F17;font-weight:600}
+.btn.go:hover{filter:brightness(1.08)}
+.btn.ghost{border:1px solid #2B3648;color:var(--muted);padding:0 17px}
+.btn.ghost:hover{border-color:#3E4C64;color:var(--text)}
+.btn.sm{height:34px;padding:0 13px;font-size:13px}
+.btn.xs{height:30px;padding:0 11px;font-size:12.5px;border-radius:7px}
+.help{width:26px;height:26px;border-radius:50%;border:1px solid var(--line-2);color:var(--dim);font-size:13px;display:inline-flex;align-items:center;justify-content:center}
+
+.sel{height:38px;padding:0 11px;border-radius:8px;border:1px solid var(--line-3);background:#0E1520;color:var(--text);font-size:13.5px}
+.inp{height:42px;padding:0 13px;border-radius:9px;border:1px solid var(--line-3);background:#0E1520;color:var(--text);font-size:14px;width:100%}
+.inp:focus,.sel:focus{outline:2px solid var(--lime-dim);outline-offset:1px;border-color:transparent}
+.inp::placeholder{color:var(--dimmer)}
+
+/* kpis */
+.kpi-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px 17px;display:flex;flex-direction:column;gap:3px}
+.kpi-label{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer)}
+.kpi-val{font-family:var(--display);font-size:27px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.kpi-val.lime{color:var(--lime)}
+.kpi-note{font-size:12.5px;color:var(--dim)}
+
+.panel{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:19px 21px}
+.panel h3{margin:0 0 4px;font-family:var(--display);font-size:17px;font-weight:700}
+.panel p.lede{margin:0;color:var(--muted);font-size:14px;max-width:76ch}
+.grid{display:grid;gap:13px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+
+.chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-family:var(--mono);font-size:11px;letter-spacing:.4px;white-space:nowrap}
+.chip.grey{border:1px solid #2B3648;color:var(--dim)}
+.chip.blue{border:1px solid var(--blue-line);color:var(--blue)}
+.chip.amber{border:1px solid var(--amber-line);color:var(--amber)}
+.chip.green{border:1px solid var(--sent-line);color:var(--green);background:#0F1A11}
+.chip.lime{border:1px solid var(--lime-dim);color:var(--lime)}
+.chip.violet{border:1px solid var(--violet-line);color:var(--violet)}
+
+/* ---- Home cards ---- */
 .tabs{padding:16px 30px 0;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
 .tabs button{display:flex;align-items:center;gap:8px;padding:10px 16px;white-space:nowrap;border-radius:10px 10px 0 0;color:var(--muted);font-size:15px;border:1px solid transparent;border-bottom:none}
@@ -72,13 +113,8 @@ main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 .tabs button.on .n{background:var(--lime);color:#0A0F17;font-weight:600}
 .tabs button.done .n{background:var(--sent-fill);color:var(--green);border:1px solid var(--sent-line)}
 .tabrule{border-top:1px solid var(--line-2);margin:0 0 -1px}
-
-.board{padding:20px 30px 28px;display:flex;flex-direction:column;gap:16px;flex:1 1 auto}
-.head h1{margin:0;font-family:var(--display);font-size:32px;font-weight:700;letter-spacing:-.8px}
-.head p{margin:3px 0 0;font-size:15px;color:var(--muted)}
 .rows{display:flex;flex-direction:column;gap:9px}
-
-.row{background:var(--card);border:1px solid var(--line);border-radius:13px;transition:border-color .15s ease,opacity .2s ease}
+.row{background:var(--card);border:1px solid var(--line);border-radius:13px;transition:border-color .15s,opacity .2s}
 .row.open{border-color:var(--line-2)}
 .row.sent{background:var(--sent-fill);border-color:var(--sent-line)}
 .row.skipped{opacity:.42}
@@ -87,27 +123,18 @@ main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 .rowhit:hover .biz{color:var(--lime)}
 .rowhit:disabled{cursor:default}
 .rowhit:disabled:hover .biz{color:var(--text)}
-.chev{flex:0 0 auto;transition:transform .18s ease}
+.chev{flex:0 0 auto;transition:transform .18s}
 .row.open .chev{transform:rotate(90deg)}
 .meta{min-width:0;flex:1 1 auto;display:flex;flex-direction:column;gap:2px}
-.biz{font-size:18px;font-weight:600;transition:color .15s ease}
+.biz{font-size:18px;font-weight:600;transition:color .15s}
 .sub{font-size:14px;color:var(--muted)}
-
 .tag{flex:0 0 auto;padding:3px 9px;border-radius:6px;font-family:var(--mono);font-size:11px;letter-spacing:.5px;white-space:nowrap}
 .tag.email{border:1px solid var(--green-line);color:var(--green)}
 .tag.dm{border:1px solid var(--blue-line);color:var(--blue)}
 .tag.call{border:1px solid var(--amber-line);color:var(--amber)}
 .tag.state{border:1px solid var(--sent-line);color:var(--green);background:#0F1A11}
 .tag.state.off{border-color:#2B3648;color:var(--dim);background:none}
-
 .acts{flex:0 0 auto;display:flex;gap:10px}
-.btn{display:inline-flex;align-items:center;justify-content:center;height:42px;padding:0 20px;border-radius:9px;font-size:14px;white-space:nowrap;transition:filter .15s ease,border-color .15s ease,color .15s ease}
-.btn.go{background:var(--lime);color:#0A0F17;font-weight:600}
-.btn.go:hover{filter:brightness(1.08)}
-.btn.ghost{border:1px solid #2B3648;color:var(--muted);padding:0 17px}
-.btn.ghost:hover{border-color:#3E4C64;color:var(--text)}
-.btn.sm{height:34px;padding:0 14px;font-size:13px}
-
 .body{padding:0 16px 16px 20px;display:flex;flex-direction:column;gap:11px}
 .pitch{padding:16px 18px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;font-size:15px;line-height:1.58;color:#D6DEE9;white-space:pre-wrap}
 .pitch .subj{display:block;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--dim)}
@@ -118,97 +145,135 @@ main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 .tool.amber{border-color:var(--amber-line);color:var(--amber)}
 .tool:hover{filter:brightness(1.25)}
 
-/* generic panels */
-.panel{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:20px 22px}
-.panel h3{margin:0 0 4px;font-family:var(--display);font-size:18px;font-weight:700}
-.panel p.lede{margin:0;color:var(--muted);font-size:14px}
-.grid{display:grid;gap:14px}
-.g2{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
-.g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
-.g4{grid-template-columns:repeat(auto-fit,minmax(165px,1fr))}
+/* ---- Deal Scan ---- */
+.ds-lane-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.ds-lane-tab{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:9px;border:1px solid var(--line);color:var(--muted);font-size:14px}
+.ds-lane-tab:hover{border-color:var(--line-2);color:var(--text)}
+.ds-lane-tab.active{background:#16202F;border-color:var(--lime-dim);color:var(--lime);font-weight:600}
+.ds-tab-count{padding:1px 8px;border-radius:999px;background:#1C2637;color:var(--muted);font-family:var(--mono);font-size:11px}
+.ds-lane-tab.active .ds-tab-count{background:var(--lime);color:#0A0F17}
+.ds-card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:17px 19px;display:flex;flex-direction:column;gap:13px}
+.ds-card.best{border-color:var(--lime-dim)}
+.ds-top{display:flex;gap:16px;align-items:flex-start}
+.ds-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:11px}
+.ds-titleline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ds-name{font-size:18px;font-weight:600}
+.ds-lane-chip{padding:2px 8px;border-radius:6px;border:1px solid var(--line-2);font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;color:var(--dim)}
+.ds-lane-chip.best{border-color:var(--lime-dim);color:var(--lime)}
+.ds-why{font-size:14px;color:var(--muted);line-height:1.55;max-width:80ch}
+.ds-idea{font-size:14.5px}
+.ds-idea b{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer);font-weight:400;margin-right:8px}
+.ds-pw{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px;align-items:baseline}
+.ds-pw dt{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer)}
+.ds-pw dd{margin:0;color:#D6DEE9}
+.ds-contacts{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:13px 15px;display:flex;flex-direction:column;gap:8px}
+.ds-contacts h4{margin:0;font-family:var(--mono);font-size:10.5px;letter-spacing:1.2px;color:var(--dimmer);font-weight:400}
+.ds-person{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;font-size:14px}
+.ds-person b{font-weight:600}
+.ds-person .r{color:var(--muted)}
+.ds-person .c{font-family:var(--mono);font-size:12.5px;color:var(--green)}
+.ds-person .src{font-family:var(--mono);font-size:11px;color:var(--dimmer);text-decoration:underline}
+.ds-approach{font-size:14px;color:#D6DEE9}
+.ds-approach b{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer);font-weight:400;margin-right:6px}
+.ds-fit{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:1px;padding:10px 14px;border:1px solid var(--line-2);border-radius:11px;min-width:78px}
+.ds-fit .n{font-family:var(--display);font-size:26px;font-weight:700;color:var(--lime);line-height:1}
+.ds-fit .l{font-family:var(--mono);font-size:10px;letter-spacing:1.2px;color:var(--dimmer)}
+.ds-fit .q{font-family:var(--mono);font-size:10.5px;color:var(--dim);text-decoration:underline;margin-top:4px}
+.ds-actions{display:flex;gap:9px;flex-wrap:wrap;padding-top:2px;border-top:1px solid #161E2A;margin-top:2px;padding-top:13px}
 
-.stat{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:16px 18px;display:flex;flex-direction:column;gap:4px}
-.stat .k{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer)}
-.stat .v{font-family:var(--display);font-size:28px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
-.stat .v.lime{color:var(--lime)}
-.stat .n{font-size:13px;color:var(--dim)}
-
+/* ---- tables ---- */
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:13px;background:var(--card)}
-table{width:100%;border-collapse:collapse;font-size:14px;min-width:620px}
-th{text-align:left;padding:12px 16px;font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer);border-bottom:1px solid var(--line);font-weight:400;white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:660px}
+th{text-align:left;padding:12px 16px;font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer);border-bottom:1px solid var(--line);font-weight:400;white-space:nowrap}
 td{padding:13px 16px;border-bottom:1px solid #161E2A;vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tbody tr:hover{background:#131C28}
 td .b{font-weight:600}
 td .s{color:var(--dim);font-size:13px}
+.pager{display:flex;align-items:center;gap:12px;justify-content:flex-end;font-size:13px;color:var(--dim)}
 
-.chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-family:var(--mono);font-size:11px;letter-spacing:.4px;white-space:nowrap}
-.chip.grey{border:1px solid #2B3648;color:var(--dim)}
-.chip.blue{border:1px solid var(--blue-line);color:var(--blue)}
-.chip.amber{border:1px solid var(--amber-line);color:var(--amber)}
-.chip.green{border:1px solid var(--sent-line);color:var(--green);background:#0F1A11}
-.chip.lime{border:1px solid var(--lime-dim);color:var(--lime)}
-.chip.violet{border:1px solid var(--violet-line);color:var(--violet)}
-
-/* kanban */
+/* ---- pipeline board ---- */
 .kan{display:grid;grid-template-columns:repeat(4,minmax(215px,1fr));gap:12px;overflow-x:auto;padding-bottom:4px}
 .kancol{background:#0D1420;border:1px solid var(--line);border-radius:13px;padding:13px;display:flex;flex-direction:column;gap:10px;min-width:215px}
-.kanhead{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer)}
+.kanhead{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer)}
 .kanhead b{padding:1px 7px;border-radius:999px;background:#1C2637;color:var(--muted);font-size:11px;font-weight:400}
 .kancard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 13px;display:flex;flex-direction:column;gap:5px}
 .kancard .t{font-weight:600;font-size:15px;line-height:1.3}
 .kancard .m{font-size:13px;color:var(--dim)}
 .kancard .v{font-family:var(--mono);font-size:12px;color:var(--lime)}
 
-/* media kit */
+/* ---- roster ---- */
+.rcard{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:17px 18px;display:flex;flex-direction:column;gap:13px}
+.rtop{display:flex;align-items:center;gap:13px}
+.rav{width:50px;height:50px;border-radius:50%;background:#16202F;border:1px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:17px;font-weight:700;flex:0 0 auto}
+.rname{min-width:0}
+.rname b{display:block;font-family:var(--display);font-size:19px;font-weight:700}
+.rname span{display:block;font-size:13.5px;color:var(--muted)}
+.rstat{font-size:13.5px;color:var(--dim);line-height:1.5}
+.rnums{display:flex;gap:9px;flex-wrap:wrap}
+.rnum{padding:5px 11px;border-radius:8px;background:var(--sunk);border:1px solid var(--line);font-family:var(--mono);font-size:12px;color:#D6DEE9}
+.rbtns{display:flex;gap:7px;flex-wrap:wrap}
+
+/* ---- media kit ---- */
 .kit{border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--card)}
-.kithero{position:relative;height:190px;background:linear-gradient(135deg,#16202F 0%,#0E1A14 55%,#1A2410 100%);display:flex;align-items:flex-end;padding:20px 24px;gap:18px}
-.kithero:after{content:"ACTION SHOT";position:absolute;top:14px;right:18px;font-family:var(--mono);font-size:10px;letter-spacing:1.4px;color:#3E4C64}
-.kitav{width:96px;height:96px;border-radius:50%;background:#0C121C;border:2px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:32px;font-weight:700;flex:0 0 auto}
-.kitname h2{margin:0;font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:-.6px}
+.kithero{position:relative;min-height:170px;background:linear-gradient(135deg,#16202F 0%,#0E1A14 55%,#1A2410 100%);display:flex;align-items:flex-end;padding:20px 22px;gap:17px}
+.kithero:after{content:"ACTION SHOT · BECOMES BANNER";position:absolute;top:13px;right:16px;font-family:var(--mono);font-size:9.5px;letter-spacing:1.3px;color:#3E4C64}
+.kitav{width:88px;height:88px;border-radius:50%;background:#0C121C;border:2px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:29px;font-weight:700;flex:0 0 auto}
+.kitname h2{margin:0;font-family:var(--display);font-size:27px;font-weight:700;letter-spacing:-.6px}
 .kitname p{margin:2px 0 0;color:var(--muted);font-size:14px}
-.kitbody{padding:22px 24px;display:flex;flex-direction:column;gap:20px}
-.kitrow{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
-.kitnum{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
-.kitnum .k{font-family:var(--mono);font-size:10px;letter-spacing:1.1px;color:var(--dimmer)}
-.kitnum .v{font-family:var(--display);font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
-.kitsec h4{margin:0 0 7px;font-family:var(--mono);font-size:11px;letter-spacing:1.2px;color:var(--dimmer);font-weight:400}
-.kitsec p{margin:0;color:#D6DEE9;max-width:70ch}
-.ratelist{display:flex;flex-direction:column;gap:1px}
-.rateline{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #161E2A;font-size:14px}
+.kitbody{padding:20px 22px;display:flex;flex-direction:column;gap:19px}
+.kitrow{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+.kitnum{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kitnum .k{font-family:var(--mono);font-size:9.5px;letter-spacing:1.1px;color:var(--dimmer)}
+.kitnum .v{font-family:var(--display);font-size:21px;font-weight:700;font-variant-numeric:tabular-nums}
+.kitsec h4{margin:0 0 7px;font-family:var(--mono);font-size:10.5px;letter-spacing:1.2px;color:var(--dimmer);font-weight:400}
+.kitsec p{margin:0;color:#D6DEE9;max-width:72ch}
+.ratelist{display:flex;flex-direction:column}
+.rateline{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid #161E2A;font-size:14px}
 .rateline:last-child{border-bottom:none}
 .rateline span:last-child{font-family:var(--mono);color:var(--lime)}
+.uploadbox{border:1px dashed var(--line-2);border-radius:11px;padding:20px;text-align:center;color:var(--muted);background:#0D1420;font-size:13.5px}
+.uploadbox b{display:block;color:var(--text);font-size:15px;margin-bottom:3px}
 
-/* forms */
-.formgrid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+/* ---- forms ---- */
+.formgrid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
 .field{display:flex;flex-direction:column;gap:6px}
-.field label{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer)}
-.field input,.field select{height:42px;padding:0 13px;border-radius:9px;border:1px solid var(--line-3);background:#0E1520;color:var(--text);font:inherit;font-size:14px}
-.field input:focus,.field select:focus{outline:2px solid var(--lime-dim);outline-offset:1px;border-color:transparent}
+.field label{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer)}
+.field .hint{font-size:12.5px;color:var(--dim)}
+.field.wide{grid-column:1 / -1}
 .drop{border:1px dashed var(--line-2);border-radius:12px;padding:26px;text-align:center;color:var(--muted);background:#0D1420}
 .drop b{display:block;color:var(--text);font-family:var(--display);font-size:17px;margin-bottom:4px}
 
-/* ai command */
+/* ---- ai command ---- */
+.qa{display:flex;gap:9px;flex-wrap:wrap}
+.follow{display:flex;flex-direction:column}
+.followrow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #161E2A;font-size:14px}
+.followrow:last-child{border-bottom:none}
+.followrow .b{font-weight:600}
+.followrow .st{color:var(--muted)}
+.followrow .ago{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--amber)}
 .chatlog{display:flex;flex-direction:column;gap:12px}
-.bub{max-width:min(62ch,100%);padding:13px 16px;border-radius:12px;font-size:14.5px;line-height:1.55;white-space:pre-wrap}
+.bub{max-width:min(64ch,100%);padding:13px 16px;border-radius:12px;font-size:14.5px;line-height:1.55;white-space:pre-wrap}
 .bub.me{align-self:flex-end;background:#16202F;border:1px solid #263248}
 .bub.ai{align-self:flex-start;background:var(--sunk);border:1px solid var(--line)}
 .prompts{display:flex;flex-wrap:wrap;gap:9px}
 .prompts button{border:1px solid var(--line-2);border-radius:999px;padding:8px 15px;font-size:13.5px;color:#D6DEE9}
 .prompts button:hover{border-color:var(--lime-dim);color:var(--lime)}
 
-/* inbox */
+/* ---- inbox ---- */
+.notice{background:#101A26;border:1px solid var(--blue-line);border-radius:12px;padding:15px 17px;color:#C6D6EE;font-size:14px;line-height:1.55}
+.notice b{display:block;color:var(--text);margin-bottom:4px}
 .mail{display:flex;flex-direction:column;gap:9px}
-.mailrow{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:15px 18px;display:flex;flex-direction:column;gap:9px}
+.mailrow{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px 17px;display:flex;flex-direction:column;gap:9px}
 .mailrow.new{border-color:var(--line-2)}
-.mailtop{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.mailtop{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
 .mailtop .from{font-weight:600;font-size:16px}
 .mailtop .when{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--dim)}
 .mailsubj{font-size:14px;color:var(--muted)}
 .mailtext{padding:14px 16px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;white-space:pre-wrap;font-size:14.5px;line-height:1.55;color:#D6DEE9}
 
-.empty{padding:34px 22px;border:1px dashed var(--line-2);border-radius:13px;text-align:center;color:var(--muted)}
-.empty b{display:block;font-family:var(--display);font-size:20px;color:var(--text);margin-bottom:6px}
+.empty{padding:30px 22px;border:1px dashed var(--line-2);border-radius:13px;text-align:center;color:var(--muted)}
+.empty b{display:block;font-family:var(--display);font-size:19px;color:var(--text);margin-bottom:6px}
 
 .statusbar{position:sticky;bottom:0;margin-top:auto;padding:15px 30px;padding-bottom:calc(15px + env(safe-area-inset-bottom,0px));border-top:1px solid #141C28;background:#0A0F18;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .statusbar .btn.go{height:50px;padding:0 27px;border-radius:11px;font-size:16px}
@@ -226,16 +291,14 @@ td .s{color:var(--dim);font-size:13px}
 .close .cta a.go{background:var(--lime);color:#0A0F17}
 .close .cta a.go:hover{filter:brightness(1.08)}
 .close .cta a.ghost{border:1px solid #2B3648;color:var(--text);font-weight:400}
-.close .cta a.ghost:hover{border-color:#3E4C64}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 @media (max-width:900px){
   .shell{flex-direction:column}
-  nav.side{width:auto;flex:0 0 auto;flex-wrap:wrap;padding:12px 16px;border-right:none;border-bottom:1px solid #1B2433;gap:10px}
+  nav.side{width:auto;flex:0 0 auto;flex-wrap:wrap;padding:12px 16px;border-right:none;border-bottom:1px solid #1B2433;gap:10px;min-width:0;max-width:100%;overflow:hidden}
   nav.side .eyebrow,nav.side .who{display:none}
   nav.side .brand{padding:0}
-  nav.side{min-width:0;max-width:100%;overflow:hidden}
   .navwrap{flex:1 1 100%;min-width:0;max-width:100%;overflow:hidden}
   .navlist{flex-direction:row;overflow-x:auto;min-width:0;max-width:100%;gap:6px;scrollbar-width:none}
   .navlist::-webkit-scrollbar{display:none}
@@ -245,7 +308,7 @@ td .s{color:var(--dim);font-size:13px}
   .crumb .search{display:none}
   .tabs{padding:14px 16px 0}
   .board{padding:18px 16px 24px}
-  .head h1{font-size:26px}
+  .head h1{font-size:25px}
   .close{margin:0 16px 22px;padding:22px 20px}
   .close h2{font-size:22px}
   .statusbar{padding:14px 16px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
@@ -257,81 +320,66 @@ td .s{color:var(--dim);font-size:13px}
   .acts .btn{flex:1 1 auto}
   .body{padding:0 16px 16px}
   .kan{grid-template-columns:repeat(4,minmax(200px,1fr))}
-  .kithero{height:auto;flex-direction:column;align-items:flex-start;padding-top:44px}
+  .ds-top{flex-direction:column-reverse;align-items:stretch}
+  .ds-fit{flex-direction:row;align-items:center;justify-content:center;gap:9px;min-width:0}
+  .ds-fit .q{margin-top:0}
 }
 
-/* ---------- phone ---------- */
 @media (max-width:760px){
-  body{font-size:15px}
-
   .ribbon{padding:8px 16px;padding-top:calc(8px + env(safe-area-inset-top,0px));gap:8px;font-size:11px}
   .ribbon .long{display:none}
   .ribbon button{margin-left:auto}
-
   nav.side{position:sticky;top:0;z-index:5;padding:10px 0 10px 16px}
   nav.side .brand{padding-right:16px}
   .navwrap{position:relative;margin-left:-16px;padding-left:16px}
-  .navwrap:after{content:"";position:absolute;inset:0 0 0 auto;width:28px;pointer-events:none;
-    background:linear-gradient(90deg,transparent,var(--panel))}
+  .navwrap:after{content:"";position:absolute;inset:0 0 0 auto;width:28px;pointer-events:none;background:linear-gradient(90deg,transparent,var(--panel))}
   .navlist{padding-right:28px}
   .navlist button{padding:9px 13px;font-size:13px;border:1px solid var(--line);border-radius:999px}
   .navlist button.on{border-color:var(--lime-dim)}
-
   .crumb{padding:11px 16px}
   .crumb .path{font-size:12px}
   .crumb .ready{font-size:11px}
-
   .board{padding:16px 16px 22px;gap:14px}
-  .head h1{font-size:24px;letter-spacing:-.5px}
+  .head h1{font-size:23px;letter-spacing:-.4px}
   .head p{font-size:14px}
-
-  /* tables become cards */
   .tablewrap{border:none;border-radius:0;background:none;overflow:visible}
   table{min-width:0;display:block;font-size:14px}
   thead{display:none}
   tbody,tr,td{display:block}
-  tr{background:var(--card);border:1px solid var(--line);border-radius:12px;
-     margin-bottom:9px;padding:4px 0;overflow:hidden}
+  tr{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:9px;padding:4px 0;overflow:hidden}
   tbody tr:hover{background:var(--card)}
   td{border:none;padding:7px 15px;display:flex;align-items:baseline;justify-content:space-between;gap:16px}
-  td:before{content:attr(data-l);flex:0 0 auto;font-family:var(--mono);font-size:10px;
-    letter-spacing:1px;color:var(--dimmer)}
+  td:before{content:attr(data-l);flex:0 0 auto;font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--dimmer)}
   td:first-child{padding:11px 15px 9px;display:block}
   td:first-child:before{display:none}
   td:first-child .b{font-size:17px}
   td:not(:first-child){text-align:right}
-
-  /* kanban stacks */
   .kan{display:flex;flex-direction:column;gap:10px;overflow:visible}
   .kancol{min-width:0}
-
-  /* stat tiles two across */
-  .grid.g4,.grid.g3{grid-template-columns:1fr 1fr;gap:10px}
-  .stat{padding:13px 14px}
-  .stat .v{font-size:22px}
-  .stat .n{font-size:12px}
-
-  .panel{padding:17px 16px}
-  .kitbody{padding:18px 16px}
-  .kithero{padding:40px 18px 18px}
-  .kitav{width:74px;height:74px;font-size:25px}
-  .kitname h2{font-size:24px}
+  .kpi-grid,.grid.g3{grid-template-columns:1fr 1fr;gap:10px}
+  .kpi{padding:12px 13px}
+  .kpi-val{font-size:21px}
+  .panel{padding:16px 15px}
+  .ds-card{padding:15px 15px}
+  .ds-pw{grid-template-columns:1fr;gap:2px 0}
+  .ds-pw dt{margin-top:7px}
+  .ds-actions .btn{flex:1 1 auto}
+  .kitbody{padding:17px 15px}
+  .kithero{min-height:0;flex-direction:column;align-items:flex-start;padding:38px 16px 16px}
+  .kitav{width:68px;height:68px;font-size:23px}
+  .kitname h2{font-size:22px}
   .kitrow{grid-template-columns:1fr 1fr;gap:10px}
-
   .mailrow{padding:13px 15px}
   .mailtop .when{margin-left:0;width:100%}
   .bub{max-width:100%}
-
   .pitch{font-size:14.5px;padding:14px 15px}
   .tool{height:38px;font-size:13px;flex:1 1 auto;justify-content:center}
   .rowtop{padding:13px 15px}
-
   .stats{font-size:12px;gap:11px;width:100%;justify-content:space-between}
-  .statusbar{gap:11px}
   .statusbar .btn.go{height:46px;font-size:15px}
-
   .close h2{font-size:20px}
   .close .cta a{flex:1 1 auto;justify-content:center}
+  .followrow .ago{margin-left:0;width:100%}
 }
 </style>
 
@@ -351,7 +399,7 @@ td .s{color:var(--dim);font-size:13px}
     <div class="navwrap"><div class="navlist" id="nav2" style="margin-top:-8px"></div></div>
     <div class="who">
       <span class="av">RK</span>
-      <span class="nm"><b>ross kellner</b><small>Kellner Sports Group</small></span>
+      <span class="nm"><b>ross kellner</b><small>Admin</small></span>
     </div>
   </nav>
 
@@ -367,15 +415,16 @@ td .s{color:var(--dim);font-size:13px}
 </div>
 
 <script>
-/* ============================ DATA ============================ */
 const CALENDLY = "https://calendly.com/john-comptongroupllc/30min";
 const SIGNUP   = "https://mynildash.com";
 const SIGN = "Ross Kellner\nKellner Sports Group";
 
+/* ============================ ATHLETES ============================ */
 const ATHLETES = [
-  { id:"alcott", name:"Trey Alcott", initials:"TA", pos:"WR", school:"Samford University",
-    city:"Birmingham, AL", year:"Junior", hometown:"Vestavia Hills, AL",
-    ig:8420, tiktok:3110, igHandle:"@treyalcott", stat:"34 rec · 512 yds · 5 TD",
+  { id:"alcott", name:"Trey Alcott", initials:"TA", sport:"football", pos:"WR",
+    school:"Samford University", town:"Birmingham", city:"Birmingham, AL",
+    year:"Junior", hometown:"Vestavia Hills", ig:8420, tiktok:3110, igHandle:"@treyalcott",
+    reach:"11,500", eng:"4.1%", stat:"Junior · 34 rec, 512 yds, 5 TD; 2024 HS: 61 rec, 1,003 yds, 12 TD",
     about:"Wide receiver at Samford, third year in the program. Grew up fifteen minutes from campus in Vestavia Hills. Posts training, film breakdowns, and day in the life. Audience skews local, college age, and heavily Birmingham metro.",
     rates:[["Instagram post","$350"],["Instagram story","$150"],["TikTok video","$400"],["In person appearance","$500"]],
     cards:[
@@ -427,9 +476,10 @@ The ask: Something simple, a post or two a month and a mention after home games.
 
 If he asks what it costs: Deals at this level usually run a few hundred dollars for the season, and we can shape it around whatever works for you.` }
     ] },
-  { id:"vega", name:"Marisol Vega", initials:"MV", pos:"Forward", school:"Loyola Marymount",
-    city:"Los Angeles, CA", year:"Sophomore", hometown:"Long Beach, CA",
-    ig:12900, tiktok:21400, igHandle:"@marisolvega", stat:"11 goals · 6 assists",
+  { id:"vega", name:"Marisol Vega", initials:"MV", sport:"soccer", pos:"Forward",
+    school:"Loyola Marymount", town:"Los Angeles", city:"Los Angeles, CA",
+    year:"Sophomore", hometown:"Long Beach", ig:12900, tiktok:21400, igHandle:"@marisolvega",
+    reach:"34,300", eng:"7.8%", stat:"Sophomore · 11 goals, 6 assists, 1,340 minutes",
     about:"Forward on the LMU soccer team, second year, from Long Beach. Her TikTok outruns her Instagram by a wide margin, mostly training clips, recovery, and what she eats in a day. Strong reach with high school players across Southern California.",
     rates:[["Instagram post","$400"],["Instagram story","$175"],["TikTok video","$650"],["In person appearance","$500"]],
     cards:[
@@ -475,9 +525,10 @@ ${SIGN}` },
 
 Would a post and a story trade work on your end? Happy to send details.` }
     ] },
-  { id:"whitlock", name:"DeAndre Whitlock", initials:"DW", pos:"LB", school:"Middle Tennessee State",
-    city:"Murfreesboro, TN", year:"Senior", hometown:"Clarksville, TN",
-    ig:5240, tiktok:1890, igHandle:"@dwhitlock44", stat:"78 tackles · 6.5 sacks",
+  { id:"whitlock", name:"DeAndre Whitlock", initials:"DW", sport:"football", pos:"LB",
+    school:"Middle Tennessee State", town:"Murfreesboro", city:"Murfreesboro, TN",
+    year:"Senior", hometown:"Clarksville", ig:5240, tiktok:1890, igHandle:"@dwhitlock44",
+    reach:"7,130", eng:"5.4%", stat:"Senior · 78 tackles, 6.5 sacks, 11 TFL, team captain",
     about:"Senior linebacker at Middle Tennessee State and a team captain, from Clarksville. Hunts and fishes most of the offseason and posts a lot of it. Smaller following than the others but unusually local, which makes him a strong fit for Murfreesboro businesses.",
     rates:[["Instagram post","$250"],["Instagram story","$100"],["TikTok video","$250"],["In person appearance","$400"]],
     cards:[
@@ -531,14 +582,112 @@ ${SIGN}` }
     ] }
 ];
 
+/* ============================ DEAL SCAN ============================ */
+const SCAN = {
+  alcott:{
+    Local:[
+      { biz:"Red Mountain Smoke Co.", cat:"restaurant", where:"College town - Birmingham", stateChip:"New here",
+        fit:95, best:true,
+        why:"Birmingham barbecue spot two miles from campus, already spending on paid social every week. Game day crowd overlaps almost entirely with the audience Trey reaches.",
+        idea:"Post game meal partnership",
+        pitch:"Free meals through the season plus two feed posts and a story set after home games",
+        wh:"Restaurants trade product before they trade cash",
+        contacts:[
+          {n:"Bryce Talley", r:"Owner", c:"bryce@redmountainsmoke.com"},
+          {n:"Wendy Kohl", r:"General Manager", c:"Phone only: (205) 555-0142"},
+          {n:"Sam Ruiz", r:"Marketing", c:""}
+        ],
+        approach:"Email Bryce directly, lead with the walking distance from campus." },
+      { biz:"Hoover Barbell Club", cat:"gym", where:"College town - Birmingham", stateChip:"New here",
+        fit:91,
+        why:"Independent gym that sponsored a local 5K in August, so there is a marketing budget and a habit of backing local athletes.",
+        idea:"Training partnership",
+        pitch:"Membership plus one training reel a month during the season",
+        wh:"Service businesses trade access before cash",
+        contacts:[
+          {n:"Nate Prescott", r:"Owner", c:"nate@hooverbarbell.com"},
+          {n:"Kelsey Amado", r:"Head Coach", c:""}
+        ],
+        approach:"Email Nate, mention he already backs local athletes." },
+      { biz:"Vulcan Nutrition", cat:"supplements", where:"College town - Birmingham", stateChip:"New here",
+        fit:88,
+        why:"Three athlete posts in the last ninety days. Already comfortable with this kind of deal, so the conversation starts further along.",
+        idea:"Supplement partnership",
+        pitch:"Monthly product plus two posts, renewable through spring",
+        wh:"They have run athlete deals before and know the format",
+        contacts:[
+          {n:"Dana Whitfield", r:"Owner", c:"dana@vulcannutrition.com"},
+          {n:"Trent Boles", r:"Store Manager", c:"Phone only: (205) 555-0198"}
+        ],
+        approach:"Email Dana and reference the athlete posts already on their feed." },
+      { biz:"Sixth Ave Barber Studio", cat:"barber", where:"College town - Birmingham", stateChip:"New here",
+        fit:84,
+        why:"Posts client work daily to 6.4k followers. Small budget, but the trade is easy and the content makes itself.",
+        idea:"Pregame cut trade",
+        pitch:"Free cuts through the season for a post before each home game",
+        wh:"Trade deals close fastest with owner operators",
+        contacts:[
+          {n:"Marcus Quill", r:"Owner", c:"@sixthavebarber"}
+        ],
+        approach:"Instagram DM Marcus, he answers his own messages." },
+      { biz:"Sowers Auto Detail", cat:"auto", where:"College town - Birmingham", stateChip:"New here",
+        fit:79,
+        why:"Billboard on Lakeshore Drive and no social presence at all. Spending on marketing but not reaching anyone under thirty.",
+        idea:"Student detail promotion",
+        pitch:"A discount code Trey shares, plus one post a month",
+        wh:"Businesses buying billboards have budget and no digital reach",
+        contacts:[
+          {n:"Ray Sowers", r:"Owner", c:"Phone only: (205) 555-0177"}
+        ],
+        approach:"Call Ray. No email anywhere, and no website contact form." }
+    ],
+    Social:[
+      { biz:"Clutch Grip Co.", cat:"training gear", where:"Social brand", stateChip:"Active with athletes",
+        fit:86,
+        why:"Works with more than forty college athletes and posts athlete content weekly. Application is informal, usually a DM.",
+        idea:"Affiliate plus content",
+        pitch:"Product seeding, a code, and two posts a month",
+        wh:"Brands already running athlete programs move quickly",
+        contacts:[{n:"Ari Solano", r:"Partnerships", c:"ari@clutchgrip.co"}],
+        approach:"Email Ari, keep it to three sentences, they get a lot of these." },
+      { biz:"Field Level Apparel", cat:"apparel", where:"Social brand", stateChip:"Active with athletes",
+        fit:81,
+        why:"Ran an NIL campaign last spring with six athletes. Budget exists but the cycle restarts in January.",
+        idea:"Spring campaign slot",
+        pitch:"Get on the list now for the spring roster",
+        wh:"Timing matters more than pitch quality here",
+        contacts:[{n:"Dre Mathis", r:"Brand Marketing", c:"dre@fieldlevel.com"}],
+        approach:"Email Dre now so Trey is in the room when they plan spring." }
+    ],
+    "National Brands":[
+      { biz:"Sideline Hydration", cat:"beverage", where:"National", stateChip:"Application only",
+        fit:62,
+        why:"Open athlete program but everything goes through a form and a review committee. Low odds, low effort.",
+        idea:"Program application",
+        pitch:"Submit the roster application and move on",
+        wh:"National programs are a lottery ticket, not a strategy",
+        contacts:[{n:"Partnerships team", r:"No named contact", c:"athletes@sidelinehydration.com"}],
+        approach:"Submit the form. Do not spend more than ten minutes on it." }
+    ]
+  }
+};
+
+/* ============================ SHARED DATA ============================ */
 const HISTORY = [
-  { biz:"Avondale Wing Co.", who:"Dell Rios, owner", ath:"alcott", ch:"email", cat:"Restaurant", sent:"Sep 18", stage:"replied", value:"" },
-  { biz:"Cahaba Bike Works", who:"Pete Lansing, owner", ath:"alcott", ch:"email", cat:"Retail", sent:"Sep 15", stage:"contacted", value:"" },
-  { biz:"Southside Chiropractic", who:"Dr. Rob Feltner, owner", ath:"alcott", ch:"email", cat:"Health", sent:"Sep 9", stage:"closed", value:"$1,200 / season" },
-  { biz:"Manhattan Beach Pilates", who:"Gwen Ortiz, owner", ath:"vega", ch:"dm", cat:"Fitness", sent:"Sep 17", stage:"replied", value:"" },
-  { biz:"El Segundo Taqueria", who:"Hector Nieves, owner", ath:"vega", ch:"email", cat:"Restaurant", sent:"Sep 14", stage:"contacted", value:"" },
-  { biz:"Cannonsburgh Fitness", who:"Trent Wheeler, owner", ath:"whitlock", ch:"email", cat:"Gym", sent:"Sep 16", stage:"negotiating", value:"$600 proposed" },
-  { biz:"Boro Barbers", who:"Silas Reed, owner", ath:"whitlock", ch:"dm", cat:"Barber", sent:"Sep 11", stage:"closed", value:"$450 / season" }
+  { biz:"Avondale Wing Co.", who:"Dell Rios, owner", contact:"dell@avondalewing.com", ath:"alcott", ch:"email", cat:"Restaurant", lane:"Local", town:"Birmingham", sent:"Sep 18", stage:"replied", value:"" },
+  { biz:"Cahaba Bike Works", who:"Pete Lansing, owner", contact:"pete@cahababikeworks.com", ath:"alcott", ch:"email", cat:"Retail", lane:"Local", town:"Birmingham", sent:"Sep 15", stage:"contacted", value:"" },
+  { biz:"Southside Chiropractic", who:"Dr. Rob Feltner", contact:"(205) 555-0110", ath:"alcott", ch:"email", cat:"Health", lane:"Local", town:"Birmingham", sent:"Sep 9", stage:"closed", value:"$1,200 / season" },
+  { biz:"Manhattan Beach Pilates", who:"Gwen Ortiz, owner", contact:"@mbpilates", ath:"vega", ch:"dm", cat:"Fitness", lane:"Local", town:"Manhattan Beach", sent:"Sep 17", stage:"replied", value:"" },
+  { biz:"El Segundo Taqueria", who:"Hector Nieves, owner", contact:"hector@estaqueria.com", ath:"vega", ch:"email", cat:"Restaurant", lane:"Local", town:"El Segundo", sent:"Sep 14", stage:"contacted", value:"" },
+  { biz:"Cannonsburgh Fitness", who:"Trent Wheeler, owner", contact:"trent@cannonsburghfit.com", ath:"whitlock", ch:"email", cat:"Gym", lane:"Local", town:"Murfreesboro", sent:"Sep 16", stage:"negotiating", value:"$600 proposed" },
+  { biz:"Boro Barbers", who:"Silas Reed, owner", contact:"@bororbarbers", ath:"whitlock", ch:"dm", cat:"Barber", lane:"Local", town:"Murfreesboro", sent:"Sep 11", stage:"closed", value:"$450 / season" }
+];
+
+const FOLLOWUPS = [
+  { biz:"Cahaba Bike Works", stage:"Prospecting", days:13 },
+  { biz:"El Segundo Taqueria", stage:"Prospecting", days:14 },
+  { biz:"Cannonsburgh Fitness", stage:"Negotiating", days:12 },
+  { biz:"Sunburst Juice Co.", stage:"Prospecting", days:21 }
 ];
 
 const INBOX = [
@@ -560,29 +709,12 @@ Dell` },
 ];
 
 const DELIVERABLES = [
-  { biz:"Southside Chiropractic", ath:"alcott", what:"Story after home opener", due:"Sep 20", status:"done" },
-  { biz:"Boro Barbers", ath:"whitlock", what:"Instagram post, pregame cut", due:"Sep 30", status:"due" },
-  { biz:"Southside Chiropractic", ath:"alcott", what:"Instagram post, clinic visit", due:"Oct 3", status:"due" },
-  { biz:"Boro Barbers", ath:"whitlock", what:"In store appearance", due:"Oct 11", status:"scheduled" },
-  { biz:"Southside Chiropractic", ath:"alcott", what:"Instagram post, second of two", due:"Nov 7", status:"scheduled" }
+  { what:"Story after home opener", type:"Story", biz:"Southside Chiropractic", ath:"alcott", due:"Sep 20", rec:"One off", status:"done" },
+  { what:"Instagram post, pregame cut", type:"Feed post", biz:"Boro Barbers", ath:"whitlock", due:"Sep 30", rec:"Monthly", status:"due" },
+  { what:"Instagram post, clinic visit", type:"Feed post", biz:"Southside Chiropractic", ath:"alcott", due:"Oct 3", rec:"One off", status:"due" },
+  { what:"In store appearance", type:"Appearance", biz:"Boro Barbers", ath:"whitlock", due:"Oct 11", rec:"One off", status:"scheduled" },
+  { what:"Instagram post, second of two", type:"Feed post", biz:"Southside Chiropractic", ath:"alcott", due:"Nov 7", rec:"One off", status:"scheduled" }
 ];
-
-const SCAN = {
-  local:[
-    { biz:"Red Mountain Smoke Co.", who:"Bryce Talley", cat:"Restaurant", fit:94, why:"Runs paid social weekly, 2.1 mi from campus" },
-    { biz:"Hoover Barbell Club", who:"Nate Prescott", cat:"Gym", fit:91, why:"Sponsored a local 5K in August" },
-    { biz:"Vulcan Nutrition", who:"Dana Whitfield", cat:"Supplements", fit:88, why:"Three athlete posts in the last 90 days" },
-    { biz:"Sixth Ave Barber Studio", who:"Marcus Quill", cat:"Barber", fit:84, why:"Posts client work daily, 6.4k followers" },
-    { biz:"Sowers Auto Detail", who:"Ray Sowers", cat:"Auto", fit:79, why:"Billboard on Lakeshore Dr, no social presence" }
-  ],
-  social:[
-    { biz:"Clutch Grip Co.", who:"Ari Solano", cat:"Training gear", fit:86, why:"Works with 40+ college athletes" },
-    { biz:"Field Level Apparel", who:"Dre Mathis", cat:"Apparel", fit:81, why:"Ran an NIL campaign last spring" }
-  ],
-  national:[
-    { biz:"Sideline Hydration", who:"partnerships team", cat:"Beverage", fit:62, why:"Open athlete program, application only" }
-  ]
-};
 
 const AI_REPLIES = {
   "Who hasn't been contacted in 30 days?":
@@ -595,23 +727,24 @@ const AI_REPLIES = {
     "Seven businesses contacted, two replies, one deal closed at $1,200.\n\nFifteen new pitches are waiting on Home across your three athletes. The Southside Chiropractic post is due Oct 3 and has not been scheduled yet."
 };
 
-/* ============================ STATE ============================ */
+/* ============================ NAV / STATE ============================ */
 const NAV1 = [
-  ["home","Home"],["scan","Deal Scan"],["brands","My Brands"],["kit","Media Kit"],
-  ["outreach","Outreach"],["pipeline","Pipeline"],["roster","My Roster"],
-  ["deliver","Deliverables"],["add","Add Client"],["ai","AI Command"]
+  ["home","Home"],["deals","Deal Scan"],["brands","My Brands"],["programs","Programs"],
+  ["marketing","Media Kit"],["outreach","Outreach"],["pipeline","Pipeline"],["roster","My Roster"],
+  ["calendar","Deliverables"],["add","Add Client"],["command","AI Command"]
 ];
-const NAV2 = [["inbox","Email Inbox"],["settings","Settings"]];
-const LABEL = Object.fromEntries([...NAV1,...NAV2]);
+const NAV_MORE = [["analytics","Analytics"],["commission","Commission"],["contract","Contract"]];
+const NAV2 = [["inbox","Email Inbox"],["settings","Settings"],["growth","Growth"]];
+const LABEL = Object.fromEntries([...NAV1,...NAV_MORE,...NAV2]);
 
 let route = "home";
-let tab = 0;          // Home athlete tab
-let kitTab = 0;       // Media kit athlete tab
-let scanAth = 0, scanRun = false, scanning = false;
+let tab = 0, kitTab = 0;
+let scanAth = 0, scanLane = "Local", scanRun = false, scanning = false;
+let moreOpen = false;
 let openKey = "alcott:0";
 let openMail = null;
 let chat = [];
-let state = {};       // "athId:index" -> "sent" | "skipped"
+let state = {};
 let t0 = null, ticker = null;
 
 const $ = id => document.getElementById(id);
@@ -627,7 +760,8 @@ function approvedList(){
   const out = [];
   ATHLETES.forEach(a => a.cards.forEach((c,i)=>{
     if (state[key(a,i)] === "sent")
-      out.push({ biz:c.biz, who:c.who, ath:a.id, ch:c.ch, cat:c.cat, sent:"Today", stage:"contacted", value:"", fresh:true });
+      out.push({ biz:c.biz, who:c.who, contact:"found by NILDash", ath:a.id, ch:c.ch, cat:c.cat,
+                 lane:"Local", town:a.town, sent:"Today", stage:"contacted", value:"", fresh:true });
   }));
   return out;
 }
@@ -644,20 +778,13 @@ function tickClock(){
   const c = $("sClock"); if (c) c.textContent = elapsed();
   const t = $("closeTime"); if (t) t.textContent = elapsed();
 }
-
 const chev = hot => '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="'
   + (hot ? "#A3E635" : "#7A8496")
   + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
-const CH = {
-  email:{ label:"EMAIL", tool:"Preview in Gmail" },
-  dm:{ label:"DM", tool:"Copy DM and open Instagram" },
-  call:{ label:"CALL", tool:"Copy call script" }
-};
-const STAGE = {
-  contacted:["grey","Contacted"], replied:["blue","Replied"],
-  negotiating:["amber","Negotiating"], closed:["green","Closed"]
-};
+const CH = { email:{label:"EMAIL",tool:"Preview in Gmail"}, dm:{label:"DM",tool:"Copy DM and open Instagram"}, call:{label:"CALL",tool:"Copy call script"} };
+const STAGE = { contacted:["grey","Pitched"], replied:["blue","Replied"], negotiating:["amber","Negotiating"], closed:["green","Deal signed"] };
+const helpRow = '<div><button type="button" class="help">?</button></div>';
 
 /* ============================ SCREENS ============================ */
 
@@ -710,8 +837,8 @@ function screenHome(){
     <div class="board">
       <div class="head">
         <h1>${esc(a.name)}</h1>
-        <p>${left ? `${left} to work · ${bits.join(", ")} · ${esc(a.pos)} · ${esc(a.school)} · ${esc(a.city)}`
-                  : `All clear · ${esc(a.pos)} · ${esc(a.school)} · ${esc(a.city)}`}</p>
+        <p>${left ? `${left} to work · ${bits.join(", ")} · ${esc(a.school)}`
+                  : `All clear · ${esc(a.school)}`}</p>
       </div>
       <div class="rows">${rowsHtml}</div>
     </div>
@@ -734,128 +861,132 @@ function screenHome(){
     </div>`;
 }
 
-function screenScan(){
+function screenDeals(){
   const a = ATHLETES[scanAth];
-  const lane = (title, note, items) => `
-    <div class="panel" style="padding:0;overflow:hidden">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h3 style="margin:0">${title}</h3>
-        <span class="chip grey">${items.length} found</span>
-        <span style="flex:1 1 auto"></span>
-        <span style="font-size:13px;color:var(--dim)">${note}</span>
+  const lanes = SCAN.alcott;
+  const laneNames = ["Local","Social","National Brands"];
+  const counts = { Local:8, Social:12, "National Brands":6 };
+
+  const tabsHtml = laneNames.map(l =>
+    `<button type="button" class="ds-lane-tab ${l===scanLane?"active":""}" data-lane="${esc(l)}">
+       ${esc(l)}<span class="ds-tab-count">${scanRun?counts[l]:0}</span></button>`).join("");
+
+  const card = r => `
+    <div class="ds-card ${r.best?"best":""}">
+      <div class="ds-top">
+        <div class="ds-main">
+          <div class="ds-titleline">
+            <span class="ds-lane-chip">${esc(scanLane)}</span>
+            <span class="ds-name">${esc(r.biz)}</span>
+            <span class="ds-lane-chip">${esc(r.stateChip)}</span>
+            <span class="ds-lane-chip">${esc(r.where)}</span>
+            <span style="font-size:13.5px;color:var(--dim)">${esc(r.cat)}</span>
+            ${r.best?'<span class="ds-lane-chip best">BEST FIT</span>':""}
+          </div>
+          <div class="ds-why">${esc(r.why)}</div>
+          <div class="ds-idea"><b>IDEA</b>${esc(r.idea)}</div>
+          <dl class="ds-pw">
+            <dt>PITCH</dt><dd>${esc(r.pitch)}</dd>
+            <dt>WHY</dt><dd>${esc(r.wh)}</dd>
+          </dl>
+          <div class="ds-contacts">
+            <h4>CONTACTS</h4>
+            ${r.contacts.map(p=>`<div class="ds-person">
+              <b>${esc(p.n)}</b><span class="r">${esc(p.r)}</span>
+              ${p.c?`<span class="c">${esc(p.c)}</span>`:""}<span class="src">source</span></div>`).join("")}
+            <div class="ds-approach"><b>APPROACH</b>${esc(r.approach)}</div>
+            <div><button type="button" class="btn ghost xs">Find the decision maker</button></div>
+          </div>
+        </div>
+        <div class="ds-fit"><span class="n">${r.fit}</span><span class="l">FIT</span><span class="q">why?</span></div>
       </div>
-      ${items.map(r=>`<div style="padding:14px 20px;border-bottom:1px solid #161E2A;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <span style="flex:1 1 220px;min-width:0">
-          <span class="b" style="font-size:16px;font-weight:600">${esc(r.biz)}</span>
-          <span class="s" style="display:block">${esc(r.who)} · ${esc(r.cat)}</span>
-        </span>
-        <span style="flex:2 1 260px;font-size:13.5px;color:var(--muted)">${esc(r.why)}</span>
-        <span class="chip ${r.fit>=85?"lime":r.fit>=75?"green":"grey"}">FIT ${r.fit}</span>
-        <button class="btn go sm" type="button">AI Outreach</button>
-      </div>`).join("")}
+      <div class="ds-actions">
+        <button type="button" class="btn go sm">Write Outreach</button>
+        <button type="button" class="btn ghost sm">+ Pipeline</button>
+        <button type="button" class="btn ghost sm">⚡ AI Outreach</button>
+        <button type="button" class="btn ghost sm">Send kit</button>
+        <button type="button" class="btn ghost sm">Mark as contacted</button>
+      </div>
     </div>`;
 
-  const results = !scanRun ? `
-    <div class="empty"><b>No scan run yet</b>
-      Pick an athlete and run a scan. NILDash searches the businesses around ${esc(a.city)} that are actively spending on marketing, then ranks them against ${esc(a.name.split(" ")[0])}.</div>`
-    : scanning ? `<div class="empty"><b>Scanning ${esc(a.city)}…</b>Checking local businesses, social brands, and national programs.</div>`
-    : `<div class="grid" style="gap:14px">
-        ${lane("Local businesses","Within 25 miles of campus",SCAN.local)}
-        ${lane("Social media brands","Already running athlete campaigns",SCAN.social)}
-        ${lane("National programs","Lower priority, application based",SCAN.national)}
-      </div>`;
+  const results = !scanRun
+    ? `<div class="empty"><b>Select a client and run a deal scan</b>
+        NILDash searches ${esc(a.town)} for businesses already spending on marketing, ranks them against ${esc(a.name.split(" ")[0])}, and pulls the owner's name and contact for each one.</div>`
+    : scanning
+      ? `<div class="empty"><b>Scanning ${esc(a.town)}…</b>Checking local businesses, social brands, and national programs.</div>`
+      : `<input class="inp" placeholder="Know a business already? Add it." style="margin-bottom:13px">
+         <div style="display:flex;flex-direction:column;gap:11px">${(lanes[scanLane]||[]).map(card).join("")}</div>`;
 
   return `<div class="board">
-    <div class="head"><h1>Deal Scan</h1>
-      <p>Find businesses worth pitching, then hand the good ones to the writer.</p></div>
-    <div class="panel">
-      <div class="formgrid" style="align-items:end">
-        <div class="field"><label>ATHLETE</label>
-          <select id="scanAth">${ATHLETES.map((x,n)=>`<option value="${n}" ${n===scanAth?"selected":""}>${esc(x.name)}</option>`).join("")}</select></div>
-        <div class="field"><label>MARKET</label><input value="${esc(a.city)}" readonly></div>
-        <div class="field"><label>RADIUS</label><input value="25 miles" readonly></div>
-        <div class="field"><label>&nbsp;</label>
-          <button class="btn go" type="button" id="runScan" ${scanning?"disabled":""}>${scanning?"Scanning…":"Run scan"}</button></div>
-      </div>
+    ${helpRow}
+    <div class="toolrow">
+      <select class="sel" id="scanAth">${ATHLETES.map((x,n)=>`<option value="${n}" ${n===scanAth?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+      <span class="grow"></span>
+      <button type="button" class="btn ghost sm" id="rescan">Refresh</button>
+      <button type="button" class="btn go" id="runScan" ${scanning?"disabled":""}>${scanning?"Scanning…":"Scan Deals with AI"}</button>
     </div>
-    ${results}
+    <div class="head"><h1>Ranked Opportunities</h1></div>
+    <div class="ds-lane-tabs">${tabsHtml}</div>
+    ${scanning||!scanRun?results:`<div>${results}</div>`}
   </div>`;
 }
 
 function screenBrands(){
   const rows = allBrands();
-  const counts = { contacted:0, replied:0, negotiating:0, closed:0 };
-  rows.forEach(r => counts[r.stage]++);
+  const owners = rows.length;
+  const replied = rows.filter(r=>r.stage==="replied").length;
+  const signed = rows.filter(r=>r.stage==="closed").length;
   return `<div class="board">
     <div class="head"><h1>My Brands</h1>
-      <p>Every business NILDash has sourced for you, and where each one stands.</p></div>
-    <div class="grid g4">
-      <div class="stat"><span class="k">TOTAL SOURCED</span><span class="v">${rows.length}</span><span class="n">across 3 athletes</span></div>
-      <div class="stat"><span class="k">CONTACTED</span><span class="v">${counts.contacted}</span><span class="n">awaiting reply</span></div>
-      <div class="stat"><span class="k">REPLIED</span><span class="v lime">${counts.replied}</span><span class="n">needs a response</span></div>
-      <div class="stat"><span class="k">CLOSED</span><span class="v lime">${counts.closed}</span><span class="n">$1,650 booked</span></div>
+      <p>Every business found for your athletes, with the owner, the contact and where the pitch stands. Nothing here runs a search: it is what NILDash already holds.</p></div>
+    <div class="toolrow"><span class="grow"></span>
+      <button type="button" class="btn ghost sm">↓ Download spreadsheet</button></div>
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">BUSINESSES FOUND</span><span class="kpi-val">${rows.length}</span></div>
+      <div class="kpi"><span class="kpi-label">OWNERS IDENTIFIED</span><span class="kpi-val">${owners}</span></div>
+      <div class="kpi"><span class="kpi-label">REPLIED</span><span class="kpi-val lime">${replied}</span></div>
+      <div class="kpi"><span class="kpi-label">DEALS SIGNED</span><span class="kpi-val lime">${signed}</span></div>
+    </div>
+    <div class="toolrow">
+      <select class="sel"><option>Local</option><option>Social and national</option></select>
+      <select class="sel"><option>All statuses</option><option>Replied</option><option>Pitched</option><option>Not pitched yet</option></select>
+      <select class="sel"><option>All athletes</option>${ATHLETES.map(a=>`<option>${esc(a.name)}</option>`).join("")}</select>
+      <select class="sel"><option>Newest found</option><option>Business A to Z</option><option>Athlete A to Z</option><option>Status</option></select>
     </div>
     <div class="tablewrap"><table>
-      <thead><tr><th>Business</th><th>Owner</th><th>Athlete</th><th>Category</th><th>Channel</th><th>Sent</th><th>Stage</th></tr></thead>
+      <thead><tr><th>Business</th><th>Town</th><th>Owner</th><th>Contact</th><th>Category</th><th>Found for</th><th>Status</th></tr></thead>
       <tbody>${rows.map(r=>{
         const [c,l] = STAGE[r.stage];
         return `<tr>
           <td data-l="BUSINESS"><span class="b">${esc(r.biz)}</span></td>
+          <td data-l="TOWN" class="s">${esc(r.town)}</td>
           <td data-l="OWNER" class="s">${esc(r.who)}</td>
-          <td data-l="ATHLETE" class="s">${esc(byId(r.ath).name)}</td>
+          <td data-l="CONTACT" class="s">${esc(r.contact)}</td>
           <td data-l="CATEGORY" class="s">${esc(r.cat)}</td>
-          <td data-l="CHANNEL"><span class="tag ${r.ch}">${CH[r.ch].label}</span></td>
-          <td data-l="SENT" class="s" style="white-space:nowrap">${esc(r.sent)}</td>
-          <td data-l="STAGE"><span class="chip ${c}">${l}</span></td></tr>`;
-      }).join("")}</tbody>
-    </table></div>
-  </div>`;
-}
-
-function screenKit(){
-  const a = ATHLETES[kitTab];
-  return `<div class="board">
-    <div class="head"><h1>Media Kit</h1>
-      <p>One page you can send a business owner. Built from the roster, no design work.</p></div>
-    <div class="tabs" style="padding:0">${ATHLETES.map((x,n)=>
-      `<button type="button" data-kit="${n}" class="${n===kitTab?"on":""}">${esc(x.name)}</button>`).join("")}</div>
-    <div class="kit">
-      <div class="kithero">
-        <div class="kitav">${a.initials}</div>
-        <div class="kitname"><h2>${esc(a.name)}</h2>
-          <p>${esc(a.pos)} · ${esc(a.school)} · ${esc(a.year)} · ${esc(a.hometown)}</p></div>
-      </div>
-      <div class="kitbody">
-        <div class="kitrow">
-          <div class="kitnum"><div class="k">INSTAGRAM</div><div class="v">${num(a.ig)}</div></div>
-          <div class="kitnum"><div class="k">TIKTOK</div><div class="v">${num(a.tiktok)}</div></div>
-          <div class="kitnum"><div class="k">TOTAL REACH</div><div class="v">${num(a.ig + a.tiktok)}</div></div>
-          <div class="kitnum"><div class="k">2025 SEASON</div><div class="v" style="font-size:15px;padding-top:5px">${esc(a.stat)}</div></div>
-        </div>
-        <div class="kitsec"><h4>ABOUT</h4><p>${esc(a.about)}</p></div>
-        <div class="kitsec"><h4>RATE CARD</h4>
-          <div class="ratelist">${a.rates.map(([k,v])=>`<div class="rateline"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div></div>
-        <div class="kitsec"><h4>CONTACT</h4>
-          <p>Ross Kellner · Kellner Sports Group · ${esc(a.igHandle)}</p></div>
-      </div>
-    </div>
-    <div style="display:flex;gap:11px;flex-wrap:wrap">
-      <button class="btn go" type="button">Copy shareable link</button>
-      <button class="btn ghost" type="button">Download PDF</button>
-      <button class="btn ghost" type="button">Upload headshot and action shot</button>
-    </div>
+          <td data-l="FOUND FOR" class="s">${esc(byId(r.ath).name)}</td>
+          <td data-l="STATUS"><span class="chip ${c}">${l}</span></td></tr>`;
+      }).join("")}</tbody></table></div>
+    <div class="pager"><span>← Previous</span><span>Next →</span></div>
   </div>`;
 }
 
 function screenOutreach(){
   const rows = allBrands();
+  const replies = 3;
   return `<div class="board">
-    <div class="head"><h1>Outreach</h1>
-      <p>Everything that has actually left your mailbox, in order.</p></div>
-    <div class="grid g3">
-      <div class="stat"><span class="k">SENT, ALL TIME</span><span class="v">${rows.length}</span><span class="n">since Sep 9</span></div>
-      <div class="stat"><span class="k">REPLIES</span><span class="v lime">3</span><span class="n">${Math.round(3/rows.length*100)}% reply rate</span></div>
-      <div class="stat"><span class="k">DAILY LIMIT</span><span class="v">${rows.filter(r=>r.fresh).length} / 500</span><span class="n">resets at midnight</span></div>
+    <div class="head"><h1>Outreach Tracker</h1>
+      <p>Everything already sent, to whom, when, on which channel, and whether it replied. Cards are worked on Home.</p></div>
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">SENT THIS MONTH</span><span class="kpi-val">${rows.length}</span><span class="kpi-note">Total outreach</span></div>
+      <div class="kpi"><span class="kpi-label">REPLIES</span><span class="kpi-val lime">${replies}</span><span class="kpi-note">Received</span></div>
+      <div class="kpi"><span class="kpi-label">DEALS STARTED</span><span class="kpi-val lime">2</span><span class="kpi-note">From outreach</span></div>
+    </div>
+    <div class="toolrow">
+      <select class="sel"><option>All Athletes</option>${ATHLETES.map(a=>`<option>${esc(a.name)}</option>`).join("")}</select>
+      <select class="sel"><option>All Types</option><option>Agent Outreach</option><option>Athlete Outreach</option></select>
+      <span class="grow"></span>
+      <button type="button" class="btn ghost sm">↻ Refresh</button>
+      <button type="button" class="btn go sm">+ Log Outreach</button>
     </div>
     <div class="tablewrap"><table>
       <thead><tr><th>Business</th><th>Sent</th><th>Athlete</th><th>Channel</th><th>Status</th></tr></thead>
@@ -868,6 +999,8 @@ function screenOutreach(){
           <td data-l="CHANNEL"><span class="tag ${r.ch}">${CH[r.ch].label}</span></td>
           <td data-l="STATUS"><span class="chip ${c}">${l}</span></td></tr>`;
       }).join("")}</tbody></table></div>
+    <div class="panel"><h3>AI Outreach Emails</h3>
+      <p class="lede">Emails you sent through AI Outreach. Mark one replied when the brand answers, so it drops off your follow-up list.</p></div>
   </div>`;
 }
 
@@ -886,112 +1019,212 @@ function screenPipeline(){
     </div>`;
   };
   return `<div class="board">
-    <div class="head"><h1>Pipeline</h1>
-      <p>Where every conversation sits. Deals move as replies come in.</p></div>
+    ${helpRow}
+    <div class="toolrow">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted)">
+        <input type="checkbox" id="activeOnly"> Show active client only</label>
+      <span class="grow"></span>
+      <button type="button" class="btn ghost sm">Export CSV</button>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">TOTAL PIPELINE</span><span class="kpi-val lime">$2,250</span></div>
+      <div class="kpi"><span class="kpi-label">DEALS ACTIVE</span><span class="kpi-val">3</span></div>
+      <div class="kpi"><span class="kpi-label">CLOSING SOON</span><span class="kpi-val">1</span></div>
+    </div>
     <div class="kan">
-      ${col("contacted","CONTACTED")}${col("replied","REPLIED")}
+      ${col("contacted","PROSPECTING")}${col("replied","REPLIED")}
       ${col("negotiating","NEGOTIATING")}${col("closed","CLOSED")}
     </div>
-    <div class="panel"><h3>Closed this season</h3>
-      <p class="lede">Southside Chiropractic with Trey Alcott at $1,200 for the season, and Boro Barbers with DeAndre Whitlock at $450. NILDash tracks the deal to signature and leaves the money between you and the business.</p></div>
+    <div class="toolrow"><button type="button" class="btn go">+ Add Deal</button></div>
   </div>`;
 }
 
 function screenRoster(){
+  const btns = ["Edit","Delete","Report","Profile","Pitch Deck","Outreach","Rate Calculator","Portals","Compliance"];
   return `<div class="board">
     <div class="head"><h1>My Roster</h1>
-      <p>Three athletes. Add one at a time or drop in a spreadsheet.</p></div>
-    <div class="grid g2">${ATHLETES.map(a=>`
-      <div class="panel" style="display:flex;flex-direction:column;gap:14px">
-        <div style="display:flex;align-items:center;gap:14px">
-          <span class="kitav" style="width:54px;height:54px;font-size:19px">${a.initials}</span>
-          <span style="min-width:0"><span style="display:block;font-family:var(--display);font-size:20px;font-weight:700">${esc(a.name)}</span>
-            <span style="display:block;font-size:14px;color:var(--muted)">${esc(a.pos)} · ${esc(a.school)}</span></span>
+      <p>Your clients, click any card to make them active.</p></div>
+    <div class="toolrow"><span class="grow"></span><button type="button" class="btn ghost sm">Export CSV</button></div>
+    <div class="grid g2">${ATHLETES.map((a,n)=>`
+      <div class="rcard">
+        <div class="rtop">
+          <span class="rav">${a.initials}</span>
+          <span class="rname"><b>${esc(a.name)}</b>
+            <span>${esc(a.sport)} · ${esc(a.pos)} · ${esc(a.school)}</span></span>
         </div>
-        <div class="grid g3" style="gap:10px">
-          <div class="kitnum"><div class="k">INSTAGRAM</div><div class="v" style="font-size:18px">${num(a.ig)}</div></div>
-          <div class="kitnum"><div class="k">TIKTOK</div><div class="v" style="font-size:18px">${num(a.tiktok)}</div></div>
-          <div class="kitnum"><div class="k">PITCHES LEFT</div><div class="v" style="font-size:18px">${pending(a)}</div></div>
+        <div class="rstat">${esc(a.stat)}</div>
+        <div class="rnums">
+          <span class="rnum">${a.reach} reach</span>
+          <span class="rnum">${a.eng} eng</span>
+          <span class="rnum">${pending(a)} pitches waiting</span>
         </div>
-        <div style="display:flex;gap:9px;flex-wrap:wrap">
-          <button class="btn ghost sm" type="button" data-goto="kit" data-kitn="${ATHLETES.indexOf(a)}">Media kit</button>
-          <button class="btn ghost sm" type="button" data-goto="scan" data-scann="${ATHLETES.indexOf(a)}">Run a scan</button>
-        </div>
+        <div class="rbtns">${btns.map(b=>`<button type="button" class="btn ghost xs"${b==="Pitch Deck"?` data-goto="marketing" data-kitn="${n}"`:""}>${b}</button>`).join("")}</div>
       </div>`).join("")}
-      <button class="panel" type="button" data-goto="add" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border-style:dashed;min-height:180px;color:var(--muted);cursor:pointer">
-        <span style="font-family:var(--display);font-size:19px;color:var(--text)">Add an athlete</span>
-        <span style="font-size:14px">One at a time, or import a spreadsheet</span>
-      </button>
     </div>
   </div>`;
 }
 
-function screenDeliver(){
-  const pill = s => s==="done" ? '<span class="chip green">Done</span>'
-    : s==="due" ? '<span class="chip amber">Due</span>' : '<span class="chip grey">Scheduled</span>';
+function screenCalendar(){
+  const pill = s => s==="done" ? '<span class="chip green">Completed</span>'
+    : s==="due" ? '<span class="chip amber">Pending</span>' : '<span class="chip grey">Scheduled</span>';
   return `<div class="board">
-    <div class="head"><h1>Deliverables</h1>
-      <p>What each athlete owes a business once a deal closes.</p></div>
-    <div class="grid g3">
-      <div class="stat"><span class="k">DUE THIS MONTH</span><span class="v">2</span><span class="n">Sep 30 and Oct 3</span></div>
-      <div class="stat"><span class="k">COMPLETED</span><span class="v lime">1</span><span class="n">on time</span></div>
-      <div class="stat"><span class="k">SCHEDULED</span><span class="v">2</span><span class="n">October and November</span></div>
+    <div class="head"><h1>Deliverables Calendar</h1>
+      <p>All contract deliverables across your roster, single source of truth.</p></div>
+    <div class="panel">
+      <h3>Upload contract</h3>
+      <p class="lede" style="margin-bottom:14px">NILDash reads the PDF, pulls out every deliverable and due date, and flags anything risky before it goes on the calendar.</p>
+      <div class="formgrid" style="margin-bottom:13px">
+        <div class="field"><label>SELECT ATHLETE *</label>
+          <select class="sel" style="height:42px"><option>— choose athlete —</option>${ATHLETES.map(a=>`<option>${esc(a.name)}</option>`).join("")}</select></div>
+      </div>
+      <div class="drop"><b>Drop a PDF or DOCX here</b>or click to browse · Max 25 MB</div>
+    </div>
+    <div class="toolrow">
+      <select class="sel"><option>All Athletes</option>${ATHLETES.map(a=>`<option>${esc(a.name)}</option>`).join("")}</select>
+      <select class="sel"><option>All Brands</option></select>
+      <select class="sel"><option>All Statuses</option><option>Pending</option><option>Completed</option><option>Overdue</option></select>
     </div>
     <div class="tablewrap"><table>
-      <thead><tr><th>Deliverable</th><th>Due</th><th>Business</th><th>Athlete</th><th>Status</th></tr></thead>
+      <thead><tr><th>Deliverable</th><th>Type</th><th>Due</th><th>Recurrence</th><th>Brand</th><th>Athlete</th><th>Status</th></tr></thead>
       <tbody>${DELIVERABLES.map(d=>`<tr>
         <td data-l="DELIVERABLE"><span class="b">${esc(d.what)}</span></td>
+        <td data-l="TYPE" class="s">${esc(d.type)}</td>
         <td data-l="DUE" class="s" style="white-space:nowrap">${esc(d.due)}</td>
-        <td data-l="BUSINESS" class="s">${esc(d.biz)}</td>
+        <td data-l="RECURRENCE" class="s">${esc(d.rec)}</td>
+        <td data-l="BRAND" class="s">${esc(d.biz)}</td>
         <td data-l="ATHLETE" class="s">${esc(byId(d.ath).name)}</td>
         <td data-l="STATUS">${pill(d.status)}</td></tr>`).join("")}</tbody></table></div>
   </div>`;
 }
 
-function screenAdd(){
+function screenMarketing(){
+  const a = ATHLETES[kitTab];
   return `<div class="board">
-    <div class="head"><h1>Add Client</h1>
-      <p>Type in one athlete, or drop a spreadsheet and let AI fill the rest.</p></div>
-    <div class="panel">
-      <h3>One athlete</h3>
-      <p class="lede" style="margin-bottom:16px">Put in a name and a sport and AI Lookup fills in the school, position, class year, and socials.</p>
-      <div class="formgrid">
-        <div class="field"><label>FULL NAME</label><input id="f-name" placeholder="Trey Alcott"></div>
-        <div class="field"><label>SPORT</label>
-          <select id="f-sport"><option>Football</option><option>Men's basketball</option><option>Women's basketball</option><option>Soccer</option><option>Baseball</option><option>Softball</option><option>Track and field</option></select></div>
-        <div class="field"><label>SCHOOL</label><input id="f-school" placeholder="AI fills this in"></div>
-        <div class="field"><label>POSITION</label><input id="f-pos" placeholder="AI fills this in"></div>
-        <div class="field"><label>INSTAGRAM</label><input id="f-ig" placeholder="AI fills this in"></div>
-        <div class="field"><label>&nbsp;</label><button class="btn go" type="button">AI Lookup</button></div>
+    <div class="head"><h1>Media Kit</h1>
+      <p>Build and manage professional media kits for clients on your roster.</p></div>
+    <div class="toolrow">
+      <select class="sel" id="kitSel">${ATHLETES.map((x,n)=>`<option value="${n}" ${n===kitTab?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+      <span class="grow"></span>
+      <span class="chip lime">NILDash brand theme</span>
+      <span class="chip grey">School colors</span>
+    </div>
+    <div class="grid g2">
+      <div class="panel"><h3>Profile <span class="chip lime" style="margin-left:6px">AUTO-FILLED</span></h3>
+        <div class="ratelist" style="margin-top:10px">
+          <div class="rateline"><span>Name</span><span>${esc(a.name)}</span></div>
+          <div class="rateline"><span>Sport</span><span>${esc(a.sport)}</span></div>
+          <div class="rateline"><span>School</span><span>${esc(a.school)}</span></div>
+          <div class="rateline"><span>Position</span><span>${esc(a.pos)}</span></div>
+        </div>
+      </div>
+      <div class="panel"><h3>Photos</h3>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:11px;margin-top:11px">
+          <div class="uploadbox"><b>Headshot</b>JPG or PNG</div>
+          <div class="uploadbox"><b>Action shot</b>Becomes banner image</div>
+        </div>
       </div>
     </div>
-    <div class="panel">
-      <h3>A whole roster</h3>
-      <p class="lede" style="margin-bottom:16px">One agent brought over 30 clients this way. A school can bring 250.</p>
-      <div class="drop"><b>Drop a spreadsheet here</b>
-        Name, sport and school is enough. AI pulls stats and socials for every row.</div>
+    <div class="kit">
+      <div class="kithero">
+        <div class="kitav">${a.initials}</div>
+        <div class="kitname"><h2>${esc(a.name)}</h2>
+          <p>${esc(a.pos)} · ${esc(a.school)} · ${esc(a.year)} · ${esc(a.hometown)}</p></div>
+      </div>
+      <div class="kitbody">
+        <div class="kitrow">
+          <div class="kitnum"><div class="k">INSTAGRAM</div><div class="v">${num(a.ig)}</div></div>
+          <div class="kitnum"><div class="k">TIKTOK</div><div class="v">${num(a.tiktok)}</div></div>
+          <div class="kitnum"><div class="k">TOTAL REACH</div><div class="v">${num(a.ig + a.tiktok)}</div></div>
+          <div class="kitnum"><div class="k">ENGAGEMENT</div><div class="v">${a.eng}</div></div>
+        </div>
+        <div class="kitsec"><h4>ABOUT</h4><p>${esc(a.about)}</p></div>
+        <div class="kitsec"><h4>RATE CARD</h4>
+          <div class="ratelist">${a.rates.map(([k,v])=>`<div class="rateline"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div></div>
+        <div class="kitsec"><h4>CONTACT</h4><p>Ross Kellner · Kellner Sports Group · ${esc(a.igHandle)}</p></div>
+      </div>
+    </div>
+    <div class="toolrow">
+      <button type="button" class="btn go">Copy shareable link</button>
+      <button type="button" class="btn ghost">Download PDF</button>
     </div>
   </div>`;
 }
 
-function screenAi(){
+function screenAdd(){
+  const sports = ["— choose a sport —","Baseball","Basketball","Cheer","Cross Country","Dance","Field Hockey","Football","Golf","Gymnastics","Ice Hockey","Lacrosse","Rowing","Soccer","Softball","Swimming","Tennis","Track & Field","Volleyball","Water Polo","Wrestling"];
+  return `<div class="board">
+    <div class="head"><h1>Add Client</h1><p>Add a new athlete to your roster.</p></div>
+    <div class="panel">
+      <div class="toolrow" style="margin-bottom:14px">
+        <h3 style="margin:0">Client Details</h3><span class="grow"></span>
+        <button type="button" class="btn ghost sm">⇧ Import from spreadsheet</button>
+      </div>
+      <div class="formgrid">
+        <div class="field"><label>FULL NAME *</label><input class="inp" id="f-name" placeholder="Trey Alcott">
+          <span class="hint">Enter school and sport first for best results. Press Enter to search.</span></div>
+        <div class="field"><label>&nbsp;</label><button type="button" class="btn go">AI Lookup</button></div>
+        <div class="field wide"><label>FULL LEGAL NAME (OPTIONAL)</label><input class="inp" id="f-legal" placeholder="Used on contracts. Leave blank to use their name above."></div>
+        <div class="field"><label>SPORT *</label><select class="sel" id="f-sport" style="height:42px">${sports.map(s=>`<option>${s}</option>`).join("")}</select></div>
+        <div class="field"><label>POSITION</label><input class="inp" id="f-pos" placeholder="AI fills this in"></div>
+        <div class="field"><label>ATHLETE TYPE</label><select class="sel" id="f-type" style="height:42px"><option>College</option><option>Pro</option></select></div>
+        <div class="field"><label>SCHOOL</label><input class="inp" id="f-school" placeholder="AI fills this in"></div>
+        <div class="field"><label>INSTAGRAM</label><input class="inp" id="f-ig" placeholder="AI fills this in"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>A whole roster</h3>
+      <p class="lede" style="margin-bottom:14px">One agent brought over thirty clients this way. A school can bring 250.</p>
+      <div class="drop"><b>Drop a spreadsheet here</b>Name, sport and school is enough. AI pulls stats and socials for every row.</div>
+    </div>
+  </div>`;
+}
+
+function screenCommand(){
   const log = chat.length ? chat.map(m=>`<div class="bub ${m.r}">${esc(m.t)}</div>`).join("")
     : `<div class="bub ai">Ask me anything about your roster, your outreach, or what needs attention today.</div>`;
   return `<div class="board">
-    <div class="head"><h1>AI Command</h1>
-      <p>Ask about your own data instead of clicking through five screens.</p></div>
-    <div class="panel" style="display:flex;flex-direction:column;gap:18px">
+    <div class="head"><h1>AI Command</h1><p>Ask about your own data instead of clicking through five screens.</p></div>
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">PIPELINE VALUE</span><span class="kpi-val lime">$2.3K</span><span class="kpi-note">Active deals</span></div>
+      <div class="kpi"><span class="kpi-label">ACTIVE DEALS</span><span class="kpi-val">3</span><span class="kpi-note">In progress</span></div>
+      <div class="kpi"><span class="kpi-label">CLIENTS</span><span class="kpi-val">3</span><span class="kpi-note">On roster</span></div>
+      <div class="kpi"><span class="kpi-label">TOTAL NIL EARNED</span><span class="kpi-val lime">$1.7K</span><span class="kpi-note">Across all clients</span></div>
+    </div>
+    <div class="panel">
+      <h3>Quick Actions</h3>
+      <div class="qa" style="margin-top:11px">
+        <button type="button" class="btn ghost sm">Calculate Rate for Client</button>
+        <button type="button" class="btn ghost sm" data-goto="deals">Scan for New Deals</button>
+        <button type="button" class="btn ghost sm">Generate Pitch Deck</button>
+        <button type="button" class="btn ghost sm">Generate Contract</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Follow-Ups Needed</h3>
+      <div class="follow" style="margin-top:8px">
+        ${FOLLOWUPS.map(f=>`<div class="followrow">
+          <span class="b">${esc(f.biz)}</span><span class="st">— ${esc(f.stage)}</span>
+          <span class="ago">No update in ${f.days} days</span></div>`).join("")}
+      </div>
+    </div>
+    <div class="panel" style="display:flex;flex-direction:column;gap:17px">
+      <div class="toolrow"><h3 style="margin:0">Ask about your roster</h3>
+        <span class="chip lime">LIVE AI</span></div>
       <div class="chatlog">${log}</div>
-      <div class="prompts">${Object.keys(AI_REPLIES).map(q=>
-        `<button type="button" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+      <div class="prompts">${Object.keys(AI_REPLIES).map(q=>`<button type="button" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div>
     </div>
   </div>`;
 }
 
 function screenInbox(){
   return `<div class="board">
-    <div class="head"><h1>Email Inbox</h1>
-      <p>Replies from businesses, matched back to the athlete they were about.</p></div>
+    <div class="head"><h1>Email Inbox</h1><p>Your connected email conversations.</p></div>
+    <div class="toolrow">
+      <span class="chip lime">My Gmail</span><span class="chip grey">Athlete Emails</span>
+      <span class="grow"></span><button type="button" class="btn go sm">+ Compose</button>
+    </div>
+    <div class="notice"><b>📤 Send from your Gmail, right here</b>
+      Your connected Gmail is ready for outreach. Every email you send from NILDash goes from your own account, so replies come back to you.</div>
     <div class="mail">${INBOX.map((m,i)=>{
       const open = openMail === i;
       return `<div class="mailrow ${m.unread?"new":""}">
@@ -1007,7 +1240,7 @@ function screenInbox(){
         </button>
         ${open?`<div class="mailtext">${esc(m.text)}</div>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn go sm" type="button" data-goto="ai">Draft a reply with AI</button>
+            <button class="btn go sm" type="button" data-goto="command">Draft a reply with AI</button>
             <button class="btn ghost sm" type="button">Mark as a deal</button>
           </div>`:""}
       </div>`;
@@ -1017,84 +1250,135 @@ function screenInbox(){
 
 function screenSettings(){
   return `<div class="board">
-    <div class="head"><h1>Settings</h1>
-      <p>Connect a mailbox, set your sending rules, and stay compliant.</p></div>
+    <div class="head"><h1>Settings</h1><p>Manage integrations, connected accounts, and preferences.</p></div>
     <div class="grid g2">
+      <div class="panel"><h3>Your signature</h3>
+        <p class="lede" style="margin-bottom:14px">Goes at the end of every pitch we write for you. When you set a scheduling link, the message can point at it.</p>
+        <div class="formgrid">
+          <div class="field wide"><label>SIGNATURE</label><input class="inp" id="s-sig" value="Ross Kellner, Kellner Sports Group">
+            <span class="hint">Your name, and whatever you want under it. Plain text.</span></div>
+          <div class="field wide"><label>SCHEDULING LINK</label><input class="inp" id="s-link" placeholder="Leave blank if you do not use one">
+            <span class="hint">Becomes a clickable link, not a pasted address.</span></div>
+        </div>
+        <div class="toolrow" style="margin-top:13px"><button type="button" class="btn go sm">Save signature</button></div>
+      </div>
       <div class="panel"><h3>Mailbox</h3>
         <p class="lede" style="margin-bottom:14px">Outreach sends from your own address, so replies come back to you.</p>
-        <div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap">
-          <span class="chip green">Gmail connected</span>
-          <span style="font-size:14px;color:var(--muted)">ross@kellnersports.com</span>
-        </div>
+        <div class="toolrow"><span class="chip green">Gmail connected</span>
+          <span style="font-size:14px;color:var(--muted)">ross@kellnersports.com</span></div>
+      </div>
+      <div class="panel"><h3>Email from NILDash</h3>
+        <p class="lede">You get one email: new pitches are ready, the morning after your team places them.</p>
       </div>
       <div class="panel"><h3>Sending rules</h3>
-        <p class="lede" style="margin-bottom:14px">Guardrails so nothing gets you marked as spam.</p>
+        <p class="lede" style="margin-bottom:12px">Guardrails so nothing gets you marked as spam.</p>
         <div class="ratelist">
           <div class="rateline"><span>Gap between sends</span><span>20 to 50 sec</span></div>
           <div class="rateline"><span>Same address again</span><span>after 4 days</span></div>
           <div class="rateline"><span>Duplicate subject lines</span><span>blocked</span></div>
-          <div class="rateline"><span>Daily cap</span><span>500</span></div>
         </div>
       </div>
       <div class="panel"><h3>Compliance</h3>
-        <p class="lede" style="margin-bottom:14px">Held before sending, never after.</p>
+        <p class="lede" style="margin-bottom:12px">Held before sending, never after.</p>
         <div class="ratelist">
-          <div class="rateline"><span>Alcohol, for athletes under 21</span><span>blocked</span></div>
+          <div class="rateline"><span>Alcohol, athletes under 21</span><span>blocked</span></div>
           <div class="rateline"><span>Gambling and sportsbooks</span><span>blocked</span></div>
           <div class="rateline"><span>Cannabis and vape</span><span>blocked</span></div>
           <div class="rateline"><span>Unverifiable category</span><span>held for review</span></div>
         </div>
       </div>
       <div class="panel"><h3>Plan</h3>
-        <p class="lede" style="margin-bottom:14px">One flat price. Every athlete, every scan.</p>
+        <p class="lede" style="margin-bottom:12px">One flat price. Every athlete, every scan.</p>
         <div style="display:flex;align-items:baseline;gap:8px">
-          <span style="font-family:var(--display);font-size:38px;font-weight:700;letter-spacing:-1px">$99</span>
-          <span style="color:var(--muted)">per month</span>
-        </div>
+          <span style="font-family:var(--display);font-size:36px;font-weight:700;letter-spacing:-1px">$99</span>
+          <span style="color:var(--muted)">per month</span></div>
       </div>
     </div>
   </div>`;
 }
 
-const SCREENS = { home:screenHome, scan:screenScan, brands:screenBrands, kit:screenKit,
-  outreach:screenOutreach, pipeline:screenPipeline, roster:screenRoster, deliver:screenDeliver,
-  add:screenAdd, ai:screenAi, inbox:screenInbox, settings:screenSettings };
+function screenPrograms(){
+  return `<div class="board">
+    <div class="head"><h1>Programs</h1><p>Who decides roster spots. Type a school name.</p></div>
+    <div class="panel">
+      <input class="inp" placeholder="Samford University" style="max-width:420px">
+      <div class="ratelist" style="margin-top:16px">
+        <div class="rateline"><span>Head Coach</span><span>Chris Hatcher</span></div>
+        <div class="rateline"><span>General Manager</span><span>—</span></div>
+        <div class="rateline"><span>Director of Player Personnel</span><span>—</span></div>
+        <div class="rateline"><span>NIL / Collective contact</span><span>—</span></div>
+      </div>
+      <p class="lede" style="margin-top:14px">Sample data. In the live product this pulls the current staff directory for whichever school you type.</p>
+    </div>
+  </div>`;
+}
+
+function simple(title, lede, rows){
+  return `<div class="board">
+    <div class="head"><h1>${esc(title)}</h1><p>${esc(lede)}</p></div>
+    <div class="panel"><div class="ratelist">${rows.map(([k,v])=>
+      `<div class="rateline"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div></div>
+  </div>`;
+}
+const screenAnalytics = () => simple("Analytics","How the roster is performing month over month.",
+  [["Businesses found, September","22"],["Pitches sent","15"],["Reply rate","20%"],["Deals signed","2"],["Revenue booked","$1,650"]]);
+const screenCommission = () => simple("Commission","What you earned on every closed deal.",
+  [["Southside Chiropractic · Trey Alcott","$1,200 deal · $240 to you"],["Boro Barbers · DeAndre Whitlock","$450 deal · $90 to you"],["Total commission, season to date","$330"]]);
+const screenContract = () => simple("Contract","Generate and send agreements, then track signatures.",
+  [["Southside Chiropractic","Signed Sep 12"],["Boro Barbers","Signed Sep 11"],["Cannonsburgh Fitness","Draft, not sent"]]);
+const screenGrowth = () => simple("Growth","Guides and playbooks for getting more out of the platform.",
+  [["Writing a pitch a business owner answers","6 min"],["Deal Scan, and how the ranking works","4 min"],["What to do when nobody replies","5 min"],["Turning one local deal into three","7 min"]]);
+
+const SCREENS = { home:screenHome, deals:screenDeals, brands:screenBrands, programs:screenPrograms,
+  marketing:screenMarketing, outreach:screenOutreach, pipeline:screenPipeline, roster:screenRoster,
+  calendar:screenCalendar, add:screenAdd, command:screenCommand, inbox:screenInbox,
+  settings:screenSettings, growth:screenGrowth, analytics:screenAnalytics,
+  commission:screenCommission, contract:screenContract };
 
 /* ============================ RENDER ============================ */
 function renderNav(){
   const unread = INBOX.filter(m=>m.unread).length;
-  $("nav1").innerHTML = NAV1.map(([id,l])=>
+  const main = NAV1.map(([id,l])=>
     `<button type="button" data-goto="${id}" class="${route===id?"on":""}"><i></i>${l}</button>`).join("");
+  const more = moreOpen ? NAV_MORE.map(([id,l])=>
+    `<button type="button" data-goto="${id}" class="${route===id?"on":""}"><i></i>${l}</button>`).join("") : "";
+  $("nav1").innerHTML = main
+    + `<button type="button" id="moreBtn"><i></i>${moreOpen?"Less":"More"}</button>` + more;
   $("nav2").innerHTML = NAV2.map(([id,l])=>
-    `<button type="button" data-goto="${id}" class="${route===id?"on":""}"><i></i>${l}${
+    `<button type="button" data-goto="${id}" class="${route===id?"on":""}${id==="growth"?" vio":""}"><i></i>${l}${
       id==="inbox"&&unread?`<span class="pill">${unread}</span>`:""}</button>`).join("");
 }
-
 function render(){
   renderNav();
   $("crumbNow").textContent = LABEL[route];
-  $("view").innerHTML = SCREENS[route]();
+  $("view").innerHTML = (SCREENS[route]||screenHome)();
   tickClock();
 }
 
 /* ============================ EVENTS ============================ */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-tab],[data-do],[data-open],[data-kit],[data-mail],[data-ask],#approveAll,#runScan,#reset");
+  const t = e.target.closest("[data-goto],[data-tab],[data-do],[data-open],[data-lane],[data-mail],[data-ask],#approveAll,#runScan,#rescan,#moreBtn,#reset");
   if (!t) return;
 
   if (t.id === "reset"){
-    state = {}; tab = 0; kitTab = 0; scanAth = 0; scanRun = false; scanning = false;
-    openKey = "alcott:0"; openMail = null; chat = []; route = "home";
+    state = {}; tab = 0; kitTab = 0; scanAth = 0; scanLane = "Local"; scanRun = false; scanning = false;
+    openKey = "alcott:0"; openMail = null; chat = []; route = "home"; moreOpen = false;
     stopClock(); t0 = null; render(); return;
   }
+  if (t.id === "moreBtn"){ moreOpen = !moreOpen; render(); return }
   if (t.dataset.goto){
     route = t.dataset.goto;
     if (t.dataset.kitn !== undefined) kitTab = +t.dataset.kitn;
-    if (t.dataset.scann !== undefined){ scanAth = +t.dataset.scann; scanRun = false }
     window.scrollTo({ top:0, behavior:"smooth" });
     render(); return;
   }
-  if (t.dataset.kit !== undefined){ kitTab = +t.dataset.kit; render(); return }
+  if (t.dataset.lane){ scanLane = t.dataset.lane; render(); return }
+  if (t.id === "rescan"){ scanRun = false; render(); return }
+  if (t.id === "runScan"){
+    scanning = true; render();
+    setTimeout(()=>{ scanning = false; scanRun = true; render() }, 1100);
+    return;
+  }
   if (t.dataset.mail !== undefined){
     const i = +t.dataset.mail;
     openMail = openMail === i ? null : i;
@@ -1104,13 +1388,7 @@ document.addEventListener("click", e => {
   if (t.dataset.ask){
     chat.push({ r:"me", t:t.dataset.ask });
     chat.push({ r:"ai", t:AI_REPLIES[t.dataset.ask] });
-    render();
-    return;
-  }
-  if (t.id === "runScan"){
-    scanning = true; render();
-    setTimeout(()=>{ scanning = false; scanRun = true; render() }, 1100);
-    return;
+    render(); return;
   }
 
   const a = ATHLETES[tab];
@@ -1141,6 +1419,7 @@ document.addEventListener("click", e => {
 
 document.addEventListener("change", e => {
   if (e.target.id === "scanAth"){ scanAth = +e.target.value; scanRun = false; render() }
+  if (e.target.id === "kitSel"){ kitTab = +e.target.value; render() }
 });
 
 render();
