@@ -429,7 +429,7 @@ app.get('/health', (req, res) => {
 // header as /demo (see the /demo route).
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders: (res, filePath) => {
-    if (path.basename(filePath) === 'demo.html') res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    if (['demo.html', 'athletics.html'].includes(path.basename(filePath))) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   },
 }));
 app.set('trust proxy', 1);
@@ -14652,6 +14652,16 @@ app.post('/api/admin/requests/:id/deny', requireAuth, async (req, res) => {
 const DEMO_NO_CACHE = 'no-cache, must-revalidate';
 app.get('/demo', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'demo.html'),
+    { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
+});
+
+// ── University demo page ─────────────────────────────────────────────────
+// PUBLIC, same deal as /demo. https://mynildash.com/athletics is the
+// university side of the product: sponsorship built around teams instead of
+// athletes. Self-contained, no auth, above the app catch-all. To update it,
+// replace public/athletics.html.
+app.get('/athletics', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'athletics.html'),
     { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
 });
 
