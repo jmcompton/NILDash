@@ -1,0 +1,1795 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NILDash for Athletics Departments</title>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NILDash">
+<meta property="og:url" content="https://mynildash.com/athletics">
+<meta property="og:title" content="NILDash for athletics departments">
+<meta property="og:description" content="Thirteen teams, every local business around campus, and the sponsorship ask already written. Click through it. No login.">
+<meta property="og:image" content="https://mynildash.com/demo-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NILDash for athletics departments">
+<meta name="twitter:description" content="Thirteen teams, every local business around campus, and the sponsorship ask already written. Click through it. No login.">
+<meta name="twitter:image" content="https://mynildash.com/demo-preview.png">
+<meta name="description" content="An interactive demo of the NILDash university product: team sponsorship inventory, nightly local business discovery, and one click approval for athletics departments.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ink:#080C14; --panel:#0C111B; --card:#111823; --sunk:#0C121C;
+  --line:#1E2735; --line-2:#2E3D55; --line-3:#222D3F;
+  --lime:#A3E635; --lime-dim:#7FA82A;
+  --text:#EDF1F7; --muted:#98A2B3; --dim:#7A8496; --dimmer:#6B7688;
+  --blue:#8FB6FF; --blue-line:#3A557F;
+  --green:#A9D77E; --green-line:#44603A;
+  --amber:#E8B86B; --amber-line:#6B5330;
+  --violet:#C08BF5; --violet-line:#5A4275;
+  --sent-fill:#121E14; --sent-line:#2E4A2E;
+  --display:"Space Grotesk",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ink);color:var(--text);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+a{color:inherit}
+h1,h2,h3{text-wrap:balance}
+input,select{font:inherit}
+
+body{padding-bottom:62px}
+.ribbon{position:fixed;left:0;right:0;bottom:0;z-index:40;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:11px 20px;padding-bottom:calc(11px + env(safe-area-inset-bottom,0px));
+  background:#151B12;border-top:1px solid #2A3520;
+  font-family:var(--mono);font-size:12px;color:#C9DFA0;
+  box-shadow:0 -8px 24px rgba(0,0,0,.35)}
+.ribbon b{color:var(--lime);font-weight:500}
+.ribbon .spacer{flex:1 1 auto}
+.ribbon button{font-family:var(--mono);font-size:11px;color:#C9DFA0;border:1px solid #2A3520;border-radius:6px;padding:4px 10px}
+.ribbon button:hover{border-color:var(--lime-dim);color:var(--lime)}
+.ribbon .book{display:inline-flex;align-items:center;padding:5px 14px;border-radius:7px;
+  background:var(--lime);color:#0A0F17;font-family:var(--body);font-size:12.5px;font-weight:600;
+  text-decoration:none;white-space:nowrap}
+.ribbon .book:hover{filter:brightness(1.08)}
+
+.shell{display:flex;min-width:0;max-width:100%;min-height:100%}
+nav.side{width:206px;flex:0 0 206px;padding:22px 14px 18px;background:var(--panel);border-right:1px solid #1B2433;display:flex;flex-direction:column;gap:14px}
+.brand{display:flex;align-items:center;gap:9px;padding:0 4px}
+.brand .mark{width:28px;height:28px;border-radius:8px;background:var(--lime);color:#0A0F17;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:16px}
+.brand .word{font-family:var(--mono);font-size:14px;line-height:1.15;color:var(--lime)}
+.eyebrow{padding:0 4px;font-family:var(--mono);font-size:10px;letter-spacing:1.3px;color:var(--dimmer)}
+.navlist{display:flex;flex-direction:column;gap:1px}
+.navlist button{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border-radius:8px;font-family:var(--mono);font-size:14px;color:var(--muted);text-align:left;border:1px solid transparent}
+.navlist button i{width:5px;height:5px;border-radius:50%;background:#39445A;flex:0 0 auto}
+.navlist button:hover{color:var(--text);background:#121A26}
+.navlist button.on{background:#16202F;border-color:#263248;color:var(--lime)}
+.navlist button.on i{background:var(--lime)}
+.navlist button.vio{color:var(--violet)}
+.navlist button.vio i{background:#7A5A9E}
+.navlist .pill{margin-left:auto;padding:1px 7px;border-radius:999px;background:var(--lime);color:#0A0F17;font-size:11px}
+.who{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;border:1px solid #1B2433}
+.who .av{width:32px;height:32px;border-radius:50%;background:#16202F;border:1px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:0 0 auto}
+.who .nm{display:flex;flex-direction:column;min-width:0}
+.who .nm b{font-size:13px;font-weight:500}
+.who .nm small{font-size:11px;color:var(--dim)}
+
+main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.crumb{padding:15px 30px;border-bottom:1px solid #141C28;display:flex;align-items:center;gap:18px}
+.crumb .path{font-family:var(--mono);font-size:13px;color:var(--dim)}
+.crumb .path b{color:var(--text);font-weight:400}
+.crumb .grow{flex:1 1 auto}
+.crumb .search{width:210px;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line-3);background:#0E1520;color:var(--dimmer);font-family:var(--mono);font-size:13px;display:flex;align-items:center}
+.crumb .ready{display:flex;align-items:center;gap:7px;white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--lime)}
+.crumb .ready i{width:6px;height:6px;border-radius:50%;background:var(--lime)}
+
+.board{padding:20px 30px 28px;display:flex;flex-direction:column;gap:16px;flex:1 1 auto}
+.head h1{margin:0;font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:-.7px}
+.head p{margin:4px 0 0;font-size:15px;color:var(--muted);max-width:78ch}
+.toolrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.toolrow .grow{flex:1 1 auto}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;height:42px;padding:0 20px;border-radius:9px;font-size:14px;white-space:nowrap;transition:filter .15s,border-color .15s,color .15s}
+.btn.go{background:var(--lime);color:#0A0F17;font-weight:600}
+.btn.go:hover{filter:brightness(1.08)}
+.btn.ghost{border:1px solid #2B3648;color:var(--muted);padding:0 17px}
+.btn.ghost:hover{border-color:#3E4C64;color:var(--text)}
+.btn.sm{height:34px;padding:0 13px;font-size:13px}
+.btn.xs{height:30px;padding:0 11px;font-size:12.5px;border-radius:7px}
+.help{width:26px;height:26px;border-radius:50%;border:1px solid var(--line-2);color:var(--dim);font-size:13px;display:inline-flex;align-items:center;justify-content:center}
+
+.sel{height:38px;padding:0 11px;border-radius:8px;border:1px solid var(--line-3);background:#0E1520;color:var(--text);font-size:13.5px}
+.inp{height:42px;padding:0 13px;border-radius:9px;border:1px solid var(--line-3);background:#0E1520;color:var(--text);font-size:14px;width:100%}
+.inp:focus,.sel:focus{outline:2px solid var(--lime-dim);outline-offset:1px;border-color:transparent}
+.inp::placeholder{color:var(--dimmer)}
+
+/* kpis */
+.kpi-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px 17px;display:flex;flex-direction:column;gap:3px}
+.kpi-label{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer)}
+.kpi-val{font-family:var(--display);font-size:27px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.kpi-val.lime{color:var(--lime)}
+.kpi-note{font-size:12.5px;color:var(--dim)}
+
+.panel{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:19px 21px}
+.panel h3{margin:0 0 4px;font-family:var(--display);font-size:17px;font-weight:700}
+.panel p.lede{margin:0;color:var(--muted);font-size:14px;max-width:76ch}
+.grid{display:grid;gap:13px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+
+.chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-family:var(--mono);font-size:11px;letter-spacing:.4px;white-space:nowrap}
+.chip.grey{border:1px solid #2B3648;color:var(--dim)}
+.chip.blue{border:1px solid var(--blue-line);color:var(--blue)}
+.chip.amber{border:1px solid var(--amber-line);color:var(--amber)}
+.chip.green{border:1px solid var(--sent-line);color:var(--green);background:#0F1A11}
+.chip.lime{border:1px solid var(--lime-dim);color:var(--lime)}
+.chip.violet{border:1px solid var(--violet-line);color:var(--violet)}
+
+/* ---- Home cards ---- */
+.tabs{padding:16px 30px 0;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{display:flex;align-items:center;gap:8px;padding:10px 16px;white-space:nowrap;border-radius:10px 10px 0 0;color:var(--muted);font-size:15px;border:1px solid transparent;border-bottom:none}
+.tabs button .n{padding:1px 7px;border-radius:999px;background:#1C2637;color:var(--muted);font-size:11px}
+.tabs button:hover{color:var(--text)}
+.tabs button.on{background:var(--card);border-color:var(--line-2);color:var(--text);font-weight:600}
+.tabs button.on .n{background:var(--lime);color:#0A0F17;font-weight:600}
+.tabs button.done .n{background:var(--sent-fill);color:var(--green);border:1px solid var(--sent-line)}
+.tabrule{border-top:1px solid var(--line-2);margin:0 0 -1px}
+.rows{display:flex;flex-direction:column;gap:9px}
+.row{background:var(--card);border:1px solid var(--line);border-radius:13px;transition:border-color .15s,opacity .2s}
+.row.open{border-color:var(--line-2)}
+.row.sent{background:var(--sent-fill);border-color:var(--sent-line)}
+.row.skipped{opacity:.42}
+.rowtop{display:flex;align-items:center;gap:13px;min-height:66px;padding:12px 16px 12px 20px}
+.rowhit{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:13px;text-align:left;padding:0}
+.rowhit:hover .biz{color:var(--lime)}
+.rowhit:disabled{cursor:default}
+.rowhit:disabled:hover .biz{color:var(--text)}
+.chev{flex:0 0 auto;transition:transform .18s}
+.row.open .chev{transform:rotate(90deg)}
+.meta{min-width:0;flex:1 1 auto;display:flex;flex-direction:column;gap:2px}
+.biz{font-size:18px;font-weight:600;transition:color .15s}
+.sub{font-size:14px;color:var(--muted)}
+.tag{flex:0 0 auto;padding:3px 9px;border-radius:6px;font-family:var(--mono);font-size:11px;letter-spacing:.5px;white-space:nowrap}
+.tag.email{border:1px solid var(--green-line);color:var(--green)}
+.tag.dm{border:1px solid var(--blue-line);color:var(--blue)}
+.tag.call{border:1px solid var(--amber-line);color:var(--amber)}
+.tag.state{border:1px solid var(--sent-line);color:var(--green);background:#0F1A11}
+.tag.state.off{border-color:#2B3648;color:var(--dim);background:none}
+.acts{flex:0 0 auto;display:flex;gap:10px}
+.body{padding:0 16px 16px 20px;display:flex;flex-direction:column;gap:11px}
+.pitch{padding:16px 18px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;font-size:15px;line-height:1.58;color:#D6DEE9;white-space:pre-wrap}
+.pitch .subj{display:block;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--dim)}
+.pitch .subj b{color:var(--text);font-weight:500}
+.tools{display:flex;flex-wrap:wrap;gap:11px}
+.tool{display:inline-flex;align-items:center;height:40px;padding:0 16px;border-radius:9px;border:1px solid #2B3648;color:#D6DEE9;font-size:14px}
+.tool.alt{border-color:var(--blue-line);color:var(--blue)}
+.tool.amber{border-color:var(--amber-line);color:var(--amber)}
+.tool:hover{filter:brightness(1.25)}
+
+/* ---- Deal Scan ---- */
+.ds-lane-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.ds-lane-tab{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:9px;border:1px solid var(--line);color:var(--muted);font-size:14px}
+.ds-lane-tab:hover{border-color:var(--line-2);color:var(--text)}
+.ds-lane-tab.active{background:#16202F;border-color:var(--lime-dim);color:var(--lime);font-weight:600}
+.ds-tab-count{padding:1px 8px;border-radius:999px;background:#1C2637;color:var(--muted);font-family:var(--mono);font-size:11px}
+.ds-lane-tab.active .ds-tab-count{background:var(--lime);color:#0A0F17}
+.ds-card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:17px 19px;display:flex;flex-direction:column;gap:13px}
+.ds-card.best{border-color:var(--lime-dim)}
+.ds-top{display:flex;gap:16px;align-items:flex-start}
+.ds-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:11px}
+.ds-titleline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ds-name{font-size:18px;font-weight:600}
+.ds-lane-chip{padding:2px 8px;border-radius:6px;border:1px solid var(--line-2);font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;color:var(--dim)}
+.ds-lane-chip.best{border-color:var(--lime-dim);color:var(--lime)}
+.ds-why{font-size:14px;color:var(--muted);line-height:1.55;max-width:80ch}
+.ds-idea{font-size:14.5px}
+.ds-idea b{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer);font-weight:400;margin-right:8px}
+.ds-pw{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px;align-items:baseline}
+.ds-pw dt{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer)}
+.ds-pw dd{margin:0;color:#D6DEE9}
+.ds-contacts{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:13px 15px;display:flex;flex-direction:column;gap:8px}
+.ds-contacts h4{margin:0;font-family:var(--mono);font-size:10.5px;letter-spacing:1.2px;color:var(--dimmer);font-weight:400}
+.ds-person{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;font-size:14px}
+.ds-person b{font-weight:600}
+.ds-person .r{color:var(--muted)}
+.ds-person .c{font-family:var(--mono);font-size:12.5px;color:var(--green)}
+.ds-person .src{font-family:var(--mono);font-size:11px;color:var(--dimmer);text-decoration:underline}
+.ds-approach{font-size:14px;color:#D6DEE9}
+.ds-approach b{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--dimmer);font-weight:400;margin-right:6px}
+.ds-fit{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:1px;padding:10px 14px;border:1px solid var(--line-2);border-radius:11px;min-width:78px}
+.ds-fit .n{font-family:var(--display);font-size:26px;font-weight:700;color:var(--lime);line-height:1}
+.ds-fit .l{font-family:var(--mono);font-size:10px;letter-spacing:1.2px;color:var(--dimmer)}
+.ds-fit .q{font-family:var(--mono);font-size:10.5px;color:var(--dim);text-decoration:underline;margin-top:4px}
+.ds-actions{display:flex;gap:9px;flex-wrap:wrap;border-top:1px solid #161E2A;margin-top:2px;padding-top:13px}
+.ds-card.done{border-color:var(--sent-line)}
+.ds-fit .q{background:none;border:none;padding:0;cursor:pointer}
+.ds-draft{display:flex;flex-direction:column;gap:11px;padding-top:3px}
+.ds-drafting{padding:15px 17px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;
+  font-family:var(--mono);font-size:13px;color:var(--lime)}
+.ds-drafting:after{content:"";display:inline-block;width:6px;height:6px;margin-left:8px;border-radius:50%;
+  background:var(--lime);animation:blink 1s steps(2,start) infinite;vertical-align:middle}
+@keyframes blink{to{visibility:hidden}}
+
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:50;
+  max-width:min(92vw,520px);padding:12px 18px;border-radius:11px;
+  background:#16202F;border:1px solid var(--lime-dim);color:var(--text);
+  font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+
+/* ---- tables ---- */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:13px;background:var(--card)}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:660px}
+th{text-align:left;padding:12px 16px;font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer);border-bottom:1px solid var(--line);font-weight:400;white-space:nowrap}
+td{padding:13px 16px;border-bottom:1px solid #161E2A;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#131C28}
+td .b{font-weight:600}
+td .s{color:var(--dim);font-size:13px}
+.pager{display:flex;align-items:center;gap:12px;justify-content:flex-end;font-size:13px;color:var(--dim)}
+
+/* ---- pipeline board ---- */
+.kan{display:grid;grid-template-columns:repeat(5,minmax(205px,1fr));gap:12px;overflow-x:auto;padding-bottom:4px}
+.kancol{background:#0D1420;border:1px solid var(--line);border-radius:13px;padding:13px;display:flex;flex-direction:column;gap:10px;min-width:215px}
+.kanhead{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer)}
+.kanhead b{padding:1px 7px;border-radius:999px;background:#1C2637;color:var(--muted);font-size:11px;font-weight:400}
+.kancard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 13px;display:flex;flex-direction:column;gap:5px}
+.kancard .t{font-weight:600;font-size:15px;line-height:1.3}
+.kancard .m{font-size:13px;color:var(--dim)}
+.kancard .v{font-family:var(--mono);font-size:12px;color:var(--lime)}
+
+/* ---- roster ---- */
+.rcard{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:17px 18px;display:flex;flex-direction:column;gap:13px}
+.rtop{display:flex;align-items:center;gap:13px}
+.rav{width:50px;height:50px;border-radius:50%;background:#16202F;border:1px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:17px;font-weight:700;flex:0 0 auto}
+.rname{min-width:0}
+.rname b{display:block;font-family:var(--display);font-size:19px;font-weight:700}
+.rname span{display:block;font-size:13.5px;color:var(--muted)}
+.rstat{font-size:13.5px;color:var(--dim);line-height:1.5}
+.rnums{display:flex;gap:9px;flex-wrap:wrap}
+.rnum{padding:5px 11px;border-radius:8px;background:var(--sunk);border:1px solid var(--line);font-family:var(--mono);font-size:12px;color:#D6DEE9}
+.rbtns{display:flex;gap:7px;flex-wrap:wrap}
+
+/* ---- media kit ---- */
+.kit{border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--card)}
+.kithero{position:relative;min-height:170px;background:linear-gradient(135deg,#16202F 0%,#0E1A14 55%,#1A2410 100%);display:flex;align-items:flex-end;padding:20px 22px;gap:17px}
+.kithero:after{content:"ACTION SHOT · BECOMES BANNER";position:absolute;top:13px;right:16px;font-family:var(--mono);font-size:9.5px;letter-spacing:1.3px;color:#3E4C64}
+.kitav{width:88px;height:88px;border-radius:50%;background:#0C121C;border:2px solid var(--lime);color:var(--lime);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:29px;font-weight:700;flex:0 0 auto}
+.kitname h2{margin:0;font-family:var(--display);font-size:27px;font-weight:700;letter-spacing:-.6px}
+.kitname p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.kitbody{padding:20px 22px;display:flex;flex-direction:column;gap:19px}
+.kitrow{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+.kitnum{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kitnum .k{font-family:var(--mono);font-size:9.5px;letter-spacing:1.1px;color:var(--dimmer)}
+.kitnum .v{font-family:var(--display);font-size:21px;font-weight:700;font-variant-numeric:tabular-nums}
+.kitsec h4{margin:0 0 7px;font-family:var(--mono);font-size:10.5px;letter-spacing:1.2px;color:var(--dimmer);font-weight:400}
+.kitsec p{margin:0;color:#D6DEE9;max-width:72ch}
+.ratelist{display:flex;flex-direction:column}
+.rateline{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid #161E2A;font-size:14px}
+.rateline:last-child{border-bottom:none}
+.rateline span:last-child{font-family:var(--mono);color:var(--lime)}
+.uploadbox{border:1px dashed var(--line-2);border-radius:11px;padding:20px;text-align:center;color:var(--muted);background:#0D1420;font-size:13.5px}
+.uploadbox b{display:block;color:var(--text);font-size:15px;margin-bottom:3px}
+
+/* ---- forms ---- */
+.formgrid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer)}
+.field .hint{font-size:12.5px;color:var(--dim)}
+.field.wide{grid-column:1 / -1}
+.drop{border:1px dashed var(--line-2);border-radius:12px;padding:26px;text-align:center;color:var(--muted);background:#0D1420}
+.drop b{display:block;color:var(--text);font-family:var(--display);font-size:17px;margin-bottom:4px}
+
+/* ---- ai command ---- */
+.qa{display:flex;gap:9px;flex-wrap:wrap}
+.follow{display:flex;flex-direction:column}
+.followrow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #161E2A;font-size:14px}
+.followrow:last-child{border-bottom:none}
+.followrow .b{font-weight:600}
+.followrow .st{color:var(--muted)}
+.followrow .ago{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--amber)}
+.chatlog{display:flex;flex-direction:column;gap:12px}
+.bub{max-width:min(64ch,100%);padding:13px 16px;border-radius:12px;font-size:14.5px;line-height:1.55;white-space:pre-wrap}
+.bub.me{align-self:flex-end;background:#16202F;border:1px solid #263248}
+.bub.ai{align-self:flex-start;background:var(--sunk);border:1px solid var(--line)}
+.prompts{display:flex;flex-wrap:wrap;gap:9px}
+.prompts button{border:1px solid var(--line-2);border-radius:999px;padding:8px 15px;font-size:13.5px;color:#D6DEE9}
+.prompts button:hover{border-color:var(--lime-dim);color:var(--lime)}
+
+/* ---- inbox ---- */
+.notice{background:#101A26;border:1px solid var(--blue-line);border-radius:12px;padding:15px 17px;color:#C6D6EE;font-size:14px;line-height:1.55}
+.notice b{display:block;color:var(--text);margin-bottom:4px}
+.mail{display:flex;flex-direction:column;gap:9px}
+.mailrow{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px 17px;display:flex;flex-direction:column;gap:9px}
+.mailrow.new{border-color:var(--line-2)}
+.mailtop{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+.mailtop .from{font-weight:600;font-size:16px}
+.mailtop .when{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--dim)}
+.mailsubj{font-size:14px;color:var(--muted)}
+.mailtext{padding:14px 16px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;white-space:pre-wrap;font-size:14.5px;line-height:1.55;color:#D6DEE9}
+
+.empty{padding:30px 22px;border:1px dashed var(--line-2);border-radius:13px;text-align:center;color:var(--muted)}
+.empty b{display:block;font-family:var(--display);font-size:19px;color:var(--text);margin-bottom:6px}
+
+.statusbar{margin-top:auto;padding:15px 30px;padding-bottom:calc(15px + env(safe-area-inset-bottom,0px));border-top:1px solid #141C28;background:#0A0F18;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.statusbar .btn.go{height:50px;padding:0 27px;border-radius:11px;font-size:16px}
+.statusbar .grow{flex:1 1 auto}
+.stats{display:flex;align-items:center;gap:16px;font-family:var(--mono);font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums}
+.stats b{color:var(--lime);font-weight:500}
+.stats .sep{color:#2B3648}
+
+.close{margin:0 30px 30px;padding:26px 28px;border-radius:14px;background:linear-gradient(180deg,#121A24 0%,#0E141D 100%);border:1px solid var(--line-2);display:flex;flex-direction:column;gap:14px}
+.close h2{margin:0;font-family:var(--display);font-size:26px;font-weight:700;letter-spacing:-.5px}
+.close h2 em{font-style:normal;color:var(--lime)}
+.close p{margin:0;color:var(--muted);max-width:64ch}
+.close .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:2px}
+.close .cta a{display:inline-flex;align-items:center;height:46px;padding:0 22px;border-radius:10px;font-size:15px;font-weight:600;text-decoration:none}
+.close .cta a.go{background:var(--lime);color:#0A0F17}
+.close .cta a.go:hover{filter:brightness(1.08)}
+.close .cta a.ghost{border:1px solid #2B3648;color:var(--text);font-weight:400}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+@media (max-width:900px){
+  .shell{flex-direction:column}
+  nav.side{width:auto;flex:0 0 auto;flex-wrap:wrap;padding:12px 16px;border-right:none;border-bottom:1px solid #1B2433;gap:10px;min-width:0;max-width:100%;overflow:hidden}
+  nav.side .eyebrow,nav.side .who{display:none}
+  nav.side .brand{padding:0}
+  .navwrap{flex:1 1 100%;min-width:0;max-width:100%;overflow:hidden}
+  .navlist{flex-direction:row;overflow-x:auto;min-width:0;max-width:100%;gap:6px;scrollbar-width:none}
+  .navlist::-webkit-scrollbar{display:none}
+  .navlist button{width:auto;white-space:nowrap;padding:8px 12px;font-size:13px}
+  .navlist button i{display:none}
+  .crumb{padding:12px 16px;gap:12px}
+  .crumb .search{display:none}
+  .tabs{padding:14px 16px 0}
+  .board{padding:18px 16px 24px}
+  .head h1{font-size:25px}
+  .close{margin:0 16px 22px;padding:22px 20px}
+  .close h2{font-size:22px}
+  .statusbar{padding:14px 16px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  .statusbar .btn.go{width:100%}
+  .rowtop{flex-wrap:wrap;gap:10px;padding:14px 16px}
+  .rowhit{flex:1 1 100%}
+  .biz{font-size:16px}
+  .acts{flex:1 1 100%;gap:8px}
+  .acts .btn{flex:1 1 auto}
+  .body{padding:0 16px 16px}
+  .kan{grid-template-columns:repeat(4,minmax(200px,1fr))}
+  .ds-top{flex-direction:column-reverse;align-items:stretch}
+  .ds-fit{flex-direction:row;align-items:center;justify-content:center;gap:9px;min-width:0}
+  .ds-fit .q{margin-top:0}
+}
+
+@media (max-width:760px){
+  body{padding-bottom:104px}
+  .ribbon{padding:9px 16px;padding-bottom:calc(9px + env(safe-area-inset-bottom,0px));gap:8px;font-size:11px}
+  .ribbon .long{display:none}
+  .ribbon .spacer{display:none}
+  .ribbon .book{order:3;flex:1 1 100%;justify-content:center;padding:9px 14px;font-size:13.5px}
+  nav.side{position:sticky;top:0;z-index:5;padding:10px 0 10px 16px;
+    padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  nav.side .brand{padding-right:16px}
+  .navwrap{position:relative;margin-left:-16px;padding-left:16px}
+  .navwrap:after{content:"";position:absolute;inset:0 0 0 auto;width:28px;pointer-events:none;background:linear-gradient(90deg,transparent,var(--panel))}
+  .navlist{padding-right:28px}
+  .navlist button{padding:9px 13px;font-size:13px;border:1px solid var(--line);border-radius:999px}
+  .navlist button.on{border-color:var(--lime-dim)}
+  .crumb{padding:11px 16px}
+  .crumb .path{font-size:12px}
+  .crumb .ready{font-size:11px}
+  .board{padding:16px 16px 22px;gap:14px}
+  .head h1{font-size:23px;letter-spacing:-.4px}
+  .head p{font-size:14px}
+  .tablewrap{border:none;border-radius:0;background:none;overflow:visible}
+  table{min-width:0;display:block;font-size:14px}
+  thead{display:none}
+  tbody,tr,td{display:block}
+  tr{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:9px;padding:4px 0;overflow:hidden}
+  tbody tr:hover{background:var(--card)}
+  td{border:none;padding:7px 15px;display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+  td:before{content:attr(data-l);flex:0 0 auto;font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--dimmer)}
+  td:first-child{padding:11px 15px 9px;display:block}
+  td:first-child:before{display:none}
+  td:first-child .b{font-size:17px}
+  td:not(:first-child){text-align:right}
+  .kan{display:flex;flex-direction:column;gap:10px;overflow:visible}
+  .kancol{min-width:0}
+  .kpi-grid,.grid.g3{grid-template-columns:1fr 1fr;gap:10px}
+  .kpi{padding:12px 13px}
+  .kpi-val{font-size:21px}
+  .panel{padding:16px 15px}
+  .ds-card{padding:15px 15px}
+  .ds-pw{grid-template-columns:1fr;gap:2px 0}
+  .ds-pw dt{margin-top:7px}
+  .ds-actions .btn{flex:1 1 auto}
+  .kitbody{padding:17px 15px}
+  .kithero{min-height:0;flex-direction:column;align-items:flex-start;padding:38px 16px 16px}
+  .kitav{width:68px;height:68px;font-size:23px}
+  .kitname h2{font-size:22px}
+  .kitrow{grid-template-columns:1fr 1fr;gap:10px}
+  .mailrow{padding:13px 15px}
+  .mailtop .when{margin-left:0;width:100%}
+  .bub{max-width:100%}
+  .pitch{font-size:14.5px;padding:14px 15px}
+  .tool{height:38px;font-size:13px;flex:1 1 auto;justify-content:center}
+  .rowtop{padding:13px 15px}
+  .stats{font-size:12px;gap:11px;width:100%;justify-content:space-between}
+  .statusbar .btn.go{height:46px;font-size:15px}
+  .close h2{font-size:20px}
+  .close .cta a{flex:1 1 auto;justify-content:center}
+  .followrow .ago{margin-left:0;width:100%}
+}
+</style>
+
+<div class="shell">
+  <nav class="side">
+    <div class="brand"><span class="mark">N</span><span class="word">NIL<br>DASH</span></div>
+    <div class="eyebrow">UNIVERSITY PORTAL</div>
+    <div class="navwrap"><div class="navlist" id="nav1"></div></div>
+    <div class="eyebrow">ADMINISTRATION</div>
+    <div class="navwrap"><div class="navlist" id="nav2" style="margin-top:-8px"></div></div>
+    <div class="who">
+      <span class="av">CC</span>
+      <span class="nm"><b>Cypress College</b><small>Athletics</small></span>
+    </div>
+  </nav>
+
+  <main class="stage">
+    <div class="crumb">
+      <span class="path">Cypress College Athletics / <b id="crumbNow">Home</b></span>
+      <span class="grow"></span>
+      <span class="search">Search...</span>
+      <span class="ready"><i></i>AI READY</span>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<div class="ribbon">
+  <b>Interactive demo</b>
+  <span class="long">Real businesses near campus. None contacted. Nothing is sent.</span>
+  <span class="spacer"></span>
+  <button type="button" id="reset">Start over</button>
+  <a class="book" href="https://calendly.com/john-comptongroupllc/30min" target="_blank" rel="noopener">Book a call with JohnMark</a>
+</div>
+<div id="toast" hidden></div>
+
+<script>
+const CALENDLY = "https://calendly.com/john-comptongroupllc/30min";
+
+/* ===================== TEAMS =====================
+   13 intercollegiate teams. Cypress College fields no football.
+   Seasons follow the CCCAA calendar. Roster sizes are typical.        */
+
+const TEAMS = [
+  { id:"msoc", name:"Men's Soccer",        sport:"soccer",     season:"Fall",   roster:26,
+    venue:"Cypress College Soccer Field", dates:10, crowd:"250 – 400", kind:"field" },
+  { id:"wsoc", name:"Women's Soccer",      sport:"soccer",     season:"Fall",   roster:26,
+    venue:"Cypress College Soccer Field", dates:10, crowd:"200 – 350", kind:"field" },
+  { id:"wvb",  name:"Women's Volleyball",  sport:"volleyball", season:"Fall",   roster:15,
+    venue:"Cypress College Gymnasium",    dates:12, crowd:"300 – 500", kind:"gym" },
+  { id:"wwp",  name:"Women's Water Polo",  sport:"water polo", season:"Fall",   roster:16,
+    venue:"Cypress College Pool",         dates:8,  crowd:"120 – 200", kind:"pool" },
+
+  { id:"mbb",  name:"Men's Basketball",    sport:"basketball", season:"Winter", roster:15,
+    venue:"Cypress College Gymnasium",    dates:14, crowd:"400 – 700", kind:"gym" },
+  { id:"wbb",  name:"Women's Basketball",  sport:"basketball", season:"Winter", roster:14,
+    venue:"Cypress College Gymnasium",    dates:14, crowd:"250 – 450", kind:"gym" },
+
+  { id:"bsb",  name:"Baseball",            sport:"baseball",   season:"Spring", roster:32,
+    venue:"Cypress College Baseball Field", dates:20, crowd:"300 – 600", kind:"field" },
+  { id:"sb",   name:"Softball",            sport:"softball",   season:"Spring", roster:20,
+    venue:"Cypress College Softball Field", dates:18, crowd:"200 – 350", kind:"field" },
+  { id:"mswim",name:"Men's Swim & Dive",   sport:"swimming",   season:"Spring", roster:18,
+    venue:"Cypress College Pool",         dates:7,  crowd:"120 – 220", kind:"pool" },
+  { id:"wswim",name:"Women's Swim & Dive", sport:"swimming",   season:"Spring", roster:18,
+    venue:"Cypress College Pool",         dates:7,  crowd:"120 – 220", kind:"pool" },
+  { id:"mten", name:"Men's Tennis",        sport:"tennis",     season:"Spring", roster:10,
+    venue:"Cypress College Tennis Courts",dates:9,  crowd:"60 – 120",  kind:"tennis" },
+  { id:"wten", name:"Women's Tennis",      sport:"tennis",     season:"Spring", roster:10,
+    venue:"Cypress College Tennis Courts",dates:9,  crowd:"60 – 120",  kind:"tennis" },
+  { id:"mgolf",name:"Men's Golf",          sport:"golf",       season:"Spring", roster:10,
+    venue:"No home venue · tournament play", dates:2, crowd:"n/a",     kind:"golf" }
+];
+
+/* ===================== SPONSORSHIP INVENTORY =====================
+   What each kind of team actually has to sell. Prices are set at the
+   department level and apply to every team of that kind.              */
+
+const ASSETS = {
+  field: [
+    ["Sideline banner, full season",     400],
+    ["Program ad, full page",            300],
+    ["PA read, every home date",         400],
+    ["Team meal, one road trip",         250],
+    ["Season presenting sponsor",       1500]
+  ],
+  gym: [
+    ["Gym banner, full season",          350],
+    ["Scorer's table front",             600],
+    ["Program ad, full page",            300],
+    ["PA read, every home date",         400],
+    ["Season presenting sponsor",       1500]
+  ],
+  pool: [
+    ["Pool deck banner, full season",    300],
+    ["Heat sheet ad",                    200],
+    ["Meet presenting sponsor",          500],
+    ["Team meal, one road trip",         250]
+  ],
+  tennis: [
+    ["Court windscreen banner",          250],
+    ["Program ad, half page",            175],
+    ["Match day presenting sponsor",     350]
+  ],
+  golf: [
+    ["Tournament hole sponsor",          300],
+    ["Team bag tag",                     250],
+    ["Tournament presenting sponsor",    750]
+  ]
+};
+
+/* Department level, sold once, not per team */
+const DEPT_ASSETS = [
+  ["All sport banner package, every venue", 2500],
+  ["Athletics website presenting sponsor",  1200],
+  ["Charger Club season program, back cover", 900]
+];
+
+/* ===================== BUSINESSES =====================
+   Every business below is a real business near the Cypress College
+   campus, pulled from public listings. Distance is from 9200 Valley
+   View St. No business here has been contacted. Where the owner is
+   named in the business name itself, that name is shown. Where it is
+   not public, the finder is shown instead.                             */
+
+const BIZ = [
+  /* --- food, near campus --- */
+  { id:"daltons", n:"Dalton's Cafe", cat:"Diner", addr:"5591 Lincoln Ave, Cypress", mi:0.9,
+    rate:4.5, rc:1048, owner:null, role:"Owner", phone:"(714) 826-3660",
+    note:"Family diner on Lincoln, open 7am to 9pm every day, more than a thousand reviews." },
+  { id:"country", n:"Country Cafe", cat:"Breakfast & lunch", addr:"4911 Lincoln Ave, Cypress", mi:1.4,
+    rate:4.6, rc:627, owner:null, role:"Owner", phone:null,
+    note:"Breakfast spot a mile west of campus, strong weekend morning trade." },
+  { id:"dominics", n:"Dominic's Ristorante Italiano", cat:"Italian", addr:"9921 Walker St, Cypress", mi:0.6,
+    rate:4.5, rc:909, owner:null, role:"Owner", phone:"(714) 527-8250",
+    note:"Sit down Italian six tenths of a mile from campus. Handles large parties." },
+  { id:"pauls", n:"Paul's Place", cat:"American", addr:"10501 Knott Ave, Cypress", mi:1.8,
+    rate:4.4, rc:1412, owner:null, role:"Owner", phone:null,
+    note:"Long running Cypress restaurant, the highest review count of any independent in town." },
+  { id:"johns", n:"John's Cypress", cat:"Burgers & breakfast", addr:"4499 W Cerritos Ave, Cypress", mi:1.7,
+    rate:4.4, rc:819, owner:null, role:"Owner", phone:null,
+    note:"Neighborhood burger and breakfast counter on Cerritos." },
+  { id:"cobians", n:"Cobian's Restaurants", cat:"Breakfast & brunch", addr:"4959 Katella Ave, Cypress", mi:1.6,
+    rate:4.6, rc:388, owner:null, role:"Owner", phone:null,
+    note:"Brunch restaurant on Katella, family run." },
+  { id:"coachs", n:"Coach's Corner | Pizza and Brews", cat:"Pizza & sports bar", addr:"4756 Lincoln Ave, Cypress", mi:1.5,
+    rate:4.3, rc:210, owner:"Shannon", role:"Owner", phone:"(714) 699-1389",
+    note:"Sports bar with televisions on every wall and an arcade. Owner greets tables by name in the reviews.",
+    ownerSrc:"named repeatedly in public reviews" },
+  { id:"magicmikes", n:"Magic Mike's Pizza Express", cat:"Pizza", addr:"6332 Lincoln Ave, Cypress", mi:1.3,
+    rate:4.5, rc:194, owner:null, role:"Owner", phone:"(714) 761-5770",
+    note:"Independent pizza shop on Lincoln, delivery and takeout." },
+  { id:"pizzaguys", n:"Pizza Guys", cat:"Pizza", addr:"4143 Ball Rd, Cypress", mi:2.1,
+    rate:4.7, rc:135, owner:null, role:"Franchise owner", phone:"(657) 337-4222",
+    note:"Highest rated pizza in Cypress proper. Franchise, so the local owner signs." },
+  { id:"boardwalk", n:"The Boardwalk at Cypress", cat:"Seafood & noodles", addr:"5895 Katella Ave, Cypress", mi:1.2,
+    rate:4.6, rc:66, owner:null, role:"Owner", phone:null,
+    note:"Newer Katella Ave spot, still building a local base." },
+
+  /* --- auto --- */
+  { id:"cypauto", n:"Cypress Auto Repair & Smog", cat:"Auto repair", addr:"6036 W Cerritos Ave, Cypress", mi:1.1,
+    rate:4.7, rc:372, owner:null, role:"Owner", phone:"(714) 220-0600",
+    note:"Independent shop, 372 reviews at 4.7. Repeat local customers." },
+  { id:"alexauto", n:"Alex's Auto Repair", cat:"Auto repair", addr:"8980 Moody St, Cypress", mi:0.8,
+    rate:4.8, rc:152, owner:"Alex", role:"Owner", phone:null,
+    note:"Owner operated shop eight tenths of a mile from campus.",
+    ownerSrc:"business name" },
+  { id:"actionauto", n:"Action Auto Cypress", cat:"Tires & repair", addr:"9052 Walker St, Cypress", mi:0.7,
+    rate:4.5, rc:453, owner:null, role:"Owner", phone:null,
+    note:"Tire shop and repair on Walker, closest auto business to campus." },
+  { id:"autocrue", n:"The Auto Crue Co", cat:"Auto repair", addr:"6040 W Cerritos Ave, Cypress", mi:1.1,
+    rate:5.0, rc:65, owner:null, role:"Owner", phone:null,
+    note:"Perfect five star rating across 65 reviews. Small and newer." },
+  { id:"aeauto", n:"A & E Automotive Repair & Towing", cat:"Auto & towing", addr:"5640A Lincoln Ave, Cypress", mi:1.0,
+    rate:4.7, rc:304, owner:null, role:"Owner", phone:null,
+    note:"Repair plus towing, which matters for a team bus contingency ask." },
+  { id:"citywide", n:"Citywide Auto Care", cat:"Auto repair", addr:"6026 W Cerritos Ave, Cypress", mi:1.1,
+    rate:4.8, rc:109, owner:null, role:"Owner", phone:null,
+    note:"Third shop on the same Cerritos Ave block. Competitive corridor." },
+
+  /* --- dental & ortho --- */
+  { id:"boulton", n:"Boulton Orthodontics", cat:"Orthodontics", addr:"6081 Orange Ave, Cypress", mi:1.4,
+    rate:4.9, rc:120, owner:"Dr. Boulton", role:"Orthodontist & owner", phone:null,
+    note:"Orthodontists are the single most common sponsor of local sports in the country. 4.9 across 120 reviews.",
+    ownerSrc:"practice name" },
+  { id:"purecyp", n:"Pure Cypress Dentist", cat:"Dentistry", addr:"9907 Walker St, Cypress", mi:0.6,
+    rate:4.9, rc:956, owner:null, role:"Practice owner", phone:null,
+    note:"956 reviews at 4.9, the most reviewed dental practice in Cypress. Six tenths of a mile away." },
+  { id:"cypdental", n:"Cypress Dental Group", cat:"Dentistry", addr:"9922 Walker St, Cypress", mi:0.6,
+    rate:4.8, rc:471, owner:null, role:"Practice owner", phone:null,
+    note:"Directly across Walker from Pure Cypress. Both are walking distance from the gym." },
+  { id:"premier", n:"Premier Smiles Dentistry", cat:"Dentistry", addr:"10601 Walker St, Cypress", mi:1.3,
+    rate:5.0, rc:462, owner:null, role:"Practice owner", phone:null,
+    note:"Five stars across 462 reviews. Family practice." },
+
+  /* --- sports medicine & PT --- */
+  { id:"selectpt", n:"Select Physical Therapy – Cypress", cat:"Physical therapy", addr:"9827 Walker St, Cypress", mi:0.5,
+    rate:4.9, rc:162, owner:null, role:"Clinic director", phone:null,
+    note:"Closest physical therapy clinic to campus. Half a mile. Obvious fit for a training room partnership." },
+  { id:"calrehab", n:"California Rehabilitation and Sports Therapy", cat:"Sports therapy", addr:"4755 Katella Ave, Cypress", mi:1.7,
+    rate:4.8, rc:86, owner:null, role:"Clinic director", phone:null,
+    note:"Sports specific rehab on Katella." },
+  { id:"losalortho", n:"Los Alamitos Orthopedic & Sports Physical Therapy", cat:"Orthopedic & sports PT", addr:"5152 Katella Ave, Los Alamitos", mi:2.4,
+    rate:4.9, rc:219, owner:null, role:"Clinic director", phone:null,
+    note:"Orthopedic plus PT under one roof. The kind of partner that wants sideline presence." },
+  { id:"movewell", n:"MoveWell Physical Therapy", cat:"Physical therapy", addr:"10601 Walker St, Cypress", mi:1.3,
+    rate:5.0, rc:9, owner:null, role:"Owner", phone:null,
+    note:"Small newer clinic. Cheaper ask, likely to say yes to a first banner." },
+
+  /* --- finance & insurance --- */
+  { id:"schoolsfirst", n:"SchoolsFirst Federal Credit Union", cat:"Credit union", addr:"6828 Katella Ave, Cypress", mi:2.0,
+    rate:4.6, rc:97, owner:null, role:"Branch manager", phone:"(800) 462-8328",
+    note:"A credit union that exists specifically to serve school employees, with a branch two miles from campus. The strongest institutional fit in the county." },
+  { id:"amfirst", n:"American First Credit Union", cat:"Credit union", addr:"6011 Lincoln Ave, Buena Park", mi:1.3,
+    rate:4.1, rc:53, owner:null, role:"Branch manager", phone:"(800) 290-1112",
+    note:"Branch on Lincoln just over the Buena Park line. Community credit unions carry sponsorship budgets." },
+  { id:"tiffanivu", n:"Tiffani Vu – State Farm", cat:"Insurance", addr:"9831 Walker St, Cypress", mi:0.5,
+    rate:4.9, rc:125, owner:"Tiffani Vu", role:"Agency owner", phone:"(714) 827-5701",
+    note:"Half a mile from campus. State Farm agents run their own marketing budget and local sports is where it goes.",
+    ownerSrc:"business name" },
+  { id:"peterchai", n:"Peter Chai – State Farm", cat:"Insurance", addr:"5322 Lincoln Ave, Cypress", mi:1.2,
+    rate:5.0, rc:350, owner:"Peter Chai", role:"Agency owner", phone:"(714) 883-3536",
+    note:"Five stars across 350 reviews, the largest State Farm agency in Cypress.",
+    ownerSrc:"business name" },
+  { id:"khalil", n:"Michael Khalil – Allstate", cat:"Insurance", addr:"6304 Lincoln Ave, Cypress", mi:1.4,
+    rate:4.7, rc:33, owner:"Michael Khalil", role:"Agency owner", phone:"(714) 582-3222",
+    note:"Allstate agency on Lincoln. Reviews mention he works with students on policies.",
+    ownerSrc:"business name" },
+
+  /* --- fitness --- */
+  { id:"chuze", n:"Chuze Fitness", cat:"Gym", addr:"9851 Walker St, Cypress", mi:0.5,
+    rate:4.6, rc:515, owner:null, role:"General manager", phone:"(657) 214-5625",
+    note:"Half a mile from campus, 515 reviews. A gym that wants student members is an easy yes on a banner." },
+  { id:"camp", n:"The Camp Transformation Center", cat:"Fitness studio", addr:"5511 Lincoln Ave, Cypress", mi:1.0,
+    rate:4.8, rc:138, owner:null, role:"Studio owner", phone:"(714) 260-8505",
+    note:"Franchise studio, locally owned. Runs six week challenges that need a steady stream of new leads." },
+  { id:"24hr", n:"24 Hour Fitness", cat:"Gym", addr:"4951 Katella Ave, Los Alamitos", mi:2.3,
+    rate:3.9, rc:699, owner:null, role:"Club manager", phone:"(714) 826-7172",
+    note:"Large club with a pool. Corporate sponsorship approval, slower but bigger." }
+];
+
+const BIZI = {}; BIZ.forEach(b => BIZI[b.id] = b);
+
+/* ===================== SCAN LANES =====================
+   Which businesses the scan surfaces for which team, and why.
+   fit is out of 100. ask names the inventory item. why is the reasoning.  */
+
+const SCAN = {
+  mbb: {
+    "Near campus": [
+      { b:"chuze", fit:94, ask:["Season presenting sponsor",1500], best:true,
+        why:"Half a mile from the gym and selling exactly what a basketball crowd already buys. Their reviews are full of people who live within a few blocks of campus.",
+        idea:"Put Chuze on the court apron and the PA read at all 14 home dates, with a student membership offer on the back of the program.",
+        approach:"Walk in and ask for the general manager. Gyms this close to a campus decide locally and fast." },
+      { b:"purecyp", fit:88, ask:["Scorer's table front",600],
+        why:"956 reviews, the most reviewed dental practice in town, six tenths of a mile from the gym doors.",
+        idea:"Scorer's table front for the season. Their name sits in every photo and every stream frame of every home game.",
+        approach:"Practices decide through the office manager. Ask who handles community sponsorships." },
+      { b:"dominics", fit:81, ask:["Program ad, full page",300],
+        why:"Sit down Italian six tenths of a mile away that already handles large parties. Team dinners and post game family tables are their business.",
+        idea:"Full page in the basketball program plus a post game family discount printed on it.",
+        approach:"Ask for the owner in the late afternoon before dinner service." },
+      { b:"tiffanivu", fit:79, ask:["PA read, every home date",400],
+        why:"State Farm agency half a mile away. Agents carry their own marketing budget and local sports is the default place it goes.",
+        idea:"Named PA read at every home date, plus a table at two games.",
+        approach:"Email the agent directly. This is a decision she makes alone." },
+      { b:"coachs", fit:76, ask:["Gym banner, full season",350],
+        why:"A sports bar named Coach's Corner a mile and a half from campus, with televisions on every wall.",
+        idea:"Gym banner plus official post game spot of Charger basketball, printed on the schedule card.",
+        approach:"The owner works the floor and greets tables. Go in person on a weeknight." }
+    ],
+    "Category fit": [
+      { b:"selectpt", fit:91, ask:["Season presenting sponsor",1500], best:true,
+        why:"The closest physical therapy clinic to campus, half a mile out, 4.9 across 162 reviews. Sports medicine partners want to be seen next to a team, not next to an ad.",
+        idea:"Presenting sponsor of the season plus their name on the training room door. They get the credibility, the program gets the money.",
+        approach:"Clinic director decides. Lead with the training room, not the banner." },
+      { b:"losalortho", fit:85, ask:["Scorer's table front",600],
+        why:"Orthopedics and physical therapy under one roof, two and a half miles out. They already treat athletes in this zip code.",
+        idea:"Scorer's table plus a preseason physical night on campus.",
+        approach:"Offer the physical night first. The banner is the easy part." },
+      { b:"boulton", fit:83, ask:["Gym banner, full season",350],
+        why:"Orthodontists sponsor more local sports than any other category in the country. 4.9 across 120 reviews.",
+        idea:"Gym banner for the season with a smile of the game callout.",
+        approach:"Ask for the doctor by name. Small practices, one decision maker." },
+      { b:"calrehab", fit:77, ask:["Program ad, full page",300],
+        why:"Sports specific rehab on Katella. Smaller than Select but hungrier.",
+        idea:"Full page program ad plus a training room presence if Select passes.",
+        approach:"Position as the alternative if the bigger clinic says no." }
+    ],
+    "Bigger asks": [
+      { b:"schoolsfirst", fit:96, ask:["All sport banner package, every venue",2500], best:true,
+        why:"A credit union whose entire reason for existing is serving school employees, with a branch two miles from campus. This is the single strongest institutional fit in Orange County and nobody at Cypress has asked them.",
+        idea:"All sport banner package across every venue, plus presenting sponsor of the athletics website. One conversation covers all 13 teams.",
+        approach:"Branch manager routes it, but community sponsorship at a credit union this size has a real budget line. Ask for the community relations contact." },
+      { b:"amfirst", fit:84, ask:["Athletics website presenting sponsor",1200],
+        why:"Branch on Lincoln a mile and a bit from campus. Community credit unions are required to show local investment.",
+        idea:"Athletics website presenting sponsor for the year, renewed annually.",
+        approach:"Branch manager first, then their marketing contact." },
+      { b:"24hr", fit:72, ask:["All sport banner package, every venue",2500],
+        why:"Large club with a pool two and a bit miles out. Corporate approval so it moves slowly, but the number is bigger.",
+        idea:"All sport package with a swim tie in, since they have the only comparable pool nearby.",
+        approach:"Start with the club manager but expect a regional sign off. Long lead." }
+    ]
+  },
+
+  bsb: {
+    "Near campus": [
+      { b:"cypauto", fit:92, ask:["Sideline banner, full season",400], best:true,
+        why:"Independent auto shop a mile away with 372 reviews at 4.7. Outfield fence banners and auto shops have gone together for a hundred years because it works.",
+        idea:"Outfield fence banner for all 20 home dates. Twenty afternoons of the same sign in front of the same neighborhood.",
+        approach:"Owner is on site. Walk in mid morning when the bays are quiet." },
+      { b:"pauls", fit:87, ask:["Season presenting sponsor",1500],
+        why:"The most reviewed independent restaurant in Cypress, 1,412 of them. Baseball has the longest season and the most home dates of any team here.",
+        idea:"Season presenting sponsor with their name on the schedule card that goes to every family.",
+        approach:"Long running local business. Lead with the number of home dates, not the price." },
+      { b:"daltons", fit:84, ask:["Program ad, full page",300],
+        why:"Family diner on Lincoln open seven to nine every day, over a thousand reviews. Baseball families eat breakfast before Saturday doubleheaders.",
+        idea:"Full page program ad with a pregame breakfast deal for anyone showing a ticket stub.",
+        approach:"Owner is usually in. Go before the lunch rush." },
+      { b:"actionauto", fit:80, ask:["Sideline banner, full season",400],
+        why:"Closest auto business to campus at seven tenths of a mile, 453 reviews.",
+        idea:"Second outfield banner. Two auto shops on one fence is normal and neither will mind.",
+        approach:"Ask for the owner. Mention the other shop is being asked too, it speeds people up." },
+      { b:"magicmikes", fit:75, ask:["Team meal, one road trip",250],
+        why:"Independent pizza shop on Lincoln that does delivery and volume.",
+        idea:"Sponsor one road trip meal. Cheapest entry point on the board and it turns into a banner next year.",
+        approach:"Small ask, quick yes. Use it to open the door." }
+    ],
+    "Category fit": [
+      { b:"boulton", fit:89, ask:["Sideline banner, full season",400], best:true,
+        why:"Orthodontics and youth baseball are the most reliable sponsorship pairing in American local sport.",
+        idea:"Outfield banner plus a player of the game callout in the program.",
+        approach:"Ask for the doctor directly." },
+      { b:"selectpt", fit:86, ask:["Season presenting sponsor",1500],
+        why:"Half a mile away, 4.9 across 162 reviews. Baseball generates more arm injuries than any sport on this campus, which is their business.",
+        idea:"Presenting sponsor plus an arm care clinic for the team in the preseason.",
+        approach:"Lead with the clinic. The sponsorship follows the relationship." },
+      { b:"movewell", fit:74, ask:["Program ad, full page",300],
+        why:"Small new clinic at five stars. New practices buy visibility because they have nothing else.",
+        idea:"Program ad and a listing as a team recovery partner.",
+        approach:"Low price, fast decision, one owner." }
+    ],
+    "Bigger asks": [
+      { b:"schoolsfirst", fit:95, ask:["All sport banner package, every venue",2500], best:true,
+        why:"Same as every other team on this list. One conversation covers all 13 and baseball gives them the most home dates to point at.",
+        idea:"Open with baseball because it has 20 home dates, then widen it to the all sport package.",
+        approach:"Ask for community relations, not the branch teller line." },
+      { b:"peterchai", fit:82, ask:["Season presenting sponsor",1500],
+        why:"Largest State Farm agency in Cypress, five stars across 350 reviews, a mile from campus.",
+        idea:"Season presenting sponsor of baseball, which is the longest season you have to sell.",
+        approach:"Agents decide alone and quickly. Email works." }
+    ]
+  },
+
+  wsoc: {
+    "Near campus": [
+      { b:"camp", fit:90, ask:["Season presenting sponsor",1500], best:true,
+        why:"Fitness studio a mile from campus that runs six week challenges and needs a steady stream of new local leads. A women's soccer crowd is exactly that.",
+        idea:"Season presenting sponsor plus a team conditioning partnership in the offseason.",
+        approach:"Locally owned franchise. The studio owner signs." },
+      { b:"cobians", fit:83, ask:["Sideline banner, full season",400],
+        why:"Family run brunch restaurant on Katella, 4.6 across 388 reviews. Saturday morning soccer and brunch is the same customer.",
+        idea:"Sideline banner plus a postgame family brunch deal on the schedule card.",
+        approach:"Family run, so ask for whoever is there in the morning." },
+      { b:"purecyp", fit:80, ask:["Program ad, full page",300],
+        why:"Most reviewed dental practice in Cypress, six tenths of a mile out.",
+        idea:"Program ad across the fall season, both soccer teams for one price.",
+        approach:"Office manager handles it. Bundle men's and women's, it doubles the value for the same ask." },
+      { b:"johns", fit:73, ask:["Team meal, one road trip",250],
+        why:"Neighborhood burger counter on Cerritos with 819 reviews.",
+        idea:"One road trip meal. Small, easy, opens the relationship.",
+        approach:"Walk in. This is a yes or no in two minutes." }
+    ],
+    "Category fit": [
+      { b:"losalortho", fit:88, ask:["Season presenting sponsor",1500], best:true,
+        why:"Orthopedic and sports PT together, two and a half miles out, 4.9 across 219 reviews. Women's soccer has the highest ACL injury rate of any sport on this campus and they know it.",
+        idea:"Presenting sponsor plus an ACL prevention screening for the team in preseason.",
+        approach:"Lead with the screening. It is the reason they will say yes." },
+      { b:"selectpt", fit:84, ask:["Sideline banner, full season",400],
+        why:"Half a mile away at 4.9.",
+        idea:"Sideline banner at the soccer field, which they drive past daily.",
+        approach:"Clinic director. Quick." },
+      { b:"calrehab", fit:76, ask:["Program ad, full page",300],
+        why:"Sports specific rehab, smaller and more willing to start small.",
+        idea:"Program ad for the fall.",
+        approach:"Backup if the bigger two pass." }
+    ],
+    "Bigger asks": [
+      { b:"schoolsfirst", fit:94, ask:["All sport banner package, every venue",2500], best:true,
+        why:"The all sport package covers this team and twelve others in one conversation.",
+        idea:"All sport banner package plus website presenting sponsor.",
+        approach:"Community relations contact." },
+      { b:"khalil", fit:78, ask:["Athletics website presenting sponsor",1200],
+        why:"Allstate agency on Lincoln whose reviews specifically mention working with students.",
+        idea:"Website presenting sponsor for the year.",
+        approach:"Email the agent. He responds by text and email rather than phone." }
+    ]
+  }
+};
+
+/* Teams without a hand written scan still scan, from the shared pool. */
+const GENERIC_LANES = {
+  "Near campus":  ["daltons","dominics","actionauto","magicmikes","boardwalk","country"],
+  "Category fit": ["selectpt","boulton","movewell","cypdental","calrehab"],
+  "Bigger asks":  ["schoolsfirst","amfirst","peterchai","tiffanivu"]
+};
+
+/* ===================== HOME: ASKS AWAITING APPROVAL ===================== */
+
+const CARDS = [
+  { team:"mbb",  b:"chuze",        ask:["Season presenting sponsor",1500], ch:"email" },
+  { team:"bsb",  b:"cypauto",      ask:["Sideline banner, full season",400], ch:"visit" },
+  { team:"all",  b:"schoolsfirst", ask:["All sport banner package, every venue",2500], ch:"email" },
+  { team:"wsoc", b:"losalortho",   ask:["Season presenting sponsor",1500], ch:"email" },
+  { team:"mbb",  b:"purecyp",      ask:["Scorer's table front",600], ch:"email" },
+  { team:"bsb",  b:"pauls",        ask:["Season presenting sponsor",1500], ch:"visit" },
+  { team:"wvb",  b:"boulton",      ask:["Gym banner, full season",350], ch:"email" },
+  { team:"sb",   b:"daltons",      ask:["Program ad, full page",300], ch:"visit" },
+  { team:"wwp",  b:"selectpt",     ask:["Meet presenting sponsor",500], ch:"email" },
+  { team:"mgolf",b:"peterchai",    ask:["Tournament presenting sponsor",750], ch:"email" },
+  { team:"mten", b:"tiffanivu",    ask:["Court windscreen banner",250], ch:"email" },
+  { team:"wbb",  b:"coachs",       ask:["Gym banner, full season",350], ch:"visit" }
+];
+
+/* ===================== SEASON CALENDAR ===================== */
+
+const CALENDAR = [
+  { what:"Fall banners installed",          team:"Men's & Women's Soccer", when:"Before first home date", win:"Aug 28", st:"window" },
+  { what:"Fall program to print",           team:"Women's Volleyball",     when:"Two weeks before opener", win:"Sep 4",  st:"window" },
+  { what:"Winter program to print",         team:"Men's & Women's Basketball", when:"Two weeks before opener", win:"Nov 6", st:"open" },
+  { what:"Gym banners installed",           team:"Basketball & Volleyball", when:"Before first home date", win:"Nov 14", st:"open" },
+  { what:"Scorer's table wrap ordered",     team:"Men's Basketball",       when:"Four weeks lead time",   win:"Oct 17", st:"open" },
+  { what:"Spring banners installed",        team:"Baseball & Softball",    when:"Before first home date", win:"Jan 30", st:"ahead" },
+  { what:"Spring program to print",         team:"Baseball & Softball",    when:"Two weeks before opener", win:"Feb 6", st:"ahead" },
+  { what:"Pool deck banners installed",     team:"Swim & Dive",            when:"Before first home meet", win:"Feb 20", st:"ahead" },
+  { what:"Renewal asks go out",             team:"All sponsors",           when:"Sixty days before season end", win:"Apr 1", st:"ahead" }
+];
+
+/* ===================== AI COMMAND CANNED ANSWERS ===================== */
+
+const AI_REPLIES = {
+  "Which team is easiest to sell first?":
+    "Men's basketball. Fourteen home dates in a gym that seats a crowd, a winter window when nothing else on campus competes for attention, and five businesses within a mile that already sell to the people in those seats. Baseball has more dates but they are spread over afternoons in spring, which is harder to sell against. Start with basketball, use the result as proof, then sell baseball in December for the spring season.",
+  "What is the fastest thousand dollars?":
+    "Three asks. Chuze Fitness at 1,500 for basketball presenting, which is half a mile from the gym and decided by the general manager on site. Cypress Auto at 400 for a baseball outfield banner. Boulton Orthodontics at 350 for a volleyball gym banner. All three are decided by one person with no committee, all three are within a mile and a half, and none of them need a proposal longer than a page. That is 2,250 from three conversations.",
+  "Who should we ask about the all sport package?":
+    "SchoolsFirst Federal Credit Union, two miles away on Katella. They exist specifically to serve school employees, which means community investment in local education is not a favor you are asking for, it is their stated purpose. The all sport package at 2,500 covers all thirteen teams in one conversation, and the website presenting sponsor at 1,200 renews every year without another ask. Do not call the branch teller line, ask for community relations.",
+  "What are we leaving on the table?":
+    "Everything. Thirteen teams, every one of them with banner space, program pages and PA time that nobody has priced or sold. Total unsold inventory across the department comes to the figure on the Inventory screen. The point is not that the number is large, it is that no part of it is assigned to anyone. Right now selling it is nobody's job, which is why none of it is sold."
+};
+
+const AI_SUGGEST = Object.keys(AI_REPLIES);
+
+/* ===================== helpers ===================== */
+const $  = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const money = n => "$" + n.toLocaleString("en-US");
+
+const TEAMI = {}; TEAMS.forEach(t => TEAMI[t.id] = t);
+const SEASONS = ["Fall","Winter","Spring"];
+
+function teamLabel(id){ return id === "all" ? "All 13 teams" : (TEAMI[id] ? TEAMI[id].name : id); }
+function teamSeason(id){ return id === "all" ? "Department" : TEAMI[id].season; }
+
+/* inventory, computed not hardcoded */
+function teamAssets(t){ return ASSETS[t.kind] || []; }
+function inventoryRows(){
+  const rows = [];
+  TEAMS.forEach(t => teamAssets(t).forEach(([name, price]) =>
+    rows.push({ team:t.id, teamName:t.name, season:t.season, name, price })));
+  DEPT_ASSETS.forEach(([name, price]) =>
+    rows.push({ team:"all", teamName:"Department wide", season:"Department", name, price }));
+  return rows;
+}
+const INVENTORY = inventoryRows();
+const INV_TOTAL = INVENTORY.reduce((s, r) => s + r.price, 0);
+
+/* ===================== state ===================== */
+let view      = "home";
+let homeSeason = "All";
+let cardState = {};          /* card index -> {open, approved, skipped} */
+let scanTeam  = "mbb";
+let scanRun   = false;
+let scanLane  = "Near campus";
+let scanState = {};          /* "team:lane:i" -> {queued, drafted, drafting, note} */
+let invFilter = "All";
+let sponsorFilter = "All";
+let aiAsked   = [];
+let toastT    = null;
+let started   = Date.now();
+
+const cs = i => cardState[i] || (cardState[i] = {});
+const ssKey = (t,l,i) => t + "|" + l + "|" + i;
+const ss = (t,l,i) => scanState[ssKey(t,l,i)] || (scanState[ssKey(t,l,i)] = {});
+
+function toast(msg){
+  const el = $("toast");
+  if (!el) return;
+  el.textContent = msg; el.hidden = false;
+  clearTimeout(toastT);
+  toastT = setTimeout(() => { el.hidden = true }, 2600);
+}
+
+/* ===================== the ask writer ===================== */
+function askDraft(teamId, bizId, ask){
+  const b = BIZI[bizId], t = teamId === "all" ? null : TEAMI[teamId];
+  const first = b.owner ? b.owner.split(" ")[0].replace(/^Dr\.$/, "Dr. " + b.owner.split(" ")[1]) : null;
+  const greet = b.owner ? (b.owner.startsWith("Dr.") ? b.owner : first) : "there";
+  const [item, price] = ask;
+
+  const where = t
+    ? `${t.name} plays ${t.dates} home ${t.dates === 1 ? "date" : "dates"} at ${t.venue.replace("Cypress College ","")}${t.crowd !== "n/a" ? `, with ${t.crowd} people there on a normal one` : ""}.`
+    : `Cypress College Athletics runs 13 teams across three seasons, with more than 130 home dates a year between them.`;
+
+  const body =
+`Hi ${greet},
+
+I'm writing from Cypress College Athletics, about a mile from you on Valley View.
+
+${where}
+
+We're setting sponsors for the ${t ? t.season.toLowerCase() : "coming"} season and ${b.n} came up because you're ${b.mi <= 1 ? "practically on campus" : `${b.mi} miles out`} and your customers are already the people in those seats.
+
+The ask is simple. ${item} runs ${money(price)}${t && price >= 1000 ? " for the full season" : ""}. That money goes straight to the program, not to any student athlete, so there's no paperwork on your end beyond an invoice.
+
+If it's easier to talk in person I can come to you this week.
+
+Cypress College Athletics
+Cypress, CA`;
+
+  return { subj: `${t ? t.name : "Cypress College Athletics"} sponsorship`, body };
+}
+
+/* ===================== nav ===================== */
+const NAV1 = [
+  ["home","Home"], ["scan","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"],
+  ["sponsors","Sponsors"], ["outreach","Outreach"], ["pipeline","Pipeline"],
+  ["calendar","Season Calendar"], ["reports","Reports"], ["command","AI Command"]
+];
+const NAV2 = [["compliance","Compliance"], ["settings","Settings"]];
+
+function pendingCount(){ return CARDS.filter((c,i) => !cs(i).approved && !cs(i).skipped).length }
+
+function paintNav(){
+  const row = ([id,label]) => {
+    const n = id === "home" ? pendingCount() : 0;
+    return `<button type="button" class="${id===view?"active":""}" data-goto="${id}">${esc(label)}${
+      n ? `<span class="pill">${n}</span>` : ""}</button>`;
+  };
+  $("nav1").innerHTML = NAV1.map(row).join("");
+  $("nav2").innerHTML = NAV2.map(row).join("");
+  $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","Home"])[1];
+}
+
+/* ===================== HOME ===================== */
+function approvedCards(){ return CARDS.map((c,i)=>({c,i})).filter(x => cs(x.i).approved) }
+function approvedValue(){ return approvedCards().reduce((s,x) => s + x.c.ask[1], 0) }
+
+function vHome(){
+  const seasons = ["All"].concat(SEASONS, ["Department"]);
+  const inSeason = i => homeSeason === "All" || teamSeason(CARDS[i].team) === homeSeason;
+  const idx = CARDS.map((c,i)=>i).filter(inSeason);
+  const openCount = s => CARDS.map((c,i)=>i)
+    .filter(i => (s === "All" || teamSeason(CARDS[i].team) === s) && !cs(i).approved && !cs(i).skipped).length;
+
+  const tabs = seasons.map(s =>
+    `<button type="button" class="${s===homeSeason?"on":""} ${openCount(s)===0?"done":""}" data-season="${esc(s)}">
+       ${esc(s)}<span class="n">${openCount(s)}</span></button>`).join("");
+
+  const rows = idx.map(i => {
+    const c = CARDS[i], s = cs(i), b = BIZI[c.b], t = c.team;
+    const d = askDraft(t, c.b, c.ask);
+    const state = s.approved ? "sent" : s.skipped ? "skipped" : "";
+    return `
+    <div class="row ${state} ${s.open?"open":""}">
+      <div class="rowtop">
+        <button type="button" class="rowhit" data-card="${i}">
+          <span class="chev">›</span>
+          <span class="meta">
+            <span class="biz">${esc(b.n)}</span>
+            <span class="sub">${esc(teamLabel(t))} · ${esc(c.ask[0])} · <b style="color:var(--lime)">${money(c.ask[1])}</b></span>
+          </span>
+        </button>
+        <span class="tag ${c.ch==="email"?"email":"call"}">${c.ch==="email"?"EMAIL":"WALK IN"}</span>
+        ${s.approved ? `<span class="tag state">APPROVED</span>`
+          : s.skipped ? `<span class="tag state off">SKIPPED</span>`
+          : `<span class="acts" style="display:flex;gap:8px">
+               <button type="button" class="btn go sm" data-approve="${i}">Approve</button>
+               <button type="button" class="btn ghost sm" data-skip="${i}">Skip</button>
+             </span>`}
+      </div>
+      ${s.open ? `
+      <div class="pitch" style="padding:0 20px 18px">
+        <span class="subj">Subject: <b>${esc(d.subj)}</b></span>
+        <div style="white-space:pre-wrap;font-size:14.5px;line-height:1.62;color:#D6DEE9">${esc(d.body)}</div>
+        <div class="ds-contacts" style="margin-top:14px">
+          <h4>WHO IT GOES TO</h4>
+          <div class="ds-person">
+            <b>${b.owner ? esc(b.owner) : "Name not found yet"}</b>
+            <span class="r">${esc(b.role)}</span>
+            ${b.phone ? `<span class="c">${esc(b.phone)}</span>` : ""}
+            <span class="src">${b.owner ? esc(b.ownerSrc || "public listing") : "run the finder"}</span>
+          </div>
+          <div style="font-size:13px;color:var(--dim)">${esc(b.addr)} · ${b.mi} mi from campus · ${b.rate} stars, ${b.rc} reviews</div>
+        </div>
+        <div class="tools" style="margin-top:13px">
+          <button type="button" class="tool" data-do="edit">Edit before it goes</button>
+          <button type="button" class="tool alt" data-do="another">Write me a different angle</button>
+          <button type="button" class="tool amber" data-do="finder">Find the decision maker</button>
+        </div>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+
+  const left = idx.filter(i => !cs(i).approved && !cs(i).skipped).length;
+
+  return `
+  <div class="tabs">${tabs}</div>
+  <div class="board">
+    <div class="head">
+      <h1>Sponsor asks, ready for you</h1>
+      <p>NILDash ran overnight across every business within three miles of campus, matched them to the teams
+         they fit, and wrote the ask. Nothing goes out until you approve it. None of these businesses
+         have been contacted.</p>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">WAITING ON YOU</span><span class="kpi-val">${left}</span><span class="kpi-note">asks drafted overnight</span></div>
+      <div class="kpi"><span class="kpi-label">VALUE IN FRONT OF YOU</span><span class="kpi-val lime">${money(idx.filter(i=>!cs(i).approved&&!cs(i).skipped).reduce((s,i)=>s+CARDS[i].ask[1],0))}</span><span class="kpi-note">if every one lands</span></div>
+      <div class="kpi"><span class="kpi-label">APPROVED TODAY</span><span class="kpi-val">${approvedCards().length}</span><span class="kpi-note">${money(approvedValue())} queued to send</span></div>
+      <div class="kpi"><span class="kpi-label">TEAMS COVERED</span><span class="kpi-val">${new Set(CARDS.map(c=>c.team)).size}</span><span class="kpi-note">of 13</span></div>
+    </div>
+
+    <div class="rows">${rows || `<div class="empty"><b>Nothing left in this season</b>Everything here has been approved or skipped.</div>`}</div>
+
+    ${left ? `<div class="statusbar" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:4px">
+      <div class="stats">
+        <span><b>${left}</b> waiting</span><span class="sep">|</span>
+        <span><b>${approvedCards().length}</b> approved</span><span class="sep">|</span>
+        <span><b>${CARDS.filter((c,i)=>cs(i).skipped).length}</b> skipped</span>
+      </div>
+      <span style="flex:1 1 auto"></span>
+      <button type="button" class="btn go" id="approveAll">Approve all ${left}</button>
+    </div>` : `
+    <div class="panel close">
+      <h3>That's the morning done</h3>
+      <p class="lede">You approved ${approvedCards().length} ${approvedCards().length===1?"ask":"asks"} worth ${money(approvedValue())},
+         in ${Math.max(1, Math.round((Date.now()-started)/60000))} minute${Math.round((Date.now()-started)/60000)===1?"":"s"}.
+         That is the whole job. NILDash sends them, spaces them out, and tells you who replies.</p>
+      <div class="cta">
+        <a class="go" href="${CALENDLY}" target="_blank" rel="noopener">Book a call with JohnMark</a>
+        <a class="ghost" href="#" data-goto="inventory">See what else is unsold</a>
+      </div>
+    </div>`}
+  </div>`;
+}
+
+/* ===================== SPONSOR SCAN ===================== */
+function lanesFor(teamId){
+  if (SCAN[teamId]) return SCAN[teamId];
+  const t = TEAMI[teamId], out = {};
+  const menu = teamAssets(t);
+  Object.keys(GENERIC_LANES).forEach((lane, li) => {
+    out[lane] = GENERIC_LANES[lane].map((bid, i) => {
+      const b = BIZI[bid];
+      const ask = lane === "Bigger asks"
+        ? (DEPT_ASSETS[i % DEPT_ASSETS.length])
+        : menu[Math.min(i, menu.length - 1)];
+      return {
+        b: bid, fit: 92 - li * 4 - i * 3, best: i === 0,
+        ask,
+        why:`${b.note} ${b.mi} miles from campus, ${b.rate} stars across ${b.rc} reviews.`,
+        idea:`${ask[0]} for ${t.name.toLowerCase()}, across ${t.dates} home ${t.dates===1?"date":"dates"} this ${t.season.toLowerCase()}.`,
+        approach:`${b.role} decides. ${b.phone ? "Published number on the listing." : "No published direct line, run the finder first."}`
+      };
+    });
+  });
+  return out;
+}
+
+function vScan(){
+  const t = TEAMI[scanTeam];
+  const lanes = scanRun ? lanesFor(scanTeam) : {};
+  const laneNames = scanRun ? Object.keys(lanes) : ["Near campus","Category fit","Bigger asks"];
+  if (scanRun && !lanes[scanLane]) scanLane = laneNames[0];
+
+  const tabs = laneNames.map(l =>
+    `<button type="button" class="ds-lane-tab ${l===scanLane?"active":""}" data-lane="${esc(l)}">
+       ${esc(l)}<span class="ds-tab-count">${scanRun ? (lanes[l]||[]).length : 0}</span></button>`).join("");
+
+  const cards = !scanRun ? "" : (lanes[scanLane]||[]).map((r,i) => {
+    const b = BIZI[r.b], s = ss(scanTeam, scanLane, i);
+    const d = askDraft(scanTeam, r.b, r.ask);
+    return `
+    <div class="ds-card ${r.best?"best":""} ${s.queued?"done":""}">
+      <div class="ds-top">
+        <div class="ds-main">
+          <div class="ds-titleline">
+            <span class="ds-lane-chip ${r.best?"best":""}">${esc(scanLane)}</span>
+            <span class="ds-name">${esc(b.n)}</span>
+            <span class="chip grey">${esc(b.cat)}</span>
+            <span class="chip grey">${b.mi} mi</span>
+            ${r.best ? `<span class="chip lime">BEST FIT</span>` : ""}
+            ${s.queued ? `<span class="chip green">QUEUED</span>` : ""}
+          </div>
+          <p class="ds-why">${esc(r.why)}</p>
+          <div class="ds-idea"><b>ASK</b>${esc(r.ask[0])} · <span style="color:var(--lime)">${money(r.ask[1])}</span></div>
+          <dl class="ds-pw">
+            <dt>IDEA</dt><dd>${esc(r.idea)}</dd>
+            <dt>WHY NOW</dt><dd>${esc(t.season)} season, ${t.dates} home ${t.dates===1?"date":"dates"} at ${esc(t.venue.replace("Cypress College ",""))}.</dd>
+          </dl>
+          <div class="ds-contacts">
+            <h4>CONTACTS</h4>
+            <div class="ds-person">
+              <b>${b.owner ? esc(b.owner) : "Name not found yet"}</b>
+              <span class="r">${esc(b.role)}</span>
+              ${b.phone ? `<span class="c">${esc(b.phone)}</span>` : ""}
+              <span class="src">${b.owner ? esc(b.ownerSrc || "public listing") : "not in public listing"}</span>
+            </div>
+            <div style="font-size:13px;color:var(--dim)">${esc(b.addr)}</div>
+            ${!b.owner ? `<button type="button" class="btn ghost xs" style="align-self:flex-start" data-sdo="finder|${i}">Find the decision maker</button>` : ""}
+          </div>
+          <div class="ds-approach"><b>APPROACH</b>${esc(r.approach)}</div>
+        </div>
+        <div class="ds-fit">
+          <span class="n">${r.fit}</span><span class="l">FIT</span>
+          <button type="button" class="q" data-sdo="why|${i}">why?</button>
+        </div>
+      </div>
+
+      ${s.drafting ? `<div class="ds-drafting">Writing the ask for ${esc(b.n)}</div>` : ""}
+      ${s.drafted ? `
+      <div class="ds-draft">
+        <span class="subj">Subject: <b>${esc(d.subj)}</b></span>
+        <div style="white-space:pre-wrap;font-size:14px;line-height:1.6;color:#D6DEE9;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:14px 16px">${esc(d.body)}</div>
+      </div>` : ""}
+
+      <div class="ds-actions">
+        <button type="button" class="btn ghost sm" data-sdo="draft|${i}">${s.drafted?"Rewrite the ask":"Write the ask"}</button>
+        <button type="button" class="btn ${s.queued?"ghost":"go"} sm" data-sdo="queue|${i}">${s.queued?"Queued for approval":"+ Queue for approval"}</button>
+        <button type="button" class="btn ghost sm" data-sdo="hold|${i}">Not this season</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  const opts = TEAMS.map(t2 =>
+    `<option value="${t2.id}" ${t2.id===scanTeam?"selected":""}>${esc(t2.name)} · ${esc(t2.season)}</option>`).join("");
+
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Sponsor Scan</h1>
+      <p>Pick a team. NILDash reads every business inside three miles, scores how well each one fits
+         that specific team, finds who decides, and writes the ask. This runs on its own every night.</p>
+    </div>
+
+    <div class="toolrow">
+      <select class="sel" id="scanTeamSel">${opts}</select>
+      <button type="button" class="btn go" id="runScan">${scanRun?"Scan again":"Scan for sponsors"}</button>
+      <span class="grow"></span>
+      ${scanRun ? `<span class="stats"><span>Found <b>${Object.values(lanes).reduce((s,a)=>s+a.length,0)}</b></span></span>` : ""}
+    </div>
+
+    <div class="panel" style="padding:15px 17px">
+      <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:14px;color:var(--muted)">
+        <span><b style="color:var(--text)">${esc(t.name)}</b></span>
+        <span>${esc(t.season)} season</span>
+        <span>${t.roster} on the roster</span>
+        <span>${t.dates} home ${t.dates===1?"date":"dates"}</span>
+        <span>${esc(t.venue)}</span>
+        ${t.crowd!=="n/a"?`<span>${esc(t.crowd)} a game</span>`:""}
+      </div>
+    </div>
+
+    ${scanRun ? `
+      <div class="ds-lane-tabs">${tabs}</div>
+      <input class="inp" id="addBiz" placeholder="Know a business already? Add it.">
+      <div class="rows">${cards}</div>
+    ` : `<div class="empty"><b>Nothing scanned yet</b>Hit scan and NILDash will read the businesses around campus and rank them against ${esc(t.name.toLowerCase())}.</div>`}
+  </div>`;
+}
+
+/* ===================== MY TEAMS ===================== */
+function vTeams(){
+  const bySeason = s => TEAMS.filter(t => t.season === s);
+  const block = s => `
+    <div class="panel">
+      <h3>${s}</h3>
+      <p class="lede">${bySeason(s).length} teams · ${bySeason(s).reduce((a,t)=>a+t.roster,0)} athletes ·
+         ${bySeason(s).reduce((a,t)=>a+t.dates,0)} home dates</p>
+      <div class="tablewrap" style="margin-top:12px">
+        <table><thead><tr>
+          <th>Team</th><th>Roster</th><th>Home dates</th><th>Venue</th><th>Crowd</th><th>Inventory</th>
+        </tr></thead><tbody>
+        ${bySeason(s).map(t => {
+          const v = teamAssets(t).reduce((a,[,p])=>a+p,0);
+          return `<tr>
+            <td data-l="TEAM"><span class="b">${esc(t.name)}</span></td>
+            <td data-l="ROSTER">${t.roster}</td>
+            <td data-l="HOME DATES">${t.dates}</td>
+            <td data-l="VENUE"><span class="s">${esc(t.venue.replace("Cypress College ",""))}</span></td>
+            <td data-l="CROWD"><span class="s">${esc(t.crowd)}</span></td>
+            <td data-l="INVENTORY"><span style="color:var(--lime)">${money(v)}</span></td>
+          </tr>`;
+        }).join("")}
+        </tbody></table>
+      </div>
+    </div>`;
+
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>My Teams</h1>
+      <p>Thirteen teams, ${TEAMS.reduce((a,t)=>a+t.roster,0)} athletes, ${TEAMS.reduce((a,t)=>a+t.dates,0)} home dates a year.
+         On the university side NILDash works a team at a time, not an athlete at a time. Nothing here
+         touches an individual student athlete or their name, image or likeness.</p>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">TEAMS</span><span class="kpi-val">13</span><span class="kpi-note">no football</span></div>
+      <div class="kpi"><span class="kpi-label">ATHLETES</span><span class="kpi-val">${TEAMS.reduce((a,t)=>a+t.roster,0)}</span><span class="kpi-note">across three seasons</span></div>
+      <div class="kpi"><span class="kpi-label">HOME DATES</span><span class="kpi-val">${TEAMS.reduce((a,t)=>a+t.dates,0)}</span><span class="kpi-note">a year to sell against</span></div>
+      <div class="kpi"><span class="kpi-label">INVENTORY VALUE</span><span class="kpi-val lime">${money(INV_TOTAL)}</span><span class="kpi-note">none of it sold</span></div>
+    </div>
+    ${SEASONS.map(block).join("")}
+  </div>`;
+}
+
+/* ===================== INVENTORY ===================== */
+function vInventory(){
+  const filters = ["All"].concat(SEASONS, ["Department"]);
+  const rows = INVENTORY.filter(r => invFilter === "All" || r.season === invFilter);
+  const total = rows.reduce((s,r)=>s+r.price,0);
+
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Inventory</h1>
+      <p>Everything the athletics department owns that a local business would pay for. Banner space,
+         program pages, PA time, table fronts, meals. Priced once, sold as many times as there are teams.
+         Right now none of it is assigned to anyone, which is the only reason none of it is sold.</p>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">SELLABLE ITEMS</span><span class="kpi-val">${INVENTORY.length}</span><span class="kpi-note">across 13 teams</span></div>
+      <div class="kpi"><span class="kpi-label">TOTAL VALUE</span><span class="kpi-val lime">${money(INV_TOTAL)}</span><span class="kpi-note">a full year</span></div>
+      <div class="kpi"><span class="kpi-label">SOLD</span><span class="kpi-val">$0</span><span class="kpi-note">nothing yet</span></div>
+      <div class="kpi"><span class="kpi-label">ASKS DRAFTED</span><span class="kpi-val">${CARDS.length}</span><span class="kpi-note">${money(CARDS.reduce((s,c)=>s+c.ask[1],0))} in front of you</span></div>
+    </div>
+
+    <div class="toolrow">
+      ${filters.map(f => `<button type="button" class="ds-lane-tab ${f===invFilter?"active":""}" data-inv="${esc(f)}">${esc(f)}</button>`).join("")}
+      <span class="grow"></span>
+      <span class="stats"><span>Showing <b>${money(total)}</b></span></span>
+      <button type="button" class="btn ghost sm" data-do="export">Download as spreadsheet</button>
+    </div>
+
+    <div class="tablewrap">
+      <table><thead><tr>
+        <th>Item</th><th>Team</th><th>Season</th><th>Price</th><th>Status</th>
+      </tr></thead><tbody>
+      ${rows.map(r => `<tr>
+        <td data-l="ITEM"><span class="b">${esc(r.name)}</span></td>
+        <td data-l="TEAM">${esc(r.teamName)}</td>
+        <td data-l="SEASON"><span class="s">${esc(r.season)}</span></td>
+        <td data-l="PRICE"><span style="color:var(--lime)">${money(r.price)}</span></td>
+        <td data-l="STATUS"><span class="chip grey">AVAILABLE</span></td>
+      </tr>`).join("")}
+      </tbody></table>
+    </div>
+  </div>`;
+}
+
+/* ===================== SPONSORS ===================== */
+function vSponsors(){
+  const cats = ["All"].concat(Array.from(new Set(BIZ.map(b=>b.cat))).sort());
+  const rows = BIZ.filter(b => sponsorFilter === "All" || b.cat === sponsorFilter);
+  const queued = new Set();
+  Object.keys(scanState).forEach(k => { if (scanState[k].queued){
+    const [t,l,i] = k.split("|"); const r = (lanesFor(t)[l]||[])[+i]; if (r) queued.add(r.b);
+  }});
+  CARDS.forEach((c,i) => { if (cs(i).approved) queued.add(c.b) });
+
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Sponsors</h1>
+      <p>Every business NILDash has found around campus, who decides there, and where the ask stands.
+         This list does not run a search when you open it. It is what NILDash already holds.
+         None of these businesses have been contacted.</p>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">BUSINESSES FOUND</span><span class="kpi-val">${BIZ.length}</span><span class="kpi-note">within 2.5 miles</span></div>
+      <div class="kpi"><span class="kpi-label">DECISION MAKER NAMED</span><span class="kpi-val">${BIZ.filter(b=>b.owner).length}</span><span class="kpi-note">of ${BIZ.length}, finder runs on the rest</span></div>
+      <div class="kpi"><span class="kpi-label">APPROVED BY YOU</span><span class="kpi-val lime">${queued.size}</span><span class="kpi-note">queued to send</span></div>
+      <div class="kpi"><span class="kpi-label">CONTACTED</span><span class="kpi-val">0</span><span class="kpi-note">nothing has gone out</span></div>
+    </div>
+
+    <div class="toolrow" style="overflow-x:auto">
+      ${cats.map(c => `<button type="button" class="ds-lane-tab ${c===sponsorFilter?"active":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}
+    </div>
+
+    <div class="tablewrap">
+      <table><thead><tr>
+        <th>Business</th><th>Category</th><th>Distance</th><th>Who decides</th><th>Rating</th><th>Status</th>
+      </tr></thead><tbody>
+      ${rows.map(b => `<tr>
+        <td data-l="BUSINESS"><span class="b">${esc(b.n)}</span><br><span class="s">${esc(b.addr)}</span></td>
+        <td data-l="CATEGORY">${esc(b.cat)}</td>
+        <td data-l="DISTANCE">${b.mi} mi</td>
+        <td data-l="WHO DECIDES">${b.owner ? `<span class="b">${esc(b.owner)}</span><br><span class="s">${esc(b.role)}</span>`
+                                            : `<span class="s">${esc(b.role)}, name not found yet</span>`}</td>
+        <td data-l="RATING"><span class="s">${b.rate} · ${b.rc}</span></td>
+        <td data-l="STATUS">${queued.has(b.id) ? `<span class="chip green">APPROVED</span>` : `<span class="chip grey">FOUND</span>`}</td>
+      </tr>`).join("")}
+      </tbody></table>
+    </div>
+  </div>`;
+}
+
+/* ===================== OUTREACH ===================== */
+function vOutreach(){
+  const ap = approvedCards();
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Outreach</h1>
+      <p>Everything you approved, in the order it will go out. NILDash spaces sends across the day
+         so nothing looks automated, and stops the moment a business replies.</p>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">QUEUED</span><span class="kpi-val">${ap.length}</span><span class="kpi-note">approved by you</span></div>
+      <div class="kpi"><span class="kpi-label">VALUE QUEUED</span><span class="kpi-val lime">${money(approvedValue())}</span><span class="kpi-note">if every one lands</span></div>
+      <div class="kpi"><span class="kpi-label">SENT</span><span class="kpi-val">0</span><span class="kpi-note">nothing sent in a demo</span></div>
+      <div class="kpi"><span class="kpi-label">REPLIES</span><span class="kpi-val">0</span><span class="kpi-note">lands in your own inbox</span></div>
+    </div>
+
+    ${ap.length ? `
+    <div class="tablewrap">
+      <table><thead><tr><th>Business</th><th>Team</th><th>Ask</th><th>Value</th><th>Channel</th><th>Goes out</th></tr></thead><tbody>
+      ${ap.map((x,n) => {
+        const b = BIZI[x.c.b];
+        return `<tr>
+          <td data-l="BUSINESS"><span class="b">${esc(b.n)}</span></td>
+          <td data-l="TEAM">${esc(teamLabel(x.c.team))}</td>
+          <td data-l="ASK"><span class="s">${esc(x.c.ask[0])}</span></td>
+          <td data-l="VALUE"><span style="color:var(--lime)">${money(x.c.ask[1])}</span></td>
+          <td data-l="CHANNEL"><span class="tag ${x.c.ch==="email"?"email":"call"}">${x.c.ch==="email"?"EMAIL":"WALK IN"}</span></td>
+          <td data-l="GOES OUT"><span class="s">${x.c.ch==="email" ? `in ${20+n*18} minutes` : "on your visit list"}</span></td>
+        </tr>`;
+      }).join("")}
+      </tbody></table>
+    </div>` : `<div class="empty"><b>Nothing queued yet</b>Approve an ask on Home and it shows up here.
+       <div style="margin-top:14px"><button type="button" class="btn go sm" data-goto="home">Go to Home</button></div></div>`}
+
+    <div class="notice">
+      <b>Sends come from your own address</b>
+      Every ask goes out from the athletics department's own email, not from NILDash. Replies land in
+      your normal inbox where your staff already works. NILDash watches for the reply and stops the
+      follow up sequence the moment one arrives.
+    </div>
+  </div>`;
+}
+
+/* ===================== PIPELINE ===================== */
+function vPipeline(){
+  const found = BIZ.slice(0, 8).map(b => ({ b, note:"Found by the scan" }));
+  const drafted = CARDS.map((c,i)=>({c,i})).filter(x => !cs(x.i).approved && !cs(x.i).skipped);
+  const approved = approvedCards();
+
+  const col = (label, items, empty) => `
+    <div class="kancol">
+      <div class="kanhead">${label}<b>${items.length}</b></div>
+      ${items.length ? items.join("") : `<div style="font-size:13px;color:var(--dimmer);padding:6px 2px">${empty}</div>`}
+    </div>`;
+
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Pipeline</h1>
+      <p>Where every sponsor conversation stands. Nothing has been sent, so the right hand columns are
+         empty on purpose. They fill as you approve asks and businesses answer.</p>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">IN PIPELINE</span><span class="kpi-val">${found.length + drafted.length + approved.length}</span><span class="kpi-note">businesses</span></div>
+      <div class="kpi"><span class="kpi-label">ASK VALUE</span><span class="kpi-val lime">${money(CARDS.reduce((s,c)=>s+c.ask[1],0))}</span><span class="kpi-note">drafted and waiting</span></div>
+      <div class="kpi"><span class="kpi-label">AGREED</span><span class="kpi-val">$0</span><span class="kpi-note">first season, nothing yet</span></div>
+      <div class="kpi"><span class="kpi-label">CLOSE RATE</span><span class="kpi-val">—</span><span class="kpi-note">fills after your first month</span></div>
+    </div>
+
+    <div class="kan">
+      ${col("FOUND", found.map(x => `
+        <div class="kancard"><span class="t">${esc(x.b.n)}</span>
+          <span class="m">${esc(x.b.cat)} · ${x.b.mi} mi</span></div>`), "")}
+      ${col("ASK DRAFTED", drafted.map(x => `
+        <div class="kancard"><span class="t">${esc(BIZI[x.c.b].n)}</span>
+          <span class="m">${esc(teamLabel(x.c.team))}</span>
+          <span class="v">${money(x.c.ask[1])}</span></div>`), "Approve on Home to move these along.")}
+      ${col("APPROVED BY YOU", approved.map(x => `
+        <div class="kancard"><span class="t">${esc(BIZI[x.c.b].n)}</span>
+          <span class="m">${esc(x.c.ask[0])}</span>
+          <span class="v">${money(x.c.ask[1])}</span></div>`), "Nothing approved yet.")}
+      ${col("ASKED", [], "Fills when sends go out.")}
+      ${col("AGREED", [], "Fills when a business says yes.")}
+    </div>
+  </div>`;
+}
+
+/* ===================== SEASON CALENDAR ===================== */
+function vCalendar(){
+  const chip = st => st === "window" ? `<span class="chip amber">IN WINDOW</span>`
+              : st === "open"   ? `<span class="chip blue">COMING UP</span>`
+              : `<span class="chip grey">LATER</span>`;
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Season Calendar</h1>
+      <p>Sponsorship has deadlines that have nothing to do with when a business says yes. A banner has
+         to be hung before the first home date. A program has to go to print two weeks out. NILDash
+         works backward from your schedule so the ask lands while there is still something to sell.</p>
+    </div>
+    <div class="tablewrap">
+      <table><thead><tr><th>What</th><th>Team</th><th>Rule</th><th>This year</th><th>Status</th></tr></thead><tbody>
+      ${CALENDAR.map(c => `<tr>
+        <td data-l="WHAT"><span class="b">${esc(c.what)}</span></td>
+        <td data-l="TEAM">${esc(c.team)}</td>
+        <td data-l="RULE"><span class="s">${esc(c.when)}</span></td>
+        <td data-l="THIS YEAR">${esc(c.win)}</td>
+        <td data-l="STATUS">${chip(c.st)}</td>
+      </tr>`).join("")}
+      </tbody></table>
+    </div>
+    <div class="notice">
+      <b>Why this screen exists</b>
+      The most common way a local sponsorship dies is not a no. It is a yes that arrives after the
+      program went to print. Every ask NILDash writes is timed against the deadline it depends on.
+    </div>
+  </div>`;
+}
+
+/* ===================== REPORTS ===================== */
+function vReports(){
+  const asks = CARDS.reduce((s,c)=>s+c.ask[1],0);
+  const rates = [[0.15,"Conservative"],[0.25,"Likely"],[0.40,"If someone chases them"]];
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Reports</h1>
+      <p>The page you take to the president. No signed deals in it yet, because nothing has been sent.
+         What it shows is what exists to sell and what it is worth at honest close rates.</p>
+    </div>
+
+    <div class="grid g3">
+      ${rates.map(([r,l]) => `
+      <div class="kpi">
+        <span class="kpi-label">${esc(l.toUpperCase())} · ${Math.round(r*100)}%</span>
+        <span class="kpi-val lime">${money(Math.round(asks*r/50)*50)}</span>
+        <span class="kpi-note">from the ${CARDS.length} asks already drafted</span>
+      </div>`).join("")}
+    </div>
+
+    <div class="panel">
+      <h3>Inventory by season</h3>
+      <p class="lede">What the department owns, priced, before anyone is asked.</p>
+      <div class="tablewrap" style="margin-top:12px">
+        <table><thead><tr><th>Season</th><th>Teams</th><th>Home dates</th><th>Items</th><th>Value</th></tr></thead><tbody>
+        ${SEASONS.map(s => {
+          const ts = TEAMS.filter(t=>t.season===s);
+          const items = INVENTORY.filter(r=>r.season===s);
+          return `<tr>
+            <td data-l="SEASON"><span class="b">${esc(s)}</span></td>
+            <td data-l="TEAMS">${ts.length}</td>
+            <td data-l="HOME DATES">${ts.reduce((a,t)=>a+t.dates,0)}</td>
+            <td data-l="ITEMS">${items.length}</td>
+            <td data-l="VALUE"><span style="color:var(--lime)">${money(items.reduce((a,r)=>a+r.price,0))}</span></td>
+          </tr>`;
+        }).join("")}
+        <tr>
+          <td data-l="SEASON"><span class="b">Department wide</span></td>
+          <td data-l="TEAMS">all 13</td><td data-l="HOME DATES">—</td>
+          <td data-l="ITEMS">${DEPT_ASSETS.length}</td>
+          <td data-l="VALUE"><span style="color:var(--lime)">${money(DEPT_ASSETS.reduce((a,[,p])=>a+p,0))}</span></td>
+        </tr>
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>What this costs you in staff time</h3>
+      <p class="lede">The work NILDash does overnight is finding the business, finding who decides,
+        and writing the ask. What is left for a person is reading it and clicking approve.
+        At ${CARDS.length} asks a morning that is about ten minutes, once a day, for one person.
+        No new hire, no development office, no coach selling banners between practices.</p>
+    </div>
+
+    <div class="toolrow">
+      <button type="button" class="btn go" data-do="export">Download the board packet</button>
+      <button type="button" class="btn ghost" data-do="export">Export inventory to spreadsheet</button>
+    </div>
+  </div>`;
+}
+
+/* ===================== COMPLIANCE ===================== */
+function vCompliance(){
+  const rules = [
+    ["No student athlete is involved","Every ask on this platform is a sponsorship of a team or a venue, paid to the college. No athlete receives money, and no athlete's name, image or likeness appears in any ask NILDash writes.","clear"],
+    ["This is not NIL","NIL is an agreement between a business and an individual athlete. What is on this screen is institutional sponsorship, the same thing a program banner has always been. The two are kept in separate systems on purpose.","clear"],
+    ["Blocked categories","Alcohol, cannabis, tobacco, vaping, firearms, sports betting, payday lending and adult businesses are refused automatically and never surface in a scan, whatever their fit score would have been.","clear"],
+    ["Category check on every business","Each business is checked against its public listing type before it reaches your screen. Anything NILDash cannot verify is held back and flagged rather than guessed at.","clear"],
+    ["Nothing sends without a person","No ask leaves the system on its own. A named staff member approves each one, and the record of who approved what is kept.","clear"],
+    ["Your data stays yours","Business lists, contacts and sponsor history belong to the college. Export it any time. Nothing is shared with another school.","clear"]
+  ];
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Compliance</h1>
+      <p>The first question every athletic director asks is whether this creates a problem.
+         Here is the short answer, in writing.</p>
+    </div>
+    <div class="grid g2">
+      ${rules.map(([t,d]) => `
+      <div class="panel">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px">
+          <span class="chip green">CLEAR</span>
+          <h3 style="margin:0">${esc(t)}</h3>
+        </div>
+        <p class="lede">${esc(d)}</p>
+      </div>`).join("")}
+    </div>
+    <div class="notice">
+      <b>If the college later wants the athlete side too</b>
+      That is a separate product with its own compliance gate, its own approvals and its own record.
+      Nothing crosses between them without the college turning it on.
+    </div>
+  </div>`;
+}
+
+/* ===================== AI COMMAND ===================== */
+function vCommand(){
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>AI Command</h1>
+      <p>Ask about your own teams and sponsors in plain words.</p>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">TEAMS</span><span class="kpi-val">13</span><span class="kpi-note">three seasons</span></div>
+      <div class="kpi"><span class="kpi-label">BUSINESSES</span><span class="kpi-val">${BIZ.length}</span><span class="kpi-note">within 2.5 miles</span></div>
+      <div class="kpi"><span class="kpi-label">INVENTORY</span><span class="kpi-val lime">${money(INV_TOTAL)}</span><span class="kpi-note">unsold</span></div>
+      <div class="kpi"><span class="kpi-label">ASKS READY</span><span class="kpi-val">${CARDS.length}</span><span class="kpi-note">waiting on approval</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>Ask about Cypress College Athletics</h3>
+      <div class="prompts" style="display:flex;flex-wrap:wrap;gap:9px;margin:12px 0">
+        ${AI_SUGGEST.map(q => `<button type="button" class="btn ghost sm" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}
+      </div>
+      <div class="chatlog" style="display:flex;flex-direction:column;gap:13px">
+        ${aiAsked.length ? aiAsked.map(q => `
+          <div class="qa">
+            <div class="q" style="font-weight:600;margin-bottom:6px">${esc(q)}</div>
+            <div class="bub" style="background:var(--sunk);border:1px solid var(--line);border-radius:11px;padding:14px 16px;font-size:14.5px;line-height:1.62;color:#D6DEE9">${esc(AI_REPLIES[q])}</div>
+          </div>`).join("")
+        : `<div class="empty"><b>Pick a question</b>Or type your own. It reads the same data the scan uses.</div>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ===================== SETTINGS ===================== */
+function vSettings(){
+  return `
+  <div class="board">
+    <div class="head">
+      <h1>Settings</h1>
+      <p>Who the asks come from, who approves them, and when the scan runs.</p>
+    </div>
+    <div class="grid g2">
+      <div class="panel">
+        <h3>Who the ask comes from</h3>
+        <p class="lede">Every ask goes out from the athletics department's own address, signed the way you want it signed.</p>
+        <div class="field" style="margin-top:12px">
+          <label>SIGNATURE</label>
+          <textarea class="inp" style="height:auto;padding:11px 13px;min-height:90px">Cypress College Athletics
+9200 Valley View St, Cypress, CA 90630</textarea>
+        </div>
+        <div class="field" style="margin-top:11px">
+          <label>REPLY TO</label>
+          <input class="inp" value="athletics@cypresscollege.edu">
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Who approves</h3>
+        <p class="lede">Nothing sends without one of these people clicking approve. The record of who approved what is kept.</p>
+        <div class="field" style="margin-top:12px"><label>PRIMARY</label><input class="inp" value="Dean of Kinesiology &amp; Athletics"></div>
+        <div class="field" style="margin-top:11px"><label>ALSO ALLOWED</label><input class="inp" value="NIL Coordinator"></div>
+      </div>
+      <div class="panel">
+        <h3>When the scan runs</h3>
+        <p class="lede">Overnight, every night. The asks are on your screen before the first meeting of the day.</p>
+        <div class="field" style="margin-top:12px"><label>SCAN</label><select class="sel"><option>Every night at 2:00 AM</option><option>Weekly, Sunday night</option></select></div>
+        <div class="field" style="margin-top:11px"><label>HOW MANY ASKS A MORNING</label><select class="sel"><option>12</option><option>5</option><option>25</option></select></div>
+      </div>
+      <div class="panel">
+        <h3>What is off limits</h3>
+        <p class="lede">Categories NILDash will never surface, whatever the fit score.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+          ${["Alcohol","Cannabis","Tobacco & vape","Firearms","Sports betting","Payday lending","Adult"].map(c =>
+            `<span class="chip grey">${esc(c)}</span>`).join("")}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ===================== router ===================== */
+const VIEWS = { home:vHome, scan:vScan, teams:vTeams, inventory:vInventory, sponsors:vSponsors,
+  outreach:vOutreach, pipeline:vPipeline, calendar:vCalendar, reports:vReports,
+  command:vCommand, compliance:vCompliance, settings:vSettings };
+
+function paint(){
+  $("view").innerHTML = (VIEWS[view] || vHome)();
+  paintNav();
+  window.scrollTo({ top:0 });
+}
+function go(v){ view = v; paint() }
+
+/* ===================== events ===================== */
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-goto],[data-card],[data-approve],[data-skip],[data-season],[data-lane],[data-sdo],[data-inv],[data-cat],[data-ask],[data-do],#approveAll,#runScan,#reset");
+  if (!t) return;
+
+  if (t.dataset.goto !== undefined){ e.preventDefault(); go(t.dataset.goto); return }
+
+  if (t.dataset.card !== undefined){
+    const i = +t.dataset.card, s = cs(i);
+    s.open = !s.open; paint(); return;
+  }
+  if (t.dataset.approve !== undefined){
+    const i = +t.dataset.approve; cs(i).approved = true; cs(i).open = false;
+    toast("Approved. It goes out from your own address."); paint(); return;
+  }
+  if (t.dataset.skip !== undefined){
+    const i = +t.dataset.skip; cs(i).skipped = true; cs(i).open = false;
+    toast("Skipped. NILDash will not ask them again this season."); paint(); return;
+  }
+  if (t.id === "approveAll"){
+    CARDS.forEach((c,i) => { if (!cs(i).skipped && (homeSeason === "All" || teamSeason(c.team) === homeSeason)) cs(i).approved = true });
+    toast("All approved. That is the morning done."); paint(); return;
+  }
+  if (t.dataset.season !== undefined){ homeSeason = t.dataset.season; paint(); return }
+
+  if (t.id === "runScan"){
+    scanRun = true; scanLane = "Near campus";
+    toast("Scanned " + BIZ.length + " businesses inside three miles."); paint(); return;
+  }
+  if (t.dataset.lane !== undefined){ scanLane = t.dataset.lane; paint(); return }
+
+  if (t.dataset.sdo !== undefined){
+    const [act, i] = t.dataset.sdo.split("|");
+    const s = ss(scanTeam, scanLane, +i);
+    if (act === "draft"){
+      s.drafting = true; s.drafted = false; paint();
+      setTimeout(() => { s.drafting = false; s.drafted = true; paint() }, 850);
+    } else if (act === "queue"){
+      s.queued = !s.queued;
+      toast(s.queued ? "Queued. It shows on Home for approval." : "Taken out of the queue.");
+      paint();
+    } else if (act === "hold"){
+      toast("Held. NILDash will bring them back next season.");
+    } else if (act === "finder"){
+      toast("Finder running. It checks the listing, the website and the state business record.");
+    } else if (act === "why"){
+      const r = (lanesFor(scanTeam)[scanLane]||[])[+i];
+      toast("Fit " + r.fit + ": distance, category, review volume and season overlap.");
+    }
+    return;
+  }
+
+  if (t.dataset.inv !== undefined){ invFilter = t.dataset.inv; paint(); return }
+  if (t.dataset.cat !== undefined){ sponsorFilter = t.dataset.cat; paint(); return }
+
+  if (t.dataset.ask !== undefined){
+    const q = t.dataset.ask;
+    if (!aiAsked.includes(q)) aiAsked.push(q);
+    paint(); return;
+  }
+
+  if (t.dataset.do !== undefined){
+    const m = {
+      edit:"Opens in your own email, where you can change anything before it sends.",
+      another:"Rewriting with a different angle.",
+      finder:"Finder running. Listing, website, then the state business record.",
+      export:"In the real thing this downloads a spreadsheet."
+    };
+    toast(m[t.dataset.do] || "Demo only."); return;
+  }
+
+  if (t.id === "reset"){
+    cardState = {}; scanState = {}; scanRun = false; aiAsked = [];
+    homeSeason = "All"; invFilter = "All"; sponsorFilter = "All"; started = Date.now();
+    go("home"); toast("Back to the start."); return;
+  }
+});
+
+document.addEventListener("change", e => {
+  if (e.target.id === "scanTeamSel"){ scanTeam = e.target.value; scanRun = false; paint() }
+});
+
+paint();
+</script>
+<script>
+/* NILDash demo analytics. Anonymous events to /api/demo/event. No personal
+   data: a random per-visit id, the event, the screen, and where the visit
+   came from. Fire and forget, never blocks or breaks the page. */
+(function () {
+  try {
+    var ENDPOINT = '/api/demo/event';
+    var sid = null;
+    try { sid = sessionStorage.getItem('nd_demo_sid'); } catch (e) {}
+    if (!sid) {
+      sid = (window.crypto && crypto.randomUUID ? crypto.randomUUID()
+        : Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))
+        .replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+      try { sessionStorage.setItem('nd_demo_sid', sid); } catch (e) {}
+    }
+    var screen = 'home';
+    var started = Date.now();
+
+    function send(event, extra) {
+      try {
+        var body = { session_id: sid, event: event, screen: screen };
+        if (extra) for (var k in extra) body[k] = extra[k];
+        var data = JSON.stringify(body);
+        if (navigator.sendBeacon && navigator.sendBeacon(ENDPOINT, new Blob([data], { type: 'application/json' }))) return;
+        fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: data, keepalive: true })
+          .catch(function () {});
+      } catch (e) {}
+    }
+
+    var utm = '';
+    try { utm = new URLSearchParams(location.search).get('utm_source') || ''; } catch (e) {}
+    send('view', { ref: document.referrer || '', utm: utm });
+
+    document.addEventListener('click', function (e) {
+      try {
+        var t = e.target && e.target.closest && e.target.closest(
+          '[data-goto],[data-do],[data-dsdo],[data-open],#runScan,#approveAll,#reset,a[href*="calendly.com"]');
+        if (!t) return;
+        if (t.matches('a[href*="calendly.com"]')) { send('book_call'); return; }
+        if (t.id === 'runScan') { send('deal_scan'); return; }
+        if (t.id === 'approveAll') { send('pitch_approve'); return; }
+        if (t.id === 'reset') { screen = 'home'; send('screen'); return; }
+        if (t.dataset.goto) { screen = t.dataset.goto; send('screen'); return; }
+        if (t.dataset.do === 'sent' || t.dataset.dsdo === 'send') { send('pitch_approve'); return; }
+        if (t.dataset.dsdo === 'ai' || t.dataset.dsdo === 'write' || t.dataset.open !== undefined) { send('pitch_open'); return; }
+      } catch (err) {}
+    }, true);
+
+    var beats = setInterval(function () {
+      try {
+        if (Date.now() - started > 30 * 60 * 1000) { clearInterval(beats); return; }
+        if (document.visibilityState === 'visible') send('heartbeat');
+      } catch (e) {}
+    }, 30000);
+    document.addEventListener('visibilitychange', function () {
+      try { if (document.visibilityState === 'hidden') send('leave'); } catch (e) {}
+    });
+  } catch (e) {}
+})();
+</script>
