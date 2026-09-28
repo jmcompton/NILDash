@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <title>NILDash Live Demo</title>
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="NILDash">
@@ -1657,4 +1658,64 @@ document.addEventListener("change", e => {
 });
 
 render();
+</script>
+<script>
+/* NILDash demo analytics. Anonymous events to /api/demo/event. No personal
+   data: a random per-visit id, the event, the screen, and where the visit
+   came from. Fire and forget, never blocks or breaks the page. */
+(function () {
+  try {
+    var ENDPOINT = '/api/demo/event';
+    var sid = null;
+    try { sid = sessionStorage.getItem('nd_demo_sid'); } catch (e) {}
+    if (!sid) {
+      sid = (window.crypto && crypto.randomUUID ? crypto.randomUUID()
+        : Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))
+        .replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+      try { sessionStorage.setItem('nd_demo_sid', sid); } catch (e) {}
+    }
+    var screen = 'home';
+    var started = Date.now();
+
+    function send(event, extra) {
+      try {
+        var body = { session_id: sid, event: event, screen: screen };
+        if (extra) for (var k in extra) body[k] = extra[k];
+        var data = JSON.stringify(body);
+        if (navigator.sendBeacon && navigator.sendBeacon(ENDPOINT, new Blob([data], { type: 'application/json' }))) return;
+        fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: data, keepalive: true })
+          .catch(function () {});
+      } catch (e) {}
+    }
+
+    var utm = '';
+    try { utm = new URLSearchParams(location.search).get('utm_source') || ''; } catch (e) {}
+    send('view', { ref: document.referrer || '', utm: utm });
+
+    document.addEventListener('click', function (e) {
+      try {
+        var t = e.target && e.target.closest && e.target.closest(
+          '[data-goto],[data-do],[data-dsdo],[data-open],#runScan,#approveAll,#reset,a[href*="calendly.com"]');
+        if (!t) return;
+        if (t.matches('a[href*="calendly.com"]')) { send('book_call'); return; }
+        if (t.id === 'runScan') { send('deal_scan'); return; }
+        if (t.id === 'approveAll') { send('pitch_approve'); return; }
+        if (t.id === 'reset') { screen = 'home'; send('screen'); return; }
+        if (t.dataset.goto) { screen = t.dataset.goto; send('screen'); return; }
+        if (t.dataset.do === 'sent' || t.dataset.dsdo === 'send') { send('pitch_approve'); return; }
+        if (t.dataset.dsdo === 'ai' || t.dataset.dsdo === 'write' || t.dataset.open !== undefined) { send('pitch_open'); return; }
+      } catch (err) {}
+    }, true);
+
+    var beats = setInterval(function () {
+      try {
+        if (Date.now() - started > 30 * 60 * 1000) { clearInterval(beats); return; }
+        if (document.visibilityState === 'visible') send('heartbeat');
+      } catch (e) {}
+    }, 30000);
+    document.addEventListener('visibilitychange', function () {
+      try { if (document.visibilityState === 'hidden') send('leave'); } catch (e) {}
+    });
+  } catch (e) {}
+})();
 </script>
