@@ -828,7 +828,7 @@ const AI_REPLIES = {
 
 /* ============================ NAV / STATE ============================ */
 const NAV1 = [
-  ["home","Home"],["deals","Deal Scan"],["brands","My Brands"],["programs","Programs"],
+  ["home","Home"],["deals","Deal Scan"],["brands","My Brands"],
   ["marketing","Media Kit"],["outreach","Outreach"],["pipeline","Pipeline"],["roster","My Roster"],
   ["calendar","Deliverables"],["add","Add Client"],["command","AI Command"]
 ];
@@ -1471,22 +1471,6 @@ function screenSettings(){
   </div>`;
 }
 
-function screenPrograms(){
-  return `<div class="board">
-    <div class="head"><h1>Programs</h1><p>Who decides roster spots. Type a school name.</p></div>
-    <div class="panel">
-      <input class="inp" placeholder="Samford University" style="max-width:420px">
-      <div class="ratelist" style="margin-top:16px">
-        <div class="rateline"><span>Head Coach</span><span>Chris Hatcher</span></div>
-        <div class="rateline"><span>General Manager</span><span>—</span></div>
-        <div class="rateline"><span>Director of Player Personnel</span><span>—</span></div>
-        <div class="rateline"><span>NIL / Collective contact</span><span>—</span></div>
-      </div>
-      <p class="lede" style="margin-top:14px">Sample data. In the live product this pulls the current staff directory for whichever school you type.</p>
-    </div>
-  </div>`;
-}
-
 function simple(title, lede, rows){
   return `<div class="board">
     <div class="head"><h1>${esc(title)}</h1><p>${esc(lede)}</p></div>
@@ -1503,7 +1487,7 @@ const screenContract = () => simple("Contract","Generate and send agreements, th
 const screenGrowth = () => simple("Growth","Guides and playbooks for getting more out of the platform.",
   [["Writing a pitch a business owner answers","6 min"],["Deal Scan, and how the ranking works","4 min"],["What to do when nobody replies","5 min"],["Turning one local deal into three","7 min"]]);
 
-const SCREENS = { home:screenHome, deals:screenDeals, brands:screenBrands, programs:screenPrograms,
+const SCREENS = { home:screenHome, deals:screenDeals, brands:screenBrands,
   marketing:screenMarketing, outreach:screenOutreach, pipeline:screenPipeline, roster:screenRoster,
   calendar:screenCalendar, add:screenAdd, command:screenCommand, inbox:screenInbox,
   settings:screenSettings, growth:screenGrowth, analytics:screenAnalytics,
