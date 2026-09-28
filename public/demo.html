@@ -639,7 +639,39 @@ const SCAN = {
         contacts:[
           {n:"Ray Sowers", r:"Owner", c:"Phone only: (205) 555-0177"}
         ],
-        approach:"Call Ray. No email anywhere, and no website contact form." }
+        approach:"Call Ray. No email anywhere, and no website contact form." },
+      { biz:"Cahaba Heights Physical Therapy", cat:"health", where:"College town - Birmingham", stateChip:"New here",
+        fit:77,
+        why:"Runs a sponsored post every few weeks aimed at high school athletes and their parents. Same audience Trey's parents' friends are in.",
+        idea:"Injury prevention series",
+        pitch:"Three short videos across the season, plus a clinic appearance",
+        wh:"Practices buy credibility, not reach",
+        contacts:[
+          {n:"Dr. Priya Raman", r:"Owner", c:"priya@cahabaheightspt.com"},
+          {n:"Jonah Beck", r:"Office Manager", c:"Phone only: (205) 555-0163"}
+        ],
+        approach:"Email Priya. Lead with the youth clinic, not the posts." },
+      { biz:"Lakeview Coffee Roasters", cat:"coffee", where:"College town - Birmingham", stateChip:"New here",
+        fit:74,
+        why:"Four locations, all within the metro, and an Instagram they post to daily. Small per deal but they renew.",
+        idea:"Morning routine partnership",
+        pitch:"A drink on the house plus one story a week during the season",
+        wh:"Multi location shops can spend a little at every store",
+        contacts:[
+          {n:"Beau Tanner", r:"Owner", c:"beau@lakeviewroasters.com"},
+          {n:"Claire Nyberg", r:"Marketing", c:""}
+        ],
+        approach:"Email Beau. Mention which of the four stores is closest to campus." },
+      { biz:"Homewood Tire & Service", cat:"auto", where:"College town - Birmingham", stateChip:"New here",
+        fit:68,
+        why:"Sponsors the local high school scoreboard, so there is a habit of paying for local visibility. No social to speak of.",
+        idea:"Season sponsorship",
+        pitch:"Flat fee for the season, four posts and a window decal",
+        wh:"Scoreboard sponsors already buy this exact thing, just offline",
+        contacts:[
+          {n:"Gus Marchetti", r:"Owner", c:"Phone only: (205) 555-0121"}
+        ],
+        approach:"Call Gus and compare it to the scoreboard he already pays for." }
     ],
     Social:[
       { biz:"Clutch Grip Co.", cat:"training gear", where:"Social brand", stateChip:"Active with athletes",
@@ -657,7 +689,42 @@ const SCAN = {
         pitch:"Get on the list now for the spring roster",
         wh:"Timing matters more than pitch quality here",
         contacts:[{n:"Dre Mathis", r:"Brand Marketing", c:"dre@fieldlevel.com"}],
-        approach:"Email Dre now so Trey is in the room when they plan spring." }
+        approach:"Email Dre now so Trey is in the room when they plan spring." },
+      { biz:"Rally Bar Supply", cat:"nutrition", where:"Social brand", stateChip:"Active with athletes",
+        fit:80,
+        why:"Seeds product to about a hundred athletes and converts a handful to paid each semester. Low bar to get in, real ceiling if the content performs.",
+        idea:"Seeding into paid",
+        pitch:"Free product now, revisit paid after four posts",
+        wh:"Their paid roster is picked from people already posting",
+        contacts:[{n:"Nadia Foss", r:"Athlete Marketing", c:"nadia@rallybar.com"}],
+        approach:"Email Nadia. Ask to be seeded, not to be paid, on the first message." },
+      { biz:"Grid Athletics", cat:"apparel", where:"Social brand", stateChip:"Active with athletes",
+        fit:76,
+        why:"Smaller apparel label that reposts athlete content constantly. Pays in product plus a commission on a code.",
+        idea:"Affiliate code",
+        pitch:"A personal code and two posts a month, commission on sales",
+        wh:"Affiliate deals cost them nothing up front so they say yes fast",
+        contacts:[
+          {n:"Micah Toll", r:"Founder", c:"micah@gridathletics.com"},
+          {n:"Support", r:"General", c:"@gridathletics"}
+        ],
+        approach:"DM the brand account, Micah answers it himself." },
+      { biz:"Sideline Socks", cat:"apparel", where:"Social brand", stateChip:"Active with athletes",
+        fit:71,
+        why:"Small operation, posts every athlete who wears them. Tiny money but almost guaranteed yes and it fills the feed.",
+        idea:"Product trade",
+        pitch:"Product for one post, repeat monthly if it performs",
+        wh:"Easy wins build a track record for the bigger deals",
+        contacts:[{n:"Ellis Ward", r:"Owner", c:"ellis@sidelinesocks.com"}],
+        approach:"Email Ellis. One paragraph is enough." },
+      { biz:"Two Minute Drill", cat:"media", where:"Social brand", stateChip:"Active with athletes",
+        fit:66,
+        why:"Football content page with a large following that pays a small fee for athlete interviews and film breakdowns.",
+        idea:"Paid feature",
+        pitch:"One film breakdown interview, cross posted to both accounts",
+        wh:"Exposure deals are worth taking when the audience is exactly yours",
+        contacts:[{n:"Booking", r:"No named contact", c:"booking@twominutedrill.tv"}],
+        approach:"Email booking with the best two plays from last season attached." }
     ],
     "National Brands":[
       { biz:"Sideline Hydration", cat:"beverage", where:"National", stateChip:"Application only",
@@ -667,7 +734,25 @@ const SCAN = {
         pitch:"Submit the roster application and move on",
         wh:"National programs are a lottery ticket, not a strategy",
         contacts:[{n:"Partnerships team", r:"No named contact", c:"athletes@sidelinehydration.com"}],
-        approach:"Submit the form. Do not spend more than ten minutes on it." }
+        approach:"Submit the form. Do not spend more than ten minutes on it." },
+      { biz:"Statline Energy", cat:"beverage", where:"National", stateChip:"Application only",
+        fit:58,
+        why:"Signs a few hundred athletes a year but almost all of them are power conference. Worth an application, not worth a follow up.",
+        idea:"Roster application",
+        pitch:"Apply and let the follower count speak",
+        wh:"They filter on school first, so this is a long shot",
+        contacts:[{n:"Athlete program", r:"No named contact", c:"nil@statlineenergy.com"}],
+        approach:"Apply through the form. Do not chase it." },
+      { biz:"Crosscheck Insurance", cat:"insurance", where:"National", stateChip:"Regional program",
+        fit:54,
+        why:"Runs a state by state athlete program through local agents rather than head office. The Alabama agent is the actual decision maker.",
+        idea:"Local agent partnership",
+        pitch:"Work the state agent instead of corporate",
+        wh:"National brands with local franchises decide locally",
+        contacts:[
+          {n:"Regional office", r:"Alabama", c:"al-agents@crosscheckins.com"}
+        ],
+        approach:"Skip corporate. Find the Birmingham agent and email them directly." }
     ]
   }
 };
@@ -865,11 +950,9 @@ function screenDeals(){
   const a = ATHLETES[scanAth];
   const lanes = SCAN.alcott;
   const laneNames = ["Local","Social","National Brands"];
-  const counts = { Local:8, Social:12, "National Brands":6 };
-
   const tabsHtml = laneNames.map(l =>
     `<button type="button" class="ds-lane-tab ${l===scanLane?"active":""}" data-lane="${esc(l)}">
-       ${esc(l)}<span class="ds-tab-count">${scanRun?counts[l]:0}</span></button>`).join("");
+       ${esc(l)}<span class="ds-tab-count">${scanRun?(lanes[l]||[]).length:0}</span></button>`).join("");
 
   const card = r => `
     <div class="ds-card ${r.best?"best":""}">
