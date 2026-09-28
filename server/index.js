@@ -5540,6 +5540,11 @@ const ADMIN_SCRIPTS = {
   // Read-only; no arguments.
   //   /api/admin/scripts/send-status?text=1
   'send-status': { file: 'scripts/send-status.js', args: () => [] },
+  // Visits to the public /demo page, by referrer, screens, what visitors did
+  // (Deal Scan, pitch opened/approved, Book a call) and median time on page.
+  // Read-only; no arguments.
+  //   /api/admin/scripts/demo-stats?text=1
+  'demo-stats': { file: 'scripts/demo-stats.js', args: () => [] },
   // Every email approved and unsent when the release queue shipped, by
   // business, with what became of it: sent, held, deduped, stopped, waiting.
   // Read-only. before= overrides the cutoff (default: the queue's first act).
@@ -14648,6 +14653,24 @@ const DEMO_NO_CACHE = 'no-cache, must-revalidate';
 app.get('/demo', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'demo.html'),
     { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
+});
+
+// ── The demo page's own analytics (services/demoEvents) ─────────────────
+// PUBLIC, like the page. It answers 204 at once, before the row is written and
+// whatever happens after, so the page is never slowed or told anything: a bad
+// body, a tripped limit and a database error all look like success. The IP is
+// used by this limiter, in memory, for its one-minute window, and is never
+// stored. Read the result at /api/admin/scripts/demo-stats?text=1.
+const demoEventLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: parseInt(process.env.DEMO_EVENT_IP_PER_MINUTE, 10) || 120,
+  standardHeaders: false,
+  legacyHeaders: false,
+  handler: (req, res) => res.status(204).end(),
+});
+app.post('/api/demo/event', demoEventLimiter, (req, res) => {
+  res.status(204).end();
+  require('./services/demoEvents').record(store.pool, req.body, req.headers).catch(() => {});
 });
 
 // ── Pitch Deck (Shareable) ────────────────────────────────────────────────

@@ -2567,6 +2567,26 @@ async function init() {
   // deployment is ever going to have now exists and can be compared against
   // what it is supposed to contain.
   //
+  // ── THE PUBLIC DEMO PAGE, COUNTED ─────────────────────────────────────────
+  // One row per event the /demo page sends (services/demoEvents). Nothing that
+  // identifies a person: session_id is a random id the page makes per visit,
+  // referrer is a source bucket or a bare host (never a full URL), device is
+  // mobile / tablet / desktop / bot, and country is a two-letter code taken
+  // from a CDN header when one is present. No IP address is stored, ever.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS demo_events (
+      id          BIGSERIAL PRIMARY KEY,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      session_id  TEXT NOT NULL,
+      event       TEXT NOT NULL,
+      screen      TEXT,
+      referrer    TEXT,
+      device      TEXT,
+      country     TEXT
+    )`).catch((e) => console.error('[demo] demo_events:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_demo_events_created ON demo_events (created_at)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_demo_events_session ON demo_events (session_id, created_at)`).catch(() => {});
+
   // CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so all 937
   // columns declared in the blocks above reach a fresh database and none of them
   // reaches production unless somebody also remembered an ALTER. Four times now

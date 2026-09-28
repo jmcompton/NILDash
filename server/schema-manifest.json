@@ -520,6 +520,16 @@
       "sent_at": "TIMESTAMPTZ DEFAULT NOW()",
       "subject": "TEXT"
     },
+    "demo_events": {
+      "country": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "device": "TEXT",
+      "event": "TEXT",
+      "id": "BIGSERIAL",
+      "referrer": "TEXT",
+      "screen": "TEXT",
+      "session_id": "TEXT"
+    },
     "digest_sends": {
       "agent_id": "TEXT",
       "awaiting_reply": "INT DEFAULT 0",
