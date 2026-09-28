@@ -179,7 +179,20 @@ main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 .ds-fit .n{font-family:var(--display);font-size:26px;font-weight:700;color:var(--lime);line-height:1}
 .ds-fit .l{font-family:var(--mono);font-size:10px;letter-spacing:1.2px;color:var(--dimmer)}
 .ds-fit .q{font-family:var(--mono);font-size:10.5px;color:var(--dim);text-decoration:underline;margin-top:4px}
-.ds-actions{display:flex;gap:9px;flex-wrap:wrap;padding-top:2px;border-top:1px solid #161E2A;margin-top:2px;padding-top:13px}
+.ds-actions{display:flex;gap:9px;flex-wrap:wrap;border-top:1px solid #161E2A;margin-top:2px;padding-top:13px}
+.ds-card.done{border-color:var(--sent-line)}
+.ds-fit .q{background:none;border:none;padding:0;cursor:pointer}
+.ds-draft{display:flex;flex-direction:column;gap:11px;padding-top:3px}
+.ds-drafting{padding:15px 17px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;
+  font-family:var(--mono);font-size:13px;color:var(--lime)}
+.ds-drafting:after{content:"";display:inline-block;width:6px;height:6px;margin-left:8px;border-radius:50%;
+  background:var(--lime);animation:blink 1s steps(2,start) infinite;vertical-align:middle}
+@keyframes blink{to{visibility:hidden}}
+
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:50;
+  max-width:min(92vw,520px);padding:12px 18px;border-radius:11px;
+  background:#16202F;border:1px solid var(--lime-dim);color:var(--text);
+  font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 
 /* ---- tables ---- */
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:13px;background:var(--card)}
@@ -193,7 +206,7 @@ td .s{color:var(--dim);font-size:13px}
 .pager{display:flex;align-items:center;gap:12px;justify-content:flex-end;font-size:13px;color:var(--dim)}
 
 /* ---- pipeline board ---- */
-.kan{display:grid;grid-template-columns:repeat(4,minmax(215px,1fr));gap:12px;overflow-x:auto;padding-bottom:4px}
+.kan{display:grid;grid-template-columns:repeat(5,minmax(205px,1fr));gap:12px;overflow-x:auto;padding-bottom:4px}
 .kancol{background:#0D1420;border:1px solid var(--line);border-radius:13px;padding:13px;display:flex;flex-direction:column;gap:10px;min-width:215px}
 .kanhead{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--dimmer)}
 .kanhead b{padding:1px 7px;border-radius:999px;background:#1C2637;color:var(--muted);font-size:11px;font-weight:400}
@@ -413,6 +426,7 @@ td .s{color:var(--dim);font-size:13px}
     <div id="view"></div>
   </main>
 </div>
+<div id="toast" hidden></div>
 
 <script>
 const CALENDLY = "https://calendly.com/john-comptongroupllc/30min";
@@ -830,7 +844,19 @@ let openKey = "alcott:0";
 let openMail = null;
 let chat = [];
 let state = {};
+let dsState = {};     // "Lane:index" -> { pipeline, kit, contacted, draft, drafting, extra }
+let toastMsg = null, toastT = null;
 let t0 = null, ticker = null;
+
+function toast(msg){
+  toastMsg = msg;
+  const el = $("toast");
+  if (el){ el.textContent = msg; el.hidden = false }
+  clearTimeout(toastT);
+  toastT = setTimeout(()=>{ toastMsg = null; const e2 = $("toast"); if (e2) e2.hidden = true }, 2600);
+}
+const dsKey = (lane,i) => lane + ":" + i;
+function ds(lane,i){ return dsState[dsKey(lane,i)] || (dsState[dsKey(lane,i)] = {}) }
 
 const $ = id => document.getElementById(id);
 const key = (a,i) => a.id + ":" + i;
@@ -850,7 +876,24 @@ function approvedList(){
   }));
   return out;
 }
-function allBrands(){ return approvedList().concat(HISTORY) }
+/* Anything actioned on Deal Scan flows into My Brands, Outreach and Pipeline. */
+function scanActioned(){
+  const out = [];
+  Object.keys(dsState).forEach(k => {
+    const s = dsState[k];
+    if (!s.pipeline && !s.contacted && !s.kit) return;
+    const [lane, idx] = [k.slice(0, k.lastIndexOf(":")), +k.slice(k.lastIndexOf(":")+1)];
+    const r = (SCAN.alcott[lane]||[])[idx];
+    if (!r) return;
+    const a = ATHLETES[scanAth] || ATHLETES[0];
+    out.push({ biz:r.biz, who:r.contacts[0].n + ", " + r.contacts[0].r,
+      contact:r.contacts[0].c || "found by NILDash", ath:a.id, ch:"email", cat:r.cat,
+      lane:lane, town:a.town, sent:s.contacted?"Today":"—",
+      stage:s.contacted?"contacted":"prospect", value:"", fresh:true });
+  });
+  return out;
+}
+function allBrands(){ return scanActioned().concat(approvedList(), HISTORY) }
 
 function startClock(){ if (t0) return; t0 = Date.now(); ticker = setInterval(tickClock, 250) }
 function stopClock(){ if (ticker){ clearInterval(ticker); ticker = null } }
@@ -868,7 +911,28 @@ const chev = hot => '<svg class="chev" width="14" height="14" viewBox="0 0 24 24
   + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
 const CH = { email:{label:"EMAIL",tool:"Preview in Gmail"}, dm:{label:"DM",tool:"Copy DM and open Instagram"}, call:{label:"CALL",tool:"Copy call script"} };
-const STAGE = { contacted:["grey","Pitched"], replied:["blue","Replied"], negotiating:["amber","Negotiating"], closed:["green","Deal signed"] };
+
+/* Builds the AI Outreach draft from the card's own idea and pitch. */
+function draftFor(r, a){
+  const first = (r.contacts[0].n || "there").split(" ")[0];
+  const named = first === "Partnerships" || first === "Athlete" || first === "Regional" || first === "Booking" || first === "Support";
+  const role = a.pos === "Forward" ? "a forward on the soccer team at " + a.school
+             : "a " + (a.pos === "WR" ? "wide receiver" : a.pos === "LB" ? "linebacker" : a.pos) + " at " + a.school;
+  return {
+    subj: a.name + ", " + a.school,
+    body: `Hi ${named ? "there" : first},
+
+I represent ${a.name}, ${role}. He's putting together a few partnerships for the season and your name came up for ${r.idea.toLowerCase()}.
+
+The simple version: ${r.pitch.charAt(0).toLowerCase() + r.pitch.slice(1)}. Low lift on your end.
+
+Want me to send his media kit over?
+
+Ross Kellner
+Kellner Sports Group`
+  };
+}
+const STAGE = { prospect:["grey","In pipeline"], contacted:["grey","Pitched"], replied:["blue","Replied"], negotiating:["amber","Negotiating"], closed:["green","Deal signed"] };
 const helpRow = '<div><button type="button" class="help">?</button></div>';
 
 /* ============================ SCREENS ============================ */
@@ -954,8 +1018,29 @@ function screenDeals(){
     `<button type="button" class="ds-lane-tab ${l===scanLane?"active":""}" data-lane="${esc(l)}">
        ${esc(l)}<span class="ds-tab-count">${scanRun?(lanes[l]||[]).length:0}</span></button>`).join("");
 
-  const card = r => `
-    <div class="ds-card ${r.best?"best":""}">
+  const card = (r,i) => {
+    const s = ds(scanLane,i);
+    const d = draftFor(r, a);
+    const marks = [
+      s.pipeline ? '<span class="chip lime">In pipeline</span>' : "",
+      s.kit ? '<span class="chip blue">Kit sent</span>' : "",
+      s.contacted ? '<span class="chip green">Contacted</span>' : ""
+    ].filter(Boolean).join("");
+    const extra = s.extra ? `<div class="ds-person"><b>${esc(r.contacts[0].n.split(" ")[0])}'s direct line</b>
+        <span class="c">(205) 555-0${100+i}${i}</span><span class="src">verified just now</span></div>` : "";
+    const panel = s.drafting
+      ? `<div class="ds-draft"><div class="ds-drafting">Writing a pitch for ${esc(r.biz)}…</div></div>`
+      : s.draft
+        ? `<div class="ds-draft">
+             <div class="pitch"><span class="subj">Subject: <b>${esc(d.subj)}</b></span>${esc(d.body)}</div>
+             <div class="tools">
+               <button type="button" class="btn go sm" data-dsdo="send" data-i="${i}">Approve and send</button>
+               <button type="button" class="tool" data-dsdo="regen" data-i="${i}">Rewrite it</button>
+               <button type="button" class="tool" data-dsdo="closedraft" data-i="${i}">Close</button>
+             </div></div>`
+        : "";
+    return `
+    <div class="ds-card ${r.best?"best":""} ${s.contacted?"done":""}">
       <div class="ds-top">
         <div class="ds-main">
           <div class="ds-titleline">
@@ -965,6 +1050,7 @@ function screenDeals(){
             <span class="ds-lane-chip">${esc(r.where)}</span>
             <span style="font-size:13.5px;color:var(--dim)">${esc(r.cat)}</span>
             ${r.best?'<span class="ds-lane-chip best">BEST FIT</span>':""}
+            ${marks}
           </div>
           <div class="ds-why">${esc(r.why)}</div>
           <div class="ds-idea"><b>IDEA</b>${esc(r.idea)}</div>
@@ -977,20 +1063,25 @@ function screenDeals(){
             ${r.contacts.map(p=>`<div class="ds-person">
               <b>${esc(p.n)}</b><span class="r">${esc(p.r)}</span>
               ${p.c?`<span class="c">${esc(p.c)}</span>`:""}<span class="src">source</span></div>`).join("")}
+            ${extra}
             <div class="ds-approach"><b>APPROACH</b>${esc(r.approach)}</div>
-            <div><button type="button" class="btn ghost xs">Find the decision maker</button></div>
+            <div><button type="button" class="btn ghost xs" data-dsdo="decision" data-i="${i}" ${s.extra?"disabled style=opacity:.45":""}>
+              ${s.extra?"Decision maker found":"Find the decision maker"}</button></div>
           </div>
+          ${panel}
         </div>
-        <div class="ds-fit"><span class="n">${r.fit}</span><span class="l">FIT</span><span class="q">why?</span></div>
+        <div class="ds-fit"><span class="n">${r.fit}</span><span class="l">FIT</span>
+          <button type="button" class="q" data-dsdo="fitwhy" data-i="${i}">why?</button></div>
       </div>
       <div class="ds-actions">
-        <button type="button" class="btn go sm">Write Outreach</button>
-        <button type="button" class="btn ghost sm">+ Pipeline</button>
-        <button type="button" class="btn ghost sm">⚡ AI Outreach</button>
-        <button type="button" class="btn ghost sm">Send kit</button>
-        <button type="button" class="btn ghost sm">Mark as contacted</button>
+        <button type="button" class="btn go sm" data-dsdo="write" data-i="${i}">Write Outreach</button>
+        <button type="button" class="btn ghost sm" data-dsdo="pipeline" data-i="${i}" ${s.pipeline?"disabled style=opacity:.45":""}>${s.pipeline?"In pipeline":"+ Pipeline"}</button>
+        <button type="button" class="btn ghost sm" data-dsdo="ai" data-i="${i}">⚡ AI Outreach</button>
+        <button type="button" class="btn ghost sm" data-dsdo="kit" data-i="${i}" ${s.kit?"disabled style=opacity:.45":""}>${s.kit?"Kit sent":"Send kit"}</button>
+        <button type="button" class="btn ghost sm" data-dsdo="contacted" data-i="${i}" ${s.contacted?"disabled style=opacity:.45":""}>${s.contacted?"Contacted":"Mark as contacted"}</button>
       </div>
     </div>`;
+  };
 
   const results = !scanRun
     ? `<div class="empty"><b>Select a client and run a deal scan</b>
@@ -998,7 +1089,7 @@ function screenDeals(){
     : scanning
       ? `<div class="empty"><b>Scanning ${esc(a.town)}…</b>Checking local businesses, social brands, and national programs.</div>`
       : `<input class="inp" placeholder="Know a business already? Add it." style="margin-bottom:13px">
-         <div style="display:flex;flex-direction:column;gap:11px">${(lanes[scanLane]||[]).map(card).join("")}</div>`;
+         <div style="display:flex;flex-direction:column;gap:11px">${(lanes[scanLane]||[]).map((r,i)=>card(r,i)).join("")}</div>`;
 
   return `<div class="board">
     ${helpRow}
@@ -1023,7 +1114,7 @@ function screenBrands(){
     <div class="head"><h1>My Brands</h1>
       <p>Every business found for your athletes, with the owner, the contact and where the pitch stands. Nothing here runs a search: it is what NILDash already holds.</p></div>
     <div class="toolrow"><span class="grow"></span>
-      <button type="button" class="btn ghost sm">↓ Download spreadsheet</button></div>
+      <button type="button" class="btn ghost sm" data-toast="CSV downloads in the live product">↓ Download spreadsheet</button></div>
     <div class="kpi-grid">
       <div class="kpi"><span class="kpi-label">BUSINESSES FOUND</span><span class="kpi-val">${rows.length}</span></div>
       <div class="kpi"><span class="kpi-label">OWNERS IDENTIFIED</span><span class="kpi-val">${owners}</span></div>
@@ -1068,8 +1159,8 @@ function screenOutreach(){
       <select class="sel"><option>All Athletes</option>${ATHLETES.map(a=>`<option>${esc(a.name)}</option>`).join("")}</select>
       <select class="sel"><option>All Types</option><option>Agent Outreach</option><option>Athlete Outreach</option></select>
       <span class="grow"></span>
-      <button type="button" class="btn ghost sm">↻ Refresh</button>
-      <button type="button" class="btn go sm">+ Log Outreach</button>
+      <button type="button" class="btn ghost sm" data-toast="Refreshed">↻ Refresh</button>
+      <button type="button" class="btn go sm" data-toast="Log form opens in the live product">+ Log Outreach</button>
     </div>
     <div class="tablewrap"><table>
       <thead><tr><th>Business</th><th>Sent</th><th>Athlete</th><th>Channel</th><th>Status</th></tr></thead>
@@ -1107,7 +1198,7 @@ function screenPipeline(){
       <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted)">
         <input type="checkbox" id="activeOnly"> Show active client only</label>
       <span class="grow"></span>
-      <button type="button" class="btn ghost sm">Export CSV</button>
+      <button type="button" class="btn ghost sm" data-toast="CSV downloads in the live product">Export CSV</button>
     </div>
     <div class="kpi-grid">
       <div class="kpi"><span class="kpi-label">TOTAL PIPELINE</span><span class="kpi-val lime">$2,250</span></div>
@@ -1115,10 +1206,10 @@ function screenPipeline(){
       <div class="kpi"><span class="kpi-label">CLOSING SOON</span><span class="kpi-val">1</span></div>
     </div>
     <div class="kan">
-      ${col("contacted","PROSPECTING")}${col("replied","REPLIED")}
-      ${col("negotiating","NEGOTIATING")}${col("closed","CLOSED")}
+      ${col("prospect","IN PIPELINE")}${col("contacted","PROSPECTING")}
+      ${col("replied","REPLIED")}${col("negotiating","NEGOTIATING")}${col("closed","CLOSED")}
     </div>
-    <div class="toolrow"><button type="button" class="btn go">+ Add Deal</button></div>
+    <div class="toolrow"><button type="button" class="btn go" data-toast="Deal form opens in the live product">+ Add Deal</button></div>
   </div>`;
 }
 
@@ -1127,7 +1218,7 @@ function screenRoster(){
   return `<div class="board">
     <div class="head"><h1>My Roster</h1>
       <p>Your clients, click any card to make them active.</p></div>
-    <div class="toolrow"><span class="grow"></span><button type="button" class="btn ghost sm">Export CSV</button></div>
+    <div class="toolrow"><span class="grow"></span><button type="button" class="btn ghost sm" data-toast="CSV downloads in the live product">Export CSV</button></div>
     <div class="grid g2">${ATHLETES.map((a,n)=>`
       <div class="rcard">
         <div class="rtop">
@@ -1141,7 +1232,7 @@ function screenRoster(){
           <span class="rnum">${a.eng} eng</span>
           <span class="rnum">${pending(a)} pitches waiting</span>
         </div>
-        <div class="rbtns">${btns.map(b=>`<button type="button" class="btn ghost xs"${b==="Pitch Deck"?` data-goto="marketing" data-kitn="${n}"`:""}>${b}</button>`).join("")}</div>
+        <div class="rbtns">${btns.map(b=>`<button type="button" class="btn ghost xs"${b==="Pitch Deck"?` data-goto="marketing" data-kitn="${n}"`:b==="Outreach"?` data-goto="deals"`:b==="Compliance"?` data-toast="No blocked categories for this athlete"`:` data-toast="${b} opens in the live product"`}>${b}</button>`).join("")}</div>
       </div>`).join("")}
     </div>
   </div>`;
@@ -1227,8 +1318,8 @@ function screenMarketing(){
       </div>
     </div>
     <div class="toolrow">
-      <button type="button" class="btn go">Copy shareable link</button>
-      <button type="button" class="btn ghost">Download PDF</button>
+      <button type="button" class="btn go" data-toast="Link copied: mynildash.com/media-kit/trey-alcott-nil">Copy shareable link</button>
+      <button type="button" class="btn ghost" data-toast="PDF downloads in the live product">Download PDF</button>
     </div>
   </div>`;
 }
@@ -1240,12 +1331,12 @@ function screenAdd(){
     <div class="panel">
       <div class="toolrow" style="margin-bottom:14px">
         <h3 style="margin:0">Client Details</h3><span class="grow"></span>
-        <button type="button" class="btn ghost sm">⇧ Import from spreadsheet</button>
+        <button type="button" class="btn ghost sm" data-toast="Drop a spreadsheet below to import a whole roster">⇧ Import from spreadsheet</button>
       </div>
       <div class="formgrid">
         <div class="field"><label>FULL NAME *</label><input class="inp" id="f-name" placeholder="Trey Alcott">
           <span class="hint">Enter school and sport first for best results. Press Enter to search.</span></div>
-        <div class="field"><label>&nbsp;</label><button type="button" class="btn go">AI Lookup</button></div>
+        <div class="field"><label>&nbsp;</label><button type="button" class="btn go" id="aiLookup">AI Lookup</button></div>
         <div class="field wide"><label>FULL LEGAL NAME (OPTIONAL)</label><input class="inp" id="f-legal" placeholder="Used on contracts. Leave blank to use their name above."></div>
         <div class="field"><label>SPORT *</label><select class="sel" id="f-sport" style="height:42px">${sports.map(s=>`<option>${s}</option>`).join("")}</select></div>
         <div class="field"><label>POSITION</label><input class="inp" id="f-pos" placeholder="AI fills this in"></div>
@@ -1276,10 +1367,10 @@ function screenCommand(){
     <div class="panel">
       <h3>Quick Actions</h3>
       <div class="qa" style="margin-top:11px">
-        <button type="button" class="btn ghost sm">Calculate Rate for Client</button>
+        <button type="button" class="btn ghost sm" data-toast="Trey Alcott: $350 a post at 11,500 reach and 4.1% engagement">Calculate Rate for Client</button>
         <button type="button" class="btn ghost sm" data-goto="deals">Scan for New Deals</button>
-        <button type="button" class="btn ghost sm">Generate Pitch Deck</button>
-        <button type="button" class="btn ghost sm">Generate Contract</button>
+        <button type="button" class="btn ghost sm" data-toast="Pitch deck generated for Trey Alcott">Generate Pitch Deck</button>
+        <button type="button" class="btn ghost sm" data-toast="Contract drafted, ready to send for signature">Generate Contract</button>
       </div>
     </div>
     <div class="panel">
@@ -1304,7 +1395,7 @@ function screenInbox(){
     <div class="head"><h1>Email Inbox</h1><p>Your connected email conversations.</p></div>
     <div class="toolrow">
       <span class="chip lime">My Gmail</span><span class="chip grey">Athlete Emails</span>
-      <span class="grow"></span><button type="button" class="btn go sm">+ Compose</button>
+      <span class="grow"></span><button type="button" class="btn go sm" data-toast="Compose opens your connected Gmail">+ Compose</button>
     </div>
     <div class="notice"><b>📤 Send from your Gmail, right here</b>
       Your connected Gmail is ready for outreach. Every email you send from NILDash goes from your own account, so replies come back to you.</div>
@@ -1324,7 +1415,7 @@ function screenInbox(){
         ${open?`<div class="mailtext">${esc(m.text)}</div>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn go sm" type="button" data-goto="command">Draft a reply with AI</button>
-            <button class="btn ghost sm" type="button">Mark as a deal</button>
+            <button class="btn ghost sm" type="button" data-toast="Moved to Pipeline as a live deal">Mark as a deal</button>
           </div>`:""}
       </div>`;
     }).join("")}</div>
@@ -1343,7 +1434,7 @@ function screenSettings(){
           <div class="field wide"><label>SCHEDULING LINK</label><input class="inp" id="s-link" placeholder="Leave blank if you do not use one">
             <span class="hint">Becomes a clickable link, not a pasted address.</span></div>
         </div>
-        <div class="toolrow" style="margin-top:13px"><button type="button" class="btn go sm">Save signature</button></div>
+        <div class="toolrow" style="margin-top:13px"><button type="button" class="btn go sm" data-toast="Signature saved">Save signature</button></div>
       </div>
       <div class="panel"><h3>Mailbox</h3>
         <p class="lede" style="margin-bottom:14px">Outreach sends from your own address, so replies come back to you.</p>
@@ -1440,8 +1531,55 @@ function render(){
 
 /* ============================ EVENTS ============================ */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-tab],[data-do],[data-open],[data-lane],[data-mail],[data-ask],#approveAll,#runScan,#rescan,#moreBtn,#reset");
+  const t = e.target.closest("[data-goto],[data-tab],[data-do],[data-dsdo],[data-open],[data-lane],[data-mail],[data-ask],[data-toast],#aiLookup,#approveAll,#runScan,#rescan,#moreBtn,#reset");
   if (!t) return;
+
+  if (t.id === "aiLookup"){
+    const nm = ($("f-name")||{}).value || "";
+    if (!nm.trim()){ toast("Type a name first, then AI Lookup fills the rest"); return }
+    const m = ATHLETES.find(a => a.name.toLowerCase().startsWith(nm.trim().toLowerCase().split(" ")[0]))
+           || ATHLETES[0];
+    const set = (id,v) => { const el = $(id); if (el) el.value = v };
+    toast("Looking up " + nm.trim() + "…");
+    setTimeout(()=>{
+      set("f-school", m.school); set("f-pos", m.pos); set("f-ig", m.igHandle);
+      set("f-legal", m.name);
+      const sp = $("f-sport");
+      if (sp) [...sp.options].forEach(o => { if (o.text.toLowerCase() === m.sport.toLowerCase()) sp.value = o.value });
+      toast("Filled school, position, sport and Instagram from public sources");
+    }, 900);
+    return;
+  }
+
+  if (t.dataset.toast){ toast(t.dataset.toast); return }
+
+  if (t.dataset.dsdo){
+    const i = +t.dataset.i;
+    const r = (SCAN.alcott[scanLane]||[])[i];
+    const s = ds(scanLane,i);
+    const act = t.dataset.dsdo;
+    if (act === "ai" || act === "write" || act === "regen"){
+      s.drafting = true; s.draft = false; render();
+      setTimeout(()=>{ s.drafting = false; s.draft = true; render() }, act==="regen"?700:950);
+      return;
+    }
+    if (act === "closedraft"){ s.draft = false; render(); return }
+    if (act === "send"){
+      s.draft = false; s.contacted = true; s.sent = true;
+      toast("Sent to " + r.contacts[0].n.split(" ")[0] + " at " + r.biz);
+      render(); return;
+    }
+    if (act === "pipeline"){ s.pipeline = true; toast(r.biz + " added to Pipeline"); render(); return }
+    if (act === "kit"){ s.kit = true; toast("Media kit sent to " + r.biz); render(); return }
+    if (act === "contacted"){ s.contacted = true; toast(r.biz + " marked as contacted"); render(); return }
+    if (act === "decision"){
+      s.extra = true; toast("Found a direct line for " + r.contacts[0].n.split(" ")[0]); render(); return;
+    }
+    if (act === "fitwhy"){
+      toast("Fit " + r.fit + ": " + r.wh.toLowerCase());
+      return;
+    }
+  }
 
   if (t.id === "reset"){
     state = {}; tab = 0; kitTab = 0; scanAth = 0; scanLane = "Local"; scanRun = false; scanning = false;
