@@ -77,11 +77,15 @@ async function findOwnerName({ brand, city, search, say, order }) {
   const c = String(city || '').trim();
   if (!b) return null;
   const queries = Array.isArray(order) && order.length ? order.map((k) => QUERIES.find((q) => q.key === k)).filter(Boolean) : QUERIES;
+  // How many searches actually answered. If NONE did, "no name" is not an
+  // answer about the business, it is our outage (services/ourFault): thrown,
+  // so it is never cached and never recorded as "no name found".
+  let answered = 0, lastErr = null;
   for (const q of queries) {
     const prompt = `Search for: ${q.q(b, c)}\nBusiness: ${b}${c ? `\nCity: ${c}` : ''}\nWho is ${q.ask} of this business? Use only what the pages say.`;
     let out = null;
-    try { out = await search(prompt, SYS); }
-    catch (e) { if (say) say(`${b}: owner search (${q.key}) failed: ${e.message}`); continue; }
+    try { out = await search(prompt, SYS); answered++; }
+    catch (e) { lastErr = e; if (say) say(`${b}: owner search (${q.key}) failed: ${e.message}`); continue; }
     // THE SEARCH RETURNS AN OBJECT, NOT A STRING. ai.webSearchJson (the
     // primitive the job injects) returns { text, citations, searches, ... };
     // this read it as a string, so every answer parsed as "[object Object]"
@@ -96,6 +100,10 @@ async function findOwnerName({ brand, city, search, say, order }) {
     const title = acceptableTitle(j.title, fallback);
     if (!title) { if (say) say(`${b}: owner search (${q.key}) named ${j.name} as "${j.title}", not a decision maker; refused`); continue; }
     return { name: String(j.name).trim().replace(/\s+/g, ' '), title, sourceUrl: j.sourceUrl || cited || null, query: q.key, confidence: String(j.confidence || 'low') };
+  }
+  if (!answered && lastErr) {
+    const OF = require('./ourFault');
+    throw OF.isOurFault(lastErr) ? lastErr : OF.fault('owner-name-search', lastErr.message || String(lastErr));
   }
   return null;
 }

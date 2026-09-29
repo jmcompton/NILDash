@@ -108,17 +108,21 @@ async function lookupPlaceResult(brand, locationHint = '') {
     // either. A 429 or a 500 says nothing whatsoever about the place.
     if (!resp.ok) {
       console.warn('[places] brand=' + brand + ' http=' + resp.status);
-      return { ok: false, place: null, reason: 'http-' + resp.status };
+      let msg = ''; try { const j = await resp.json(); msg = (j && j.error && (j.error.status + ': ' + j.error.message)) || ''; } catch (_) {}
+      require('./ourFault').record('google-places', `HTTP ${resp.status}${msg ? ' ' + msg : ''}`, 'placesLookup.lookupPlaceResult');
+      return { ok: false, place: null, reason: 'http-' + resp.status + (msg ? ' ' + msg.slice(0, 160) : '') };
     }
     data = await resp.json();
   } catch (e) {
     console.warn('[places] brand=' + brand + ' error=' + e.message);
+    require('./ourFault').record('google-places', e.message, 'placesLookup.lookupPlaceResult');
     return { ok: false, place: null, reason: 'error:' + e.message };
   }
 
   const p = data && Array.isArray(data.places) && data.places[0];
   if (!p) {
-    try { await store.saveBrandEvidence(cacheKey, 'places', brand, null, { found: false }, 'NONE'); } catch (_) {}
+    // Google answered 200 with no place: a confirmed negative.
+    try { await store.saveBrandEvidence(cacheKey, 'places', brand, null, { found: false }, 'NONE', { confirmed: true }); } catch (_) {}
     console.log('[places] brand=' + brand + ' found=0');
     return { ok: true, place: null, reason: 'not-found' };
   }
@@ -172,7 +176,8 @@ async function geocodePlace(query) {
     const p = data && Array.isArray(data.places) && data.places[0];
     const loc = p && p.location;
     if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) {
-      try { await store.saveBrandEvidence(cacheKey, 'places', q, null, { found: false }, 'NONE'); } catch (_) {}
+      // Google answered 200 with no location: a confirmed negative.
+      try { await store.saveBrandEvidence(cacheKey, 'places', q, null, { found: false }, 'NONE', { confirmed: true }); } catch (_) {}
       return null;
     }
     const out = { found: true, lat: loc.latitude, lng: loc.longitude, address: p.formattedAddress || null };

@@ -148,7 +148,9 @@ async function geocodeSchool(school, deps = {}) {
     if (!store || typeof store.saveBrandEvidence !== 'function') return;
     try {
       await store.saveBrandEvidence(key, CACHE_LANE, String(school).trim(), null,
-        { found: false, why: why || null, at: new Date().toISOString() }, 'NONE');
+        { found: false, why: why || null, at: new Date().toISOString() }, 'NONE',
+        // Every caller of saveNegative runs after res.ok: Places answered.
+        { confirmed: true });
     } catch (_) {}
   };
 

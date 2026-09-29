@@ -265,15 +265,18 @@ async function findInstagram(website, opts) {
   // 1. the site itself — only when there is one. No site is not a failure now,
   //    it is simply a lookup that starts at step 2.
   let html = null;
+  // Could we read the site? A site we could not fetch is not a site with no
+  // handle, so a negative after it is not confirmed (services/ourFault).
+  let siteFailed = null;
   if (url) {
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
       const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NILDashBot/1.0)' } });
       clearTimeout(t);
-      if (!resp.ok) console.warn('[instagram] ' + label + ' http=' + resp.status);
+      if (!resp.ok) { siteFailed = 'http ' + resp.status; console.warn('[instagram] ' + label + ' http=' + resp.status); }
       else html = await resp.text();
-    } catch (e) { console.warn('[instagram] ' + label + ' error=' + e.message); }
+    } catch (e) { siteFailed = e.message; console.warn('[instagram] ' + label + ' error=' + e.message); }
   }
 
   const scraped = _extractHandle(html, o.brand, o.loc);
@@ -315,7 +318,10 @@ async function findInstagram(website, opts) {
     }
     // The brand rides along so a name-keyed row is readable in the table without
     // reverse-engineering the key.
-    try { await store.saveBrandEvidence(key, 'instagram', o.brand || website || null, website || null, { found: false }, 'NONE'); } catch (_) {}
+    // Confirmed only when every step that could have found it actually ran:
+    // the site (if there is one) was read, and the search ran without error.
+    const confirmed = !siteFailed && !!canSearch;
+    try { await store.saveBrandEvidence(key, 'instagram', o.brand || website || null, website || null, { found: false }, 'NONE', { confirmed }); } catch (_) {}
     console.log('[instagram] ' + label + ' found=0' + (domain ? '' : ' (no domain — searched by name)'));
     return null;
   }

@@ -512,7 +512,13 @@ async function findSiteEmail(website, opts = {}) {
   };
 
   try {
-    await store.saveBrandEvidence(cacheKey, 'siteemail', opts.brand || siteRoot, site, out, out.email ? 'OK' : (formUrl ? 'FORM' : 'NONE'));
+    // A negative is kept only when we actually READ the pages and they had no
+    // address ('fetched-empty'). 'fetch-failed' (blocked, DNS, 429, timeout) is
+    // ours, and a JavaScript shell with no text was never read either, so
+    // neither is cached: one night of blocked traffic used to remove this step
+    // for a month (services/ourFault).
+    await store.saveBrandEvidence(cacheKey, 'siteemail', opts.brand || siteRoot, site, out, out.email ? 'OK' : (formUrl ? 'FORM' : 'NONE'),
+      { confirmed: out.outcomeKind === 'fetched-empty' });
   } catch (_) { /* caching is best-effort */ }
 
   console.log(`[site-email] ${siteRoot} pages=${pages.length} email=${out.email || '-'} type=${out.type || '-'}`

@@ -85,23 +85,37 @@ async function main() {
   ok('a 200 with no addresses returns null', r === null, r);
   ok('  recorded NONE — a real coverage miss', (await outcomeOf('none.com')).outcome === 'NONE');
 
-  // THE fbf5865 GAP: these four wrote NO ROW before.
-  for (const [d, want] of [['401.com', 'HTTP_401'], ['429.com', 'HTTP_429'],
-                           ['500.com', 'HTTP_ERR'], ['slow.com', 'TIMEOUT'], ['boom.com', 'ERROR']]) {
+  // ── A FAILURE IS OURS, NOT THE DOMAIN'S (services/ourFault) ──────────────
+  // These used to be cached with their outcome and served back for six hours
+  // as "no match". The rule: never cached, recorded as a fault with Hunter's
+  // own words, and the deep path is told { fault } instead of a coverage miss.
+  const faultRow = async (d) => (await store.pool.query(
+    `SELECT reason FROM service_faults WHERE service = 'hunter' AND context = $1 ORDER BY id DESC LIMIT 1`, ['@' + d])).rows[0];
+  await store.pool.query(`DELETE FROM service_faults WHERE service = 'hunter'`).catch(() => {});
+  for (const [d, want, words] of [['401.com', 'HTTP_401', /Invalid API key/], ['429.com', 'HTTP_429', /Too many requests/],
+                                  ['500.com', 'HTTP_ERR', /HTTP 500/], ['slow.com', 'TIMEOUT', /aborted/], ['boom.com', 'ERROR', /ECONNRESET/]]) {
+    H._resetBreaker();
     r = await H.findDomainEmails(d);
-    const row = await outcomeOf(d);
-    ok(`${d} returns null but RECORDS ${want}`, r === null && row && row.outcome === want, row && row.outcome);
+    const deep = (H._resetBreaker(), await H.findDomainEmails(d, { withPattern: true }));
+    const fr = await faultRow(d);
+    ok(`${d} returns null to the old callers and caches NOTHING`, r === null && !(await outcomeOf(d)), await outcomeOf(d));
+    ok(`  the deep path is told it was a fault: ${want}`, deep && deep.fault && deep.fault.outcome === want, deep);
+    ok(`  recorded in service_faults with Hunter's words`, fr && words.test(fr.reason), fr);
   }
-  ok('  a 401 keeps the HTTP status on the row', (await outcomeOf('401.com')).evidence.status === 401);
-  ok('  and the reason Hunter gave', /Invalid API key/.test((await outcomeOf('401.com')).evidence.reason || ''));
-  ok('  a 429 keeps its status too', (await outcomeOf('429.com')).evidence.status === 429);
-  ok('  a timeout is distinguishable from a network error',
-    (await outcomeOf('slow.com')).outcome !== (await outcomeOf('boom.com')).outcome);
 
-  // failures are NOT retried into a second credit
-  CALLS = [];
+  // A key or quota failure trips the breaker: the next domain is not called
+  // at all for a while, instead of spending a request per business all night.
+  H._resetBreaker();
   await H.findDomainEmails('429.com');
-  ok('a recorded failure is not immediately re-called (cooldown)', CALLS.length === 0, CALLS);
+  CALLS = [];
+  r = await H.findDomainEmails('fresh.com', { withPattern: true });
+  ok('after a 429 the breaker stops the next call reaching Hunter', CALLS.length === 0 && r && r.fault, { CALLS, r });
+  H._resetBreaker();
+  await H.findDomainEmails('500.com');
+  CALLS = [];
+  await H.findDomainEmails('fresh2.com');
+  ok('  a plain 500 does not trip it: the next domain is still asked', CALLS.length === 1, CALLS);
+  H._resetBreaker();
 
   // an ANSWER is served from cache, free
   CALLS = [];
@@ -109,14 +123,15 @@ async function main() {
   ok('a fresh answer is served from cache', r && r.cached === true, r);
   ok('  costing no call', CALLS.length === 0, CALLS);
 
-  // no key -> recorded, never silent
+  // no key -> a fault, never silent, never cached
   const savedKey = process.env.HUNTER_API_KEY;
   delete process.env.HUNTER_API_KEY;
   CALLS = [];
   r = await H.findDomainEmails('nokey.com');
   ok('with no API key nothing is called', CALLS.length === 0 && r === null, CALLS);
-  ok('  and NO_KEY is recorded, not silence', (await outcomeOf('nokey.com')).outcome === 'NO_KEY');
+  ok('  and it is a recorded fault, not a cached answer', !(await outcomeOf('nokey.com')) && /NO_KEY/.test(((await faultRow('nokey.com')) || {}).reason || ''));
   process.env.HUNTER_API_KEY = savedKey;
+  H._resetBreaker();
 
   // ── THE TWO USES, AND THE ABSENT THIRD ───────────────────────────────────
   // The merge logic lives in ai.js; lift it the same way the other suites do.

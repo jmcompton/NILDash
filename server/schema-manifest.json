@@ -1123,6 +1123,14 @@
       "status": "TEXT DEFAULT 'auto'",
       "uses": "INTEGER DEFAULT 1"
     },
+    "service_faults": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "context": "TEXT",
+      "id": "SERIAL",
+      "reason": "TEXT",
+      "service": "TEXT",
+      "suppressed": "INT DEFAULT 0"
+    },
     "shift_report_sends": {
       "agent_id": "TEXT",
       "items": "INT DEFAULT 0",

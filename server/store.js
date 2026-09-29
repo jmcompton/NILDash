@@ -3688,9 +3688,19 @@ async function getBrandEvidence(brandKey, lane, maxAgeDays = 7) {
   }
 }
 
-async function saveBrandEvidence(brandKey, lane, brand, website, evidence, outcome) {
+// THE RULE (services/ourFault): an error outcome is never cached, and a
+// negative is cached only when the caller confirms it -- opts.confirmed means
+// "we asked, the provider answered, and the answer was nothing". A negative
+// that came from an outage would otherwise sit here for 30 days and keep
+// hurting after the provider recovered. Returns false when refused.
+async function saveBrandEvidence(brandKey, lane, brand, website, evidence, outcome, opts) {
   const key = String(brandKey || '').trim().toLowerCase();
-  if (!key || !lane) return;
+  if (!key || !lane) return false;
+  const gate = require('./services/ourFault').cacheable(outcome, evidence, opts);
+  if (!gate.ok) {
+    console.log(`[cache] NOT WRITTEN key=${lane}:${key}: ${gate.why}`);
+    return false;
+  }
   try {
     await pool.query(
       `INSERT INTO brand_evidence_cache (brand_key, lane, brand, website, evidence, outcome, refreshed_at)
@@ -3705,9 +3715,11 @@ async function saveBrandEvidence(brandKey, lane, brand, website, evidence, outco
     );
     scanMeter.bumpWrite();
     console.log(`[cache] WRITE key=${lane}:${key} -> ok (outcome=${outcome || 'null'})`);
+    return true;
   } catch (e) {
     scanMeter.bumpWriteFail();
     console.error(`[cache] WRITE key=${lane}:${key} -> FAILED ${e.message}`);
+    return false;
   }
 }
 
@@ -4055,6 +4067,22 @@ async function ensureMarketSightings() {
   `).catch(e => console.error('[init] places_market_builds:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS places_market_builds_at_idx ON places_market_builds (at)`)
     .catch(e => console.error('[init] places_market_builds index:', e.message));
+  // ── OUR FAILURES, IN ONE PLACE (services/ourFault) ────────────────────────
+  // Every OurFault: a provider that refused or was down, a missing key, our
+  // own database. Throttled per service+reason (suppressed = how many repeats
+  // the row stands for). Read by the morning alert and the status page.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS service_faults (
+      id         SERIAL PRIMARY KEY,
+      service    TEXT NOT NULL,
+      reason     TEXT,
+      context    TEXT,
+      suppressed INT DEFAULT 0,
+      at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `).catch(e => console.error('[init] service_faults:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS service_faults_at_idx ON service_faults (at)`)
+    .catch(e => console.error('[init] service_faults index:', e.message));
   // ── THE MORNING ALERT, ONCE A DAY ─────────────────────────────────────────
   // services/morningAlert: one row per Central date, claimed before anything is
   // sent, so a restart or a second instance cannot mail it twice.

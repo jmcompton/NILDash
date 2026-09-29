@@ -450,6 +450,26 @@ async function toolLoop({ system, messages, tools, model, maxTokens, maxRounds, 
   return { text: stripEmDashes(text), calls, stopped: false, exhausted: true };
 }
 
+// ── A SEARCH ERROR COMES BACK AS A 200 ─────────────────────────────────────
+// Anthropic's server-side web_search does not throw: a failed search is a
+// web_search_tool_result block whose content is an error OBJECT (a successful
+// one is a LIST), e.g. { error_code: 'too_many_requests' }. Reading only the
+// text blocks meant the model answered from no pages and we cached the empty
+// answer as a fact. Any such error is an OurFault (services/ourFault), except
+// max_uses_exceeded: that is our own cap on searches, and the results the
+// model already has are real.
+function _webSearchFault(blocks, where) {
+  const errs = (blocks || [])
+    .filter((b) => b && b.type === 'web_search_tool_result' && b.content && !Array.isArray(b.content))
+    .map((b) => b.content.error_code || b.content.type || 'unknown')
+    .filter((c) => c !== 'max_uses_exceeded');
+  if (!errs.length) return null;
+  const OF = require('./services/ourFault');
+  const f = OF.fault('anthropic-web-search', 'web search returned ' + [...new Set(errs)].join(', '));
+  OF.record(f, null, where);
+  return f;
+}
+
 // Web-search-enabled one-shot. Uses Anthropic's server-side web_search tool so
 // brand discovery returns REAL, verifiable local businesses. Falls back to the
 // caller's error handling on timeout/failure.
@@ -483,6 +503,7 @@ async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model, o
     messages: [{ role: 'user', content: prompt }],
   });
   Ledger.record(msg, { model: model || MODEL_BALANCED, ms: Date.now() - _t0, ctx: scanMeter.ctx() });
+  { const f = _webSearchFault(msg.content, 'oneShotWebSearch'); if (f) throw f; }
   // Collect all text blocks from the final assistant turn
   const text = (msg.content || [])
     .filter(b => b.type === 'text')
@@ -684,23 +705,30 @@ async function getSchoolLocation(school) {
       MODEL_FAST
     ), 6000, '');
     console.log(`[getSchoolLocation] web geocode for "${school}" took ${Date.now() - _tGeo}ms`);
-    const m = raw && raw.match(/\{[\s\S]*\}/);
-    if (m) {
-      const parsed = JSON.parse(m[0]);
-      if (parsed.city && parsed.state) {
-        const result = { city: String(parsed.city).trim(), state: String(parsed.state).trim(), known: true };
-        _schoolLocationCache.set(cacheKey, result);
-        return result;
-      }
+    // withTimeout answers '' on a timeout: no answer at all, not "unknown".
+    if (!raw) throw new Error('timed out after 6s');
+    const m = raw.match(/\{[\s\S]*\}/);
+    const parsed = m ? JSON.parse(m[0]) : null;
+    if (parsed && parsed.city && parsed.state) {
+      const result = { city: String(parsed.city).trim(), state: String(parsed.state).trim(), known: true };
+      _schoolLocationCache.set(cacheKey, result);
+      return result;
     }
+    if (!parsed) throw new Error('unreadable answer');
+    // The search answered and named no town: a confirmed unknown, remembered.
+    const result = { city: 'Unknown City', state: 'Unknown State', known: false };
+    _schoolLocationCache.set(cacheKey, result);
+    return result;
   } catch (e) {
-    console.warn('[getSchoolLocation] web geocode failed for', school, '-', e.message);
+    // OURS, NOT THE SCHOOL'S (services/ourFault). This used to cache "Unknown"
+    // for the life of the process and send every scan for this school down the
+    // model-knowledge path, i.e. invented businesses. Nothing is remembered;
+    // the caller is told it could not ask.
+    console.error('[getSchoolLocation] web geocode FAILED for', school, '-', e.message, '(not cached)');
+    const OF = require('./services/ourFault');
+    OF.record(e && e.service ? e.service : 'school-location', e.message, 'getSchoolLocation "' + school + '"');
+    return { city: 'Unknown City', state: 'Unknown State', known: false, fault: e.message || 'lookup failed' };
   }
-
-  // Last resort: flag as unknown rather than fabricating a state.
-  const result = { city: 'Unknown City', state: 'Unknown State', known: false };
-  _schoolLocationCache.set(cacheKey, result);
-  return result;
 }
 
 // Market-key slug (lowercase, non-alnum -> '-'). Single source of truth so the
@@ -1033,6 +1061,7 @@ async function _fetchTopNilEvidence(brand, website, sport, force = false) {
 
   let deals = [];
   let source = null;
+  let _topnilUnparsed = false;
 
   try {
     const rows = await store.getCompsByBrand(brand, 3);
@@ -1065,6 +1094,7 @@ Rules: include a deal ONLY if you can point to a real reporting source (sourceUr
     try {
       const t = raw.replace(/```json/g, '').replace(/```/g, '').trim();
       const a = t.indexOf('['), b = t.lastIndexOf(']');
+      if (a === -1 || b <= a) _topnilUnparsed = true;
       if (a !== -1 && b > a) {
         const arr = JSON.parse(t.substring(a, b + 1));
         for (const it of (Array.isArray(arr) ? arr : [])) {
@@ -1084,20 +1114,23 @@ Rules: include a deal ONLY if you can point to a real reporting source (sourceUr
           if (deals.length >= 3) break;
         }
       }
-    } catch (_) { /* unparseable -> treated as no deals below */ }
+    } catch (_) { _topnilUnparsed = true; /* unparseable: no deals, but NOT a confirmed negative */ }
     if (deals.length) source = 'web';
   }
 
   if (!deals.length) {
     const evidence = { kind: 'deals', deals: [], typicalProfile: null, profileSource: null, min: null, max: null };
-    await store.saveBrandEvidence(brand, 'topnil', brand, website, evidence, 'NO_EVIDENCE');
+    // Confirmed only when the search answered with a readable (empty) list.
+    await store.saveBrandEvidence(brand, 'topnil', brand, website, evidence, 'NO_EVIDENCE',
+      { confirmed: !_topnilUnparsed });
     return { evidence, outcome: 'NO_EVIDENCE', cached: false };
   }
 
   const { typicalProfile, min, max } = _deriveTypicalProfile(deals);
   const evidence = { kind: 'deals', deals, typicalProfile, profileSource: source, min, max };
   const outcome = source === 'comp' ? 'OK' : 'SALVAGED';
-  await store.saveBrandEvidence(brand, 'topnil', brand, website, evidence, outcome);
+  // Deals found: an answer, never a negative.
+  await store.saveBrandEvidence(brand, 'topnil', brand, website, evidence, outcome, { confirmed: true });
   return { evidence, outcome, cached: false };
 }
 
@@ -1867,6 +1900,7 @@ async function _contactWebSearchRaw(prompt, sys) {
   const apiMs = Date.now() - _apiT0;
   Ledger.record(msg, { model: MODEL_FAST, ms: apiMs, ctx: scanMeter.ctx() });
   const blocks = Array.isArray(msg.content) ? msg.content : [];
+  { const f = _webSearchFault(blocks, '_contactWebSearchRaw'); if (f) throw f; }
   const text = blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');   // extraction: not stripped
   // How many web searches the model ACTUALLY ran, and how many tokens it generated.
   // Together these say whether a slow source is slow because of searching or because
@@ -2417,7 +2451,10 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   else outcome = 'NONE';
   const hasAffordance = named.length || businessPhone || genericInbox || personalInbox;
   if (hasAffordance || outcome === 'NONE') {
-    await store.saveBrandEvidence(cacheKey, 'contacts', brand, website, evidence, outcome);
+    // Confirmed only when every source actually ran: an error or a timeout
+    // anywhere means the empty answer may be ours, and the store refuses it.
+    await store.saveBrandEvidence(cacheKey, 'contacts', brand, website, evidence, outcome,
+      { confirmed: !anyError && !anyTimeout });
   }
   return { contacts: named, notAffiliated, genericInbox, personalInbox, genericInboxCheck, personalInboxCheck, businessPhone, phoneUnconfirmed, outcome, cached: false };
 }
@@ -2695,6 +2732,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
       } catch (e) { console.warn('[hunter] card-path warm failed:', e.message); }
     }
   }
+  let _hunterFault = null;
   if (_hunterEligible && _deep) {
     const _dom = _domainFromUrl(effectiveWebsite);
     // Nothing to fill and nothing to backfill -> no reason to spend a credit.
@@ -2705,6 +2743,8 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
       try {
         const { findDomainEmails } = require('./services/hunterLookup');
         const _hunter = await findDomainEmails(_dom, { withPattern: true });
+        // Hunter FAILED (key, quota, outage): ours, not a coverage miss.
+        if (_hunter && _hunter.fault) _hunterFault = _hunter.fault;
         const _emails = (_hunter && Array.isArray(_hunter.emails)) ? _hunter.emails.filter((e) => e && e.email) : [];
         // THE DOMAIN'S PATTERN, Hunter's own or read off one of its addresses.
         // Carried on the result so a name found LATER (the nightly job's owner
@@ -2789,7 +2829,8 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   }
   if (_addr.step !== 2) {
     _note(2, 'Hunter', !!_hunterEligible && _deep, false,
-      !_hunterDomainOk ? 'no confirmed domain, so Hunter was not called'
+      _hunterFault ? `Hunter failed (${_hunterFault.outcome}: ${_hunterFault.reason}); our failure, not a missing address`
+      : !_hunterDomainOk ? 'no confirmed domain, so Hunter was not called'
         : (!process.env.HUNTER_API_KEY ? 'no Hunter key'
           : (_addr.step === 1 ? 'skipped, step 1 already had an address'
             : (res.hunterPattern ? 'no surname match, and nobody named to build an address for' : 'no surname match and no pattern'))));
@@ -2968,7 +3009,11 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     // A single lookup also reads places, siteemail and the ladder's rows, so the
     // authoritative counts are meter.cacheHits / meter.cacheMisses. Kept because
     // "did the expensive contacts fan-out re-run" is still worth knowing on its own.
-    cached: !!res.cached };
+    cached: !!res.cached,
+    // WAS COMPUTED AND THEN DROPPED. ERROR / TIMEOUT tells the nightly run the
+    // empty ladder is our failure, not a business with no contact, so it is
+    // recorded as a fault and never counts toward a pause (services/ourFault).
+    outcome: res.outcome || null };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone
@@ -3251,6 +3296,9 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane, opts =
   const loc = proLoc || await getSchoolLocation(athlete.athleteType === 'pro' ? '' : school);
   const city = loc.city;
   const state = loc.state;
+  // Could not ASK where the school is (services/ourFault): fail the scan
+  // honestly rather than fall to the model-knowledge path and invent a market.
+  if (loc.fault) throw require('./services/ourFault').fault('school-location', `could not resolve where "${school}" is: ${loc.fault}`);
   const locationKnown = loc.known !== false;
   const sport = athlete.sport || 'football';
 
@@ -4474,7 +4522,7 @@ module.exports = {
   deriveMatchedTags,
   validTagSubs,
   lookupSchoolLocation,
-  resolveLocalMarketKey, getSchoolLocation,
+  resolveLocalMarketKey, getSchoolLocation, _webSearchFault,
   resolveBrandKey,
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder

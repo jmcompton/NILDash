@@ -66,8 +66,9 @@ const NAME_REQUIRED = true;
 // metered search. Cached in the process by business and city for a day, so a
 // national brand that appears on every athlete's slate is searched once, not
 // once per athlete, and a local business tried twice in one run is not paid
-// for twice. A miss is cached too: asking again tonight will not find a name
-// that was not there an hour ago.
+// for twice. A CONFIRMED miss is cached too: asking again tonight will not
+// find a name that was not there an hour ago. A search that could not run
+// throws (services/ourFault) and is never cached: it is not a miss.
 const _finalNames = new Map();
 const FINAL_NAME_TTL_MS = 24 * 3600000;
 async function finalNameFor(brand, city, { agentId, athleteId, say, order }) {

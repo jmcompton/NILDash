@@ -141,7 +141,11 @@ async function resolveDomain(brand, opts = {}) {
   };
 
   try {
-    await store.saveBrandEvidence(cacheKey, LANE, name, picked, out, picked ? 'OK' : 'NONE');
+    // Confirmed only when the search completed and returned something to judge
+    // (services/ourFault): a thrown search returned above, and an empty reply
+    // with no citations is not evidence the business has no site.
+    await store.saveBrandEvidence(cacheKey, LANE, name, picked, out, picked ? 'OK' : 'NONE',
+      { confirmed: !!(String(text || '').trim() || citations.length) });
   } catch (_) { /* caching is best-effort */ }
 
   console.log(`[domain-resolve] brand="${name}" ${picked ? `RESOLVED ${picked} (matched "${matchedOn}")`

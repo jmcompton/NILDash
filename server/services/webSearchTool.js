@@ -122,7 +122,8 @@ const TOOLS = [
 // the flat estimate see the same counts whichever provider answered.
 async function searchLoop(o = {}) {
   const sp = o.provider || provider();
-  if (!sp) { const e = new Error('no web search provider: set BRAVE_SEARCH_API_KEY, SERPER_API_KEY or TAVILY_API_KEY'); e.status = 0; throw e; }
+  const OF = require('./ourFault');
+  if (!sp) { const e = OF.fault('search', 'no web search provider: set BRAVE_SEARCH_API_KEY, SERPER_API_KEY or TAVILY_API_KEY'); e.status = 0; throw e; }
   const maxSearches = Math.max(1, Number(o.maxSearches) || 3);
   const maxFetches = Math.max(0, Number(o.maxFetches) || maxSearches);
   const maxRounds = maxSearches + maxFetches + 1;
@@ -183,7 +184,19 @@ async function searchLoop(o = {}) {
             for (const x of rs) { cite(x.url); results.push({ query: q, title: x.title || '', url: x.url || '', snippet: x.snippet || '' }); }
             queries.push({ query: q, results: rs.length });
             result = { results: rs };
-          } catch (e) { queries.push({ query: q, results: 0, error: e.message }); result = { error: 'search failed: ' + e.message }; }
+          } catch (e) {
+            // A FAILED SEARCH IS OURS, NOT AN EMPTY WEB (services/ourFault).
+            // This used to hand the model { error } and carry on; the model
+            // then answered "nothing found", the loop returned normally, and
+            // every caller cached that as a fact about the business for 30
+            // days. A dead or rate-limited key is now a thrown OurFault: the
+            // caller falls back to another provider or records a fault, and
+            // nothing negative is ever cached from it.
+            queries.push({ query: q, results: 0, error: e.message });
+            const f = OF.fault('search:' + sp.name, e.message, { queries });
+            OF.record(f, null, 'webSearchTool.searchLoop');
+            throw f;
+          }
         }
       } else if (fn === 'fetch_page') {
         if (fetches >= maxFetches) result = { error: 'no fetches left; answer from what you have' };

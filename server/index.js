@@ -5312,6 +5312,14 @@ const ADMIN_SCRIPTS = {
   // sent. ?send=1 sends it now, whatever the hour, if nothing has gone today.
   //   /api/admin/scripts/morning-alert?text=1
   'morning-alert': { file: 'scripts/morning-alert.js', args: (q) => (q.send === '1' ? ['--send'] : []) },
+  // Negative cache rows written during an outage window, per lane; &apply=1
+  // deletes them so the next lookup asks again (services/ourFault).
+  //   /api/admin/scripts/purge-outage-negatives?since=2026-09-16&text=1
+  'purge-outage-negatives': { file: 'scripts/purge-outage-negatives.js', args: (q) => {
+    const d = (x) => (/^\d{4}-\d{2}-\d{2}$/.test(String(x || '')) ? String(x) : null);
+    if (!d(q.since)) { const e = new Error('since=YYYY-MM-DD is required'); e.status = 400; throw e; }
+    return ['--since', d(q.since)].concat(d(q.until) ? ['--until', d(q.until)] : [], q.apply === '1' ? ['--apply'] : []);
+  } },
   // Rebuild the Places pool for markets and print how many businesses each
   // returned (services/placesMarket, the New API). Writes the market cache and
   // market_business_seen for an agent market, university_market_seen for a campus.
@@ -9449,8 +9457,9 @@ app.post('/api/agent/deal-scan/add-national', requireAuth, requireAgentSubscript
     // Program page: the SAME check the discovery job uses, called read-only.
     // A hit is the best outcome; a miss is now a state on the card, not a wall.
     let program = null;
+    let _lookupFailed = false;   // a lookup that threw: 'unknown' is then ours, not a fact
     try { program = await findProgramUrl(site); }
-    catch (e) { console.warn('[addNational] findProgramUrl failed:', e.message); }
+    catch (e) { _lookupFailed = true; console.warn('[addNational] findProgramUrl failed:', e.message); }
 
     let programState, route = null, offerSummary = null, brandSize = null;
     if (program) {
@@ -9463,7 +9472,7 @@ app.post('/api/agent/deal-scan/add-national', requireAuth, requireAgentSubscript
       // No public application page. Find the route an agent would actually use:
       // a partnerships or sponsorship page, a marketing address, or a form.
       try { route = await findPitchRoute(site, { homepageHtml: probe.html || null }); }
-      catch (e) { console.warn('[addNational] findPitchRoute failed:', e.message); route = null; }
+      catch (e) { _lookupFailed = true; console.warn('[addNational] findPitchRoute failed:', e.message); route = null; }
       programState = route && route.kind === 'direct-pitch' ? 'direct-pitch' : 'unknown';
     }
 
@@ -9491,7 +9500,9 @@ app.post('/api/agent/deal-scan/add-national', requireAuth, requireAgentSubscript
     };
 
     // Cached, NOT indexed. 30 days, keyed by the typed name.
-    await store.saveBrandEvidence(cacheKey, CACHE_LANE, brand, site, { card }, programState);
+    // 'unknown' is a negative: kept only when every lookup ran (services/ourFault).
+    await store.saveBrandEvidence(cacheKey, CACHE_LANE, brand, site, { card }, programState,
+      { confirmed: !_lookupFailed });
 
     const fit = store.scoreNationalBrandFit(card, athlete);
     console.log(`[addNational] athlete=${athleteId} RESEARCHED "${brand}" site=${site} state=${programState} `
@@ -12951,9 +12962,10 @@ app.get('/api/admin/hunter-audit', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // 1. What the hunter lane holds. Rows written BEFORE the restore only exist
-    //    for HTTP 200s; rows written after also record failures with their
-    //    status, so 'answered' is now OK + NONE specifically, never COUNT(*).
+    // 1. What the hunter lane holds. 'answered' is OK + NONE specifically.
+    //    The failure counts below only see rows written before the rule
+    //    (services/ourFault): failures are no longer cached, they are in
+    //    service_faults (service = 'hunter'), so these read 0 from now on.
     const answered = (await store.pool.query(`
       SELECT COUNT(*)::int                                             AS rows,
              COUNT(*) FILTER (WHERE outcome IN ('OK','NONE'))::int     AS answered,
@@ -13327,16 +13339,21 @@ async function _hunterRunJob(jobId, rows) {
       t.lastDomain = r.domain;
       try {
         const before = Date.now();
-        const out = await findDomainEmails(r.domain);
-        // The lookup writes its own outcome row; read it back so the tally
-        // reports what actually happened rather than inferring from null.
-        const row = (await store.pool.query(
-          `SELECT outcome FROM brand_evidence_cache WHERE lane='hunter' AND brand_key=$1`,
-          [r.domain]).catch(() => ({ rows: [] }))).rows[0];
-        const oc = (row && row.outcome) || 'UNKNOWN';
+        // withPattern: a failure comes back as { fault } (services/ourFault),
+        // because failures are no longer written to the cache to be read back.
+        const out = await findDomainEmails(r.domain, { withPattern: true });
+        let oc;
+        if (out && out.fault) oc = out.fault.outcome;
+        else {
+          // An answer writes its own OK / NONE row; read it back.
+          const row = (await store.pool.query(
+            `SELECT outcome FROM brand_evidence_cache WHERE lane='hunter' AND brand_key=$1`,
+            [r.domain]).catch(() => ({ rows: [] }))).rows[0];
+          oc = (row && row.outcome) || 'UNKNOWN';
+        }
         t.outcomes[oc] = (t.outcomes[oc] || 0) + 1;
         if (out && out.cached) t.cached++;
-        else t.credits++;                       // it reached Hunter, so it cost one
+        else if (!(out && out.fault)) t.credits++;   // it reached Hunter and answered, so it cost one
         if (oc === 'OK') {
           t.withAddresses++;
           const em = (out && out.emails) || [];
@@ -13344,13 +13361,16 @@ async function _hunterRunJob(jobId, rows) {
           t.genericFound += em.filter((e) => e.type === 'generic').length;
         } else if (oc === 'NONE') t.zeroAddresses++;
         else t.failed++;
-        // A 401 means the key is wrong and every further call wastes a round trip.
-        if (oc === 'HTTP_401' || oc === 'NO_KEY') {
+        // A 401 means the key is wrong, a 429 that the plan is spent: every
+        // further call wastes a round trip.
+        if (oc === 'HTTP_401' || oc === 'HTTP_429' || oc === 'NO_KEY') {
           console.error(`[hunter-backfill] job=${jobId} ABORTING: ${oc} — stopping before spending more`);
           cursor = rows.length;
           await store.pool.query(
             `UPDATE hunter_jobs SET status='failed', error=$2, finished_at=NOW() WHERE id=$1`,
-            [jobId, oc === 'NO_KEY' ? 'HUNTER_API_KEY is not set' : 'Hunter returned 401 — check the API key']
+            [jobId, oc === 'NO_KEY' ? 'HUNTER_API_KEY is not set'
+              : (oc === 'HTTP_429' ? 'Hunter returned 429 — rate limited or out of credits' : 'Hunter returned 401 — check the API key')
+                + (out && out.fault && out.fault.reason ? ': ' + out.fault.reason : '')]
           ).catch(() => {});
           return;
         }

@@ -123,7 +123,11 @@ async function findPersonEmail(person, opts = {}) {
   const screened = _screen(_parse(text), text, citations);
   const out = { v: CACHE_V, email: screened.email || null, sourceUrl: screened.sourceUrl || null, why: screened.why };
   try {
-    await store.saveBrandEvidence(cacheKey, LANE, brand, opts.domain || null, out, out.email ? 'OK' : 'NONE');
+    // A negative is kept only when the search completed and the model answered
+    // (services/ourFault). A thrown search never reaches here; an empty reply
+    // is not an answer either.
+    await store.saveBrandEvidence(cacheKey, LANE, brand, opts.domain || null, out, out.email ? 'OK' : 'NONE',
+      { confirmed: !!String(text).trim() });
   } catch (_) { /* best effort */ }
 
   console.log(`[person-email] "${name}" @ ${brand} ${out.email ? 'FOUND ' + out.email : 'none: ' + out.why} searches=${searches}`);

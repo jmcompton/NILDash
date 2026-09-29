@@ -32,7 +32,6 @@ const CACHE_DAYS = parseInt(process.env.HUNTER_CACHE_DAYS, 10) || 30;
 // A recorded failure is NOT served as a result -- a 429 today must not mean this
 // domain is written off for a month. It does suppress re-calling for a short
 // while, so a failing key cannot be hammered once per scan.
-const FAIL_COOLDOWN_HOURS = parseInt(process.env.HUNTER_FAIL_COOLDOWN_HOURS, 10) || 6;
 const LIMIT = 5;
 const LANE = 'hunter';
 
@@ -203,10 +202,31 @@ function _outcomeForStatus(status) {
   return OUTCOME.HTTP_ERROR;
 }
 
+// ── A FAILURE IS OURS, NOT THE DOMAIN'S (services/ourFault) ─────────────────
+// These used to be written to the cache and served back for six hours as
+// "no surname match". Now a failure is recorded as a fault, never cached, and
+// returned to the deep path as { fault } so the ladder says "Hunter failed".
+// The breaker stops a dead key or an exhausted plan being called for every
+// business in the night: it skips Hunter for BREAKER_MIN and says why.
+const BREAKER_MIN = parseInt(process.env.HUNTER_BREAKER_MINUTES, 10) || 15;
+let _breaker = null;   // { until, outcome, reason }
+function _fault(domain, outcome, reason) {
+  const OF = require('./ourFault');
+  OF.record('hunter', `${outcome}: ${reason}`, '@' + domain);
+  if (outcome === OUTCOME.UNAUTHORIZED || outcome === OUTCOME.RATE_LIMITED || outcome === OUTCOME.NO_KEY) {
+    _breaker = { until: Date.now() + BREAKER_MIN * 60000, outcome, reason };
+  }
+  return { found: false, emails: [], fault: { service: 'hunter', outcome, reason: String(reason || outcome) } };
+}
+// null for the old callers, { fault } for the deep path that asks for more.
+const _failOut = (f, opts) => ((opts && opts.withPattern) ? f : null);
+
 async function _record(domain, outcome, evidence) {
   try {
     await store.saveBrandEvidence(domain, LANE, domain, null,
-      { ...evidence, outcome, at: new Date().toISOString() }, outcome);
+      { ...evidence, outcome, at: new Date().toISOString() }, outcome,
+      // Only OK and NONE reach here now, and both are answers Hunter gave.
+      { confirmed: true });
     // NOT incremented here. The credit was reserved at the budget gate before the
     // request went out; counting it again on the way back would double-charge.
   } catch (e) {
@@ -228,8 +248,11 @@ async function findDomainEmails(domain, opts = {}) {
     // from "we never looked", which is the ambiguity this whole rewrite exists
     // to remove.
     console.warn('[hunter] @' + key + ' skipped: HUNTER_API_KEY is not set');
-    await _record(key, OUTCOME.NO_KEY, { found: false, reason: 'HUNTER_API_KEY not set' });
-    return null;
+    return _failOut(_fault(key, OUTCOME.NO_KEY, 'HUNTER_API_KEY is not set'), opts);
+  }
+  if (_breaker && Date.now() < _breaker.until) {
+    console.warn(`[hunter] @${key} skipped: ${_breaker.outcome} earlier (${_breaker.reason}); retrying after ${new Date(_breaker.until).toISOString()}`);
+    return _failOut({ found: false, emails: [], fault: { service: 'hunter', outcome: _breaker.outcome, reason: _breaker.reason } }, opts);
   }
 
   if (!opts.force) {
@@ -243,13 +266,7 @@ async function findDomainEmails(domain, opts = {}) {
           if (ev.found === false) return (opts.withPattern && ev.pattern) ? { found: false, emails: [], pattern: ev.pattern, cached: true } : null;
           return { ...ev, cached: true };
         }
-        // A failure row. Honour it only briefly, then allow a retry.
-        const ageH = cached.refreshed_at
-          ? (Date.now() - new Date(cached.refreshed_at).getTime()) / 3.6e6 : 1e9;
-        if (ageH < FAIL_COOLDOWN_HOURS) {
-          console.log(`[hunter] @${key} skipped: ${oc} ${ageH.toFixed(1)}h ago, cooling down`);
-          return null;
-        }
+        // A failure row written before the rule: not an answer, ignored.
       }
     } catch (_) { /* a cache problem must never block the call */ }
   }
@@ -289,8 +306,7 @@ async function findDomainEmails(domain, opts = {}) {
     console.warn(`[hunter] @${key} ${oc.toLowerCase()} after ${ms}ms: ${e.message}`);
     // NOT retried. A call that already blew the cap will blow it again, and a
     // second attempt is a second credit for the same nothing.
-    await _record(key, oc, { found: false, reason: e.message, ms });
-    return null;
+    return _failOut(_fault(key, oc, e.message), opts);
   }
   clearTimeout(t);
   const ms = Date.now() - t0;
@@ -300,16 +316,14 @@ async function findDomainEmails(domain, opts = {}) {
     let detail = null;
     try { const j = await resp.json(); detail = j && j.errors && j.errors[0] && j.errors[0].details; } catch (_) {}
     console.warn(`[hunter] @${key} http=${resp.status} ${oc} ms=${ms}${detail ? ' detail=' + detail : ''}`);
-    await _record(key, oc, { found: false, status: resp.status, reason: detail || ('HTTP ' + resp.status), ms });
-    return null;
+    return _failOut(_fault(key, oc, detail || ('HTTP ' + resp.status)), opts);
   }
 
   let json;
   try { json = await resp.json(); }
   catch (e) {
     console.warn(`[hunter] @${key} unreadable body: ${e.message}`);
-    await _record(key, OUTCOME.ERROR, { found: false, status: resp.status, reason: 'unreadable body', ms });
-    return null;
+    return _failOut(_fault(key, OUTCOME.ERROR, 'unreadable body'), opts);
   }
 
   const d = json && json.data;
@@ -399,4 +413,5 @@ module.exports = {
   findDomainEmails, verifyEmail, VERIFY_URL, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
   creditsThisMonth, verifyCreditsThisMonth, accountUsedThisMonth, budgetStatus, MONTHLY_BUDGET,
   _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
+  _resetBreaker: () => { _breaker = null; }, BREAKER_MIN,
 };
