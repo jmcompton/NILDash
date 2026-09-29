@@ -187,6 +187,9 @@ console.log('\n-- REACHABILITY IS READ FROM WHERE CONTACTS ACTUALLY LIVE --');
       const around = src.slice(Math.max(0, m.index - 120), m.index + 60);
       // Reading them back out, or passing them to a view, is not writing them ONTO
       // a deal. Only a saveDeal/POST body counts.
+      // The agency brand POST (Settings, "Your brand") writes the account's own
+      // contact onto users.agency_*, not onto a deal.
+      if (/\/api\/agent\/brand'/.test(src.slice(Math.max(0, m.index - 400), m.index))) continue;
       if (/saveDeal|body:|JSON\.stringify\(\{[^}]*stage/.test(around)) writers.push(file + ': ' + around.slice(-70));
     }
   }
