@@ -3684,6 +3684,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // temporal-dead-zone reference. Falls back to the web-search path when disabled,
     // keyless, geocode/Places fails, or Places returns nothing (G: never delete it).
     let placesSchoolUsed = false;
+    let _passAnswered = 0; const _passFailures = [];   // search passes that answered / failed (services/ourFault)
     const _placesEnabled = (process.env.DEAL_SCAN_DISCOVERY || 'places') !== 'websearch'
       && !!(process.env.GOOGLE_PLACES_API_KEY || '').trim();
     // A manual add never builds the market pool: the business is already chosen.
@@ -3832,6 +3833,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     if (searchDefs.length) {
       const _tSearch = Date.now();
       const outcomes = await Promise.all(searchDefs.map((s) => s.p));
+      // Which passes could not run (services/ourFault): read below to tell an
+      // empty market from a night every search failed.
+      for (const o of outcomes) {
+        if (o.status === 'ok') _passAnswered++;
+        else _passFailures.push(o.status === 'timeout' ? `timed out after ${o.ms}ms` : (o.err || o.status));
+      }
       // FILTER TRACE: track raw model output -> parsed items -> pooled (after the
       // addCandidate dedup/no-name filter), per pass AND in aggregate, so we can see
       // exactly where candidates are lost between the search and the pool.
@@ -3868,9 +3875,10 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
           searchSys, 1800, 4, MODEL_DEALSCAN
         ), LOCAL_SEARCH_CAP_MS);
         if (retryOut.status === 'ok') {
+          _passAnswered++;
           const { items } = extractJsonArrayItems(retryOut.raw);
           for (const it of items) addCandidate(it, 'school');
-        }
+        } else _passFailures.push(retryOut.status === 'timeout' ? `timed out after ${retryOut.ms}ms` : (retryOut.err || retryOut.status));
         console.log(`[dealScan] retry: ${retryOut.status.toUpperCase()} in ${retryOut.ms}ms — now ${found.length} candidate businesses`);
       }
 
@@ -3925,6 +3933,15 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // does not apply to it.
     if (found.length < 3 && !_isManual) {
       if (locationKnown) {
+        // OURS OR THEIRS (services/ourFault). Every search pass failing, with
+        // no Places pool to fall back on, is not an empty market: the empty is
+        // tagged _fault so the nightly run records a fault, never "worked out".
+        if (!placesSchoolUsed && _passFailures.length && !_passAnswered) {
+          const why = `every discovery search failed (${_passFailures.length}): ${_passFailures[0]}`;
+          console.error(`[dealScan] LOCAL DISCOVERY FAULT market=${schoolCacheKey}: ${why}`);
+          require('./services/ourFault').record('discovery', why, 'getDealRecommendations ' + schoolCacheKey);
+          const empty = []; empty._fault = why; empty._poolTotal = 0; empty._poolUnseen = 0; return empty;
+        }
         console.error(`[dealScan] LOCAL POOL EMPTY market=${schoolCacheKey} found=${found.length} (locationKnown) -> honest empty, NOT model knowledge`);
         const empty = []; empty._poolExhausted = true; empty._poolTotal = found.length; empty._poolUnseen = 0; return empty;
       }
@@ -4191,7 +4208,10 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
     if (!(webErr && webErr._thinFallback)) {
       console.error('[dealScan] LOCAL DISCOVERY FAILED (returning honest empty, NOT model knowledge):', webErr && webErr.message);
       if (webErr && webErr.stack) console.error(webErr.stack);
-      const empty = []; empty._poolExhausted = true; empty._poolTotal = 0; empty._poolUnseen = 0;
+      // A crash is ours, not an exhausted market (services/ourFault).
+      const _why = (webErr && webErr.message) || 'discovery failed';
+      require('./services/ourFault').record(webErr && webErr.service ? webErr.service : 'discovery', _why, 'getDealRecommendations');
+      const empty = []; empty._fault = _why; empty._poolTotal = 0; empty._poolUnseen = 0;
       return empty;
     }
     console.warn('[dealScan] local pool too thin, trying model knowledge:', webErr.message);
@@ -4522,7 +4542,7 @@ module.exports = {
   deriveMatchedTags,
   validTagSubs,
   lookupSchoolLocation,
-  resolveLocalMarketKey, getSchoolLocation, _webSearchFault,
+  resolveLocalMarketKey, getSchoolLocation, _webSearchFault, getClient,
   resolveBrandKey,
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder

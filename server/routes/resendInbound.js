@@ -16,8 +16,7 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../store');
-const { Resend } = require('resend');
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = require('../services/resendChecked').makeResend(process.env.RESEND_API_KEY);
 const replyCapture = require('../services/replyCapture');
 const followUpSvc = require('../services/followUpAutomation');
 const suppression = require('../services/suppression');
@@ -242,6 +241,8 @@ async function notifyAgentOfReply(logRow, text, match) {
   const snippet = String(text || '').trim().slice(0, 240);
   const who = logRow.athlete_name ? ` for ${escapeHtml(logRow.athlete_name)}` : '';
 
+  // The client is services/resendChecked: a Resend { error } throws here with
+  // Resend's words, and the caller's catch logs it (services/ourFault).
   await resend.emails.send({
     from: 'NILDash <noreply@mynildash.com>',
     to: agentRow.email,

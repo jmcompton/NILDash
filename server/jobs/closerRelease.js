@@ -216,7 +216,13 @@ async function _tick() {
   if (_running) { _again = true; return; }
   _running = true;
   try { await runOnce({}); }
-  catch (e) { console.error('[closer] release tick failed:', e.message); }
+  catch (e) {
+    // Every approved email waits while this throws. Recorded as a fault
+    // (throttled to a row a minute), so the morning alert and the status page
+    // see it rather than a log line every 5 seconds (services/ourFault).
+    console.error('[closer] release tick failed:', e.message);
+    require('../services/ourFault').record('release-queue', e.message, 'closerRelease tick');
+  }
   finally {
     _running = false;
     const soon = _again; _again = false;

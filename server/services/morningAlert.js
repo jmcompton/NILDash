@@ -32,8 +32,18 @@ const OQ = require('../jobs/outreachQueue');
 const ALERT_FROM_HOUR = OQ.WINDOW_END_HOUR;   // the nightly window has closed
 const ALERT_UNTIL_HOUR = 12;                   // still "the same morning"
 const MAX_ATTEMPTS = 4;
+// A DATE column comes back from pg as a Date at LOCAL midnight; String() of it
+// is "Wed Apr 09 ..." and toISOString() can shift it a day. Read the parts.
+const ymd = (v) => {
+  if (!(v instanceof Date)) return String(v == null ? '' : v).slice(0, 10);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`;
+};
+const STATUS_URL = () => String(process.env.APP_URL || 'https://mynildash.com').replace(/\/+$/, '') + '/admin/status';
 const FROM = () => process.env.ADMIN_ALERT_FROM || process.env.NIGHTLY_DIGEST_FROM || 'NILDash <noreply@mynildash.com>';
-const TO = () => process.env.ADMIN_ALERT_EMAIL || process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
+// No hard-coded fallback: an alert sent to an address nobody configured is
+// worse than none. Unset means the send fails loudly and the preflight says so.
+const TO = () => process.env.ADMIN_ALERT_EMAIL || process.env.ADMIN_EMAIL || '';
 
 function centralHour(ms) {
   const h = new Intl.DateTimeFormat('en-US', { timeZone: OQ.CENTRAL_TZ, hour: '2-digit', hour12: false })
@@ -94,7 +104,76 @@ async function collect(pool, { now } = {}) {
   out.builds = { total: b.total, failed: b.failed, pooled: b.pooled, failures };
   out.newBusinesses24h = (await pool.query(
     `SELECT COUNT(*)::int AS n FROM market_business_seen WHERE first_seen_at > NOW() - INTERVAL '24 hours'`)).rows[0].n;
-  out.problemCount = out.problems.length + (b.failed ? 1 : 0);
+  // ── THE REST OF WHAT HAS TO WORK OVERNIGHT ────────────────────────────────
+  // The first version only looked at cards and market builds, so a morning
+  // where every digest failed and every approved email bounced still read
+  // "all clear". Each of these is read, and each can make the morning not clear.
+  const q = async (sql, params, fallback) => {
+    try { return (await pool.query(sql, params)).rows; }
+    catch (e) { out.readErrors = (out.readErrors || []).concat(e.message); return fallback; }
+  };
+  // Digests for last night: failed, held by the allowlist, or stuck claimed.
+  const dg = (await q(`SELECT status, COUNT(*)::int AS n, MIN(error) AS error FROM nightly_digest_sends
+      WHERE run_date = $1 GROUP BY status`, [runDate], []));
+  const dcount = (st) => ((dg.find((x) => x.status === st) || {}).n || 0);
+  const stuck = ((await q(`SELECT COUNT(*)::int AS n FROM nightly_digest_sends WHERE run_date = $1 AND status = 'claimed'
+      AND created_at < NOW() - INTERVAL '1 hour'`, [runDate], [{ n: 0 }]))[0] || {}).n || 0;
+  out.digests = { sent: dcount('sent'), failed: dcount('failed'), held: dcount('held'), stuck,
+    failReason: (dg.find((x) => x.status === 'failed') || {}).error || null };
+  // Approved emails more than two hours past their send time, and why.
+  const ov = await q(`SELECT COALESCE(send_hold_reason, send_error, 'no reason recorded') AS why, COUNT(*)::int AS n
+      FROM outreach_logs WHERE status = 'approved' AND sent_at IS NULL
+        AND scheduled_send_at IS NOT NULL AND scheduled_send_at < NOW() - INTERVAL '2 hours'
+      GROUP BY 1 ORDER BY n DESC LIMIT 6`, [], []);
+  out.overdueSends = { total: ov.reduce((t, r) => t + r.n, 0), reasons: ov };
+  // Every one of our failures in the last day, by service (services/ourFault).
+  out.faults24h = await q(`SELECT service, SUM(1 + COALESCE(suppressed, 0))::int AS n, MAX(at) AS last,
+      (ARRAY_AGG(reason ORDER BY at DESC))[1] AS reason
+      FROM service_faults WHERE at > NOW() - INTERVAL '24 hours' GROUP BY service ORDER BY n DESC LIMIT 12`, [], []);
+  // Last night's preflight.
+  out.preflight = ((await q(`SELECT night, status, failed, alert FROM preflight_runs ORDER BY night DESC LIMIT 1`, [], []))[0]) || null;
+  out.preflightFailures = out.preflight && out.preflight.status === 'failed'
+    ? await q(`SELECT service, error FROM service_checks WHERE run_id = (SELECT run_id FROM preflight_runs WHERE night = $1) AND NOT ok`, [ymd(out.preflight.night)], [])
+    : [];
+  // ── ATHLETICS DEPARTMENTS ─────────────────────────────────────────────────
+  // A university with teams and inventory for sale should be getting sponsor
+  // asks. Two ways it goes quiet: a team scan ran in the last day and wrote no
+  // ask, or it has had asks before and none for a week. Every department is
+  // listed in the context lines either way, with its last ask, so "no scan is
+  // scheduled" is visible rather than silent.
+  out.universities = await q(`
+    SELECT u.id, u.name,
+      (SELECT COUNT(*)::int FROM university_teams t WHERE t.university_id = u.id) AS teams,
+      (SELECT COUNT(*)::int FROM university_inventory i WHERE i.university_id = u.id AND i.status = 'available') AS items,
+      (SELECT COUNT(*)::int FROM university_drafts d WHERE d.university_id = u.id AND d.created_at > NOW() - INTERVAL '24 hours') AS asks24h,
+      (SELECT MAX(d.created_at) FROM university_drafts d WHERE d.university_id = u.id) AS last_ask,
+      (SELECT COUNT(*)::int FROM university_research_claims c JOIN university_teams t ON t.id = c.team_id
+        WHERE t.university_id = u.id AND c.at > NOW() - INTERVAL '24 hours') AS researched24h
+    FROM universities u
+    WHERE EXISTS (SELECT 1 FROM university_teams t WHERE t.university_id = u.id)
+    ORDER BY u.name`, [], []);
+  out.universityProblems = [];
+  for (const u of out.universities) {
+    if (!u.items) continue;
+    if (u.researched24h > 0 && !u.asks24h) {
+      out.universityProblems.push({ university: u.name, text: `a team scan ran in the last 24 hours (${u.researched24h} business(es) researched) and wrote no sponsor ask` });
+    } else if (u.last_ask && !u.asks24h && (Date.now() - new Date(u.last_ask).getTime()) > 7 * 86400000) {
+      out.universityProblems.push({ university: u.name, text: `no sponsor ask for ${Math.floor((Date.now() - new Date(u.last_ask).getTime()) / 86400000)} days (last ${new Date(u.last_ask).toISOString().slice(0, 10)})` });
+    }
+  }
+
+  // No preflight row for last night is itself a problem: the check that exists
+  // to stop a silent night did not run, which is silent.
+  out.preflightMissing = (!out.preflight || ymd(out.preflight.night) !== ymd(runDate));
+
+  out.problemCount = out.problems.length + (b.failed ? 1 : 0)
+    + (out.preflightMissing && !(out.readErrors || []).length ? 1 : 0)
+    + ((out.digests.failed || out.digests.held || out.digests.stuck) ? 1 : 0)
+    + (out.overdueSends.total ? 1 : 0)
+    + (out.faults24h.length ? 1 : 0)
+    + (out.preflight && out.preflight.status === 'failed' ? 1 : 0)
+    + out.universityProblems.length
+    + (out.readErrors && out.readErrors.length ? 1 : 0);
   return out;
 }
 
@@ -105,16 +184,27 @@ function render(r) {
     const text = [subject, '',
       `${r.agentsWithAthletes} agent(s) with athletes; every one either got cards or had every slot already full`
         + (r.skippedByDesign ? `; ${r.skippedByDesign} skipped by design (not signed in recently)` : '') + '.',
+      r.digests ? `Agent digests last night: ${r.digests.sent} sent, none failed or held.` : '',
+      `Preflight for ${r.runDate}: every service answered.`,
+      ...(r.universities || []).map((u) => `${u.name}: ${u.teams} team(s), ${u.items} item(s) for sale, ${u.asks24h} sponsor ask(s) in 24h, last ask ${u.last_ask ? new Date(u.last_ask).toISOString().slice(0, 10) : 'never'}.`),
       r.queueEnabled ? '' : 'Note: the nightly queue is OFF on this deployment (OUTREACH_QUEUE_ENABLED is not 1).',
+      'Status: ' + STATUS_URL(),
       'This email comes every morning. If one does not arrive, the alert itself is broken.',
-    ].filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\n');
+    ].filter((l, i, a) => l !== undefined && !(l === '' && a[i - 1] === '')).join('\n');
     const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return { subject, text, html: `<pre style="font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap">${esc(text)}</pre>` };
   }
   const lines = [];
   const bits = [];
+  if (r.preflightMissing) bits.push('no preflight ran for last night');
+  if (r.preflight && r.preflight.status === 'failed') bits.push(`preflight failed (${(r.preflightFailures || []).map((f) => f.service).join(', ') || r.preflight.failed})`);
   if (r.builds.failed) bits.push(`${r.builds.failed} Places market build(s) failed`);
   if (r.problems.length) bits.push(`${r.problems.length} agent(s) got no cards`);
+  if ((r.universityProblems || []).length) bits.push(`${r.universityProblems.length} athletics department(s) went quiet`);
+  if (r.digests && (r.digests.failed || r.digests.stuck)) bits.push(`${r.digests.failed + r.digests.stuck} digest(s) not sent`);
+  if (r.digests && r.digests.held) bits.push(`${r.digests.held} digest(s) held by the allowlist`);
+  if (r.overdueSends && r.overdueSends.total) bits.push(`${r.overdueSends.total} approved email(s) not sent`);
+  if ((r.faults24h || []).length) bits.push(`our failures in ${r.faults24h.length} service(s)`);
   const subject = `NILDash alert ${r.runDate}: ${bits.join(', ')}`;
   lines.push(subject, '');
   if (r.builds.failed) {
@@ -123,6 +213,35 @@ function render(r) {
     for (const f of r.builds.failures) lines.push(`  ${f.n}x  ${f.query}  (${f.source || '?'})  ${f.reason}`);
     lines.push('');
   }
+  if (r.preflightMissing) {
+    lines.push(`NO PREFLIGHT RAN for ${r.runDate}` + (r.preflight ? ` (the last one was for ${ymd(r.preflight.night)})` : ' (none has ever run)')
+      + '. Nobody checked the outside services before the night started.', '');
+  }
+  if (r.preflight && r.preflight.status === 'failed') {
+    lines.push(`PREFLIGHT for ${ymd(r.preflight.night)} FAILED (alert: ${r.preflight.alert || 'not sent'}):`);
+    for (const f of r.preflightFailures || []) lines.push(`  ${f.service}: ${f.error}`);
+    lines.push('');
+  }
+  if ((r.faults24h || []).length) {
+    lines.push('OUR FAILURES, last 24 hours (recorded as faults, never as facts about a market):');
+    for (const f of r.faults24h) lines.push(`  ${String(f.n).padStart(5)}x  ${f.service}: ${String(f.reason || '').slice(0, 160)}`);
+    lines.push('');
+  }
+  if (r.digests && (r.digests.failed || r.digests.stuck || r.digests.held)) {
+    lines.push(`AGENT DIGESTS for ${r.runDate}: ${r.digests.sent} sent, ${r.digests.failed} failed, ${r.digests.stuck} stuck, ${r.digests.held} held by NIGHTLY_DIGEST_ALLOWLIST`
+      + (r.digests.failReason ? `. First failure: ${r.digests.failReason}` : ''), '');
+  }
+  if (r.overdueSends && r.overdueSends.total) {
+    lines.push(`APPROVED EMAILS NOT SENT, more than 2 hours late: ${r.overdueSends.total}`);
+    for (const x of r.overdueSends.reasons) lines.push(`  ${String(x.n).padStart(4)}x  ${String(x.why).slice(0, 160)}`);
+    lines.push('');
+  }
+  if ((r.universityProblems || []).length) {
+    lines.push('ATHLETICS DEPARTMENTS THAT WENT QUIET:');
+    for (const u of r.universityProblems) lines.push(`  ${u.university}: ${u.text}`);
+    lines.push('');
+  }
+  if (r.readErrors && r.readErrors.length) lines.push('Some of this could not be read: ' + r.readErrors.join('; '), '');
   if (r.problems.length) {
     lines.push(`AGENTS WITH ATHLETES AND NO CARDS LAST NIGHT (${r.runDate}): ${r.problems.length} of ${r.agentsWithAthletes}`, '');
     for (const p of r.problems) {
@@ -131,10 +250,14 @@ function render(r) {
     }
     lines.push('');
   }
+  for (const u of r.universities || []) {
+    lines.push(`${u.name}: ${u.teams} team(s), ${u.items} item(s) for sale, ${u.asks24h} sponsor ask(s) in 24h, last ask ${u.last_ask ? new Date(u.last_ask).toISOString().slice(0, 10) : 'never'}.`);
+  }
   lines.push(`Context: ${r.cardsLastNight} card(s) placed last night across ${r.agentsWithAthletes} agent(s) with athletes`
     + (r.skippedByDesign ? `; ${r.skippedByDesign} skipped by design (not signed in recently)` : '') + '.',
   `New businesses discovered in the last 24 hours: ${r.newBusinesses24h}.`,
   r.queueEnabled ? '' : 'Note: the nightly queue is OFF on this deployment (OUTREACH_QUEUE_ENABLED is not 1).',
+  'Status: ' + STATUS_URL(),
   'Details: /api/admin/scripts/nightly-run-report?agent=<email>&text=1');
   const text = lines.filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\n');
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -142,9 +265,9 @@ function render(r) {
 }
 
 async function _send(msg) {
+  if (!TO()) throw new Error('no alert destination: neither ADMIN_ALERT_EMAIL nor ADMIN_EMAIL is set');
   if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set');
-  const { Resend } = require('resend');
-  const resend = new Resend(process.env.RESEND_API_KEY);
+  const resend = require('./resendChecked').makeResend(process.env.RESEND_API_KEY);
   const r = await resend.emails.send({ from: FROM(), to: TO(), subject: msg.subject, text: msg.text, html: msg.html });
   // Resend reports an API error in the result rather than throwing.
   if (r && r.error) throw new Error(r.error.message || JSON.stringify(r.error));

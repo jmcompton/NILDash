@@ -149,6 +149,8 @@ async function runSocialDiscovery() {
         () => ai.oneShotWebSearch(_searchPrompt(q, MAX_PER_QUERY), SEARCH_SYSTEM, 2500, 4, ai.MODEL_FAST));
     } catch (e) {
       console.warn(`[socialDiscovery] search failed q="${q}": ${e.message}`);
+      summary.searchFailures = (summary.searchFailures || 0) + 1;
+      summary.lastSearchError = e.message;
       continue;
     }
     const parsed = _parseCandidates(raw).slice(0, MAX_PER_QUERY);
@@ -158,6 +160,14 @@ async function runSocialDiscovery() {
     }
   }
   summary.proposed = candidates.length;
+  // EVERY search failing is not "no new brands" (services/ourFault): it is
+  // recorded and the job exits non-zero, so the scheduler logs a failure.
+  if (summary.queriesRun && summary.searchFailures >= summary.queriesRun) {
+    const OF = require('../services/ourFault');
+    const f = OF.fault('social-discovery', `all ${summary.queriesRun} searches failed: ${summary.lastSearchError}`);
+    await OF.record(f, null, 'socialDiscovery');
+    throw f;
+  }
 
   // 3. Dedupe within this batch and against social_brands / rejects.
   const seenBrand = new Set();
@@ -179,7 +189,13 @@ async function runSocialDiscovery() {
   // rejects keyed on the homepage so they are never retried.
   for (const c of fresh) {
     const normSite = _normUrl(c.website);
-    const found = await findProgramUrl(c.website);
+    const found = await findProgramUrl(c.website, { reportFault: true });
+    if (found && found.fault) {
+      // The site could not be reached tonight: NOT a permanent reject.
+      summary.unreachable = (summary.unreachable || 0) + 1;
+      console.warn(`[socialDiscovery] ${c.brand}: homepage unreachable (${found.fault}); not rejected, will retry`);
+      continue;
+    }
     if (!found) {
       summary.notFound++;
       await _recordReject({ proof_url: normSite || String(c.website), brand: c.brand }, 'no program page found', null);

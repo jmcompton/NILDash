@@ -169,8 +169,9 @@ async function processQueue(pool, { universityId, agentId, limit = 50 }) {
     );
     pending = rows.rows;
   } catch (err) {
-    console.warn('[IngestionPipeline] Queue fetch failed:', err.message);
-    return processResult;
+    // Not "nothing pending" (services/ourFault): the caller is told.
+    console.error('[IngestionPipeline] Queue fetch failed:', err.message);
+    return { ...processResult, error: 'queue fetch failed: ' + err.message };
   }
 
   for (const event of pending) {

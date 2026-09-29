@@ -6,8 +6,7 @@ const express = require('express');
 const router  = express.Router();
 const store   = require('../store');
 const ai      = require('../ai');
-const { Resend } = require('resend');
-const resend  = new Resend(process.env.RESEND_API_KEY);
+const resend  = require('../services/resendChecked').makeResend(process.env.RESEND_API_KEY);
 const sendRules = require('../services/sendRules');
 
 const GROWTH_MODEL = 'claude-opus-4-8';

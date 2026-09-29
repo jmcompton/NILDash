@@ -4083,6 +4083,35 @@ async function ensureMarketSightings() {
   `).catch(e => console.error('[init] service_faults:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS service_faults_at_idx ON service_faults (at)`)
     .catch(e => console.error('[init] service_faults index:', e.message));
+  // ── THE PREFLIGHT (services/preflight) ────────────────────────────────────
+  // service_checks: every check, every night: the service, ok or not, how long
+  // it took, and the provider's own words. preflight_runs: one row per night,
+  // claimed before the checks so it runs once, with whether the alert went.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS service_checks (
+      id         SERIAL PRIMARY KEY,
+      run_id     TEXT,
+      service    TEXT NOT NULL,
+      ok         BOOLEAN NOT NULL,
+      ms         INT,
+      error      TEXT,
+      detail     JSONB,
+      checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `).catch(e => console.error('[init] service_checks:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS service_checks_at_idx ON service_checks (checked_at)`)
+    .catch(e => console.error('[init] service_checks index:', e.message));
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS preflight_runs (
+      night       DATE PRIMARY KEY,
+      status      TEXT NOT NULL,
+      failed      INT DEFAULT 0,
+      alert       TEXT,
+      run_id      TEXT,
+      started_at  TIMESTAMPTZ DEFAULT NOW(),
+      finished_at TIMESTAMPTZ
+    )
+  `).catch(e => console.error('[init] preflight_runs:', e.message));
   // ── THE MORNING ALERT, ONCE A DAY ─────────────────────────────────────────
   // services/morningAlert: one row per Central date, claimed before anything is
   // sent, so a restart or a second instance cannot mail it twice.

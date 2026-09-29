@@ -272,7 +272,7 @@ const MAX_FETCHES_PER_BRAND = 8; // homepage + verify attempts, so cost stays bo
 // verifySocialProof (200 + SIGNALS), so nothing is trusted without the gate.
 // Returns { url, via: 'link' | 'fallback', snippet, tierStated } on the first page
 // that passes, else null.
-async function findProgramUrl(website) {
+async function findProgramUrl(website, opts = {}) {
   if (!website) return null;
   let base;
   try {
@@ -292,6 +292,7 @@ async function findProgramUrl(website) {
 
   // 1. Fetch the homepage.
   let html = '';
+  let homeFault = null;   // the homepage could not be REACHED (not a 404): ours, not theirs
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 10000);
@@ -299,7 +300,7 @@ async function findProgramUrl(website) {
     clearTimeout(t);
     fetches++; // homepage fetch counts toward the budget
     if (resp.ok) html = await resp.text();
-  } catch { /* no homepage -> go straight to fallback paths */ }
+  } catch (e) { homeFault = (e && e.message) || 'network error'; /* no homepage -> go straight to fallback paths */ }
 
   // 2-3. Parse <a href>, resolve same-domain absolutes, score by program keywords.
   const scored = [];
@@ -341,6 +342,9 @@ async function findProgramUrl(website) {
     if (hit) return { url: hit.url, via: 'fallback', snippet: hit.snippet, tierStated: hit.tierStated, pageText: hit.pageText };
   }
 
-  // 6. Nothing passed.
+  // 6. Nothing passed. If the homepage could not even be reached, that is not
+  // "no program page" (services/ourFault): a caller that asks is told, so it
+  // does not record the brand as a permanent reject.
+  if (opts.reportFault && homeFault) return { fault: homeFault };
   return null;
 }

@@ -44,6 +44,11 @@ ai.webSearchJson = async (prompt) => {
   if (/^Search for: .+ (owner|marketing director)\n/.test(String(prompt))) {
     return { text: JSON.stringify({ name: 'Pat Program', title: 'Marketing Director', confidence: 'high' }), citations: ['https://e2e.example/team'], searches: 1, outTokens: 30, apiMs: 10 };
   }
+  // The Instagram lookup's search: a completed search that found no profile.
+  // (An error here is now a fault on our side and blocks the card, correctly.)
+  if (/^Find the official Instagram account of /.test(String(prompt))) {
+    return { text: '{"handle":null}', citations: [], searches: 1, outTokens: 5, apiMs: 5 };
+  }
   throw new Error('the real web search must not be reached here');
 };
 ai.getBrandContacts = async (brand, site, region, ctx) => {

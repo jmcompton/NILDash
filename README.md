@@ -53,6 +53,22 @@ Open http://localhost:3000
 5. Add the records Railway gave you
 6. Wait 10-30 minutes → your site is live at mynildash.com
 
+## The rule for outside services (read before adding any)
+
+> A failure on our side is never recorded as a fact about their market,
+> is never cached, and never counts toward a pause.
+
+"We asked and the answer was no" is a fact. "We could not ask" never is.
+Code that calls any outside service follows it through `server/services/ourFault.js`:
+
+- **Throw, don't return empty.** A refused, timed-out, over-quota or keyless call throws `OF.fault(service, providerWords)`. Never hand an empty list onward as if nothing was found.
+- **Cache only confirmed negatives.** `store.saveBrandEvidence` refuses error outcomes and refuses a negative unless you pass `{ confirmed: true }`. Pass it only when the provider actually answered "none". `tests/ourfault.js` fails any new negative write without it.
+- **Nightly work records faults, not outcomes.** A fault goes on the run row with the service and the provider's words. It never counts toward the three-night pause.
+- **Resend goes through `services/resendChecked.makeResend`.** `emails.send` does not throw on its own.
+- **New outside service?** Add a check and a plain-English consequence to `server/services/preflight.js`. It then shows on `/admin/status` and in the preflight alert.
+
+`ADMIN_ALERT_EMAIL` must be set. With no alert destination, the preflight fails and says so.
+
 ## Features
 
 - Agent and Athlete accounts

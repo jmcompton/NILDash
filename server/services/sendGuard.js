@@ -199,8 +199,21 @@ function classifyError(err) {
   // has to tick. The instruction has to name the checkbox or they will reconnect,
   // decline it again, and land back here.
   //
+  // ── A DISABLED API IS OURS, NOT THE AGENT'S MAILBOX (services/ourFault) ──
+  // Google answers a send through a project whose Gmail API is off with 403
+  // accessNotConfigured / SERVICE_DISABLED ("has not been used in project ...
+  // or it is disabled"). This was folded into the scope branch and every card
+  // told the agent to reconnect -- which cannot fix it -- while Google's own
+  // words were thrown away. Its own kind now, carrying those words, and
+  // recorded as a fault. The same thing took Places down for three days.
+  if (/accessnotconfigured|service_disabled|has not been used in project|api has not been used|it is disabled/.test(reason)) {
+    const words = String((err && err.message) || 'Gmail API is disabled').slice(0, 240);
+    require('./ourFault').record('gmail-api', words, 'send');
+    return { kind: 'api-disabled', retryable: false, ourFault: true,
+      detail: 'our Gmail setup is failing, not your mailbox (nothing to reconnect): ' + words };
+  }
   // AHEAD of the 401/403 branch on purpose: order is the whole behaviour.
-  if (/insufficient authentication scopes|insufficientpermissions|insufficient_scope|accessnotconfigured/.test(reason)) {
+  if (/insufficient authentication scopes|insufficientpermissions|insufficient_scope/.test(reason)) {
     return { kind: 'scope', retryable: false,
       detail: 'the mailbox is connected but was not given permission to send email — '
         + 'reconnect Google and tick "Send email on your behalf"' };

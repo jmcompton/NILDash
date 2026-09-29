@@ -45,6 +45,15 @@ function decrypt(ciphertext) {
     return decrypted.toString('utf8');
   } catch (e) {
     console.error('[crypto] Decrypt failed:', e.message);
+    // OURS, NOT THE MAILBOX (services/ourFault). A token that will not decrypt
+    // almost always means the key changed: EMAIL_ENCRYPTION_KEY, or
+    // SESSION_SECRET when that is unset. Every agent then reads "reconnect",
+    // which reconnecting only fixes one mailbox at a time.
+    try {
+      require('./ourFault').record('token-encryption',
+        'a stored mailbox token could not be decrypted (' + e.message + '); did EMAIL_ENCRYPTION_KEY'
+        + (process.env.EMAIL_ENCRYPTION_KEY ? '' : ' (unset, so SESSION_SECRET)') + ' change?', 'crypto.decrypt');
+    } catch (_) { /* recording must never break a decrypt caller */ }
     return null;
   }
 }

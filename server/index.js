@@ -12,8 +12,7 @@ const rateLimit = require('express-rate-limit');
 const path     = require('path');
 const PDFDocument = require('pdfkit');
 const store    = require('./store');
-const { Resend } = require('resend');
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = require('./services/resendChecked').makeResend(process.env.RESEND_API_KEY);
 const ai       = require('./ai');
 const MarketDeepen = require('./services/marketDeepen');
 const Closer = require('./services/closer');
@@ -4839,8 +4838,7 @@ app.post('/api/request-access', async (req, res) => {
     console.log('ACCESS REQUEST:', firstName, lastName, email, agency, athletes);
     // Email notification to admin
     try {
-      const { Resend } = require('resend');
-      const resend = new Resend(process.env.RESEND_API_KEY);
+      const resend = require('./services/resendChecked').makeResend(process.env.RESEND_API_KEY);
       await resend.emails.send({
         from: 'noreply@mynildash.com',
         to: ADMIN_EMAIL,
@@ -5312,6 +5310,10 @@ const ADMIN_SCRIPTS = {
   // sent. ?send=1 sends it now, whatever the hour, if nothing has gone today.
   //   /api/admin/scripts/morning-alert?text=1
   'morning-alert': { file: 'scripts/morning-alert.js', args: (q) => (q.send === '1' ? ['--send'] : []) },
+  // Every external service the night depends on, called once now; results
+  // written to service_checks. &alert=1 also emails the failures.
+  //   /api/admin/scripts/preflight?text=1
+  'preflight': { file: 'scripts/preflight.js', args: (q) => (q.alert === '1' ? ['--alert'] : []) },
   // Negative cache rows written during an outage window, per lane; &apply=1
   // deletes them so the next lookup asks again (services/ourFault).
   //   /api/admin/scripts/purge-outage-negatives?since=2026-09-16&text=1
@@ -12159,6 +12161,29 @@ app.post('/api/admin/retire-stale-queue', requireAuth, async (req, res) => {
 // and the failure that started this was a missing env var on a laptop.
 //
 // READ-ONLY. No probe write, unlike the script: this runs against production.
+// ── /admin/status: every external service green or red, and seven nights ───
+// of output for agents and universities (services/statusPage). Admin only;
+// read only. The preflight alert links here.
+async function _statusAdminOk(req) {
+  const user = req.session && req.session.userId ? await store.getUser(req.session.userId).catch(() => null) : null;
+  return !!user && (user.email === ADMIN_EMAIL || isFounderEmail(user.email));
+}
+app.get('/admin/status', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
+  const SP = require('./services/statusPage');
+  try {
+    res.set('Cache-Control', 'no-store').type('html').send(SP.renderHtml(await SP.collect(store.pool)));
+  } catch (e) {
+    console.error('[admin/status]', e.message);
+    res.status(500).type('text').send('status page failed: ' + e.message);
+  }
+});
+app.get('/api/admin/status', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.set('Cache-Control', 'no-store').json(await require('./services/statusPage').collect(store.pool)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/cache-health', async (req, res) => {
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -14713,8 +14738,14 @@ try {
     console.log('[queue] nightly outreach queue scheduler is OFF (set OUTREACH_QUEUE_ENABLED=1 to enable)');
   } else {
     const QUEUE_TICK_MS = 15 * 60 * 1000;
-    const queueTick = () => {
+    const queueTick = async () => {
       if (!queueJob.nightlyWindowOpen()) return;
+      // THE PREFLIGHT FIRST (services/preflight). Normally it already ran at
+      // 00:30; this covers a server that restarted past it. It never blocks the
+      // run: a failed service is alerted and the night proceeds, recording its
+      // own faults (services/ourFault).
+      await require('./services/preflight').ensureTonight(store.pool)
+        .catch((e) => console.error('[preflight] before the run:', e.message));
       queueJob.run({}).catch((e) => console.error('[queue] nightly tick failed:', e.message));
     };
     setTimeout(queueTick, 2 * 60 * 1000);   // let the server finish booting
@@ -14723,6 +14754,22 @@ try {
   }
 } catch (e) {
   console.warn('[queue] scheduler failed to start:', e.message);
+}
+
+// ── The preflight (services/preflight) ──────────────────────────────────────
+// Half an hour before the nightly window: one real call to every external
+// service the night depends on, results in service_checks, and an immediate
+// email naming what will not work tonight if any fail. Once per night. Not
+// gated on OUTREACH_QUEUE_ENABLED: the university side and the morning depend
+// on the same services.
+try {
+  const PF = require('./services/preflight');
+  const pfTick = () => { PF.ensureTonight(store.pool).catch((e) => console.error('[preflight] tick failed:', e.message)); };
+  setTimeout(pfTick, 90 * 1000);
+  setInterval(pfTick, 5 * 60 * 1000);
+  console.log('[preflight] scheduled: 00:30 Central before each nightly run, once a night');
+} catch (e) {
+  console.error('[preflight] scheduler failed to start:', e.message);
 }
 
 // ── The morning alert (services/morningAlert) ──────────────────────────────

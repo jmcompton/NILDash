@@ -166,8 +166,7 @@ async function run(opts = {}) {
     }
 
     try {
-      const { Resend } = require('resend');
-      const resend = new Resend(process.env.RESEND_API_KEY);
+      const resend = require('../services/resendChecked').makeResend(process.env.RESEND_API_KEY);
       const unsubUrl = `${APP_URL}/api/digest/unsubscribe?token=${encodeURIComponent(token)}`;
       const result = await resend.emails.send({
         from: DIGEST_FROM,
@@ -235,8 +234,7 @@ async function sendTest(toEmail, opts = {}) {
   const token = await unsubToken(pool, user);
   const subject = (real ? '' : '[TEST] ') + digest.buildSubject(d);
   const html = digest.renderHtml(d, { appUrl: APP_URL, unsubToken: token });
-  const { Resend } = require('resend');
-  const resend = new Resend(process.env.RESEND_API_KEY);
+  const resend = require('../services/resendChecked').makeResend(process.env.RESEND_API_KEY);
   const unsubUrl = `${APP_URL}/api/digest/unsubscribe?token=${encodeURIComponent(token)}`;
   const result = await resend.emails.send({
     from: DIGEST_FROM, to: user.email, subject, html, text: digest.renderText(d),

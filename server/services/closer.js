@@ -1011,7 +1011,7 @@ async function releaseDue(pool, opts = {}) {
           WHERE id=$1`,
         [log.id, detail.slice(0, 300), attempt.attempts, failures, why.slice(0, 300),
           new Date(nowMs + failBackoffMs(failures - 1))]).catch(() => {});
-      if (attempt.kind === 'auth' || attempt.kind === 'quota') blockedAgents.add(log.agent_id);
+      if (attempt.kind === 'auth' || attempt.kind === 'quota' || attempt.kind === 'api-disabled') blockedAgents.add(log.agent_id);
       out.detail.push({ id: log.id, result: 'failed', why: attempt.detail || attempt.kind });
     }
   }

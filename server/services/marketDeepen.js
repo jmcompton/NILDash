@@ -151,8 +151,31 @@ async function claimDeepen(pool, school, opts = {}) {
     return true;
   } catch (e) {
     console.error('[marketDeepen] claimDeepen:', e.message);
+    // The nightly run asks to be told: a claim that failed on our side is not
+    // "already widened", and saying nothing ended athletes' nights as worked
+    // out (services/ourFault). Other callers keep the old boolean.
+    if (opts.throwOnError) throw require('./ourFault').fault('database', 'widen claim failed: ' + e.message);
     return false;
   }
 }
 
-module.exports = { marketKey, ensureTable, canDeepen, claimDeepen, WINDOW_HOURS, MAX_PER_MARKET, MARKET_ROW };
+// HANDED BACK when the widen scan itself failed on our side: the athlete and
+// the market did not spend their widen, so the next night may use it.
+async function releaseDeepen(pool, school, opts = {}) {
+  const key = marketKey(school);
+  if (!key) return;
+  const athleteId = String(opts.athleteId || MARKET_ROW);
+  const hours = opts.windowHours || WINDOW_HOURS;
+  try {
+    for (const who of athleteId === MARKET_ROW ? [MARKET_ROW] : [athleteId, MARKET_ROW]) {
+      await pool.query(
+        `UPDATE market_deepen_log
+            SET deepen_count = GREATEST(deepen_count - 1, 0),
+                last_deepened_at = CASE WHEN $3 = $4 THEN last_deepened_at
+                                        ELSE NOW() - (($5::int + 1) || ' hours')::interval END
+          WHERE market_key = $1 AND athlete_id = $2`, [key, who, who, MARKET_ROW, hours]);
+    }
+  } catch (e) { console.error('[marketDeepen] releaseDeepen:', e.message); }
+}
+
+module.exports = { marketKey, ensureTable, canDeepen, claimDeepen, releaseDeepen, WINDOW_HOURS, MAX_PER_MARKET, MARKET_ROW };

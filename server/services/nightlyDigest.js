@@ -319,6 +319,30 @@ async function unsubToken(pool, user) {
   return (r.rows[0] && r.rows[0].digest_unsub_token) || token;
 }
 
+// ── A HELD DIGEST IS WRITTEN DOWN (services/ourFault) ──────────────────────
+// The allowlist used to hold every other agent's digest with nothing recorded,
+// so a list left set in production silently mailed nobody. A 'held' row now
+// says so, for the morning alert and the status page; a later claim that night
+// may take it over (claimSql) if the list is lifted.
+async function recordHeld(pool, { agentId, runDate, email, cards }) {
+  await pool.query(
+    `INSERT INTO nightly_digest_sends (agent_id, run_date, email, athletes, cards, status, error)
+     VALUES ($1, $2, $3, '[]'::jsonb, $4, 'held', 'not on NIGHTLY_DIGEST_ALLOWLIST')
+     ON CONFLICT (agent_id, run_date) DO NOTHING`, [agentId, runDate, email, cards || 0])
+    .catch((e) => console.error('[nightly-digest] could not record the hold:', e.message));
+}
+const CLAIM_CONFLICT = `ON CONFLICT (agent_id, run_date) DO UPDATE SET status = 'claimed', email = EXCLUDED.email,
+       athletes = EXCLUDED.athletes, cards = EXCLUDED.cards, error = NULL
+     WHERE nightly_digest_sends.status = 'held' RETURNING id`;
+
+// A failure anywhere after the claim is ours: the row says 'failed' with the
+// reason (never stuck at 'claimed'), and it is recorded as a fault.
+async function _failClaim(pool, id, e, who) {
+  const why = String((e && e.message) || e).slice(0, 500);
+  await pool.query(`UPDATE nightly_digest_sends SET status = 'failed', error = $2 WHERE id = $1`, [id, why]).catch(() => {});
+  require('./ourFault').record(/resend|RESEND/i.test(why) ? 'resend' : 'nightly-digest', why, who);
+}
+
 // Called by the fill when it finishes for one agent. Returns what it did.
 //   { sent: bool, reason, athletes, cards }
 // opts.send(message) replaces Resend (tests); opts.now for the date.
@@ -335,19 +359,31 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
   const rule = await require('./sendRules').check(pool, { email: u.email, subject: subjectFor(cards), system: 'nightly-digest' });
   if (!rule.ok) return { sent: false, reason: 'suppressed: ' + rule.reason, athletes: rows.length, cards };
   if (!allowed(u.email)) {
-    console.log(`[nightly-digest] HELD ${u.email} night=${runDate} athletes=${rows.length} cards=${cards}: not on NIGHTLY_DIGEST_ALLOWLIST (nothing recorded; sends when the list is lifted)`);
-    return { sent: false, reason: 'not on NIGHTLY_DIGEST_ALLOWLIST', athletes: rows.length, cards };
+    console.log(`[nightly-digest] HELD ${u.email} night=${runDate} athletes=${rows.length} cards=${cards}: not on NIGHTLY_DIGEST_ALLOWLIST (recorded as held; sends when the list is lifted)`);
+    await recordHeld(pool, { agentId, runDate, email: u.email, cards });
+    return { sent: false, reason: 'not on NIGHTLY_DIGEST_ALLOWLIST', held: true, athletes: rows.length, cards };
   }
 
   // The claim: one row per agent per night, taken before anything is sent.
   const claim = await pool.query(
     `INSERT INTO nightly_digest_sends (agent_id, run_date, email, athletes, cards, status)
      VALUES ($1, $2, $3, $4::jsonb, $5, 'claimed')
-     ON CONFLICT (agent_id, run_date) DO NOTHING RETURNING id`,
+     ${CLAIM_CONFLICT}`,
     [agentId, runDate, u.email, JSON.stringify(rows.map((r) => ({ athleteId: r.athleteId, name: r.name, place: r.place, count: r.count }))), cards]);
   if (!claim.rows[0]) return { sent: false, reason: 'already sent tonight', athletes: rows.length, cards };
   const id = claim.rows[0].id;
+  try {
+    return await _sendClaimed(pool, { id, agentId, runDate, rows, cards, u }, opts);
+  } catch (e) {
+    // Thrown before the provider was ever asked (tokens, the unsubscribe link,
+    // the render): ours, and the row must not sit at 'claimed' forever.
+    await _failClaim(pool, id, e, 'nightly digest ' + u.email);
+    console.error(`[nightly-digest] FAILED before sending ${u.email} night=${runDate}: ${e.message}`);
+    return { sent: false, reason: 'failed before sending: ' + e.message, athletes: rows.length, cards };
+  }
+}
 
+async function _sendClaimed(pool, { id, agentId, runDate, rows, cards, u }, opts) {
   // ── THE PITCHES AND THEIR BUTTONS ──────────────────────────────────────
   // Read AFTER the claim, so two workers cannot both mint tokens for the same
   // night. Narrowed to the athletes who got cards tonight; if none of their
@@ -364,8 +400,7 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
   await pool.query(`UPDATE nightly_digest_sends SET subject = $2 WHERE id = $1`, [id, msg.subject]).catch(() => {});
   try {
     const send = opts.send || (async (m) => {
-      const { Resend } = require('resend');
-      const resend = new Resend(process.env.RESEND_API_KEY);
+      const resend = require('./resendChecked').makeResend(process.env.RESEND_API_KEY);
       return resend.emails.send(m);
     });
     const result = await send({
@@ -378,7 +413,7 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
     console.log(`[nightly-digest] SENT ${u.email} night=${runDate} athletes=${rows.length} cards=${cards}`);
     return { sent: true, reason: null, athletes: rows.length, cards, providerId: providerId || null };
   } catch (e) {
-    await pool.query(`UPDATE nightly_digest_sends SET status = 'failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]).catch(() => {});
+    await _failClaim(pool, id, e, 'nightly digest ' + u.email);
     console.error(`[nightly-digest] send FAILED ${u.email} night=${runDate}: ${e.message}`);
     return { sent: false, reason: 'send failed: ' + e.message, athletes: rows.length, cards };
   }
@@ -437,8 +472,9 @@ async function sendWaiting(pool, { agentId, runDate }, opts = {}) {
   const rule = await require('./sendRules').check(pool, { email: u.email, subject: waitingSubjectFor(cards), system: 'nightly-digest' });
   if (!rule.ok) return { sent: false, reason: 'suppressed: ' + rule.reason, athletes: groups.length, cards };
   if (!allowed(u.email)) {
-    console.log(`[nightly-digest] HELD ${u.email} waiting=${cards}: not on NIGHTLY_DIGEST_ALLOWLIST`);
-    return { sent: false, reason: 'not on NIGHTLY_DIGEST_ALLOWLIST', athletes: groups.length, cards };
+    console.log(`[nightly-digest] HELD ${u.email} waiting=${cards}: not on NIGHTLY_DIGEST_ALLOWLIST (recorded as held)`);
+    await recordHeld(pool, { agentId, runDate, email: u.email, cards });
+    return { sent: false, reason: 'not on NIGHTLY_DIGEST_ALLOWLIST', held: true, athletes: groups.length, cards };
   }
 
   // The same claim table and the same unique (agent, night): a waiting digest
@@ -456,12 +492,21 @@ async function sendWaiting(pool, { agentId, runDate }, opts = {}) {
   const claim = await pool.query(
     `INSERT INTO nightly_digest_sends (agent_id, run_date, email, athletes, cards, status)
      VALUES ($1, $2, $3, $4::jsonb, $5, 'claimed')
-     ON CONFLICT (agent_id, run_date) DO NOTHING RETURNING id`,
+     ${CLAIM_CONFLICT}`,
     [agentId, runDate, u.email,
      JSON.stringify(groups.map((g) => ({ athleteId: g.athleteId, name: g.name, place: g.place, count: g.pitches.length }))), cards]);
   if (!claim.rows[0]) return { sent: false, reason: 'already sent tonight', athletes: groups.length, cards };
   const id = claim.rows[0].id;
+  try {
+    return await _sendWaitingClaimed(pool, { id, agentId, runDate, groups, cards, u, now }, opts);
+  } catch (e) {
+    await _failClaim(pool, id, e, 'waiting digest ' + u.email);
+    console.error(`[nightly-digest] waiting FAILED before sending ${u.email}: ${e.message}`);
+    return { sent: false, reason: 'failed before sending: ' + e.message, athletes: groups.length, cards };
+  }
+}
 
+async function _sendWaitingClaimed(pool, { id, agentId, runDate, groups, cards, u, now }, opts) {
   await attachActionUrls(pool, agentId, groups, opts);
   const token = await unsubToken(pool, u);
   const unsubUrl = `${APP_URL()}/api/digest/unsubscribe?token=${encodeURIComponent(token)}`;
@@ -469,8 +514,7 @@ async function sendWaiting(pool, { agentId, runDate }, opts = {}) {
   await pool.query(`UPDATE nightly_digest_sends SET subject = $2 WHERE id = $1`, [id, msg.subject]).catch(() => {});
   try {
     const send = opts.send || (async (m) => {
-      const { Resend } = require('resend');
-      const resend = new Resend(process.env.RESEND_API_KEY);
+      const resend = require('./resendChecked').makeResend(process.env.RESEND_API_KEY);
       return resend.emails.send(m);
     });
     const result = await send({
@@ -483,7 +527,7 @@ async function sendWaiting(pool, { agentId, runDate }, opts = {}) {
     console.log(`[nightly-digest] SENT (waiting) ${u.email} night=${runDate} athletes=${groups.length} pitches=${cards}`);
     return { sent: true, reason: null, waiting: true, athletes: groups.length, cards, providerId: providerId || null };
   } catch (e) {
-    await pool.query(`UPDATE nightly_digest_sends SET status = 'failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]).catch(() => {});
+    await _failClaim(pool, id, e, 'waiting digest ' + u.email);
     console.error(`[nightly-digest] waiting send FAILED ${u.email}: ${e.message}`);
     return { sent: false, reason: 'send failed: ' + e.message, athletes: groups.length, cards };
   }

@@ -75,10 +75,15 @@ Only include deals with a real dollar amount disclosed. Return [] if no valid de
     const deals = JSON.parse(jsonMatch[0]);
     return Array.isArray(deals) ? deals : [];
   } catch(e) {
+    // null, not []: a search that failed found nothing about the market, and
+    // the run must be able to tell a quiet week from a broken one
+    // (services/ourFault).
     console.error('Search error for query:', query, e.message);
-    return [];
+    _searchErrors.push(e.message);
+    return null;
   }
 }
+const _searchErrors = [];
 
 async function saveDealsToComps(deals) {
   if (!deals.length) return 0;
@@ -142,10 +147,12 @@ async function saveDealsToComps(deals) {
 async function runIngestionJob() {
   console.log('NILDash Deal Comp Ingestion Job starting...', new Date().toISOString());
   let totalSaved = 0;
+  let failedQueries = 0;
 
   for (const query of SEARCH_QUERIES) {
     console.log('Searching:', query);
     const deals = await searchAndExtract(query);
+    if (deals === null) { failedQueries++; continue; }
     console.log(`Found ${deals.length} deals`);
     const saved = await saveDealsToComps(deals);
     totalSaved += saved;
@@ -159,7 +166,19 @@ async function runIngestionJob() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ingestion_log (id SERIAL PRIMARY KEY, run_at TIMESTAMPTZ DEFAULT NOW(), comps_saved INTEGER)
   `);
-  await pool.query('INSERT INTO ingestion_log (comps_saved) VALUES ($1)', [totalSaved]);
+  // The failures ride on the row: comps_saved=0 with failed_queries=12 is a
+  // broken week, not a quiet one.
+  await pool.query(`ALTER TABLE ingestion_log ADD COLUMN IF NOT EXISTS failed_queries INTEGER`).catch(() => {});
+  await pool.query(`ALTER TABLE ingestion_log ADD COLUMN IF NOT EXISTS error TEXT`).catch(() => {});
+  await pool.query('INSERT INTO ingestion_log (comps_saved, failed_queries, error) VALUES ($1, $2, $3)',
+    [totalSaved, failedQueries, _searchErrors[0] ? String(_searchErrors[0]).slice(0, 500) : null]);
+  if (failedQueries && failedQueries >= SEARCH_QUERIES.length) {
+    console.error(`Job FAILED: all ${failedQueries} searches failed on our side: ${_searchErrors[0]}`);
+    await pool.query(`INSERT INTO service_faults (service, reason, context) VALUES ('nil-comps', $1, 'nilCompJob')`,
+      [`all ${failedQueries} searches failed: ${String(_searchErrors[0] || '').slice(0, 400)}`]).catch(() => {});
+    await Ledger.drain();
+    process.exit(1);
+  }
 
   // Written before exit, or the searches this run paid for never reach the
   // ledger: process.exit does not wait for the flush that record() scheduled.

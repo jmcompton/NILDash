@@ -314,7 +314,9 @@ async function findInstagram(website, opts) {
     // is never written).
     if (searchFailed) {
       console.log('[instagram] ' + label + ' search failed (' + searchFailed + ') — NOT cached, will retry next lookup');
-      return null;
+      // The nightly run asks to be told it was a failure, not "no handle"
+      // (services/ourFault). Other callers keep null.
+      return o.reportFault ? { fault: String(searchFailed) } : null;
     }
     // The brand rides along so a name-keyed row is readable in the table without
     // reverse-engineering the key.

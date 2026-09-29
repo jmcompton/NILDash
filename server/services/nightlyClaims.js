@@ -45,4 +45,15 @@ async function claimResearch(pool, athleteId, brand, night) {
   }
 }
 
-module.exports = { claimDiscovery, claimResearch, MAX_DISCOVERY_PER_ATHLETE_NIGHT, RESEARCHED_TONIGHT_REASON };
+// HANDED BACK WHEN THE SCAN FAILED ON OUR SIDE (services/ourFault). A
+// discovery that could not run did not use up the athlete's night: the claim is
+// returned so a later fill tonight can try again once the provider is back.
+async function releaseDiscovery(pool, athleteId, label, night) {
+  try {
+    await pool.query(
+      `UPDATE discovery_nightly SET n = GREATEST(n - 1, 0)
+        WHERE athlete_id = $1 AND night = $2 AND label = $3`, [String(athleteId), night, String(label || 'discovery')]);
+  } catch (e) { console.error('[queue] releaseDiscovery failed: ' + e.message); }
+}
+
+module.exports = { claimDiscovery, releaseDiscovery, claimResearch, MAX_DISCOVERY_PER_ATHLETE_NIGHT, RESEARCHED_TONIGHT_REASON };

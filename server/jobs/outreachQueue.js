@@ -186,7 +186,11 @@ async function expireStaleCards(pool, opts = {}) {
         AND created_at < NOW() - ($1 || ' days')::interval
         ${scope}
       RETURNING athlete_id, brand_name`, params
-  ).catch((e) => { console.error('[queue] expireStaleCards:', e.message); return { rows: [] }; });
+  ).catch((e) => {
+    // Not "every slot is full" (services/ourFault): the caller records a fault.
+    console.error('[queue] expireStaleCards:', e.message);
+    throw require('../services/ourFault').fault('database', 'could not expire stale cards: ' + e.message);
+  });
 
   if (r.rows.length) {
     const byAthlete = {};
@@ -269,12 +273,15 @@ async function recordAttempt(pool, athleteId, { filled, spent, runDate, faults, 
       + 'the run failed across the roster, which is our problem, not this market');
     return;
   }
-  // EVERY failure this athlete had was ours. A night that only produced errors
-  // measured our uptime, not their market.
+  // THE RULE (services/ourFault): a failure on our side never counts toward a
+  // pause. This used to skip only a night where EVERY attempt was ours; a
+  // night with one outage and three honest rejections still counted, and the
+  // outage was the reason the other three were all it tried. Any fault now
+  // means the night measured us, not their market.
   const triedN = Array.isArray(tried) ? tried.length : 0;
-  if (faults > 0 && triedN > 0 && faults >= triedN) {
+  if (faults > 0) {
     console.warn(`[queue] athlete=${athleteId} not counted toward the backoff — `
-      + `all ${faults} of ${triedN} attempts failed on our side`);
+      + `${faults} failure(s) tonight were ours${triedN ? ` (${triedN} attempt(s))` : ''}`);
     return;
   }
 
@@ -390,7 +397,11 @@ async function regionForAthleteAsync(athlete) {
   // could not ask". Handed the bare lookupPlace it refuses to cache anything
   // negative at all, which is safe but re-pays for every unresolved school
   // nightly.
-  const hit = await SchoolGeo.geocodeSchool(school, { lookupPlaceResult, store }).catch(() => null);
+  let hit = null;
+  try { hit = await SchoolGeo.geocodeSchool(school, { lookupPlaceResult, store, reportFault: true }); }
+  catch (e) { hit = { fault: e.message }; }
+  // COULD NOT ASK is not "no school we could match" (services/ourFault).
+  if (hit && hit.fault) return { region: '', geocoded: false, fault: `could not look up where ${school} is: ${hit.fault}` };
   if (!hit) return { region: '', geocoded: false };
   return { region: hit.market, geocoded: true, geocodeSource: hit.source };
 }
@@ -453,7 +464,7 @@ async function localContextFor(ath) {
     const cs = AR.cityStateFrom(r.region);
     if (cs.state) { profile.stateCode = cs.state; profile.stateNote = null; }
   }
-  return { region: r.region, profile, geocoded: !!r.geocoded };
+  return { region: r.region, profile, geocoded: !!r.geocoded, fault: r.fault || null };
 }
 
 // The rationale the scan already wrote, which is the same sentence that justifies
@@ -600,6 +611,7 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
           card.emailTier || null, card.emailSourceUrl || null]);
     } catch (e) {
       console.error(`[queue] athlete=${athleteId} "${card.brandName}" email draft failed: ${e.message}`);
+      card._insertFault = 'email draft: ' + e.message;   // ours (services/ourFault)
       return false;
     }
   }
@@ -690,8 +702,50 @@ function textToParagraphs(text) {
     .join('');
 }
 
+// ── THE RULE, APPLIED ONCE FOR EVERY WAY A NIGHT CAN END (services/ourFault) ─
+// A failure on our side is never recorded as a fact about their market, is
+// never cached, and never counts toward a pause. The body below collects each
+// of our failures in nightFaults (faultOf) instead of writing it down as a
+// rejection, an exhausted market or a missing name. This wrapper then decides,
+// for EVERY return path at once:
+//   - faults counts them, and recordAttempt refuses to count the night toward
+//     the pause if there is even one;
+//   - a night that filled nothing and had any fault gets emptyReason 'our-fault'
+//     and a note that names our failure, never "worked out" or "below the bar";
+//   - nightFaults goes on the run row with the service and the provider's words.
+const KEEP_REASON = new Set([Scout.EMPTY.PAUSED, Scout.EMPTY.SLOTS_FULL, Scout.EMPTY.CAPPED]);
+function applyFaultRule(r, nightFaults) {
+  if (!r) return r;
+  const tried = Array.isArray(r.tried) ? r.tried : [];
+  const perBusiness = tried.filter((t) => t && t.fault);
+  const faults = perBusiness.length + (nightFaults ? nightFaults.length : 0);
+  if (!faults) return r;
+  const out = { ...r, nightFaults: nightFaults || [], faults };
+  if (!(r.filled > 0) && !KEEP_REASON.has(r.emptyReason)) {
+    const f = (nightFaults && nightFaults[0])
+      || { service: 'lookup', reason: perBusiness[0].reason || 'a lookup failed on our side' };
+    out.emptyReason = Scout.EMPTY.FAULT;
+    out.note = `nothing tonight because of our failure, not this market: ${f.service}: ${f.reason}`
+      + (faults > 1 ? ` (+${faults - 1} more)` : '')
+      + (tried.length ? `; ${tried.length} business${tried.length > 1 ? 'es' : ''} tried` : '');
+  }
+  return out;
+}
 async function fillAthlete(pool, ctx) {
+  const nightFaults = [];
+  return applyFaultRule(await _fillAthlete(pool, ctx, nightFaults), nightFaults);
+}
+
+async function _fillAthlete(pool, ctx, nightFaults) {
   const { agentId, athleteId, athleteName, budget, region } = ctx;
+  const OF = require('../services/ourFault');
+  // One of OUR failures tonight: recorded as a fault, never as a market fact.
+  const faultOf = (service, reason, where) => {
+    const why = String(reason || 'unknown').slice(0, 300);
+    if (!nightFaults.some((f) => f.service === service && f.reason === why)) nightFaults.push({ service, reason: why, where: where || null });
+    OF.record(service, why, (where || 'fill') + ' athlete=' + athleteId);
+    (ctx.onProgress || (() => {}))(`${athleteName}: OUR FAILURE (${service}): ${why}`);
+  };
   // Passed down from the run so it is read once for the whole roster rather than
   // once per business. `has` is what the writer needs; the block itself is
   // appended after the model, never written by it.
@@ -796,6 +850,7 @@ async function fillAthlete(pool, ctx) {
   // ever ran, which is one of the ways an athlete woke up to nothing. The Scout
   // suppresses the local lane on its own when hasLocalMarket is false; we just
   // carry the reason through so an empty result can still say why.
+  if (ctx.regionFault) faultOf('google-places', ctx.regionFault, 'school location');
   const noMarket = !String(region || '').trim();
   const noMarketNote = noMarket
     ? ((ctx.athleteProfile && ctx.athleteProfile.localLaneNote)
@@ -813,7 +868,13 @@ async function fillAthlete(pool, ctx) {
   // keepStale: the fill that runs the moment a dormant agent signs back in.
   // Their cards were preserved through the weeks they were away; expiring them
   // in the same second they return would hand them an empty page.
-  if (!ctx.keepStale) await expireStaleCards(pool, { agentId });
+  if (!ctx.keepStale) {
+    try { await expireStaleCards(pool, { agentId }); }
+    catch (e) {
+      faultOf(e.service || 'database', e.reason || e.message, 'expireStaleCards');
+      return { filled: 0, open: 0, tried, note: null, emptyReason: Scout.EMPTY.FAULT };
+    }
+  }
 
   const heldRows = (await pool.query(
     `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
@@ -862,6 +923,7 @@ async function fillAthlete(pool, ctx) {
     // of handing them the athlete's attempts and rejecting them one by one.
     heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
   });
+  for (const f of (slate.faults || [])) faultOf(f.service, f.reason, 'slate');
 
   // ── REFILL, RATHER THAN GO QUIET ─────────────────────────────────────────
   // The fill no longer stops when the slate is drained. When it needs more
@@ -888,6 +950,7 @@ async function fillAthlete(pool, ctx) {
   // caller appends. `cands` is declared after this closure.
   const athObj = { id: athleteId, ...(ctx.athleteRow || {}) };
   const refilledMarkets = ctx.refilledMarkets || new Set();   // one refill per market per run
+  const _refillFaultsLocal = new Map();                        // market -> why its refill failed tonight
   const knownBrands = new Set();                              // every candidate ever handed out tonight
   let widenedTonight = false;
   const slateLimit = Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT;
@@ -898,6 +961,7 @@ async function fillAthlete(pool, ctx) {
       agentId, athlete: profile, store, limit: slateLimit * 2,
       heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
     });
+    for (const f of (fresh.faults || [])) faultOf(f.service, f.reason, 'slate redraw');
     const added = (fresh.picks || []).filter((c) => c && !knownBrands.has(bk(c.brand_name)));
     for (const c of added) knownBrands.add(bk(c.brand_name));
     return { fresh, added };
@@ -921,15 +985,30 @@ async function fillAthlete(pool, ctx) {
       return null;
     }
     const scanMeter = require('../scanMeter');
-    const { result, meter } = await scanMeter.run(() =>
-      scanMeter.label({ site: 'discovery', agentId, athleteId, brand: '[' + label + ']' },
-        () => ai.getDealRecommendations(athObj, 'agent', [], 'local', opts)));
+    let result = null, meter = null;
+    try {
+      ({ result, meter } = await scanMeter.run(() =>
+        scanMeter.label({ site: 'discovery', agentId, athleteId, brand: '[' + label + ']' },
+          () => ai.getDealRecommendations(athObj, 'agent', [], 'local', opts))));
+    } catch (e) {
+      // A scan that threw did not find the market empty (services/ourFault).
+      faultOf(e.service || 'discovery', e.message, label);
+      await Claims.releaseDiscovery(pool, athleteId, label, ctx.runDate || today());
+      return null;
+    }
     const cost = Q.priceOf(meter);
     if (cost > 0) budget.spendDiscovery(cost);
     spendLog.push({ brand: `[${label}]`, lane: 'discovery', cost,
       webSearches: meter.webSearches, aiCalls: meter.aiCalls, placesCalls: meter.placesCalls });
     say(`${athleteName}: ${label} cost $${cost.toFixed(3)} `
       + `(${meter.webSearches} searches, ${meter.placesCalls} Places, ${meter.aiCalls} model calls)`);
+    // Every search pass failing comes back as an empty tagged _fault: ours, so
+    // it is a fault and the claim is handed back, never "the pool is drawn".
+    if (result && result._fault) {
+      faultOf('discovery', result._fault, label);
+      await Claims.releaseDiscovery(pool, athleteId, label, ctx.runDate || today());
+      return null;
+    }
     return Array.isArray(result) ? result : [];
   }
 
@@ -942,10 +1021,17 @@ async function fillAthlete(pool, ctx) {
     if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) (${why})`); return added; }
 
     // 2. Refill from the market -- once per market per run.
-    if (profile.hasLocalMarket && profile.marketKey && !refilledMarkets.has(profile.marketKey) && !ctx.noWiden) {
+    const refillFaults = ctx.refillFaults || _refillFaultsLocal;
+    if (profile.hasLocalMarket && profile.marketKey && refillFaults.has(profile.marketKey)) {
+      // This market's refill failed on our side earlier tonight. Not retried
+      // for every athlete, but not silent either: it is a fault for this night.
+      faultOf('discovery', `market refill for ${profile.marketKey} failed earlier tonight: ${refillFaults.get(profile.marketKey)}`, 'market refill');
+    } else if (profile.hasLocalMarket && profile.marketKey && !refilledMarkets.has(profile.marketKey) && !ctx.noWiden) {
       refilledMarkets.add(profile.marketKey);
       say(`${athleteName}: slate drained (${why}) — refilling the ${profile.marketKey} pool from the market scan`);
+      const _nf = nightFaults.length;
       const got = await discover('market refill', 0.05, {});
+      if (nightFaults.length > _nf) refillFaults.set(profile.marketKey, nightFaults[nightFaults.length - 1].reason);
       if (got) {
         ({ fresh, added } = await redraw());
         slate = fresh;
@@ -962,10 +1048,17 @@ async function fillAthlete(pool, ctx) {
       const gate = await Deepen.canDeepen(pool, widenKey, { athleteId });
       if (!gate.ok) {
         say(`${athleteName}: local pool is spent — not widening (${gate.reason})`);
-      } else if (await Deepen.claimDeepen(pool, widenKey, { athleteId, source: 'nightly' })) {
+      } else if (await Deepen.claimDeepen(pool, widenKey, { athleteId, source: 'nightly', throwOnError: true })
+        .catch((e) => { faultOf(e.service || 'database', e.reason || e.message, 'widen claim'); return false; })) {
         say(`${athleteName}: local pool is spent — widening the search to neighbouring towns`);
         try {
+          const _nf = nightFaults.length;
           const widened = await discover('widen', 0.25, { deepen: true });
+          if (nightFaults.length > _nf) {
+            // The widen never ran: give it back so the next night can use it.
+            await Deepen.releaseDeepen(pool, widenKey, { athleteId });
+            return [];
+          }
           const brands = (widened || []).map((o) => o && o.brand).filter(Boolean);
           if (profile.marketKey && brands.length) {
             await store.markMarketNewcomers(profile.marketKey, brands)
@@ -980,7 +1073,7 @@ async function fillAthlete(pool, ctx) {
             + Object.keys(slate.laneCounts || {}).map((k) => `${slate.laneCounts[k]} ${k}`).join(', '));
           if (added.length) return added;
         } catch (e) {
-          say(`${athleteName}: widening failed (${e.message}) — carrying on with what we have`);
+          faultOf('discovery', 'widening failed: ' + e.message, 'widen');
         }
       }
     }
@@ -1132,12 +1225,19 @@ async function fillAthlete(pool, ctx) {
           const m = await scanMeter.run(() => scanMeter.label(
             { site: 'instagram', agentId, athleteId, brand: cand.brand_name },
             () => findInstagram(cand.website || null, {
-              brand: cand.brand_name, loc: null, webSearch: ai.webSearchJson,
+              brand: cand.brand_name, loc: null, webSearch: ai.webSearchJson, reportFault: true,
             })));
           pig = m.result; pmeter = m.meter;
         } catch (e) {
-          say(`${cand.brand_name}: instagram lookup failed (${e.message})`);
-          pig = null; pmeter = null;
+          pig = { fault: e.message }; pmeter = null;
+        }
+        if (pig && pig.fault) {
+          // Could not search is not "no account" (services/ourFault).
+          say(`${cand.brand_name}: instagram lookup failed on our side (${pig.fault})`);
+          tried.push({ brand: cand.brand_name, result: 'error', reason: 'instagram lookup failed: ' + pig.fault, fault: true,
+            lane: cand.lane, places: { found: false }, risk: 'normal' });
+          OF.record('instagram-search', pig.fault, cand.brand_name);
+          continue;
         }
         // Same rule as the local lane: charge what the meter measured, and treat
         // a meter that recorded nothing at all as a broken measurement rather
@@ -1179,7 +1279,13 @@ async function fillAthlete(pool, ctx) {
         if (NAME_REQUIRED) {
           try {
             pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null });
-          } catch (e) { say(`${cand.brand_name}: owner search failed (${e.message})`); pperson = null; }
+          } catch (e) {
+            say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
+            tried.push({ brand: cand.brand_name, result: 'error', reason: 'owner search failed: ' + e.message, fault: true,
+              lane: cand.lane, places: { found: false }, risk: 'normal' });
+            OF.record(e.service || 'owner-name-search', e.reason || e.message, cand.brand_name);
+            continue;
+          }
           if (!pperson) {
             const reason = ONS.NO_NAME_REASON;
             say(`${cand.brand_name}: skipped, ${reason}`);
@@ -1217,7 +1323,16 @@ async function fillAthlete(pool, ctx) {
             () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN, { prose: true })) });
         } catch (e) {
           say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
+          OF.record(e.service || 'anthropic', 'writer failed: ' + e.message, cand.brand_name);
           ppitch = null;
+        }
+        if (ppitch && ppitch.skipped && ppitch.error) {
+          // The writer returned nothing usable: ours, not "nothing worth pitching".
+          say(`${cand.brand_name}: the writer failed on our side (${ppitch.reason})`);
+          tried.push({ brand: cand.brand_name, result: 'error', reason: 'writer: ' + ppitch.reason, fault: true,
+            lane: cand.lane, places: { found: false }, risk: 'normal' });
+          OF.record('anthropic', 'writer returned nothing usable', cand.brand_name);
+          continue;
         }
         if (ppitch && ppitch.skipped) {
           say(`${cand.brand_name}: nothing worth pitching — ${ppitch.reason}`);
@@ -1258,6 +1373,7 @@ async function fillAthlete(pool, ctx) {
           slotLost = true; break;
         }
         const pins = await insertCard(pool, { agentId, athleteId, slot, card: pcard });
+        if (!pins && pcard._insertFault) faultOf('database', 'card not saved: ' + pcard._insertFault, 'insertCard');
         if (pins) {
           // Counted only when the row actually landed, so a card lost to the
           // open-slot unique index does not burn the athlete's one program slot
@@ -1288,8 +1404,11 @@ async function fillAthlete(pool, ctx) {
       }
       let place = null;
       try {
-        place = await lookupPlace(cand.brand_name || cand.brand_key, region || '');
-      } catch (_) { place = null; }
+        const _pr = await lookupPlaceResult(cand.brand_name || cand.brand_key, region || '');
+        place = _pr.place;
+        // COULD NOT ASK is not "not on Places" (services/ourFault).
+        if (!_pr.ok && _pr.reason !== 'no-query') faultOf('google-places', `lookup unavailable (${_pr.reason})`, 'places lookup');
+      } catch (e) { place = null; faultOf('google-places', e.message, 'places lookup'); }
       const pre = Q.prescreen(place);
       const facts = Q.placesFacts(place);
       if (pre.skip) {
@@ -1460,6 +1579,16 @@ async function fillAthlete(pool, ctx) {
         + (_why.addressSteps.length ? ` [${_why.addressSteps.join(' | ')}]` : ''));
 
       if (!bar.ok) {
+        // The ladder could not ASK (a source errored or timed out): our failure,
+        // not a business with no contact (services/ourFault).
+        if (out && (out.outcome === 'ERROR' || out.outcome === 'TIMEOUT')) {
+          const why = `contact lookup ${out.outcome === 'TIMEOUT' ? 'timed out' : 'failed'} on our side`;
+          say(`${cand.brand_name}: ${why}`);
+          tried.push({ brand: cand.brand_name, result: 'error', reason: why, fault: true,
+            places: facts, risk: pre.risk, why: _why });
+          OF.record('contacts', why, cand.brand_name);
+          continue;
+        }
         say(`${cand.brand_name}: skipped, ${bar.reason}`);
         tried.push({ brand: cand.brand_name, result: 'rejected', reason: bar.reason,
           places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
@@ -1479,7 +1608,14 @@ async function fillAthlete(pool, ctx) {
         let found = null;
         try {
           found = await finalNameFor(cand.brand_name, region || (facts && facts.city) || '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null });
-        } catch (e) { say(`${cand.brand_name}: owner search failed (${e.message})`); found = null; }
+        } catch (e) {
+          // Could not search is not "no name found" (services/ourFault).
+          say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
+          tried.push({ brand: cand.brand_name, result: 'error', reason: 'owner search failed: ' + e.message, fault: true,
+            places: facts, risk: pre.risk, why: _why });
+          OF.record(e.service || 'owner-name-search', e.reason || e.message, cand.brand_name);
+          continue;
+        }
         if (found) {
           ONS.attachToLadder(ladder, found);
           // ── THE NAME CAME LATE; THE PATTERN WAS ALREADY HERE ──────────────
@@ -1568,6 +1704,7 @@ async function fillAthlete(pool, ctx) {
           () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN, { prose: true })) });
       } catch (e) {
         say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
+        OF.record(e.service || 'anthropic', 'writer failed: ' + e.message, cand.brand_name);
         pitch = null;
       }
       // The 'queued' attempt above was written before the writer ran; mark it
@@ -1578,6 +1715,16 @@ async function fillAthlete(pool, ctx) {
           _te.writerRetried = !!(pitch && pitch.retried);
           _te.writerFirstProblems = (pitch && pitch.firstProblems) || null;
         }
+      }
+      if (pitch && pitch.skipped && pitch.error) {
+        // The writer returned nothing usable: ours, not "nothing worth pitching".
+        say(`${cand.brand_name}: the writer failed on our side (${pitch.reason})`);
+        const _te = tried[tried.length - 1];
+        if (_te && _te.brand === cand.brand_name && _te.result === 'queued') {
+          _te.result = 'error'; _te.reason = 'writer: ' + pitch.reason; _te.fault = true;
+        } else tried.push({ brand: cand.brand_name, result: 'error', reason: 'writer: ' + pitch.reason, fault: true, places: facts, risk: pre.risk });
+        OF.record('anthropic', 'writer returned nothing usable', cand.brand_name);
+        continue;
       }
       if (pitch && pitch.skipped) {
         // A REFUSAL IS A RESULT. Recorded with its reason so "wrote two, both
@@ -1649,6 +1796,11 @@ async function fillAthlete(pool, ctx) {
         placed = true; filled++;
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
           + (card.contactName ? `, ${card.contactName}` : ''));
+      } else if (card._insertFault) {
+        // Written and then lost to our database: not a business that failed.
+        const _te = tried[tried.length - 1];
+        if (_te && _te.brand === cand.brand_name) { _te.result = 'error'; _te.reason = 'card not saved: ' + card._insertFault; _te.fault = true; }
+        faultOf('database', 'card not saved: ' + card._insertFault, 'insertCard');
       }
       break;
     }
@@ -1668,7 +1820,7 @@ async function fillAthlete(pool, ctx) {
   // week, how many were reachable, how many widens -- and what to do next.
   // Read by the empty tab (homeQueue lastRun) and the shift report verbatim.
   let stopNote = null;
-  if (stop && filled < open.length) {
+  if (stop && filled < open.length && !nightFaults.length && !tried.some((t) => t && t.fault)) {
     let triedWeek = tried.length, reachableWeek = tried.filter((t) => t && t.result === 'queued').length, widenedWeek = 0;
     try {
       const prior = await pool.query(
@@ -1757,6 +1909,7 @@ async function fillAgent(pool, agent, opts) {
   // One market refill per market per run, shared across the roster: nine
   // athletes in one town cost one scan, not nine. See refillSlate.
   const _refilledMarkets = new Set();
+  const _refillFaults = new Map();   // market -> why its refill failed on our side tonight
 
   for (let ai2 = 0; ai2 < athletes.length; ai2++) {
     const ath = athletes[ai2];
@@ -1790,12 +1943,12 @@ async function fillAgent(pool, agent, opts) {
         // reads school/sport/instagram/tiktok off the record itself.
         athleteRow: ath.data || null,
         // Resolved per athlete. Passing opts.region here meant passing undefined.
-        budget, region: _ctx.region, dryRun: dry,
+        budget, region: _ctx.region, dryRun: dry, regionFault: _ctx.fault || null,
         // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
         // Scout is asked for, so raising it is what lets the night evaluate
         // dozens of businesses rather than three.
         maxSlots: Q.NIGHTLY_SLOTS, signature,
-        refilledMarkets: _refilledMarkets,
+        refilledMarkets: _refilledMarkets, refillFaults: _refillFaults,
         // Shared across the roster — see loadProgramBrandTally.
         programBrandTally,
         onProgress: (m) => console.log('[queue] ' + m),
@@ -1827,6 +1980,9 @@ async function fillAgent(pool, agent, opts) {
     details.push({
       athleteId: ath.id, athleteName: ath.name, filled: r.filled, open: r.open,
       note: r.note || null, tried: r.tried || [], paused: !!r.paused,
+      // OUR failures tonight, with the service and the provider's words
+      // (services/ourFault). Read by the morning alert and the status page.
+      nightFaults: r.nightFaults || [],
       // Pitches written and then found no slot (slotStillOpen). Not tried
       // businesses; listed so spend-breakdown can count the writer calls.
       slotTaken: r.slotTaken || [],
@@ -1925,8 +2081,10 @@ async function fillAgent(pool, agent, opts) {
     await pool.query(
       `UPDATE outreach_queue_runs SET filled = $3, spent_usd = $4, details = $5, finished_at = NOW()
         WHERE agent_id = $1 AND run_date = $2`,
-      [agent.id, runDate, filled, budget.spent(), JSON.stringify(details)]).catch((e) =>
-        console.error('[queue] failed to persist run details:', e.message));
+      [agent.id, runDate, filled, budget.spent(), JSON.stringify(details)]).catch((e) => {
+        console.error('[queue] failed to persist run details:', e.message);
+        require('../services/ourFault').record('database', 'run details not saved: ' + e.message, 'fillAgent agent=' + agent.id);
+      });
     // ── THE NIGHTLY DIGEST, THE MOMENT THIS AGENT'S FILL IS DONE ──────────
     // Only here: a dormant agent the run skipped never reaches this function,
     // and the on-demand path goes through fillAthlete, not fillAgent. The
@@ -2046,8 +2204,14 @@ async function fillOnDemand(pool, ath, opts = {}) {
   if (!agentFirstName) return { filled: 0, spent: 0, claimed: false, reason: AgentName.NO_AGENT_NAME_REASON };
   const claim = await pool.query(
     `INSERT INTO outreach_queue_ondemand (athlete_id, run_date) VALUES ($1,$2)
-     ON CONFLICT (athlete_id, run_date) DO NOTHING`, [ath.id, runDate]).catch(() => ({ rowCount: 0 }));
-  if (!(claim.rowCount > 0)) return { filled: 0, spent: 0, claimed: false };
+     ON CONFLICT (athlete_id, run_date) DO NOTHING`, [ath.id, runDate]).catch((e) => ({ rowCount: 0, error: e }));
+  // A claim that FAILED is not "already filled today" (services/ourFault).
+  if (claim.error) {
+    console.error(`[queue/ondemand] athlete=${ath.id} claim failed: ${claim.error.message}`);
+    require('../services/ourFault').record('database', 'on-demand claim failed: ' + claim.error.message, 'fillOnDemand athlete=' + ath.id);
+    return { filled: 0, spent: 0, claimed: false, fault: true, reason: 'our failure: the claim could not be written (' + claim.error.message + ')' };
+  }
+  if (!(claim.rowCount > 0)) return { filled: 0, spent: 0, claimed: false, reason: 'already filled today' };
 
   // opts.budget: a shared budget when several athletes are filled in one go
   // (resumeAgent), so a roster of forty cannot spend forty on-demand caps.
@@ -2065,7 +2229,7 @@ async function fillOnDemand(pool, ath, opts = {}) {
       // wrote pitches with no Instagram link and no content line -- a quietly
       // different message depending on which path produced the card.
       athleteRow: ath.data || null,
-      budget, region: _ctx.region,
+      budget, region: _ctx.region, regionFault: _ctx.fault || null,
       // ON-DEMAND NEVER WIDENS. This runs while the agent is watching, on a $0.15
       // cap; a deep search pass costs more than the whole on-demand budget and
       // would stall the page. Widening is the night's job.
@@ -2147,7 +2311,7 @@ async function status(pool) {
 }
 
 module.exports = {
-  run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor,
+  run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor, applyFaultRule,
   athleteState, recordAttempt, releasePause, expireStaleCards,
   insertCard, slotStillOpen, SLOT_TAKEN_REASON, NAME_REQUIRED, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
   loadAthletesForQueue, resumeAgent,

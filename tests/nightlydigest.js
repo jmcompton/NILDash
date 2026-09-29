@@ -129,7 +129,11 @@ async function main() {
   process.env.NIGHTLY_DIGEST_ALLOWLIST = ' JohnMarkCompton@gmail.com , other@x.com ';
   const before = sent.length;
   const r5a = await D.sendForRun(P(), { agentId: AG, runDate: '2099-03-10', details }, { send });
-  ok('an agent not on NIGHTLY_DIGEST_ALLOWLIST: held, not sent, nothing recorded', r5a.sent === false && r5a.reason === 'not on NIGHTLY_DIGEST_ALLOWLIST' && sent.length === before && (await P().query(`SELECT COUNT(*)::int n FROM nightly_digest_sends WHERE agent_id = $1 AND run_date = '2099-03-10'`, [AG])).rows[0].n === 0, r5a);
+  // Held is RECORDED (status 'held'), so the morning alert can say a digest was
+  // held instead of the night reading as one where nothing was due.
+  const heldRows = (await P().query(`SELECT status FROM nightly_digest_sends WHERE agent_id = $1 AND run_date = '2099-03-10'`, [AG])).rows;
+  ok('an agent not on NIGHTLY_DIGEST_ALLOWLIST: held, not sent, recorded as held', r5a.sent === false && r5a.reason === 'not on NIGHTLY_DIGEST_ALLOWLIST' && sent.length === before
+    && heldRows.length === 1 && heldRows[0].status === 'held', [r5a, heldRows]);
   ok('  the list is case- and space-insensitive', D.allowed('johnmarkcompton@gmail.com') && D.allowed('OTHER@X.COM') && !D.allowed('nd-agent@x.com'));
   process.env.NIGHTLY_DIGEST_ALLOWLIST = 'nd-agent@x.com';
   const r5b = await D.sendForRun(P(), { agentId: AG, runDate: '2099-03-10', details }, { send });

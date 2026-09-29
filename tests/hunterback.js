@@ -97,6 +97,7 @@ async function main() {
     H._resetBreaker();
     r = await H.findDomainEmails(d);
     const deep = (H._resetBreaker(), await H.findDomainEmails(d, { withPattern: true }));
+    for (let i = 0; i < 20 && !(await faultRow(d)); i++) await new Promise((res) => setTimeout(res, 50));
     const fr = await faultRow(d);
     ok(`${d} returns null to the old callers and caches NOTHING`, r === null && !(await outcomeOf(d)), await outcomeOf(d));
     ok(`  the deep path is told it was a fault: ${want}`, deep && deep.fault && deep.fault.outcome === want, deep);
@@ -128,6 +129,8 @@ async function main() {
   delete process.env.HUNTER_API_KEY;
   CALLS = [];
   r = await H.findDomainEmails('nokey.com');
+  // The fault write is fire-and-forget (it must never slow or break the caller).
+  for (let i = 0; i < 20 && !(await faultRow('nokey.com')); i++) await new Promise((res) => setTimeout(res, 50));
   ok('with no API key nothing is called', CALLS.length === 0 && r === null, CALLS);
   ok('  and it is a recorded fault, not a cached answer', !(await outcomeOf('nokey.com')) && /NO_KEY/.test(((await faultRow('nokey.com')) || {}).reason || ''));
   process.env.HUNTER_API_KEY = savedKey;

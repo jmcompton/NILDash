@@ -118,6 +118,10 @@ async function syncAccount(account) {
     errorMsg = e.message;
     await emailStore.updateAccountStatus(account.id, 'error', new Date());
     console.error(`[emailSync] Sync failed for ${account.email_address}:`, e.message);
+    // The account now leaves the poller (status 'error'), so this is said once,
+    // as a fault, with the provider's words.
+    require('./ourFault').record((account.provider || 'mail') + '-sync',
+      `sync failed for ${account.email_address}; polling stopped until it reconnects: ${e.message}`, 'emailSync');
   } finally {
     await emailStore.logSyncFinish(logId, synced, errorMsg);
     syncLocks.delete(account.id);
@@ -215,6 +219,10 @@ async function maybeRefreshToken(account, accessToken, refreshToken) {
     await emailStore.updateAccountTokens(account.id, newAccess, refreshToken, newExpiry);
   } catch (e) {
     console.error('[emailSync] Token refresh failed:', e.message);
+    // Ours or the provider's, never silent (services/ourFault): the fetch then
+    // runs on an expired token and the account drops out of polling.
+    require('./ourFault').record(account.provider === 'gmail' ? 'gmail-token' : 'outlook-token',
+      'token refresh failed for ' + account.email_address + ': ' + e.message, 'emailSync');
   }
 
   return { access: newAccess, refresh: refreshToken, expiry: newExpiry };

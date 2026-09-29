@@ -182,7 +182,7 @@ async function geocodeSchool(school, deps = {}) {
     // Kept for a deps implementation that does throw. The real one does not,
     // which is the whole reason ok/reason exists.
     console.warn('[schoolGeocode] "' + school + '" lookup threw: ' + e.message);
-    return null;
+    return deps.reportFault ? { fault: e.message } : null;
   }
   res = res || { ok: false, place: null, reason: 'no-result' };
 
@@ -192,7 +192,9 @@ async function geocodeSchool(school, deps = {}) {
   if (!res.ok) {
     console.warn('[schoolGeocode] "' + school + '" -> lookup unavailable ('
       + (res.reason || 'unknown') + '); NOT cached, will retry');
-    return null;
+    // The nightly run asks to be told: "could not ask" is not "no such school"
+    // (services/ourFault). Other callers keep null.
+    return deps.reportFault ? { fault: res.reason || 'lookup unavailable' } : null;
   }
 
   const place = res.place;

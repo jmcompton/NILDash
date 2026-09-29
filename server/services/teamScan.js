@@ -239,7 +239,17 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     if (!claim.rowCount) { out.skipped.push({ brand: c.brand_name, why: 'already researched for this team tonight' }); continue; }
 
     const ask = await TeamWriter.writeAsk({ university, team, business: pick, item }, { ai: deps.ai });
-    if (!ask.ok) { out.skipped.push({ brand: c.brand_name, why: ask.error }); continue; }
+    if (!ask.ok) {
+      // No ask was written, so the business was not used up tonight: the claim
+      // is handed back. A model that could not run is our fault
+      // (services/ourFault), recorded and marked as one.
+      await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`,
+        [team.id, brandKey, night]).catch(() => {});
+      const fault = /^model:/.test(String(ask.error || ''));
+      if (fault) require('./ourFault').record('anthropic', 'team ask: ' + ask.error, 'teamScan ' + team.id);
+      out.skipped.push({ brand: c.brand_name, why: ask.error, fault });
+      continue;
+    }
 
     await pool.query(
       `INSERT INTO university_brand_engagement (university_id, team_id, brand_key, brand_name, place_id, lane, state, first_shown_at, last_shown_at)

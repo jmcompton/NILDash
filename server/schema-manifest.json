@@ -944,6 +944,15 @@
       "saturated_types": "INT DEFAULT 0",
       "source": "TEXT"
     },
+    "preflight_runs": {
+      "alert": "TEXT",
+      "failed": "INT DEFAULT 0",
+      "finished_at": "TIMESTAMPTZ",
+      "night": "DATE",
+      "run_id": "TEXT",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "status": "TEXT"
+    },
     "program_contact": {
       "collective_email": "TEXT",
       "collective_email_source_url": "TEXT",
@@ -1122,6 +1131,16 @@
       "state": "TEXT",
       "status": "TEXT DEFAULT 'auto'",
       "uses": "INTEGER DEFAULT 1"
+    },
+    "service_checks": {
+      "checked_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "detail": "JSONB",
+      "error": "TEXT",
+      "id": "SERIAL",
+      "ms": "INT",
+      "ok": "BOOLEAN",
+      "run_id": "TEXT",
+      "service": "TEXT"
     },
     "service_faults": {
       "at": "TIMESTAMPTZ DEFAULT NOW()",

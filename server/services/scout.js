@@ -417,9 +417,12 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
 async function localCandidates(pool, { agentId, athlete, limit }) {
   if (!athlete.hasLocalMarket) return { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
   const T = tablesOf(athlete);
+  // A query that FAILED is not an empty pool (services/ourFault): it is kept
+  // as a fault, and an empty result with one is not "market exhausted".
+  const faults = [];
   const q = async (label, sql, params) => {
     try { return (await pool.query(sql, params)).rows; }
-    catch (e) { console.error('[scout/local] ' + label, e.message); return []; }
+    catch (e) { console.error('[scout/local] ' + label, e.message); faults.push({ service: 'database', reason: `scout ${label} pool query failed: ${e.message}` }); return []; }
   };
 
   // a. Brands a scan already surfaced for this athlete and nobody has queued.
@@ -553,7 +556,8 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
   }
   // Exhausted means BOTH pools are dry, which is the signal to widen the radius
   // on the next market build rather than to give up.
-  return { rows, exhausted: rows.length === 0, reason: rows.length ? null : EMPTY.MARKET_EXHAUSTED };
+  if (!rows.length && faults.length) return { rows, exhausted: false, reason: EMPTY.FAULT, faults };
+  return { rows, exhausted: rows.length === 0, reason: rows.length ? null : EMPTY.MARKET_EXHAUSTED, faults };
 }
 
 // A social or national result is reached through the brand's own athlete-program
@@ -580,14 +584,14 @@ async function socialCandidates(pool, { athlete, limit, store }) {
       lane: 'social', pool: 'social-index', fitHint: b.fitScore || null, why: b.whyFits || null,
       ...programFacts(b),
     }));
-  } catch (e) { console.error('[scout/social]', e.message); return []; }
+  } catch (e) { console.error('[scout/social]', e.message); const r = []; r.fault = 'social pool failed: ' + e.message; return r; }
 }
 
 async function nationalCandidates(pool, { limit, store }) {
   if (!store || typeof store.getTopNilComps !== 'function') return [];
   let rows = [];
   try { rows = (await store.getTopNilComps(limit * 2, 2)) || []; }
-  catch (e) { console.error('[scout/national]', e.message); return []; }
+  catch (e) { console.error('[scout/national]', e.message); const r = []; r.fault = 'national pool failed: ' + e.message; return r; }
   if (!rows.length) return [];
 
   // Deal comps prove a brand SPENDS on NIL. They do not tell us where to apply.
@@ -637,6 +641,11 @@ async function assembleSlate(pool, ctx) {
     ? await localCandidates(pool, { agentId, athlete, limit }) : { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
   let social = subject.lanes.social ? await socialCandidates(pool, { athlete, limit, store }) : [];
   let national = subject.lanes.national ? await nationalCandidates(pool, { limit, store }) : [];
+  // Our failures building the pools (services/ourFault), carried on the slate
+  // so the nightly run records them as faults, never as an empty market.
+  const faults = [].concat(local.faults || [],
+    social.fault ? [{ service: 'database', reason: social.fault }] : [],
+    national.fault ? [{ service: 'database', reason: national.fault }] : []);
 
   // ── A CANDIDATE THAT CANNOT SUCCEED DOES NOT GET A SLOT ──────────────────
   // Jeremiah Wilkinson: twelve attempts, all social or national, nine rejected
@@ -705,8 +714,9 @@ async function assembleSlate(pool, ctx) {
         lanes.local.poolRowsUnderKey = n.rows[0] ? n.rows[0].n : null;
       } catch (_) { /* the count is diagnostic; its failure must not empty the slate twice */ }
     }
+    if (faults.length) reason = EMPTY.FAULT;
     return { picks: [], laneCounts: {}, emptyReason: reason, emptyText: EMPTY_TEXT[reason],
-      signalCount: signals.size, localExhausted: local.exhausted, lanes, dropped };
+      signalCount: signals.size, localExhausted: local.exhausted, lanes, dropped, faults };
   }
 
   // ── A BUSINESS THAT HAS DONE THIS BEFORE IS THE BETTER TARGET ────────────
@@ -998,7 +1008,7 @@ async function assembleSlate(pool, ctx) {
 
   const laneCounts = picks.reduce((m, p) => { m[p.lane] = (m[p.lane] || 0) + 1; return m; }, {});
   const out = {
-    picks, laneCounts, emptyReason: null, emptyText: null, lanes, dropped, shape,
+    picks, laneCounts, emptyReason: null, emptyText: null, lanes, dropped, shape, faults,
     signalCount: signals.size,
     boosted: picks.filter((p) => p.sponsorSignal).length,
     collapsed,

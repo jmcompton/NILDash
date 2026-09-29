@@ -92,8 +92,18 @@ async function tick(pool) {
        JOIN university_athletes a ON a.university_id = u.id
        LEFT JOIN automation_scheduler_log asl ON asl.university_id = u.id
        GROUP BY u.id, u.name`
-    ).catch(() => ({ rows: [] }));
+    ).catch((e) => ({ rows: [], error: e }));
 
+    // A query that FAILED is not an idle tick (services/ourFault): it was
+    // being written to the scheduler log as "no universities", which reads as
+    // normal. Recorded as a fault and logged as one.
+    if (univRows.error) {
+      const why = 'university list query failed: ' + univRows.error.message;
+      console.error('[Scheduler] ' + why);
+      require('../ourFault').record('university-scheduler', why, 'RosterAutomationScheduler');
+      await _log(pool, { eventType: 'tick', notes: 'FAILED: ' + why, durationMs: Date.now() - tickStart });
+      return;
+    }
     const universities = univRows.rows;
     if (!universities.length) {
       await _log(pool, { eventType: 'tick', notes: 'No universities with athletes — idle tick', durationMs: Date.now() - tickStart });
@@ -130,6 +140,7 @@ async function tick(pool) {
       }).catch(e => ({ processed: 0, error: e.message }));
 
       eventsProcessed += qResult.processed || 0;
+      if (qResult.error) require('../ourFault').record('university-ingestion', qResult.error, 'deep sync ' + univ.id);
 
       // Full roster reconciliation
       const syncResult = await RosterSyncEngine.runSync(pool, {
@@ -147,7 +158,9 @@ async function tick(pool) {
         eventsProcessed:       qResult.processed || 0,
         syncsTriggered,
         durationMs: Date.now() - tickStart,
-        notes: `Deep sync: ${qResult.processed || 0} events, sync ${syncResult.ok ? 'ok' : 'failed'}`,
+        // The reasons ride on the note: "sync failed" alone hid why.
+        notes: `Deep sync: ${qResult.processed || 0} events${qResult.error ? ` (queue FAILED: ${qResult.error})` : ''}, `
+          + `sync ${syncResult.ok ? 'ok' : `FAILED${syncResult.error ? ': ' + syncResult.error : ''}`}`,
       });
 
     // ── Light sync: reconciliation only ──────────────────────────────
