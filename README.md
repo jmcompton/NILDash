@@ -69,6 +69,10 @@ Code that calls any outside service follows it through `server/services/ourFault
 
 `ADMIN_ALERT_EMAIL` must be set. With no alert destination, the preflight fails and says so.
 
+## Admin routes
+
+Everything under `/admin` and `/api/admin` goes through one gate (`server/middleware/adminGate.js`), mounted before every route. Only the `ADMIN_EMAIL` account or a `FOUNDER_EMAILS` account gets through. `role='admin'` alone does not. A new admin route is covered automatically. `tests/admingate.js` reads every admin route from `server/index.js` and checks each over HTTP as anonymous, as an agent, and as role-admin.
+
 ## Features
 
 - Agent and Athlete accounts

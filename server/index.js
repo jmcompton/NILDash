@@ -427,6 +427,14 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, ...BUILD, uptimeSeconds: Math.round(process.uptime()) });
 });
 
+// The admin pages in public/ are never served as static files: express.static
+// runs before any session exists, so /admin.html loaded for anyone. Each goes
+// to the gated route that serves it (middleware/adminGate).
+app.use((req, res, next) => {
+  const to = require('./middleware/adminGate').STATIC_PAGES[req.path];
+  return to ? res.redirect(302, to) : next();
+});
+
 // /demo.html reaches the same file through here, so it gets the same no-cache
 // header as /demo (see the /demo route).
 app.use(express.static(path.join(__dirname, '..', 'public'), {
@@ -449,6 +457,15 @@ app.use(session({
 // only what public/university.html uses, and nothing on the agent side.
 // Agent, athlete and admin sessions pass untouched. See middleware/modeGuard.
 app.use('/api', universityWall);
+
+// ── EVERYTHING UNDER /admin AND /api/admin IS THE ADMIN'S, CHECKED HERE ────
+// Once, before every route, so no admin route depends on remembering its own
+// check. /admin/state-rules was open to the internet without it. See
+// middleware/adminGate.
+{
+  const AG = require('./middleware/adminGate');
+  app.use(AG.PREFIXES, AG.makeAdminGate({ getUser: (id) => store.getUser(id), adminEmail: ADMIN_EMAIL, isFounderEmail }));
+}
 
 // ── Auth middleware ────────────────────────────────────────────
 function requireAuth(req, res, next) {
@@ -12376,6 +12393,12 @@ async function del(id) {
   }
 });
 
+// Who changed a compliance rule: the signed-in admin (middleware/adminGate
+// guarantees one), never a name the request body claims.
+async function _stateRulesActor(req) {
+  const u = await store.getUser(req.session.userId).catch(() => null);
+  return (u && u.email) || 'unknown';
+}
 app.post('/admin/state-rules', async (req, res) => {
   try {
     const b = req.body || {};
@@ -12396,8 +12419,8 @@ app.post('/admin/state-rules', async (req, res) => {
          date_checked = EXCLUDED.date_checked, confidence = EXCLUDED.confidence,
          entered_by = EXCLUDED.entered_by, updated_at = NOW()`,
       [b.stateCode, b.category, b.minorRule, b.adultRule, String(b.citation).trim(),
-        b.note || null, b.dateChecked, b.confidence || 'verify', b.enteredBy || null]);
-    console.log(`[state-rules] ${b.stateCode}/${b.category} saved by ${b.enteredBy || 'unknown'}`);
+        b.note || null, b.dateChecked, b.confidence || 'verify', await _stateRulesActor(req)]);
+    console.log(`[state-rules] ${b.stateCode}/${b.category} saved by ${await _stateRulesActor(req)}`);
     res.json({ ok: true });
   } catch (e) {
     console.error('[admin/state-rules/save]', e.message);
@@ -12407,7 +12430,10 @@ app.post('/admin/state-rules', async (req, res) => {
 
 app.delete('/admin/state-rules/:id', async (req, res) => {
   try {
-    await store.pool.query(`DELETE FROM state_category_rules WHERE id = $1`, [Number(req.params.id)]);
+    // Say what was removed and by whom: a deleted compliance rule leaves no
+    // row behind, so the log line is the only record there is.
+    const gone = (await store.pool.query(`DELETE FROM state_category_rules WHERE id = $1 RETURNING *`, [Number(req.params.id)])).rows[0];
+    console.log(`[state-rules] DELETED by ${await _stateRulesActor(req)}: ${gone ? JSON.stringify(gone) : 'no row with id ' + req.params.id}`);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

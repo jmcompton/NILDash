@@ -37,6 +37,11 @@
       "total": 46,
       "fault": null
     },
+    "admingate.js": {
+      "failed": 0,
+      "total": 28,
+      "fault": null
+    },
     "adminjs.js": {
       "failed": 0,
       "total": 10,
