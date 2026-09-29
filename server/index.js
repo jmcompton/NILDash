@@ -28,7 +28,7 @@ const PitchActionTokens = require('./services/pitchActionTokens');
 const { firstSentence: pitchPreview } = require('./services/nightlyDigest');
 const nilRules = require('./nilStateRules');
 const scanMeter = require('./scanMeter');
-const { requireUniversityMode } = require('./middleware/modeGuard');
+const { requireUniversityMode, universityWall } = require('./middleware/modeGuard');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -440,6 +440,13 @@ app.use(session({
   saveUninitialized: false,
   cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
 }));
+
+// ── THE WALL BETWEEN THE UNIVERSITY AND AGENT SIDES ───────────────────────
+// One choke point for every API route, mounted straight after the session so
+// nothing below can be reached around it: a university-role session may call
+// only what public/university.html uses, and nothing on the agent side.
+// Agent, athlete and admin sessions pass untouched. See middleware/modeGuard.
+app.use('/api', universityWall);
 
 // ── Auth middleware ────────────────────────────────────────────
 function requireAuth(req, res, next) {
