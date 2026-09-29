@@ -1784,6 +1784,14 @@ async function init() {
     .catch((e) => console.error('[init] users.signature_text:', e.message));
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS scheduling_url TEXT`)
     .catch((e) => console.error('[init] users.scheduling_url:', e.message));
+  // THE AGENCY'S BRAND, beside the signature (services/agencyBrand): what the
+  // client-facing documents carry instead of NILDash. On the account, so an
+  // agent's and a university's are the same columns with a different owner.
+  for (const c of ['agency_name', 'agency_logo', 'agency_primary_color', 'agency_secondary_color',
+    'agency_contact_email', 'agency_contact_phone', 'agency_website', 'agency_contact_line']) {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${c} TEXT`)
+      .catch((e) => console.error('[init] users.' + c + ':', e.message));
+  }
   console.log('[init] users signature columns ready');
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_enabled BOOLEAN DEFAULT TRUE`).catch(() => {});
   // One row per agent per local day. The double-send guard: recurring work runs

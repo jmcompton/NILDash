@@ -16,6 +16,7 @@ const fs      = require('fs');
 const path    = require('path');
 const { pool } = require('../store');
 const { oneShot, MODEL_FAST } = require('../ai');
+const { brandFor, POWERED_BY } = require('./agencyBrand');
 
 let PDFDocument;
 try { PDFDocument = require('pdfkit'); } catch (e) {
@@ -72,8 +73,16 @@ async function generateDeck(inputs) {
   const filename = `${id}_v${version}.pdf`;
   const filePath = path.join(OUTPUT_DIR, filename);
 
+  // The deck is the agency's: its name and contact go in the footer beside
+  // "Powered by NILDash". No brand set: the agent's own name and email.
+  let agency = brandFor(null);
+  try {
+    const u = (await pool.query(`SELECT * FROM users WHERE id = $1`, [agentId])).rows[0];
+    agency = brandFor(u);
+  } catch (e) { console.warn('[deckGeneration] agency brand lookup failed:', e.message); }
+
   if (PDFDocument) {
-    await renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, onePager);
+    await renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, onePager, agency);
   } else {
     console.warn('[deckGeneration] pdfkit unavailable — saving content only');
   }
@@ -213,7 +222,7 @@ async function getDecksForAthleteBrand(agentId, athleteId, brandName) {
  *   Y 590–650  CTA box (accent)
  *   Y 650–792  score badges + footer
  */
-async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, onePager) {
+async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, onePager, agency) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 0, autoFirstPage: true });
     const stream = fs.createWriteStream(filePath);
@@ -340,8 +349,14 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
 
     // ── BOTTOM ACCENT BAR + FOOTER ────────────────────────────────────────────
     doc.rect(0, H - 28, W, 28).fill('#0A0C14');
-    doc.fill(MUTED).fontSize(7.5).font('Helvetica')
-       .text('NILDash — AI-Powered NIL Intelligence', PAD, H - 19, { width: CW, align: 'center', characterSpacing: 0.5 });
+    const ag = agency || {};
+    const prepared = [ag.name, ag.contactEmail, ag.contactPhone].filter(Boolean).join('  ·  ');
+    if (prepared) {
+      doc.fill(LIGHT).fontSize(7.5).font('Helvetica-Bold')
+         .text(tr(prepared, 90), PAD, H - 19, { width: CW * 0.72, align: 'left' });
+    }
+    doc.fill(MUTED).fontSize(7).font('Helvetica')
+       .text(POWERED_BY, PAD, H - 19, { width: CW, align: 'right' });
 
     doc.end();
     stream.on('finish', resolve);

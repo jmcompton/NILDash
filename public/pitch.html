@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIL Sponsorship Pitch Deck</title>
-<link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
-<link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
+<!-- No NILDash icon: the agency's logo is set as the tab icon once loaded. -->
+<link rel="icon" id="pd-favicon" href="data:,">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -212,8 +212,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);lin
     <div class="cta-card">
       <div><div class="c-lbl">Athlete</div><div class="c-val" id="cta-name">—</div></div>
       <div><div class="c-lbl">Sport</div><div class="c-val" id="cta-sport">—</div></div>
-      <div><div class="c-lbl">Management</div><div class="c-val">NILDash Representation</div></div>
-      <div><div class="c-lbl">Platform</div><div class="c-val">mynildash.com</div></div>
+      <div><div class="c-lbl">Management</div><div class="c-val" id="cta-agency">—</div></div>
+      <div><div class="c-lbl">Contact</div><div class="c-val" id="cta-contact">—</div></div>
     </div>
     <button class="cta-btn" onclick="initPartnership()">Initiate Partnership Discussion</button>
   </div>
@@ -249,8 +249,8 @@ function render(d){
   $('h-name').textContent=nm;
   $('h-meta').innerHTML=[sp,sc,pos,yr?yr+' Year':''].filter(Boolean).join(' &middot; ');
   $('h-stmt').textContent=buildStatement(d,sc2);
-  $('h-mkt').textContent=(sc2.marketabilityScore||rate.marketabilityScore||'—')+(sc2.marketabilityScore||rate.marketabilityScore?'/100':'');
-  $('h-aq').textContent=(sc2.audienceQuality||rate.audienceQuality||'—')+(sc2.audienceQuality||rate.audienceQuality?'/100':'');
+  $('h-mkt').textContent=(sc2.marketabilityScore||rt.marketabilityScore||'—')+(sc2.marketabilityScore||rt.marketabilityScore?'/100':'');
+  $('h-aq').textContent=(sc2.audienceQuality||rt.audienceQuality||'—')+(sc2.audienceQuality||rt.audienceQuality?'/100':'');
   $('h-eng').textContent=eng?eng+'%':'—';
   $('h-reach').textContent=fmt(tot);
   $('photo-initials').textContent=nm.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
@@ -277,9 +277,9 @@ function render(d){
     const rawStats=(d.stats||'').split(/[,;\n]/).map(s=>s.trim()).filter(Boolean);
     if(rawStats.length>=1){
       perfItems=rawStats.slice(0,6).map(s=>{const m=s.match(/^([\d,\.%+kKmM\/\-]+)\s+(.+)$/);return m?{n:m[1].toUpperCase(),l:m[2],sub:'Last Season'}:{n:'—',l:s,sub:'Last Season'};});
-      while(perfItems.length<3)perfItems.push({n:(sc2.sponsorshipReadiness||0)+'/100',l:'Sponsorship Readiness',sub:'NILDash Score'});
+      while(perfItems.length<3)perfItems.push({n:(sc2.sponsorshipReadiness||0)+'/100',l:'Sponsorship Readiness',sub:'Readiness Score'});
     } else {
-      perfItems=[{n:fmt(tot),l:'Total Cross-Platform Reach',sub:'Instagram + TikTok'},{n:(sc2.sponsorshipReadiness||0)+'/100',l:'Sponsorship Readiness',sub:'NILDash Score'},{n:(sc2.audienceQuality||0)+'/100',l:'Audience Quality',sub:'Engagement Authenticity'},{n:eng?eng+'%':'—',l:'Engagement Rate',sub:'Above 1-3% Baseline'},{n:sc2.marketabilityScore?sc2.marketabilityScore+'/100':'—',l:'Marketability Score',sub:'NILDash Rating'},{n:'P4',l:'Program Tier',sub:sc||'Power 4'}];
+      perfItems=[{n:fmt(tot),l:'Total Cross-Platform Reach',sub:'Instagram + TikTok'},{n:(sc2.sponsorshipReadiness||0)+'/100',l:'Sponsorship Readiness',sub:'Readiness Score'},{n:(sc2.audienceQuality||0)+'/100',l:'Audience Quality',sub:'Engagement Authenticity'},{n:eng?eng+'%':'—',l:'Engagement Rate',sub:'Above 1-3% Baseline'},{n:sc2.marketabilityScore?sc2.marketabilityScore+'/100':'—',l:'Marketability Score',sub:'Marketability Rating'},{n:'P4',l:'Program Tier',sub:sc||'Power 4'}];
     }
   }
   const pg=$('perf-grid');pg.innerHTML='';
@@ -342,6 +342,11 @@ function render(d){
   ];
   const pr=$('pkg-row');pr.innerHTML='';
   pkgs.forEach(pk=>{pr.insertAdjacentHTML('beforeend',`<div class="pkg${pk.hot?' hot':''}"><div class="pkg-tier">${pk.tier}</div>${pk.hot?`<div class="pkg-badge">Most Popular</div>`:''}<div class="pkg-name">${pk.name}</div><div class="pkg-price" style="font-size:18px;letter-spacing:0">${pk.pricing}</div><div class="pkg-per">${pk.pricingNote}</div><div class="pkg-div"></div><div class="pkg-lbl">What's Included</div>${pk.items.map(i=>`<div class="pkg-line"><span class="pkg-chk">✓</span><span>${i}</span></div>`).join('')}<button class="pkg-cta" onclick="openContactModal()">${pk.cta}</button></div>`);});
+  // THE AGENCY REPRESENTS THE ATHLETE, not NILDash (services/agencyBrand).
+  const ag=d.agency||{};window._pdAgency=ag;
+  $('cta-agency').textContent=ag.name||'—';
+  $('cta-contact').textContent=[ag.contactName!==ag.name?ag.contactName:'',ag.contactEmail,ag.contactPhone].filter(Boolean).join(' · ')||'—';
+  if(ag.logo&&/^data:image\/(png|jpeg|webp);base64,/.test(ag.logo)){const f=$('pd-favicon');if(f)f.href=ag.logo;}
   $('cta-name').textContent=nm;$('cta-sport').textContent=[sp,sc].filter(Boolean).join(' — ')||'—';
   const loader=$('loader');loader.style.opacity='0';setTimeout(()=>loader.style.display='none',500);setTimeout(()=>$('s1').classList.add('in'),100);
 }
@@ -398,6 +403,9 @@ async function exportPDF(){
       pdf.addImage(imgData, 'JPEG', 0, 0, 1280, 720);
       loader.querySelector('div:last-child').textContent = `Slide ${i+1} of ${slides.length}...`;
     }
+    // NILDash once, as the footer credit on the last page, like the page itself.
+    pdf.setFontSize(11); pdf.setTextColor(140, 146, 170);
+    pdf.text('Powered by NILDash', 640, 706, { align: 'center' });
     nav.style.display = 'flex';
     const athleteName = (document.getElementById('h-name')||{}).textContent || 'Athlete';
     const brand = new URLSearchParams(window.location.search).get('brand') || 'NIL';
@@ -424,15 +432,15 @@ async function exportPDF(){
       </div>
       <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 20px">
         <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.4);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Agent / Representative</div>
-        <div style="font-size:15px;font-weight:600;color:#F4F6FF" id="modal-agent-name">NILDash Representative</div>
+        <div style="font-size:15px;font-weight:600;color:#F4F6FF" id="modal-agent-name">—</div>
       </div>
       <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 20px">
         <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.4);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Email</div>
-        <div style="font-size:15px;font-weight:600;color:var(--uni)" id="modal-agent-email">contact@mynildash.com</div>
+        <div style="font-size:15px;font-weight:600;color:var(--uni)" id="modal-agent-email">—</div>
       </div>
       <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 20px">
-        <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.4);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Platform</div>
-        <div style="font-size:15px;font-weight:600;color:#F4F6FF">mynildash.com</div>
+        <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.4);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Agency</div>
+        <div style="font-size:15px;font-weight:600;color:#F4F6FF" id="modal-agency">—</div>
       </div>
     </div>
     <div style="display:flex;gap:10px">
@@ -452,8 +460,14 @@ function openContactModal(){
   const agentEmailEl = document.getElementById('modal-agent-email');
   const athleteNameEl = document.getElementById('modal-athlete-name');
   if(athleteName) athleteNameEl.textContent = athleteName.textContent || '—';
-  // Try to get stored agent info from sessionStorage
-  try {
+  // The athlete's own agent, from the server (the agency brand, or the agent's
+  // name and email). sessionStorage only fills in when the server had nothing.
+  const ag = window._pdAgency || {};
+  if (ag.contactName || ag.name) agentNameEl.textContent = ag.contactName || ag.name;
+  if (ag.contactEmail) agentEmailEl.textContent = ag.contactEmail;
+  const agencyEl = document.getElementById('modal-agency');
+  if (agencyEl) agencyEl.textContent = ag.name || '—';
+  if (!ag.contactEmail) try {
     const agentInfo = sessionStorage.getItem('nilAgentInfo');
     if(agentInfo){
       const a = JSON.parse(agentInfo);
@@ -472,7 +486,8 @@ function initPartnership(){
   const athleteName = (document.getElementById('h-name')||{}).textContent || 'Athlete';
   const brand = new URLSearchParams(window.location.search).get('brand') || 'your brand';
   const agentEmailEl = document.getElementById('modal-agent-email');
-  const agentEmail = agentEmailEl ? agentEmailEl.textContent : 'contact@mynildash.com';
+  const agentEmail = agentEmailEl && agentEmailEl.textContent.includes('@') ? agentEmailEl.textContent : '';
+  if (!agentEmail) { alert('No contact email on this deck.'); return; }
   const subject = encodeURIComponent(`NIL Partnership Inquiry — ${athleteName} × ${brand}`);
   const body = encodeURIComponent(`Hello,
 
@@ -485,5 +500,7 @@ Thank you.`);
   closeContactModal();
 }
 </script>
+<!-- NILDash appears here, and only here. -->
+<div style="text-align:center;padding:18px 0 26px;font-size:11px;color:rgba(244,246,255,0.45);font-family:'DM Sans',sans-serif">Powered by NILDash</div>
 </body>
 </html>

@@ -3835,6 +3835,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
                 <div style="display:flex;gap:8px;margin-bottom:12px">
                   <button type="button" id="mk-theme-school" onclick="mkSetTheme('school')" style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">School colors</button>
                   <button type="button" id="mk-theme-nildash" onclick="mkSetTheme('nildash')" style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">NILDash brand</button>
+                  <button type="button" id="mk-theme-agency" onclick="mkSetTheme('agency')" style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">My brand</button>
                 </div>
                 <div id="mk-color-pickers">
                 <div class="card-title" style="margin-bottom:12px;font-size:11px">School Colors <span style="color:var(--accent);font-size:9px;font-weight:600;margin-left:6px">AUTO-DETECTED</span></div>
@@ -4369,6 +4370,40 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
         <div style="font-size:10px;color:var(--muted);margin-bottom:6px">How it will look at the end of a pitch</div>
         <div id="sig-preview" style="font-size:12px;color:var(--text);line-height:1.6;min-height:18px"></div>
+      </div>
+    </div>
+
+    <!-- ══ YOUR BRAND — what your media kits, pitch decks, rate sheets, contract
+         PDFs and reports carry (services/agencyBrand). NILDash appears once on
+         them, as "Powered by NILDash" in the footer. With nothing set, they carry
+         your own name and email, never NILDash. ══ -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Your brand</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+        Shown on everything you send a brand or an athlete: media kits, pitch decks, rate sheets,
+        contract PDFs and reports. Leave it blank and they carry your own name and email.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px">
+        <div><label class="form-label-sm">Agency name</label><input id="ab-name" class="input-sm" style="width:100%" placeholder="Your agency"></div>
+        <div><label class="form-label-sm">Website</label><input id="ab-website" class="input-sm" style="width:100%" placeholder="https://youragency.com"></div>
+        <div><label class="form-label-sm">Contact email</label><input id="ab-email" class="input-sm" style="width:100%" placeholder="Your account email if blank"></div>
+        <div><label class="form-label-sm">Contact phone</label><input id="ab-phone" class="input-sm" style="width:100%" placeholder="(205) 555-1212"></div>
+        <div><label class="form-label-sm">Primary color</label><input id="ab-primary" type="color" value="#1E293B" style="width:100%;height:32px;background:none;border:1px solid var(--border);border-radius:6px"></div>
+        <div><label class="form-label-sm">Secondary color</label><input id="ab-secondary" type="color" value="#64748B" style="width:100%;height:32px;background:none;border:1px solid var(--border);border-radius:6px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">Contact line</label>
+        <input id="ab-line" class="input-sm" style="width:100%" placeholder="e.g. Licensed NIL representation · Birmingham, AL">
+      </div>
+      <div style="margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <img id="ab-logo-preview" alt="" style="display:none;max-height:48px;max-width:160px;border-radius:6px;background:#fff;padding:4px">
+        <label class="run-btn" style="padding:6px 14px;cursor:pointer">Upload logo<input id="ab-logo" type="file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="agencyLogoPicked(this)"></label>
+        <button type="button" class="btn-ghost" style="font-size:11px" onclick="agencyLogoClear()">Remove logo</button>
+        <span style="font-size:10px;color:var(--muted)">PNG, JPEG or WebP. Resized to fit.</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="run-btn" style="padding:8px 18px" onclick="saveAgencyBrand()">Save brand</button>
+        <span id="ab-status" style="font-size:11px;color:var(--muted)"></span>
       </div>
     </div>
 
@@ -7730,7 +7765,7 @@ async function showView(id, btn) {
   }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
-  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); }
+  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); }
   // The Outreach tab no longer renders the queue; loadUnifiedOutreach and
   // loadAiOutreachLogs are its own tracking reads, wired to their own buttons.
   if (id === 'outreach') { setTimeout(loadUnifiedOutreach, 60); setTimeout(loadAiOutreachLogs, 80); }
@@ -10852,8 +10887,17 @@ async function exportRateSheet() {
   const delivLabels = {'ig-reel':'IG Reel','ig-post':'IG Post','tiktok':'TikTok Video','bundle':'IG Bundle','retainer':'Monthly Retainer','appearance-inperson':'In-Person Appearance'};
   const delivLabel = delivLabels[delivType] || delivType.replace(/-/g,' ');
   const conf = rate.confidence || 'Model-based';
+  // Open first, while the click still counts, then fetch the brand.
   const w = window.open('', '_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rate Sheet — ${ath.name}</title>
+  if (!w) { showToast('Allow pop-ups to export the rate sheet'); return; }
+  // The sheet is the agency's. NILDash appears once, as "Powered by NILDash".
+  if (!window._agencyBrand) await loadAgencyBrand();
+  const ag = window._agencyBrand || {};
+  const agName = escHtml(ag.name || '');
+  const agContact = [ag.contactName && ag.contactName !== ag.name ? ag.contactName : '', ag.contactEmail, ag.contactPhone]
+    .filter(Boolean).map(escHtml).join(' · ');
+  const agLogo = /^data:image\/(png|jpeg|webp);base64,/.test(ag.logo || '') ? `<img src="${ag.logo}" alt="" style="max-height:36px;max-width:160px;display:block;margin-bottom:10px">` : '';
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rate Sheet — ${escHtml(ath.name)}</title><link rel="icon" href="data:,">
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;color:#111;padding:48px;max-width:760px;margin:0 auto}
@@ -10880,7 +10924,7 @@ async function exportRateSheet() {
     @media print{body{padding:32px}}
   </style></head><body>
   <div class="header">
-    <div class="logo">NILDash · Rate Sheet</div>
+    ${agLogo}<div class="logo">${agName ? agName + ' · ' : ''}Rate Sheet</div>
     <h1>${ath.name}</h1>
     <div class="sub">${ath.sport||''} · ${ath.position||''} · ${ath.school||''} · Generated ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
   </div>
@@ -10952,8 +10996,9 @@ async function exportRateSheet() {
     </div>`:''}
   </div>`:''}
   <div class="footer">
-    <strong>Sources:</strong> NILViewVal v5.2 model · Opendorse 2024 NIL benchmarks · NCAA 2025 median deal data · On3 NIL valuations · 18 agency rate cards · NILDash closed deal database<br>
-    This rate sheet is a negotiating tool. Final pricing subject to campaign scope, exclusivity, and mutual agreement. Represented by NILDash.
+    <strong>Sources:</strong> NILViewVal v5.2 model · Opendorse 2024 NIL benchmarks · NCAA 2025 median deal data · On3 NIL valuations · 18 agency rate cards · closed deal database<br>
+    This rate sheet is a negotiating tool. Final pricing subject to campaign scope, exclusivity, and mutual agreement.${agName ? ' Represented by ' + agName + '.' : ''}${agContact ? '<br>' + agContact : ''}
+    <div style="margin-top:10px;text-align:center;color:#bbb">Powered by NILDash</div>
   </div>
   <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
   </body></html>`);
@@ -18452,6 +18497,82 @@ async function saveSignature() {
   }
 }
 
+// ── The agency's brand (services/agencyBrand) ─────────────────────────────────
+// window._agencyBrand is what the documents built in this page (the rate sheet)
+// read. It is the SERVER's resolved brand, fallback included, so a page never
+// has to decide what to show when nothing is set.
+var _agencyLogo = '';
+var _agencyColorsSet = { primary: false, secondary: false };
+async function loadAgencyBrand() {
+  try {
+    var r = await fetch(API_BASE + '/api/agent/brand', { credentials: 'include' });
+    if (!r.ok) return null;
+    var d = await r.json();
+    window._agencyBrand = d.shown || null;
+    var s = d.saved || {};
+    var set = function (id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; };
+    set('ab-name', s.name); set('ab-website', s.website); set('ab-email', s.contactEmail);
+    set('ab-phone', s.contactPhone); set('ab-line', s.contactLine);
+    var p = document.getElementById('ab-primary'), q = document.getElementById('ab-secondary');
+    if (p && s.primaryColor) p.value = s.primaryColor;
+    if (q && s.secondaryColor) q.value = s.secondaryColor;
+    _agencyColorsSet = { primary: !!s.primaryColor, secondary: !!s.secondaryColor };
+    _agencyLogo = s.logo || '';
+    agencyLogoShow();
+    return window._agencyBrand;
+  } catch (e) { return null; }
+}
+function agencyLogoShow() {
+  var img = document.getElementById('ab-logo-preview');
+  if (!img) return;
+  if (_agencyLogo) { img.src = _agencyLogo; img.style.display = ''; } else { img.removeAttribute('src'); img.style.display = 'none'; }
+}
+function agencyLogoClear() { _agencyLogo = ''; agencyLogoShow(); }
+// Downscaled here, like the media kit photos, so a phone photo of a logo does
+// not become a megabyte on every public page. PNG keeps transparency.
+function agencyLogoPicked(input) {
+  var f = input && input.files && input.files[0];
+  if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function () {
+    var im = new Image();
+    im.onload = function () {
+      var max = 480, w = im.width, h = im.height, k = Math.min(1, max / Math.max(w, h));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      var png = c.toDataURL('image/png');
+      _agencyLogo = png.length <= 380 * 1024 ? png : c.toDataURL('image/jpeg', 0.85);
+      agencyLogoShow();
+    };
+    im.src = reader.result;
+  };
+  reader.readAsDataURL(f);
+  input.value = '';
+}
+async function saveAgencyBrand() {
+  var st = document.getElementById('ab-status');
+  var val = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+  if (st) { st.style.color = 'var(--muted)'; st.textContent = 'Saving...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/brand', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({
+        name: val('ab-name'), website: val('ab-website'), contactEmail: val('ab-email'),
+        contactPhone: val('ab-phone'), contactLine: val('ab-line'), logo: _agencyLogo,
+        primaryColor: val('ab-primary'), secondaryColor: val('ab-secondary'),
+      }),
+    });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not save');
+    window._agencyBrand = d.shown || null;
+    if (st) { st.style.color = 'var(--accent)'; st.textContent = 'Saved. Your kits, decks and reports use it now.'; }
+    if (typeof showToast === 'function') showToast('Brand saved', 'success');
+  } catch (e) {
+    if (st) { st.style.color = '#f87171'; st.textContent = e.message; }
+  }
+}
+
 // ── Daily report settings ────────────────────────────────────────────────────
 // The browser is the only thing that knows the agent's actual timezone, so it is
 // captured on load. Without it the sender falls back to Central rather than UTC,
@@ -19428,26 +19549,39 @@ var MK_SERVICES = [
   'Podcast Appearance','Personal Appearance','Autograph Signing','Custom'
 ];
 
-// theme: 'school' (auto school colors, original look) or 'nildash' (dark +
-// lime brand). New kits default to nildash; saved kits load their own value.
-var mkState = { rates: [], slug: null, headshotData: null, actionShotData: null, theme: 'nildash' };
+// theme: 'school' (auto school colors, original look), 'nildash' (dark + lime)
+// or 'agency' ("My brand": the agency brand from Settings, services/agencyBrand).
+// New kits default to 'agency', so an agent who has set no brand sends a plain
+// kit in their own name, not a NILDash one; saved kits load their own value.
+var mkState = { rates: [], slug: null, headshotData: null, actionShotData: null, theme: 'agency' };
+function mkThemeOf(t) { return t === 'school' || t === 'nildash' || t === 'agency' ? t : 'school'; }
 
 function mkSetTheme(t) {
-  mkState.theme = (t === 'school') ? 'school' : 'nildash';
+  mkState.theme = mkThemeOf(t);
+  if (mkState.theme === 'agency' && !window._agencyBrand && typeof loadAgencyBrand === 'function') {
+    loadAgencyBrand().then(function () { mkUpdatePreview(); });
+  }
   mkApplyThemeUI();
   mkUpdatePreview();
 }
 
 function mkApplyThemeUI() {
-  var isNil = mkState.theme === 'nildash';
+  var th = mkThemeOf(mkState.theme);
+  var fixed = th !== 'school';                       /* the pickers only drive school colors */
   var on  = 'flex:1;padding:9px 8px;border-radius:8px;border:1px solid rgba(132,204,22,0.45);background:rgba(132,204,22,0.12);color:#84CC16;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit';
   var off = 'flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit';
-  var bS = document.getElementById('mk-theme-school');  if (bS) bS.style.cssText = isNil ? off : on;
-  var bN = document.getElementById('mk-theme-nildash'); if (bN) bN.style.cssText = isNil ? on : off;
+  var bS = document.getElementById('mk-theme-school');  if (bS) bS.style.cssText = th === 'school' ? on : off;
+  var bN = document.getElementById('mk-theme-nildash'); if (bN) bN.style.cssText = th === 'nildash' ? on : off;
+  var bA = document.getElementById('mk-theme-agency');  if (bA) bA.style.cssText = th === 'agency' ? on : off;
   var pick = document.getElementById('mk-color-pickers');
-  if (pick) { pick.style.opacity = isNil ? '0.35' : '1'; pick.style.pointerEvents = isNil ? 'none' : ''; }
+  if (pick) { pick.style.opacity = fixed ? '0.35' : '1'; pick.style.pointerEvents = fixed ? 'none' : ''; }
   var note = document.getElementById('mk-theme-note');
-  if (note) note.style.display = isNil ? 'block' : 'none';
+  if (note) {
+    note.style.display = fixed ? 'block' : 'none';
+    note.textContent = th === 'agency'
+      ? 'My brand uses your agency name, logo and colors from Settings, or your own name and email until you set them. School colors are ignored while this is on.'
+      : 'NILDash brand uses the dark theme with lime accents. School colors are ignored while this is on.';
+  }
 }
 var amkCurrentAthleteId = null;
 var amkCurrentAthleteEmail = '';
@@ -19560,8 +19694,11 @@ function mkUpdatePreview() {
   var primary = colors.primary, secondary = colors.secondary;
   // Theme palette: 'school' keeps the original light card driven by the school
   // color pickers; 'nildash' is the app's dark look with lime accents.
-  var mkTheme = (mkState.theme === 'nildash') ? 'nildash' : 'school';
+  var mkThemeRaw = mkThemeOf(mkState.theme);
+  var mkTheme = mkThemeRaw === 'nildash' ? 'nildash' : 'school';   /* 'agency' uses the light card */
+  var _ab = window._agencyBrand || {};
   if (mkTheme === 'nildash') { primary = '#84CC16'; secondary = '#84CC16'; }
+  if (mkThemeRaw === 'agency') { primary = _ab.primaryColor || primary; secondary = _ab.secondaryColor || _ab.primaryColor || secondary; }
   var pal = mkTheme === 'nildash' ? {
     cardBg: '#0D1520', heading: '#F0EDE6', body: '#cbd5e1', muted: '#64748B',
     border: 'rgba(255,255,255,0.09)', statBg: '#111827', rowBase: '#0D1520',
@@ -19650,9 +19787,9 @@ function mkUpdatePreview() {
   html += '<div style="padding:18px 20px;border-bottom:1px solid ' + pal.border + '"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:' + pal.muted + ';margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>WORK WITH ME</div>';
   if (amkCurrentAthleteEmail) html += '<div style="font-size:12px;color:' + pal.muted + ';margin-bottom:10px">' + esc3(amkCurrentAthleteEmail) + '</div>';
   html += '<div style="display:inline-block;background:' + primary + ';color:' + priText + ';padding:10px 20px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Contact This Athlete</div></div>';
-  var footBrand = mkTheme === 'nildash'
-    ? 'Made with <strong style="color:#84CC16">NILDash</strong>'
-    : 'Powered by <strong style="color:#64748b">NILDash</strong>';
+  // The agency on the left; NILDash once, as the credit (services/agencyBrand).
+  var _abLine = [_ab.name, _ab.contactEmail, _ab.contactPhone].filter(Boolean).map(esc3).join(' &middot; ');
+  var footBrand = (_abLine ? _abLine + '<br>' : '') + 'Powered by NILDash';
   html += '<div style="height:4px;background:' + secondary + '"></div><div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between;background:' + pal.cardBg + '"><div style="font-size:10px;color:' + pal.muted + '">' + footBrand + '</div><div style="font-size:10px;color:' + pal.faint + '">© ' + new Date().getFullYear() + '</div></div></div>';
 
   var prev = document.getElementById('mk-preview');
@@ -19992,7 +20129,7 @@ async function mkSave() {
       bio: (document.getElementById('mk-bio') || {}).value || '',
       primary_color: colors.primary,
       secondary_color: colors.secondary,
-      theme: mkState.theme === 'nildash' ? 'nildash' : 'school',
+      theme: mkThemeOf(mkState.theme),
       rateCards: cleanRates,
       headshot_data: mkState.headshotData !== null ? (mkState.headshotData || '') : undefined,
       action_shot_data: mkState.actionShotData !== null ? (mkState.actionShotData || '') : undefined
@@ -20052,9 +20189,10 @@ async function amkLoadForAthlete(athleteId) {
   if (builder) builder.style.display = '';
   if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">Loading…</span>';
 
-  // Reset state. New kits default to the NILDash brand theme; a saved kit's
-  // theme is applied after loading below.
-  mkState = { rates: [], slug: null, headshotData: null, actionShotData: null, theme: 'nildash', variants: {} };
+  // Reset state. New kits default to "My brand" (the agency, or the agent's own
+  // name until one is set); a saved kit's theme is applied after loading below.
+  mkState = { rates: [], slug: null, headshotData: null, actionShotData: null, theme: 'agency', variants: {} };
+  if (!window._agencyBrand && typeof loadAgencyBrand === 'function') loadAgencyBrand().then(function () { mkUpdatePreview(); });
   mkApplyThemeUI();
   amkCurrentAthleteEmail = '';
 
@@ -20100,7 +20238,7 @@ async function amkLoadForAthlete(athleteId) {
       mkState.slug = mk.slug || null;
       // Existing kits keep whatever they have: a NULL theme means the kit
       // predates the toggle and stays on the school-colors look.
-      mkState.theme = (mk.theme === 'nildash') ? 'nildash' : 'school';
+      mkState.theme = mkThemeOf(mk.theme);
       mkApplyThemeUI();
       var igHEl = document.getElementById('mk-ig-handle'); if (mk.instagram_handle && igHEl) igHEl.value = mk.instagram_handle;
       var igFEl = document.getElementById('mk-ig-followers'); if (mk.instagram_followers && igFEl) igFEl.value = mk.instagram_followers;

@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NIL Media Kit - NILDash</title>
-<link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
+<title>Media Kit</title>
+<!-- No NILDash icon: the tab shows the agency's logo once the kit loads. -->
+<link rel="icon" id="mk-favicon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
@@ -95,6 +96,9 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
 .mk-foot-rule{height:3px;background:var(--accent)}
 .mk-footer{padding:15px 28px;display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
 .mk-powered{font-size:12px;color:var(--muted);font-weight:500}
+.mk-agency-foot{font-size:12px;color:var(--body);font-weight:500;line-height:1.5}
+.mk-agency-foot a{color:inherit}
+.mk-footer{flex-wrap:wrap;gap:6px 16px}
 .mk-powered a{color:var(--accent);font-weight:700;text-decoration:none}
 .mk-powered a:hover{text-decoration:underline}
 .mk-year{font-size:11px;color:var(--muted);opacity:0.7}
@@ -158,8 +162,10 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
 
 <!-- Platform topbar -->
 <div class="topbar print-hide">
-  <a href="https://mynildash.com" style="text-decoration:none">
-    <div class="topbar-logo-text">NIL<span>Dash</span></div>
+  <!-- The agency, not NILDash: filled from the kit's owner (services/agencyBrand). -->
+  <a id="mk-agency-link" style="text-decoration:none;display:flex;align-items:center;gap:10px">
+    <img id="mk-agency-logo" alt="" style="display:none;max-height:30px;max-width:140px">
+    <div class="topbar-logo-text" id="mk-agency-name"></div>
   </a>
   <div class="topbar-actions">
     <button class="btn-topbar btn-ghost-white" onclick="copyLink()">
@@ -235,8 +241,10 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
     <!-- Footer -->
     <div class="mk-foot-rule"></div>
     <div class="mk-footer">
-      <div class="mk-powered">Powered by <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a></div>
+      <div class="mk-agency-foot" id="mk-agency-foot"></div>
       <div class="mk-year" id="mk-year"></div>
+      <!-- NILDash appears here, and only here. -->
+      <div class="mk-powered">Powered by <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a></div>
     </div>
 
   </div>
@@ -365,11 +373,36 @@ function adjustColor(hex, amount){
 }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function renderAgency(a){
+  a = a || {};
+  var nameEl = document.getElementById('mk-agency-name');
+  if (nameEl) nameEl.textContent = a.name || '';
+  var logo = document.getElementById('mk-agency-logo');
+  if (logo && a.logo && /^data:image\/(png|jpeg|webp);base64,/.test(a.logo)) {
+    logo.src = a.logo; logo.style.display = '';
+    var fav = document.getElementById('mk-favicon'); if (fav) fav.href = a.logo;
+  }
+  var link = document.getElementById('mk-agency-link');
+  if (link && a.website && /^https?:\/\//.test(a.website)) { link.href = a.website; link.target = '_blank'; link.rel = 'noopener'; }
+  var foot = document.getElementById('mk-agency-foot');
+  if (foot) {
+    var bits = [];
+    if (a.name) bits.push('<b>' + esc(a.name) + '</b>');
+    if (a.contactName && a.contactName !== a.name) bits.push(esc(a.contactName));
+    if (a.contactEmail) bits.push('<a href="mailto:' + esc(a.contactEmail) + '">' + esc(a.contactEmail) + '</a>');
+    if (a.contactPhone) bits.push(esc(a.contactPhone));
+    if (a.contactLine) bits.push(esc(a.contactLine));
+    foot.innerHTML = bits.join(' &middot; ');
+  }
+}
+
 function render(data){
   kitData = data;
   try {
   var card = document.getElementById('mk-card');
   var isNilTheme = data.theme === 'nildash';
+  var isAgencyTheme = data.theme === 'agency';
+  var agency = data.agency || {};
 
   var name = data.athlete_name || 'Athlete';
   var initials = name.split(/\s+/).map(function(w){ return w[0]||''; }).join('').slice(0,2).toUpperCase() || 'NA';
@@ -384,7 +417,9 @@ function render(data){
     // vars already lime in .theme-nildash; set contrast explicitly
     card.style.setProperty('--accent-contrast', '#0A0E1A');
   } else {
-    accent = data.primary_color || '#84CC16';
+    // "My brand" uses the agency's colors; otherwise the kit's own (school)
+    // colors. With neither, a neutral slate, never NILDash lime.
+    accent = (isAgencyTheme && agency.primaryColor) || data.primary_color || agency.primaryColor || '#334155';
     document.body.style.background = '#EEF1F6';
     card.style.setProperty('--accent', accent);
     card.style.setProperty('--accent-soft', hexToRgba(accent, 0.12));
@@ -485,12 +520,11 @@ function render(data){
   var ratesSection = document.getElementById('mk-rates-section');
   if (ratesSection) ratesSection.style.display = 'none';
 
-  // ── Footer credit (theme-aware) ───────────────────────────────────────────
+  // ── The agency: header, footer, tab icon ─────────────────────────────────
+  // Whoever represents the athlete. Their brand, or with none set their own
+  // name and email -- never NILDash, which is only the footer credit below.
+  renderAgency(agency);
   document.getElementById('mk-year').textContent = '© ' + new Date().getFullYear();
-  if (isNilTheme){
-    var powered = document.querySelector('.mk-powered');
-    if (powered) powered.innerHTML = 'Made with <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a>';
-  }
 
   } catch (err) {
     // A bad field should never strand the reader on a spinner or a half-page.
