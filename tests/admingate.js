@@ -171,9 +171,42 @@ async function main() {
       citation: 'Gate test citation 1', dateChecked: '2026-09-29', enteredBy: 'somebody else entirely' });
     const row = (await P.query(`SELECT id, entered_by FROM state_category_rules WHERE state_code = 'ZZ' AND category = $1`, [cat])).rows[0];
     ok('a rule saved by the admin records the SIGNED-IN admin, not the name in the body', save.status === 200 && row && row.entered_by === ADMIN_EMAIL, [save.status, row]);
+
+    // ── THE CHANGE HISTORY ─────────────────────────────────────────────────
+    // The insert above is already in it; everything after is checked by id.
+    const H = async (since) => (await P.query(`SELECT id, action, old_value, new_value, changed_by FROM state_category_rules_history
+      WHERE state_code = 'ZZ' AND id > $1 ORDER BY id`, [since])).rows;
+    const lastId = async () => (await P.query(`SELECT COALESCE(MAX(id), 0)::bigint AS m FROM state_category_rules_history`)).rows[0].m;
+    const ins = (await P.query(`SELECT action, new_value, changed_by FROM state_category_rules_history WHERE rule_id = $1 AND action = 'INSERT' ORDER BY id DESC LIMIT 1`, [row && row.id])).rows[0];
+    ok('HISTORY: the new rule is recorded, with its values and who added it', ins && ins.changed_by === ADMIN_EMAIL && ins.new_value.minor_rule === 'block', ins);
+    let mark = await lastId();
+    const edit = { stateCode: 'ZZ', category: cat, minorRule: 'hold', adultRule: 'allow', citation: 'Gate test citation 2', dateChecked: '2026-09-29' };
+    await call(cAdmin, 'POST', '/admin/state-rules', edit);
+    let h = await H(mark);
+    ok('  a change records the old value and the new', h.length === 1 && h[0].action === 'UPDATE' && h[0].old_value.minor_rule === 'block'
+      && h[0].new_value.minor_rule === 'hold' && h[0].old_value.citation === 'Gate test citation 1' && h[0].changed_by === ADMIN_EMAIL, h);
+    mark = await lastId();
+    await call(cAdmin, 'POST', '/admin/state-rules', edit);
+    ok('  saving the same values again records nothing', (await H(mark)).length === 0, await H(mark));
+    mark = await lastId();
+    await P.query(`UPDATE state_category_rules SET adult_rule = 'hold' WHERE state_code = 'ZZ'`);
+    h = await H(mark);
+    ok('  a change made outside the page (straight SQL) is recorded too, as unattributed', h.length === 1 && /^unattributed \(database user /.test(h[0].changed_by), h);
+    const page = await call(cAdmin, 'GET', '/admin/state-rules');
+    ok('  the rules page shows the history, old and new', /Change history/.test(page.text) && /minor_rule: <s>block<\/s> &rarr; <b>hold<\/b>/.test(page.text)
+      && page.text.includes(ADMIN_EMAIL));
+    let refusedU = false, refusedD = false;
+    try { await P.query(`UPDATE state_category_rules_history SET changed_by = 'someone else' WHERE state_code = 'ZZ'`); } catch (e) { refusedU = /append-only/.test(e.message); }
+    try { await P.query(`DELETE FROM state_category_rules_history WHERE state_code = 'ZZ'`); } catch (e) { refusedD = /append-only/.test(e.message); }
+    ok('  the history cannot be edited or deleted', refusedU && refusedD, [refusedU, refusedD]);
+    mark = await lastId();
     const gone = row ? await call(cAdmin, 'DELETE', '/admin/state-rules/' + row.id) : { status: 0 };
     ok('  and the admin can delete it', gone.status === 200
       && (await P.query(`SELECT COUNT(*)::int n FROM state_category_rules WHERE state_code = 'ZZ'`)).rows[0].n === 0);
+    h = await H(mark);
+    ok('  the delete is recorded with the whole rule that was removed, and who', h.length === 1 && h[0].action === 'DELETE' && h[0].new_value === null
+      && h[0].old_value.citation === 'Gate test citation 2' && h[0].changed_by === ADMIN_EMAIL, h);
+    ok('  an agent cannot read the history (it is on the gated page only)', (await call(cAgent, 'GET', '/admin/state-rules')).status === 403);
   } finally {
     srv.kill('SIGTERM');
   }

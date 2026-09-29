@@ -2064,6 +2064,66 @@ async function init() {
     ADD CONSTRAINT state_category_rules_citation_not_blank CHECK (LENGTH(TRIM(citation)) >= 8)`)
     .catch(() => {});   // already present
 
+  // ── EVERY CHANGE TO A COMPLIANCE RULE, KEPT ───────────────────────────────
+  // Old value, new value, who, when. Written by a TRIGGER, not by the route,
+  // so every write path is recorded: the admin page, a script, a hand-typed
+  // psql UPDATE. Who: the route sets nildash.actor for its own transaction
+  // (set_config(..., true)); anything that did not say who it was is recorded
+  // as 'unattributed' with the database user, never skipped.
+  // Append-only: a second trigger refuses UPDATE and DELETE on the history.
+  // (A database superuser can still drop a trigger; nothing in the app can.)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS state_category_rules_history (
+      id          BIGSERIAL PRIMARY KEY,
+      rule_id     INT,
+      state_code  TEXT,
+      category    TEXT,
+      action      TEXT NOT NULL,
+      old_value   JSONB,
+      new_value   JSONB,
+      changed_by  TEXT NOT NULL,
+      changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`).catch((e) => console.error('[init] state_category_rules_history:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS state_category_rules_history_at_idx ON state_category_rules_history (changed_at DESC)`)
+    .catch((e) => console.error('[init] state_category_rules_history index:', e.message));
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION state_category_rules_log() RETURNS trigger AS $fn$
+    BEGIN
+      -- An upsert that changed nothing but the timestamp is not a change.
+      IF TG_OP = 'UPDATE' AND (to_jsonb(OLD) - 'updated_at') = (to_jsonb(NEW) - 'updated_at') THEN
+        RETURN NEW;
+      END IF;
+      INSERT INTO state_category_rules_history (rule_id, state_code, category, action, old_value, new_value, changed_by)
+      VALUES (
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END,
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.state_code ELSE NEW.state_code END,
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.category ELSE NEW.category END,
+        TG_OP,
+        CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE to_jsonb(OLD) END,
+        CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE to_jsonb(NEW) END,
+        COALESCE(NULLIF(current_setting('nildash.actor', true), ''), 'unattributed (database user ' || current_user || ')'));
+      RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END $fn$ LANGUAGE plpgsql`).catch((e) => console.error('[init] state_category_rules_log():', e.message));
+  // Created once and never dropped: a drop-and-recreate at boot leaves a gap in
+  // which a write goes unrecorded. CREATE OR REPLACE above updates the body.
+  await pool.query(`DO $do$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'state_category_rules_history_trg') THEN
+        CREATE TRIGGER state_category_rules_history_trg AFTER INSERT OR UPDATE OR DELETE ON state_category_rules
+          FOR EACH ROW EXECUTE FUNCTION state_category_rules_log();
+      END IF; END $do$`)
+    .catch((e) => console.error('[init] state_category_rules history trigger (CHANGES ARE NOT BEING RECORDED):', e.message));
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION state_category_rules_history_readonly() RETURNS trigger AS $fn$
+    BEGIN
+      RAISE EXCEPTION 'state_category_rules_history is append-only';
+    END $fn$ LANGUAGE plpgsql`).catch((e) => console.error('[init] history readonly fn:', e.message));
+  await pool.query(`DO $do$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'state_category_rules_history_ro') THEN
+        CREATE TRIGGER state_category_rules_history_ro BEFORE UPDATE OR DELETE ON state_category_rules_history
+          FOR EACH ROW EXECUTE FUNCTION state_category_rules_history_readonly();
+      END IF; END $do$`)
+    .catch((e) => console.error('[init] history append-only trigger:', e.message));
+
   // One row per market, recording the last time its radius was widened. In the
   // DATABASE and not in memory because the nightly job is a separate process
   // from the web server: an in-process guard would give each its own allowance

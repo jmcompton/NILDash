@@ -12294,6 +12294,28 @@ app.get('/admin/state-rules', async (req, res) => {
     const { NIL_STATE_RULES } = require('./nilStateRules');
     const rows = (await store.pool.query(
       `SELECT * FROM state_category_rules ORDER BY state_code, category`)).rows;
+    // The change history (store.js trigger). A failed read is SHOWN, never an
+    // empty table that reads as "nothing ever changed".
+    let hist = null, histErr = null;
+    try {
+      hist = (await store.pool.query(
+        `SELECT action, state_code, category, old_value, new_value, changed_by, changed_at
+           FROM state_category_rules_history ORDER BY changed_at DESC, id DESC LIMIT 100`)).rows;
+    } catch (e) { histErr = e.message; }
+    const RULE_FIELDS = ['minor_rule', 'adult_rule', 'citation', 'note', 'date_checked', 'confidence'];
+    const fmtVal = (v) => (v == null ? '' : String(v));   // to_jsonb gives dates as YYYY-MM-DD
+    const diff = (h) => {
+      if (h.action === 'INSERT') return RULE_FIELDS.map((f) => `${f}: <b>${esc(fmtVal(h.new_value && h.new_value[f]))}</b>`).join('<br>');
+      if (h.action === 'DELETE') return RULE_FIELDS.map((f) => `${f}: <s>${esc(fmtVal(h.old_value && h.old_value[f]))}</s>`).join('<br>');
+      return RULE_FIELDS.filter((f) => JSON.stringify((h.old_value || {})[f]) !== JSON.stringify((h.new_value || {})[f]))
+        .map((f) => `${f}: <s>${esc(fmtVal((h.old_value || {})[f]))}</s> &rarr; <b>${esc(fmtVal((h.new_value || {})[f]))}</b>`).join('<br>') || '(no rule field changed)';
+    };
+    const histHtml = histErr
+      ? `<div class="warn"><b>The change history could not be read:</b> ${esc(histErr)}</div>`
+      : `<table><tr><th>When (UTC)</th><th>Who</th><th>Change</th><th>Rule</th><th>Old &rarr; new</th></tr>${
+        hist.map((h) => `<tr><td>${esc(new Date(h.changed_at).toISOString().replace('T', ' ').slice(0, 19))}</td><td>${esc(h.changed_by)}</td>
+          <td>${esc(h.action)}</td><td>${esc(h.state_code)} / ${esc(h.category)}</td><td>${diff(h)}</td></tr>`).join('')
+        || '<tr><td colspan="5">No changes recorded since the history began.</td></tr>'}</table>`;
     const states = Object.keys(NIL_STATE_RULES).sort();
     const cats = compliance.CATEGORIES.map((c) => c.key);
 
@@ -12346,6 +12368,11 @@ it is a prose reference with no category rules in it, and the gate never reads r
 statute or state athletic-association rule. A missing row is safe: the gate holds. A wrong row is not.</div>
 <table><tr><th>State</th><th>Category</th><th>Minor</th><th>Adult</th><th>Citation</th>
 <th>Checked</th><th>Confidence</th><th></th></tr>${body}</table>
+<h3>Change history</h3>
+<div class="sub">Every insert, change and delete, old value and new, who and when. Written by the database
+itself, so a change made outside this page is recorded too (as "unattributed" if it did not say who).
+Append-only. Latest 100.</div>
+${histHtml}
 <form onsubmit="save(event)">
   <div class="row">
     <div><label>State</label><select id="f_state">${opt(states)}</select></div>
@@ -12399,6 +12426,23 @@ async function _stateRulesActor(req) {
   const u = await store.getUser(req.session.userId).catch(() => null);
   return (u && u.email) || 'unknown';
 }
+// Run a rule write in its own transaction with nildash.actor set, so the
+// history trigger (store.js, state_category_rules_history) records who. The
+// setting is transaction-local: it cannot leak onto another request's write.
+async function _withRuleActor(req, fn) {
+  const actor = await _stateRulesActor(req);
+  const c = await store.pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query(`SELECT set_config('nildash.actor', $1, true)`, [actor]);
+    const out = await fn(c, actor);
+    await c.query('COMMIT');
+    return out;
+  } catch (e) {
+    await c.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally { c.release(); }
+}
 app.post('/admin/state-rules', async (req, res) => {
   try {
     const b = req.body || {};
@@ -12409,7 +12453,7 @@ app.post('/admin/state-rules', async (req, res) => {
     const compliance = require('./services/compliance');
     const known = new Set(compliance.CATEGORIES.map((c) => c.key));
     if (!known.has(String(b.category))) return res.status(400).json({ error: 'Unknown category.' });
-    await store.pool.query(
+    const actor = await _withRuleActor(req, (c, who) => c.query(
       `INSERT INTO state_category_rules
          (state_code, category, minor_rule, adult_rule, citation, note, date_checked, confidence, entered_by)
        VALUES (UPPER($1), LOWER($2), $3, $4, $5, $6, $7, $8, $9)
@@ -12419,8 +12463,8 @@ app.post('/admin/state-rules', async (req, res) => {
          date_checked = EXCLUDED.date_checked, confidence = EXCLUDED.confidence,
          entered_by = EXCLUDED.entered_by, updated_at = NOW()`,
       [b.stateCode, b.category, b.minorRule, b.adultRule, String(b.citation).trim(),
-        b.note || null, b.dateChecked, b.confidence || 'verify', await _stateRulesActor(req)]);
-    console.log(`[state-rules] ${b.stateCode}/${b.category} saved by ${await _stateRulesActor(req)}`);
+        b.note || null, b.dateChecked, b.confidence || 'verify', who]).then(() => who));
+    console.log(`[state-rules] ${b.stateCode}/${b.category} saved by ${actor}`);
     res.json({ ok: true });
   } catch (e) {
     console.error('[admin/state-rules/save]', e.message);
@@ -12432,8 +12476,9 @@ app.delete('/admin/state-rules/:id', async (req, res) => {
   try {
     // Say what was removed and by whom: a deleted compliance rule leaves no
     // row behind, so the log line is the only record there is.
-    const gone = (await store.pool.query(`DELETE FROM state_category_rules WHERE id = $1 RETURNING *`, [Number(req.params.id)])).rows[0];
-    console.log(`[state-rules] DELETED by ${await _stateRulesActor(req)}: ${gone ? JSON.stringify(gone) : 'no row with id ' + req.params.id}`);
+    const [gone, who] = await _withRuleActor(req, async (c, w) =>
+      [(await c.query(`DELETE FROM state_category_rules WHERE id = $1 RETURNING *`, [Number(req.params.id)])).rows[0], w]);
+    console.log(`[state-rules] DELETED by ${who}: ${gone ? JSON.stringify(gone) : 'no row with id ' + req.params.id}`);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

@@ -1224,6 +1224,17 @@
       "state_code": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "state_category_rules_history": {
+      "action": "TEXT",
+      "category": "TEXT",
+      "changed_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "changed_by": "TEXT",
+      "id": "BIGSERIAL",
+      "new_value": "JSONB",
+      "old_value": "JSONB",
+      "rule_id": "INT",
+      "state_code": "TEXT"
+    },
     "universities": {
       "conference": "TEXT",
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
