@@ -429,7 +429,7 @@ app.get('/health', (req, res) => {
 // header as /demo (see the /demo route).
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders: (res, filePath) => {
-    if (['demo.html', 'athletics.html'].includes(path.basename(filePath))) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    if (['demo.html', 'athletics.html', 'university.html'].includes(path.basename(filePath))) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   },
 }));
 app.set('trust proxy', 1);
@@ -5545,6 +5545,11 @@ const ADMIN_SCRIPTS = {
   // Read-only; no arguments.
   //   /api/admin/scripts/demo-stats?text=1
   'demo-stats': { file: 'scripts/demo-stats.js', args: () => [] },
+  // Who is in the legacy university_users table (the compliance-portal
+  // accounts behind /api/university/register and /login), flagged test or real.
+  // Read-only; no password hash is read. Decides whether those routes retire.
+  //   /api/admin/scripts/university-users-audit?text=1
+  'university-users-audit': { file: 'scripts/university-users-audit.js', args: () => [] },
   // Every email approved and unsent when the release queue shipped, by
   // business, with what became of it: sent, held, deduped, stopped, waiting.
   // Read-only. before= overrides the cutoff (default: the queue's first act).
@@ -14665,6 +14670,21 @@ app.get('/athletics', (req, res) => {
     { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
 });
 
+// ── The university portal ───────────────────────────────────────────────
+// https://mynildash.com/university is the live product for athletics
+// departments, its own page and never the agent app: public/university.html,
+// served with no auth middleware in front of it, the same way as /demo and
+// /athletics. The page is only a shell. Everything it shows comes from
+// GET /api/university/teams and /inventory, which are behind
+// requireUniversityMode and scoped to the caller's own university, and a
+// visitor with no university session gets the page's own sign-in screen.
+// no-cache for the same reason as /demo: a replaced file is what the next
+// visitor gets.
+app.get('/university', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'university.html'),
+    { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
+});
+
 // ── The demo page's own analytics (services/demoEvents) ─────────────────
 // PUBLIC, like the page. It answers 204 at once, before the row is written and
 // whatever happens after, so the page is never slowed or told anything: a bad
@@ -15251,6 +15271,33 @@ app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (
   } catch (err) {
     console.error('[university] Dashboard error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── The university portal: teams and inventory (public/university.html) ──
+// University Mode only, and scoped to the caller's OWN university: the id comes
+// from the signed-in user's row (resolveSessionUniversity) and nothing in the
+// request can name another one. University tables only -- see migrations/007
+// and services/universityPortal.
+app.get('/api/university/teams', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(403).json({ error: 'No university is linked to this account.', code: 'NO_UNIVERSITY_LINKED' });
+    res.json(await require('./services/universityPortal').listTeams(store.pool, universityId));
+  } catch (e) {
+    console.error('[university/teams]', e.message);
+    res.status(500).json({ error: 'Could not load teams.' });
+  }
+});
+
+app.get('/api/university/inventory', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(403).json({ error: 'No university is linked to this account.', code: 'NO_UNIVERSITY_LINKED' });
+    res.json(await require('./services/universityPortal').listInventory(store.pool, universityId));
+  } catch (e) {
+    console.error('[university/inventory]', e.message);
+    res.status(500).json({ error: 'Could not load inventory.' });
   }
 });
 

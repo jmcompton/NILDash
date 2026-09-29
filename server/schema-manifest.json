@@ -105,9 +105,6 @@
       "athlete_id": "TEXT",
       "brand": "TEXT",
       "color": "TEXT",
-      "completed_at": "TIMESTAMPTZ",
-      "completed_by_id": "TEXT",
-      "completed_by_role": "TEXT",
       "contract_id": "TEXT",
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "deliverable_id": "INTEGER",
@@ -140,11 +137,8 @@
       "file_hash": "TEXT",
       "filename": "TEXT",
       "id": "TEXT",
-      "key_terms": "JSONB DEFAULT '[]'::jsonb",
       "raw_text": "TEXT",
-      "risk_flags": "JSONB DEFAULT '[]'::jsonb",
       "start_date": "DATE",
-      "total_value": "TEXT",
       "uploaded_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
     "athlete_deal_pipeline": {
@@ -173,13 +167,11 @@
       "contract_id": "TEXT",
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "deliverable_description": "TEXT",
-      "deliverable_type": "TEXT",
       "due_date": "DATE",
       "id": "SERIAL",
       "manually_edited": "BOOLEAN DEFAULT FALSE",
       "recurrence": "TEXT",
       "recurrence_rule": "TEXT",
-      "reviewed_at": "TIMESTAMPTZ",
       "sort_order": "INTEGER DEFAULT 0",
       "source": "TEXT DEFAULT 'ai_extracted'",
       "status": "TEXT DEFAULT 'pending'"
@@ -473,7 +465,6 @@
       "agent_id": "TEXT",
       "athlete_id": "TEXT",
       "brand": "TEXT",
-      "brand_key": "TEXT",
       "business_category": "TEXT",
       "closed_at": "TIMESTAMPTZ DEFAULT NOW()",
       "days_to_close": "INTEGER",
@@ -482,11 +473,9 @@
       "deliverable": "TEXT",
       "follower_band": "TEXT",
       "id": "SERIAL",
-      "logged_by": "TEXT",
       "school": "TEXT",
       "school_tier": "TEXT",
-      "sport": "TEXT",
-      "undone_at": "TIMESTAMPTZ"
+      "sport": "TEXT"
     },
     "deal_scan_feedback": {
       "action": "TEXT",
@@ -517,8 +506,7 @@
       "agent_id": "TEXT",
       "items": "INT DEFAULT 0",
       "local_date": "DATE",
-      "sent_at": "TIMESTAMPTZ DEFAULT NOW()",
-      "subject": "TEXT"
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
     "demo_events": {
       "country": "TEXT",
@@ -760,9 +748,7 @@
     },
     "market_business_seen": {
       "brand": "TEXT",
-      "category": "TEXT",
       "first_seen_at": "TIMESTAMPTZ DEFAULT NOW()",
-      "has_evidence": "BOOLEAN",
       "last_seen_at": "TIMESTAMPTZ DEFAULT NOW()",
       "market_key": "TEXT"
     },
@@ -812,8 +798,7 @@
       "provider_id": "TEXT",
       "run_date": "DATE",
       "sent_at": "TIMESTAMPTZ",
-      "status": "TEXT DEFAULT 'claimed'",
-      "subject": "TEXT"
+      "status": "TEXT DEFAULT 'claimed'"
     },
     "nil_activity_log": {
       "activity_type": "TEXT",
@@ -853,7 +838,6 @@
       "athlete_id": "TEXT",
       "brand_key": "TEXT",
       "brand_name": "TEXT",
-      "business_category": "TEXT",
       "channel": "TEXT DEFAULT 'call'",
       "contact_name": "TEXT",
       "contact_title": "TEXT",
@@ -871,8 +855,6 @@
       "slot": "INT",
       "source_note": "TEXT",
       "state": "TEXT DEFAULT 'queued'",
-      "thin": "BOOLEAN DEFAULT FALSE",
-      "thin_note": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
       "why": "TEXT"
     },
@@ -905,7 +887,6 @@
       "expires_at": "TIMESTAMPTZ",
       "id": "SERIAL",
       "token": "TEXT",
-      "token_hash": "TEXT",
       "used": "BOOLEAN DEFAULT FALSE"
     },
     "pitch_action_tokens": {
@@ -1121,8 +1102,7 @@
       "agent_id": "TEXT",
       "items": "INT DEFAULT 0",
       "local_date": "DATE",
-      "sent_at": "TIMESTAMPTZ DEFAULT NOW()",
-      "subject": "TEXT"
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
     "site_email_jobs": {
       "collapsed": "INT DEFAULT 0",

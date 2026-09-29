@@ -36,7 +36,7 @@ ok('  with no-cache, so no browser, proxy or CDN serves an old copy',
   /cacheControl: false, headers: \{ 'Cache-Control': DEMO_NO_CACHE \}/.test(body2)
   && /const DEMO_NO_CACHE = 'no-cache, must-revalidate'/.test(IDX), body2);
 ok('  and /demo.html, which express.static answers, gets the same header',
-  /\['demo\.html', 'athletics\.html'\]\.includes\(path\.basename\(filePath\)\)\) res\.setHeader\('Cache-Control', 'no-cache, must-revalidate'\)/.test(IDX));
+  /\['demo\.html', 'athletics\.html'(, '[a-z]+\.html')*\]\.includes\(path\.basename\(filePath\)\)\) res\.setHeader\('Cache-Control', 'no-cache, must-revalidate'\)/.test(IDX));
 ok('no other route or static mount serves a demo page',
   (IDX.match(/app\.(get|use)\([^)]*demo/g) || []).length === 1
   && !fs.readdirSync(REPO + 'public').some((f) => /demo/i.test(f) && /\.html?$/i.test(f) && f !== 'demo.html'));
