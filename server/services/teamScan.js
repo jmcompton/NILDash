@@ -157,6 +157,20 @@ async function discover(pool, { university, marketKey, places }) {
     const f = fitFor(withD);
     kept.push({ ...withD, fit: f.fit, fit_reasons: f.reasons });
   }
+  // ONE ROW PER NAME before the upsert. The pool is keyed (market_key, brand)
+  // and Places can return two places with the same display name (two branches
+  // of one business); Postgres refuses to upsert the same row twice in one
+  // statement, which lost the whole Cypress rebuild. The better fit is kept.
+  const BD = require('./batchDedupe');
+  const dd = BD.dedupeBy(kept, (c) => c.name, BD.betterPlace);
+  const duplicates = dd.collisions.map((c) => ({ brand: c.key,
+    kept: { place_id: c.kept.place_id, address: c.kept.address, fit: c.kept.fit, reviews: c.kept.user_ratings_total },
+    dropped: { place_id: c.dropped.place_id, address: c.dropped.address, fit: c.dropped.fit, reviews: c.dropped.user_ratings_total } }));
+  if (duplicates.length) {
+    console.log(`[teamScan] ${duplicates.length} name(s) shared by more than one place; kept one each: `
+      + duplicates.slice(0, 10).map((d) => `"${d.brand}" (${d.kept.address} over ${d.dropped.address})`).join('; '));
+  }
+  kept.length = 0; kept.push(...dd.rows);
   if (kept.length) {
     await pool.query(
       `INSERT INTO university_market_seen
@@ -175,7 +189,7 @@ async function discover(pool, { university, marketKey, places }) {
         kept.map((c) => c.rating), kept.map((c) => c.user_ratings_total || 0), kept.map((c) => !!c.chain),
         kept.map((c) => c.fit), kept.map((c) => JSON.stringify(c.fit_reasons))]);
   }
-  return { ok: true, found: (built.candidates || []).length, kept: kept.length, blocked, placesCalls: built.placesCalls || 0, center };
+  return { ok: true, found: (built.candidates || []).length, kept: kept.length, blocked, duplicates, placesCalls: built.placesCalls || 0, center };
 }
 
 // ── ONE TEAM, ONE NIGHT ─────────────────────────────────────────────────────

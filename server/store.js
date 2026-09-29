@@ -4321,7 +4321,12 @@ async function releaseApprovedBacklog(p) {
 async function markMarketNewcomers(marketKey, brands, meta) {
   const out = new Set();
   try {
-    const raw = Array.from(new Set((brands || []).filter(Boolean).map(b => String(b).trim())));
+    // ONE ROW PER NAME. The upsert below is keyed (market_key, brand), and
+    // Postgres refuses to update the same row twice in one statement
+    // (services/batchDedupe). Exact duplicates collapse here; the richer
+    // metadata for a shared name was already chosen by the caller.
+    const raw = require('./services/batchDedupe')
+      .dedupeBy((brands || []).filter(Boolean).map(b => String(b).trim()), (b) => b).rows;
     // REJECTED, NOT SILENTLY DROPPED. A market scan producing placeholders means
     // that scan returned junk, and binning it quietly hides the fact from the
     // agent whose market it was. The rejection is recorded so the shift report
@@ -4381,7 +4386,10 @@ async function markMarketNewcomers(marketKey, brands, meta) {
         list.map((b) => (m.get(b) ? m.get(b).hasEvidence : null)),
         list.map((b) => (m.get(b) ? (m.get(b).evidence || null) : null))]);
   } catch (e) {
-    console.error('[market-seen]', e.message);
+    // Returned as well as logged: a caller that reports "written" must be able
+    // to tell that nothing was.
+    console.error('[market-seen] WRITE FAILED for ' + marketKey + ':', e.message);
+    out.error = e.message;
   }
   return out;
 }
@@ -4485,12 +4493,14 @@ async function recordMarketPool(found, { schoolMarket, hometown } = {}) {
     // Carried through by name so markMarketNewcomers can write them alongside
     // the row it was already writing -- no second pass, no extra query.
     const BC = require('./services/businessCategory');
+    const BD = require('./services/batchDedupe');
     const meta = new Map();
+    out.collisions = [];
     for (const f of list) {
       const n = nameOf(f);
       if (!n) continue;
       const ev = f.evidence;
-      meta.set(n, {
+      const m = {
         category: BC.categoryOf(f).category,
         // TRUE, FALSE, or UNKNOWN. A record that carries no evidence FIELD at
         // all is not the same as one the scan looked at and found nothing for,
@@ -4498,21 +4508,44 @@ async function recordMarketPool(found, { schoolMarket, hometown } = {}) {
         hasEvidence: ev === undefined ? null : !!(ev && String(ev).trim()),
         // The line itself, for the writer (services/writerEvidence).
         evidence: (typeof ev === 'string' && ev.trim()) ? ev.trim().slice(0, 180) : null,
-      });
+        address: f.address || null, place_id: f.place_id || null,
+      };
+      // TWO PLACES, ONE NAME (two branches of a business). The pool holds one
+      // row per name, so the BETTER sighting's facts are kept, not whichever
+      // came last.
+      const prev = meta.get(n);
+      if (!prev) meta.set(n, m);
+      else {
+        const keepNew = BD.betterPoolMeta(m, prev);
+        out.collisions.push({ key: n, kept: keepNew ? m : prev, dropped: keepNew ? prev : m });
+        if (keepNew) meta.set(n, m);
+      }
     }
-    const school = list.filter((f) => f && f.market !== 'hometown').map(nameOf).filter(Boolean);
-    const home = list.filter((f) => f && f.market === 'hometown').map(nameOf).filter(Boolean);
+    if (out.collisions.length) {
+      console.log(`[market-seen] ${out.collisions.length} name(s) shared by more than one place; one row each kept: `
+        + out.collisions.slice(0, 10).map((c) => `"${c.key}" (${c.kept.address || c.kept.place_id || '?'} over ${c.dropped.address || c.dropped.place_id || '?'})`).join('; '));
+    }
+    const uniq = (a) => [...new Set(a)];
+    const school = uniq(list.filter((f) => f && f.market !== 'hometown').map(nameOf).filter(Boolean));
+    const home = uniq(list.filter((f) => f && f.market === 'hometown').map(nameOf).filter(Boolean));
 
     const sk = schoolMarket ? marketPoolKey(schoolMarket) : null;
-    if (sk && school.length) { await markMarketNewcomers(sk, school, meta); out.schoolKey = sk; out.school = school.length; }
+    if (sk && school.length) {
+      const r = await markMarketNewcomers(sk, school, meta); out.schoolKey = sk; out.school = school.length;
+      if (r && r.error) out.error = r.error;
+    }
     const hk = hometown ? marketPoolKey(hometown) : null;
-    if (hk && home.length) { await markMarketNewcomers(hk, home, meta); out.hometownKey = hk; out.hometown = home.length; }
+    if (hk && home.length) {
+      const r = await markMarketNewcomers(hk, home, meta); out.hometownKey = hk; out.hometown = home.length;
+      if (r && r.error) out.error = r.error;
+    }
     if (out.school || out.hometown) {
       console.log(`[market-seen] recorded pool: ${out.school} under ${JSON.stringify(out.schoolKey)}`
         + (out.hometown ? `, ${out.hometown} under ${JSON.stringify(out.hometownKey)}` : ''));
     }
   } catch (e) {
     console.error('[market-seen] recordMarketPool failed:', e.message);
+    out.error = e.message;
   }
   return out;
 }

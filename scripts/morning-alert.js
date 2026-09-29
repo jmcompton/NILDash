@@ -24,12 +24,7 @@ async function main() {
     if (r.msg) console.log('\n' + r.msg.text);
   } else {
     const report = await MA.collect(P);
-    if (!report.problemCount) {
-      console.log(`All clear for ${report.runDate}: ${report.cardsLastNight} card(s) last night, `
-        + `${report.builds.total} market build(s) in 24h and none failed, ${report.newBusinesses24h} new business(es). Nothing would be sent.`);
-    } else {
-      console.log('WOULD SEND (not sent; add --send):\n\n' + MA.render(report).text);
-    }
+    console.log('WOULD SEND (not sent; add --send):\n\n' + MA.render(report).text);
   }
   try { await P.end(); } catch (_) {}
   process.exit(0);

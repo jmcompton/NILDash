@@ -207,13 +207,72 @@ async function main() {
   ok('a failed send is retried on the next tick', f1.status === 'failed' && f2.status === 'sent' && arow.status === 'sent' && arow.attempts === 2, [f1.status, f2.status, arow]);
   const outside = await MA.runOnce(P, { now: Date.parse('2031-03-06T20:00:00Z'), send: async (m) => { sent.push(m); } });
   ok('outside the morning window it does nothing', /outside/.test(outside.skipped));
-  const rendered = MA.render({ ...report, problems: [], builds: { total: 3, failed: 0, pooled: 90, failures: [] }, problemCount: 0 });
-  ok('the email says how many cards and new businesses, for context', /card\(s\) placed last night/.test(rendered.text) && /New businesses discovered/.test(rendered.text));
+  const rendered = MA.render(report);
+  ok('the alert email says how many cards and new businesses, for context', /card\(s\) placed last night/.test(rendered.text) && /New businesses discovered/.test(rendered.text));
   const IDX = read('server/index.js');
   ok('the server schedules it, and it is not behind the queue flag', /MA\.runOnce\(store\.pool\)/.test(IDX) && /Not gated on OUTREACH_QUEUE_ENABLED/.test(IDX));
   ok('  it goes to ADMIN_ALERT_EMAIL, else ADMIN_EMAIL', /ADMIN_ALERT_EMAIL \|\| process\.env\.ADMIN_EMAIL/.test(read('server/services/morningAlert.js')));
   ok('the admin runner has morning-alert and places-rebuild', /'morning-alert': \{ file: 'scripts\/morning-alert\.js'/.test(IDX) && /'places-rebuild': \{ file: 'scripts\/places-rebuild\.js'/.test(IDX));
   ok('the nightly run report opens with discovery health', /DISCOVERY \(all agents\)/.test(read('scripts/nightly-run-report.js')) && /PLACES DISCOVERY FAILING/.test(read('scripts/nightly-run-report.js')));
+
+  // The all-clear: a morning with nothing wrong still sends one line.
+  const DAY3 = '2031-03-07', NOW3 = Date.parse('2031-03-07T12:00:00Z');
+  await P.query(`DELETE FROM admin_alerts WHERE alert_date = $1`, [DAY3]);
+  const clearSent = [];
+  const cr = await MA.runOnce(P, { now: NOW3, send: async (m) => { clearSent.push(m); } });
+  // Other suites may leave agents or failures behind; only the shape is asserted
+  // when this database is not clean.
+  if (!cr.report.problemCount) {
+    ok('a morning with nothing wrong sends the all-clear', cr.status === 'sent' && clearSent.length === 1
+      && /^NILDash all clear 2031-03-07: /.test(clearSent[0].subject) && /If one does not arrive, the alert itself is broken/.test(clearSent[0].text), clearSent[0] && clearSent[0].subject);
+  } else {
+    ok('a morning with problems sends the alert instead', cr.status === 'sent' && /^NILDash alert /.test(clearSent[0].subject));
+  }
+  const clearMsg = MA.render({ runDate: DAY3, problemCount: 0, problems: [], cardsLastNight: 41, agentsWithAthletes: 7,
+    skippedByDesign: 1, queueEnabled: true, builds: { total: 12, failed: 0, pooled: 900, failures: [] }, newBusinesses24h: 311 });
+  ok('  the all-clear line carries the numbers', clearMsg.subject === 'NILDash all clear 2031-03-07: 41 card(s) last night, 12 market build(s) and none failed, 311 new business(es)', clearMsg.subject);
+  await P.query(`DELETE FROM admin_alerts WHERE alert_date = $1`, [DAY3]);
+
+  // ── 6. ONE ROW PER KEY BEFORE EVERY BATCHED UPSERT ────────────────────────
+  OUT.push('', '-- duplicate names never break a batch --');
+  const BD = require(REPO + 'server/services/batchDedupe.js');
+  const dd = BD.dedupeBy([{ n: 'A', v: 1 }, { n: 'B', v: 1 }, { n: 'A', v: 3 }], (r) => r.n, (a, b) => a.v > b.v);
+  ok('dedupeBy keeps the better row, not the first, and reports the collision', dd.rows.length === 2
+    && dd.rows.find((r) => r.n === 'A').v === 3 && dd.collisions.length === 1 && dd.collisions[0].dropped.v === 1, dd);
+  const MK = 'placesnew-town, zz';
+  await P.query(`DELETE FROM market_business_seen WHERE market_key = $1`, [MK]);
+  const twins = [
+    { name: 'Twin Burger', market: 'school', category: 'restaurant', evidence: null, address: '1 First St' },
+    { name: 'Twin Burger', market: 'school', category: 'restaurant', evidence: 'Sponsors Cypress High football', address: '9 Ninth St' },
+    { name: 'Solo Gym', market: 'school', category: 'gym', evidence: null },
+  ];
+  const rec = await store.recordMarketPool(twins, { schoolMarket: 'Placesnew-town, ZZ' });
+  const rows = (await P.query(`SELECT brand, has_evidence, evidence FROM market_business_seen WHERE market_key = $1 ORDER BY brand`, [rec.schoolKey])).rows;
+  ok('market_business_seen: two places with one name write one row, no error', !rec.error && rows.length === 2, [rec.error, rows]);
+  ok('  and the row with evidence is the one kept', rows.find((r) => r.brand === 'Twin Burger').evidence === 'Sponsors Cypress High football'
+    && rec.collisions.length === 1 && rec.collisions[0].dropped.address === '1 First St', [rows, rec.collisions]);
+  const again = await store.markMarketNewcomers(rec.schoolKey, ['Solo Gym', 'Solo Gym', 'Twin Burger']);
+  ok('  markMarketNewcomers with a repeated name writes without error', !again.error, again.error);
+  const rej = await store.markMarketNewcomers(rec.schoolKey, ['Local Gym (independent)', 'Local Gym (independent)']);
+  ok('  and so does a repeated rejected placeholder', !rej.error);
+  await P.query(`DELETE FROM market_business_seen WHERE market_key = $1`, [rec.schoolKey]);
+  await P.query(`DELETE FROM market_business_rejected WHERE market_key = $1`, [rec.schoolKey]).catch(() => {});
+
+  const TS = require(REPO + 'server/services/teamScan.js');
+  await TS.ensureTables(P);
+  const UK = 'placesnew-campus, zz';
+  await P.query(`DELETE FROM university_market_seen WHERE market_key = $1`, [UK]);
+  const cand = (id, name, lat, reviews) => ({ name, place_id: id, types: ['cafe'], category: 'coffee', address: id + ' Main St',
+    lat, lng: -118.025, rating: 4.6, user_ratings_total: reviews, chain: false, market: 'school' });
+  const fakePlaces = { buildMarketPoolFromPlaces: async () => ({ ok: true, placesCalls: 1, geocoded: { lat: 33.8285, lng: -118.0247 },
+    candidates: [cand('far', 'Twin Coffee', 33.86, 40), cand('near', 'Twin Coffee', 33.829, 900), cand('solo', 'Solo Tea', 33.83, 50)] }) };
+  let dres, derr = null;
+  try { dres = await TS.discover(P, { university: { location: 'x' }, marketKey: UK, places: fakePlaces }); } catch (e) { derr = e.message; }
+  const urows = (await P.query(`SELECT brand, place_id FROM university_market_seen WHERE market_key = $1 ORDER BY brand`, [UK])).rows;
+  ok('university_market_seen: two places with one name no longer fail the whole write', !derr && urows.length === 2, [derr, urows]);
+  ok('  the better fit is kept, and the collision is reported with both places', urows.find((r) => r.brand === 'Twin Coffee').place_id === 'near'
+    && dres.duplicates.length === 1 && dres.duplicates[0].dropped.place_id === 'far', dres && dres.duplicates);
+  await P.query(`DELETE FROM university_market_seen WHERE market_key = $1`, [UK]);
 
   await P.query(`DELETE FROM admin_alerts WHERE alert_date IN ($1, $2)`, [DAY, DAY2]);
   await P.query(`DELETE FROM outreach_queue_runs WHERE agent_id = $1`, [AG]);

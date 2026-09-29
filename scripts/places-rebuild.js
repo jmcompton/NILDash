@@ -45,6 +45,13 @@ function summary(label, r) {
     + `\n  by kind: ${top || '-'}`;
 }
 
+// Businesses that shared a name, and so one key: which was kept and which not.
+function printDupes(list, fmt) {
+  if (!list || !list.length) return;
+  console.log(`  ${list.length} name(s) shared by more than one place (one row kept each):`);
+  for (const d of list) console.log(`    "${d.key || d.brand}": kept ${fmt(d.kept)}; dropped ${fmt(d.dropped)}`);
+}
+
 async function main() {
   const a = argsOf(process.argv.slice(2));
   if (!a.market && !a.campus) {
@@ -71,7 +78,9 @@ async function main() {
     } else if (a.write && r.candidates.length) {
       await store.setMarketCache(cacheKey, r.candidates);
       const rec = await store.recordMarketPool(r.candidates, { schoolMarket });
-      console.log(`  written: market cache ${cacheKey}, market pool "${rec.schoolKey}" (${rec.school} businesses)`);
+      if (rec.error) { console.log(`  WRITE FAILED for the market pool: ${rec.error}`); failed++; }
+      else console.log(`  written: market cache ${cacheKey}, market pool "${rec.schoolKey}" (${rec.school} businesses)`);
+      printDupes(rec.collisions, (m) => `${m.address || m.place_id || '?'}`);
     }
     console.log('');
   }
@@ -89,7 +98,9 @@ async function main() {
       else {
         console.log(`CAMPUS  ${uni.name}, ${uni.location}  (pool "${marketKey}")\n  ${d.kept} businesses in the university pool`
           + ` (${d.found} found, ${d.blocked.length} blocked: ${[...new Set(d.blocked.map((b) => b.key))].join(', ') || 'none'})`
-          + `\n  ${d.placesCalls} Places request(s)\n`);
+          + `\n  ${d.placesCalls} Places request(s)`);
+        printDupes(d.duplicates, (m) => `${m.address || m.place_id} (fit ${m.fit}, ${m.reviews} reviews)`);
+        console.log('');
       }
     } else {
       const r = await PM.buildMarketPoolFromPlaces(uni.location, { source: 'rebuild-script' });

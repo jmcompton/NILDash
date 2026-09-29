@@ -21,8 +21,11 @@
 //
 // ONCE A DAY. admin_alerts holds one row per Central date, claimed before the
 // send, so a restart or a second instance cannot mail it twice. A failed send
-// is retried on the next tick, up to MAX_ATTEMPTS. A morning with nothing wrong
-// sends nothing and records 'clear'.
+// is retried on the next tick, up to MAX_ATTEMPTS.
+//
+// A MORNING WITH NOTHING WRONG STILL SENDS ONE LINE, the all-clear. Silence
+// looked identical to healthy for three days; with a daily all-clear, a missing
+// email means the alert itself is broken, and that is a thing you can notice.
 
 const OQ = require('../jobs/outreachQueue');
 
@@ -96,6 +99,18 @@ async function collect(pool, { now } = {}) {
 }
 
 function render(r) {
+  if (!r.problemCount) {
+    const subject = `NILDash all clear ${r.runDate}: ${r.cardsLastNight} card(s) last night, `
+      + `${r.builds.total} market build(s) and none failed, ${r.newBusinesses24h} new business(es)`;
+    const text = [subject, '',
+      `${r.agentsWithAthletes} agent(s) with athletes; every one either got cards or had every slot already full`
+        + (r.skippedByDesign ? `; ${r.skippedByDesign} skipped by design (not signed in recently)` : '') + '.',
+      r.queueEnabled ? '' : 'Note: the nightly queue is OFF on this deployment (OUTREACH_QUEUE_ENABLED is not 1).',
+      'This email comes every morning. If one does not arrive, the alert itself is broken.',
+    ].filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\n');
+    const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return { subject, text, html: `<pre style="font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap">${esc(text)}</pre>` };
+  }
   const lines = [];
   const bits = [];
   if (r.builds.failed) bits.push(`${r.builds.failed} Places market build(s) failed`);
@@ -146,13 +161,6 @@ async function runOnce(pool, opts = {}) {
   if (prior && (prior.status === 'sent' || prior.status === 'clear' || prior.status === 'sending')) return { skipped: 'already ' + prior.status, report };
   if (prior && prior.status === 'failed' && prior.attempts >= MAX_ATTEMPTS) return { skipped: 'gave up after ' + prior.attempts + ' attempts', report };
 
-  if (!report.problemCount) {
-    await pool.query(`INSERT INTO admin_alerts (alert_date, status, problems) VALUES ($1, 'clear', 0)
-                      ON CONFLICT (alert_date) DO NOTHING`, [day]);
-    console.log(`[morning-alert] ${day}: all clear (${report.cardsLastNight} cards, ${report.builds.total} market builds, 0 failed)`);
-    return { status: 'clear', report };
-  }
-
   // CLAIM, then send. A second instance loses the claim and sends nothing.
   const msg = render(report);
   const claim = await pool.query(
@@ -162,7 +170,7 @@ async function runOnce(pool, opts = {}) {
      WHERE admin_alerts.status = 'failed'
      RETURNING attempts`, [day, report.problemCount, msg.subject, msg.text]);
   if (!claim.rowCount) return { skipped: 'claimed elsewhere', report };
-  console.error(`[morning-alert] ${msg.subject}`);
+  (report.problemCount ? console.error : console.log)(`[morning-alert] ${msg.subject}`);
   try {
     await (opts.send || _send)(msg);
     await pool.query(`UPDATE admin_alerts SET status = 'sent', sent_at = NOW(), error = NULL WHERE alert_date = $1`, [day]);
