@@ -95,7 +95,9 @@ async function main() {
   ok('THE PITCH WRITER OPTS IN, at both of its call sites',
     (oq.match(/ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN, \{ prose: true \}\)/g) || []).length === 2);
   const idx = read('server/index.js');
-  for (const site of ['university.compliance', 'university.recommendations', 'university.roster']) {
+  // university.compliance and university.recommendations were legacy compliance-
+  // portal routes, deleted with /api/university/register and /login.
+  for (const site of ['university.roster']) {
     const chunks = idx.split(`site: '${site}' }`).slice(1).map((c) => c.slice(0, 200));
     ok(`${site} does NOT opt in (${chunks.length} call${chunks.length === 1 ? '' : 's'})`,
       chunks.length > 0 && chunks.every((c) => !/prose/.test(c)), chunks);

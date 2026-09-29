@@ -77,8 +77,8 @@ function walk(d, out = []) {
   OUT.push('', '-- the six text calls route through oneShot, model unchanged --');
   const idx = read('server/index.js');
   const cases = [
-    ['university.compliance', "userPrompt, systemPrompt, 1024, 'claude-sonnet-4-6'", idx],
-    ['university.recommendations', "userPrompt, systemPrompt, 1500, 'claude-sonnet-4-6'", idx],
+    // university.compliance and university.recommendations went with the
+    // legacy compliance-portal routes (deleted; see tests/createuniversityuser.js).
     ['university.roster', "systemPrompt, 4096, 'claude-sonnet-4-6'", idx],
     ['university.roster', "prompt, null, 4096, 'claude-opus-4-8'", idx],
     ['university.insights', "prompt, null, 2048, 'claude-opus-4-8'", read('server/services/university/NILDirectorService.js')],

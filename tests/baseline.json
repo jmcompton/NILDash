@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-09-22",
+  "recordedAt": "2026-09-29",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_idx.js": {
@@ -52,9 +52,19 @@
       "total": 35,
       "fault": null
     },
+    "agencybrand.js": {
+      "failed": 0,
+      "total": 72,
+      "fault": null
+    },
     "agentemail.js": {
       "failed": 0,
       "total": 23,
+      "fault": null
+    },
+    "agentreach.js": {
+      "failed": 0,
+      "total": 27,
       "fault": null
     },
     "aicost.js": {
@@ -237,9 +247,19 @@
       "total": 29,
       "fault": null
     },
+    "createuniversityuser.js": {
+      "failed": 0,
+      "total": 18,
+      "fault": null
+    },
     "creditfault.js": {
       "failed": 0,
       "total": 37,
+      "fault": null
+    },
+    "dashoptin.js": {
+      "failed": 0,
+      "total": 26,
       "fault": null
     },
     "deadend.js": {
@@ -267,9 +287,24 @@
       "total": 61,
       "fault": null
     },
+    "demoevents.js": {
+      "failed": 0,
+      "total": 45,
+      "fault": null
+    },
+    "demopage.js": {
+      "failed": 0,
+      "total": 13,
+      "fault": null
+    },
     "digest.js": {
       "failed": 0,
       "total": 72,
+      "fault": null
+    },
+    "directcalls.js": {
+      "failed": 0,
+      "total": 19,
       "fault": null
     },
     "dm.js": {
@@ -330,6 +365,11 @@
     "emailcheck.js": {
       "failed": 0,
       "total": 53,
+      "fault": null
+    },
+    "emailtier.js": {
+      "failed": 0,
+      "total": 51,
       "fault": null
     },
     "emptyreports.js": {
@@ -427,6 +467,11 @@
       "total": 49,
       "fault": null
     },
+    "helpprompt.js": {
+      "failed": 0,
+      "total": 32,
+      "fault": null
+    },
     "homecards.js": {
       "failed": 0,
       "total": 25,
@@ -500,6 +545,11 @@
     "inbox.js": {
       "failed": 0,
       "total": 8,
+      "fault": null
+    },
+    "keeprate.js": {
+      "failed": 0,
+      "total": 13,
       "fault": null
     },
     "laddersample.js": {
@@ -630,6 +680,11 @@
     "nightlydigest.js": {
       "failed": 0,
       "total": 41,
+      "fault": null
+    },
+    "noagentname.js": {
+      "failed": 0,
+      "total": 50,
       "fault": null
     },
     "noname.js": {
@@ -947,6 +1002,11 @@
       "total": 33,
       "fault": null
     },
+    "sendqueue.js": {
+      "failed": 0,
+      "total": 42,
+      "fault": null
+    },
     "sendrules.js": {
       "failed": 0,
       "total": 67,
@@ -967,6 +1027,11 @@
       "total": null,
       "fault": "threw"
     },
+    "signalscope.js": {
+      "failed": 0,
+      "total": 23,
+      "fault": null
+    },
     "signature.js": {
       "failed": 0,
       "total": 43,
@@ -985,6 +1050,11 @@
     "siteroutes.js": {
       "failed": 0,
       "total": 66,
+      "fault": null
+    },
+    "slateshape.js": {
+      "failed": 1,
+      "total": 59,
       "fault": null
     },
     "slottaken.js": {
@@ -1032,6 +1102,16 @@
       "total": null,
       "fault": "no result line"
     },
+    "universityportal.js": {
+      "failed": 0,
+      "total": 49,
+      "fault": null
+    },
+    "universitywall.js": {
+      "failed": 0,
+      "total": 35,
+      "fault": null
+    },
     "unlabelled.js": {
       "failed": 0,
       "total": 6,
@@ -1070,6 +1150,11 @@
     "writer.js": {
       "failed": 0,
       "total": 133,
+      "fault": null
+    },
+    "writerevidence.js": {
+      "failed": 0,
+      "total": 34,
       "fault": null
     },
     "xdom.js": {
