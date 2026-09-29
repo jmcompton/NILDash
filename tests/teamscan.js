@@ -225,9 +225,11 @@ async function main() {
   ok('  a track whose name says nothing is blocked by what Google says it is', bk(B('Santa Anita Park', { primary_type_label: 'Race Course' })) === 'gambling'
     && /Google describes it as "Race Course"/.test(B('Santa Anita Park', { primary_type_label: 'Race Course' }).why));
   const gamblingNames = ['Commerce Casino', 'The Bicycle Hotel & Casino', 'Hawaiian Gardens Card Club', 'Normandie Cardroom', 'Del Mar Thoroughbred Club',
-    'Churchill Downs Racetrack', 'OTB Sports Lounge', 'Lucky Bingo Hall', 'Golden Keno', 'Super Lotto Mart', 'DraftKings at Casino Queen', 'FanDuel Sportsbook'];
+    'Churchill Downs Racetrack', 'Lucky Bingo Hall', 'Super Lotto Mart', 'DraftKings at Casino Queen', 'FanDuel Sportsbook'];
   const missed = gamblingNames.filter((n) => bk(B(n)) !== 'gambling');
-  ok(`  racetracks, casinos, card rooms, OTB, bingo, keno, lottery and the betting brands are all blocked (${gamblingNames.length})`, missed.length === 0, missed);
+  ok(`  racetracks, casinos, card rooms, bingo halls, lottery and the betting brands are all blocked (${gamblingNames.length})`, missed.length === 0, missed);
+  ok('  a weak word alone is not enough ("Golden Keno", "OTB Sports Lounge"), but Google saying so is',
+    !B('Golden Keno') && !B('OTB Sports Lounge') && bk(B('OTB Sports Lounge', { primary_type_label: 'Off-track betting' })) === 'gambling');
   ok('  anything Google describes as a bar is alcohol for a team', bk(B('Tavern on Main', { primary_type: 'sports_bar' })) === 'alcohol'
     && bk(B('The Local', { primary_type_label: 'Bar and grill' })) === 'alcohol');
   const fine = ['Pirates Dinner Adventure', 'Chuze Fitness', 'Select Physical Therapy', 'SchoolsFirst Federal Credit Union', 'Boulton Orthodontics',

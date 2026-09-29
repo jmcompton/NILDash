@@ -1170,7 +1170,43 @@ function isFilling(athleteId) { return _filling.has(String(athleteId)); }
 function fillingIds() { return [..._filling.keys()]; }
 function fillingSince(athleteId) { return _filling.get(String(athleteId)) || null; }
 
+// ── NO CARD FOR A BUSINESS THE SEND WOULD STOP ─────────────────────────────
+// The compliance gate ran only at SEND (closer -> compliance.evaluate). The
+// nightly fill never asked, so a brewery became a card and sat in a college
+// athlete's queue until someone pressed send: Sea Dog Brewing, Holy City
+// Brewing, Connecticut Valley Brewing and Lolo Peak Brewery were on agents'
+// screens. The name had always said brewing; nothing read it before the card.
+//
+// The same classifier and the same age rule as the send (compliance.
+// classifyBusiness, ageFrom, severityFor), so the fill and the gate cannot
+// disagree about what is restricted. Anything the send would BLOCK or HOLD for
+// this athlete is not made into a card: a held card is one the agent cannot
+// send without a compliance review, and a brewery is not a card to review.
+// Returns null, or { key, label, severity, why }.
+const RESTRICTED_AT_FILL = new Set(['alcohol', 'tobacco', 'cannabis', 'gambling', 'firearms', 'adult']);
+function restrictedFor(brandName, place, athleteData, now) {
+  const C = require('./compliance');
+  const a = athleteData || {};
+  const over18 = a.over18 === true || a.over18 === 'true' ? true : (a.over18 === false || a.over18 === 'false' ? false : undefined);
+  const age = C.ageFrom(a.dob || null, now, { over18, pro: a.athleteType === 'pro' });
+  const ev = place ? { types: place.types || [], primaryType: place.primaryType || null,
+    primaryTypeDisplayName: place.primaryTypeDisplayName || null } : { types: [] };
+  const { hits } = C.classifyBusiness(brandName, ev);
+  for (const h of hits) {
+    // Supplements are held by design for a person to decide (NCAA banned-
+    // substance risk), not a restricted trade: they stay cards and the send
+    // holds them for review, as before. Every other category is refused here.
+    if (!RESTRICTED_AT_FILL.has(h.key)) continue;
+    const severity = C.severityFor(h.key, age);
+    if (severity === 'block' || severity === 'hold') {
+      return { key: h.key, label: h.label, severity, why: `${h.label} (${h.basis}); the send would ${severity} it for this athlete` };
+    }
+  }
+  return null;
+}
+
 module.exports = {
+  restrictedFor, RESTRICTED_AT_FILL,
   markFilling, unmarkFilling, isFilling, fillingIds, fillingSince,
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor, routeOf, genericRowsOf,

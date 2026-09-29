@@ -1160,6 +1160,21 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           tried, note: why, spendLog, emptyReason: Scout.EMPTY.CAPPED,
           faults: tried.filter((t) => t && t.fault).length };
       }
+      // ── RESTRICTED, BY NAME, IN EVERY LANE: no lookup, no card ──────────
+      // Before the lanes split, so a social or national brand is checked too
+      // (Q.restrictedFor: the send's own classifier and age rule).
+      {
+        // The candidate's recorded category counts as a description: a social-
+        // index brand says "sports betting" in its category even when its
+        // name ("Underdog") says nothing.
+        const rx = Q.restrictedFor(cand.brand_name, cand.category ? { types: [], primaryTypeDisplayName: cand.category } : null, ctx.athleteRow);
+        if (rx) {
+          say(`${cand.brand_name}: not a card, ${rx.why}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', restricted: rx.key, reason: 'restricted: ' + rx.why,
+            lane: cand.lane || null, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+      }
       // ── THE LANE DECIDES THE ROUTE ──────────────────────────────────────
       // A social or national brand goes nowhere near Places or the contact
       // ladder. Both are the LOCAL lane: they exist to find the owner of a
@@ -1411,6 +1426,15 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       } catch (e) { place = null; faultOf('google-places', e.message, 'places lookup'); }
       const pre = Q.prescreen(place);
       const facts = Q.placesFacts(place);
+      // ── RESTRICTED, BY WHAT GOOGLE SAYS IT IS: a bar typed as one ──────
+      {
+        const rx = place ? Q.restrictedFor(cand.brand_name, place, ctx.athleteRow) : null;
+        if (rx) {
+          say(`${cand.brand_name}: not a card, ${rx.why}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', restricted: rx.key, reason: 'restricted: ' + rx.why, places: facts, risk: 'normal' });
+          continue;
+        }
+      }
       if (pre.skip) {
         say(`${cand.brand_name}: skipped before spending — ${pre.reason}`);
         tried.push({ brand: cand.brand_name, result: 'prescreen_skip', reason: pre.reason, places: facts, risk: pre.risk });

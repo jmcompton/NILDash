@@ -74,6 +74,26 @@ const UNCHECKED = [
 ];
 
 // ── THE CATEGORY TABLE ───────────────────────────────────────────────────────
+//
+// TWO KINDS OF WORD, and the difference is the whole boundary.
+//
+//   nameMarkers  STRONG. A word or phrase that nearly every business carrying
+//                it in its name actually sells the restricted thing: brewing,
+//                distillery, casino, racetrack, dispensary, vape, ammunition,
+//                strip club. Enough on its own.
+//   weakMarkers  A word that is also ordinary English or common in unrelated
+//                trades: "adult" (Adult Recreation Center, adult education),
+//                "gentlemen" (Gentlemen's Grooming, a barbershop), "guns"
+//                (Young Guns Roofing), "wine", "spirits", "poker", "keno",
+//                "hemp", "greyhound". NEVER enough on its own. It counts only
+//                when something else says the same thing: one of the
+//                category's Google types, or Google's own description of the
+//                place. Uncorroborated, it is reported as `possible` (for a
+//                person to look at) and blocks nothing.
+//
+// Google's description ("Race Course", "Sports Bar") is matched against BOTH
+// lists: it is Google stating what the place is, not a name that might be a
+// pun.
 // placesTypes: Google Places types. nameMarkers: word-boundary matched against
 // the business name, for the cases Google types miss (cannabis has no type at
 // all; a bar is frequently typed `restaurant`).
@@ -85,8 +105,10 @@ const CATEGORIES = [
   {
     key: 'alcohol', label: 'alcohol',
     placesTypes: ['bar', 'liquor_store', 'night_club', 'brewery', 'wine_bar', 'pub'],
-    nameMarkers: ['brewery', 'brewing', 'distillery', 'winery', 'wine', 'liquor', 'spirits',
-      'taproom', 'tap room', 'alehouse', 'ale house', 'saloon', 'cantina', 'pub', 'tavern'],
+    nameMarkers: ['brewery', 'breweries', 'brewing', 'brewpub', 'brewhouse', 'distillery', 'winery', 'liquor',
+      'taproom', 'tap room', 'taphouse', 'tap house', 'alehouse', 'ale house', 'pub', 'tavern',
+      'wine bar', 'wine shop', 'wine store', 'beer garden', 'biergarten', 'bottle shop', 'sports bar', 'cocktail bar'],
+    weakMarkers: ['wine', 'spirits', 'saloon', 'cantina', 'beer', 'cocktail', 'cocktails'],
     // Promoting alcohol as a minor is not a policy question.
     minor: 'block', adult: 'hold',
     why: 'alcohol',
@@ -94,7 +116,8 @@ const CATEGORIES = [
   {
     key: 'tobacco', label: 'tobacco, vaping or nicotine',
     placesTypes: ['tobacco_shop'],
-    nameMarkers: ['tobacco', 'cigar', 'cigarette', 'vape', 'vapor', 'smoke shop', 'smokeshop', 'hookah'],
+    nameMarkers: ['tobacco', 'cigar', 'cigars', 'cigarette', 'cigarettes', 'vape', 'vapes', 'smoke shop', 'smokeshop', 'hookah'],
+    weakMarkers: ['vapor', 'smoke'],
     minor: 'block', adult: 'hold',
     why: 'tobacco or nicotine',
   },
@@ -104,8 +127,9 @@ const CATEGORIES = [
     placesTypes: [],
     // Plus the dispensary chains whose names carry none of those words (a
     // Stiiizy or a MedMen reads as a clothing brand). Only unambiguous names.
-    nameMarkers: ['cannabis', 'marijuana', 'dispensary', 'thc', 'cbd', 'hemp', 'kratom', 'kava',
+    nameMarkers: ['cannabis', 'marijuana', 'dispensary', 'thc', 'kratom',
       'stiiizy', 'medmen', 'trulieve', 'curaleaf', 'cannabist', 'zen leaf', 'planet 13'],
+    weakMarkers: ['cbd', 'hemp', 'kava'],
     minor: 'block', adult: 'hold',
     why: 'cannabis or a related product',
   },
@@ -117,13 +141,15 @@ const CATEGORIES = [
     // came back typed `restaurant` (it has one inside) and reached a college
     // team's slate as "your restaurant". Matched against the name AND against
     // Google's own description of the place (primaryTypeDisplayName).
-    nameMarkers: ['casino', 'casinos', 'sportsbook', 'sports book', 'betting', 'bets', 'wager', 'wagering',
-      'poker', 'lottery', 'lotto', 'keno', 'bingo', 'slots', 'pachinko', 'bookmaker', 'bookie',
-      'race course', 'racecourse', 'race track', 'racetrack', 'horse racing', 'harness racing', 'thoroughbred',
-      'turf club', 'jockey club', 'off track', 'off-track', 'otb', 'simulcast', 'satellite wagering',
-      'greyhound', 'dog track', 'jai alai', 'card room', 'cardroom', 'card club', 'gaming hall', 'gaming club',
+    nameMarkers: ['casino', 'casinos', 'sportsbook', 'sports book', 'betting', 'wager', 'wagering',
+      'lottery', 'lotto', 'pachinko', 'poker room', 'bingo hall', 'keno lounge',
+      'race course', 'racecourse', 'race track', 'racetrack', 'horse racing', 'harness racing',
+      'turf club', 'jockey club', 'thoroughbred club', 'racing club', 'off track betting', 'off-track betting', 'simulcast', 'satellite wagering',
+      'dog track', 'jai alai', 'card room', 'cardroom', 'card club', 'gaming hall', 'gaming club',
       // The betting operators by name ("bet" alone matched a legal-aid charity).
       'draftkings', 'fanduel', 'betmgm', 'bet365', 'pointsbet', 'prizepicks', 'underdog fantasy', 'caesars sportsbook'],
+    weakMarkers: ['bets', 'poker', 'keno', 'bingo', 'slots', 'bookmaker', 'bookie', 'thoroughbred', 'otb',
+      'off track', 'off-track', 'greyhound', 'fantasy sports', 'daily fantasy', 'sports wagering', 'gambling'],
     // Athlete endorsement of sports betting is prohibited by the NCAA for every
     // athlete, not only minors.
     minor: 'block', adult: 'block',
@@ -132,14 +158,19 @@ const CATEGORIES = [
   {
     key: 'firearms', label: 'firearms',
     placesTypes: ['gun_store'],
-    nameMarkers: ['firearm', 'firearms', 'gun', 'guns', 'ammo', 'ammunition', 'rifle', 'pistol', 'shooting range'],
+    nameMarkers: ['firearm', 'firearms', 'ammo', 'ammunition', 'gun shop', 'gun store', 'gun range', 'gun club',
+      'gunsmith', 'gunsmithing', 'shooting range', 'guns & ammo', 'guns and ammo'],
+    weakMarkers: ['gun', 'guns', 'rifle', 'rifles', 'pistol', 'pistols', 'armory', 'tactical'],
     minor: 'block', adult: 'hold',
     why: 'firearms',
   },
   {
     key: 'adult', label: 'adult entertainment',
     placesTypes: ['adult_entertainment_store', 'strip_club'],
-    nameMarkers: ['adult', 'strip club', 'gentlemen', 'gentlemens', 'escort', 'xxx'],
+    nameMarkers: ['strip club', 'adult entertainment', 'adult store', 'adult boutique', 'adult video', 'adult novelty',
+      'adult toys', 'adult superstore', 'sex shop', "gentlemen's club", 'gentlemens club', "gentleman's club",
+      'escort', 'escorts', 'xxx'],
+    weakMarkers: ['adult', 'gentlemen', 'gentlemens', 'cabaret', 'lingerie'],
     // Prohibited under a school's name at any age.
     minor: 'block', adult: 'block',
     why: 'adult entertainment',
@@ -161,7 +192,7 @@ for (const c of CATEGORIES) CATEGORY_BY_KEY[c.key] = c;
 // Word-boundary match, so "gun" does not fire on "Burgundy" and "adult" does not
 // fire on "Adulthood Coffee". Multi-word markers keep their spaces.
 function _marks(name, markers) {
-  const s = String(name || '').toLowerCase();
+  const s = String(name || '').toLowerCase().replace(/[\u2018\u2019]/g, "'");
   if (!s) return null;
   for (const mk of markers) {
     const re = new RegExp('\\b' + mk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+') + '\\b', 'i');
@@ -184,11 +215,12 @@ function classifyBusiness(brandName, evidence) {
   // racetrack that serves food, but its description says what it is.
   const described = evidence && (evidence.primaryTypeDisplayName || evidence.primaryTypeLabel || evidence.primary_type_label) || '';
   const describedAs = (evidence && evidence.primaryType ? String(evidence.primaryType).replace(/_/g, ' ') : '');
-  const hits = [];
+  const hits = [], possible = [];
   for (const c of CATEGORIES) {
+    const all = c.nameMarkers.concat(c.weakMarkers || []);
     const byType = types.find((t) => c.placesTypes.indexOf(t) !== -1) || null;
     const byName = _marks(brandName, c.nameMarkers);
-    const byDesc = byType || byName ? null : (_marks(described, c.nameMarkers) || _marks(describedAs, c.nameMarkers));
+    const byDesc = byType || byName ? null : (_marks(described, all) || _marks(describedAs, all));
     if (byType || byName || byDesc) {
       hits.push({
         key: c.key, label: c.label, why: c.why,
@@ -196,10 +228,15 @@ function classifyBusiness(brandName, evidence) {
           : byName ? `the business name contains "${byName}"`
           : `Google describes it as "${described || describedAs}"`,
       });
+      continue;
     }
+    // A weak word alone: reported, never enforced (see the table above).
+    const weak = _marks(brandName, c.weakMarkers || []);
+    if (weak) possible.push({ key: c.key, label: c.label, basis: `the name contains "${weak}", which alone is not enough` });
   }
   return {
     hits,
+    possible,
     // THE DISTINCTION THAT MATTERS. "We looked and found nothing restricted" and
     // "we could not look" are different answers, and only the first is a pass.
     classified: !!(evidence && (types.length || evidence.found === true)),

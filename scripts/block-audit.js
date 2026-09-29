@@ -9,16 +9,17 @@
 // catches, so "what else got through" is answered from the data.
 //
 //   node scripts/block-audit.js            report only; changes nothing
-//   node scripts/block-audit.js --apply    mark the university pools, and
-//                                          withdraw (status 'rejected') any
-//                                          team ask awaiting approval that is
-//                                          addressed to a blocked business
+//   node scripts/block-audit.js --apply    mark the university pools, withdraw
+//                                          (status 'rejected') any team ask
+//                                          awaiting approval to a blocked
+//                                          business, and PULL open agent cards
+//                                          to a restricted business
 //   /api/admin/scripts/block-audit?text=1  (&apply=1)
 //
-// THE AGENT SIDE IS REPORTED, NOT CHANGED. An agent's card is checked again by
-// the compliance gate at send, which uses the same classifier, so a flagged
-// business there is held or blocked at the send. This lists them so you can
-// see how many there were.
+// THE AGENT SIDE. With --apply, open agent cards to a restricted business are
+// PULLED (retired; the slot refills tonight). A card used to sit on an agent's
+// screen until send, where the compliance gate stopped it; the nightly fill now
+// refuses these by the same rule, and this clears the ones already there.
 const path = require('path');
 const ROOT = path.join(__dirname, '..') + path.sep;
 const store = require(ROOT + 'server/store.js');
@@ -72,27 +73,70 @@ async function main() {
     say(`  withdrawn: ${r.rowCount} (status 'rejected'); they will not appear for approval`);
   } else if (bad.length) say(`  ${bad.length} would be withdrawn with --apply`);
 
-  // ── 3. THE AGENT SIDE, REPORTED ─────────────────────────────────────────
-  say('', '== Agent market pools and open cards (reported; the send gate re-checks) ==');
+  // ── 3. THE AGENT SIDE ───────────────────────────────────────────────────
+  // Open cards: the fill's own decision (services/outreachQueue.restrictedFor,
+  // the send's classifier and age rule) for each card's athlete. With --apply a
+  // flagged card is RETIRED, not deleted: state 'retired' frees the slot for
+  // tonight's refill (which now refuses the same business by name), the row
+  // stays for the record, outcome 'restricted'. Only 'queued' cards; nothing an
+  // agent has already worked is touched.
+  const Q = require(ROOT + 'server/services/outreachQueue.js');
+  say('', '== Open agent cards to a restricted business ==');
+  const cards = (await P.query(
+    `SELECT q.id, q.brand_name, q.agent_id, q.athlete_id, q.lane, u.email, a.data
+       FROM outreach_queue q LEFT JOIN users u ON u.id = q.agent_id LEFT JOIN athletes a ON a.id = q.athlete_id
+      WHERE q.state = 'queued'`)).rows;
+  const openBad = [];
+  for (const c of cards) {
+    const rx = Q.restrictedFor(c.brand_name, null, c.data || {});
+    if (rx) openBad.push({ c, rx });
+  }
+  for (const { c, rx } of openBad) {
+    say(`  card ${c.id}: ${c.brand_name} for ${(c.data && c.data.name) || c.athlete_id} (${c.email || c.agent_id}) -- ${rx.why}`);
+  }
+  if (!openBad.length) say(`  none of the ${cards.length} open card(s)`);
+  if (openBad.length && APPLY) {
+    const r = await P.query(
+      `UPDATE outreach_queue SET state = 'retired', outcome = 'restricted', outcome_at = NOW(), updated_at = NOW()
+        WHERE id = ANY($1::int[]) AND state = 'queued'`, [openBad.map((x) => x.c.id)]);
+    say(`  pulled: ${r.rowCount} card(s) retired (outcome 'restricted'); each slot refills tonight`);
+  } else if (openBad.length) say(`  ${openBad.length} would be pulled with --apply`);
+
+  // Approved emails not yet sent, to a restricted business. The send gate
+  // holds or blocks these; listed so nothing is a surprise.
+  const logs = (await P.query(
+    `SELECT l.id, l.brand_name, l.status, a.data FROM outreach_logs l LEFT JOIN athletes a ON a.id = l.athlete_id
+      WHERE l.status = 'approved' AND l.sent_at IS NULL`).catch(() => ({ rows: [] }))).rows;
+  const logBad = logs.map((l) => ({ l, rx: Q.restrictedFor(l.brand_name, null, l.data || {}) })).filter((x) => x.rx);
+  say('', `  approved, unsent emails to a restricted business: ${logBad.length} (the send gate stops these)`);
+  for (const { l, rx } of logBad.slice(0, 40)) say(`      log ${l.id}: ${l.brand_name} -- ${rx.why}`);
+
+  // The agent pools: confirmed (a strong word, a Google type, or Google's own
+  // description), and possible (a weak word alone, e.g. "adult" in a rec
+  // centre's name), which blocks nothing and is listed for a person to look at.
+  say('', '== Agent market pools ==');
   const rows = (await P.query(`SELECT market_key, brand, category FROM market_business_seen`)).rows;
-  const flagged = {};
+  const flagged = {}, maybe = {};
   for (const r of rows) {
-    const hit = Compliance.classifyBusiness(r.brand, { types: [] }).hits.find((h) => REPORT_KEYS.includes(h.key));
-    if (hit) (flagged[hit.key] = flagged[hit.key] || []).push(`${r.brand} (${r.market_key}, filed as ${r.category || '?'}) -- ${hit.basis}`);
+    const cls = Compliance.classifyBusiness(r.brand, { types: [] });
+    const hit = cls.hits.find((h) => REPORT_KEYS.includes(h.key));
+    if (hit) { (flagged[hit.key] = flagged[hit.key] || []).push(`${r.brand} (${r.market_key}, filed as ${r.category || '?'}) -- ${hit.basis}`); continue; }
+    const pos = (cls.possible || []).find((h) => REPORT_KEYS.includes(h.key));
+    if (pos) (maybe[pos.key] = maybe[pos.key] || []).push(`${r.brand} (${r.market_key}) -- ${pos.basis}`);
   }
   for (const k of REPORT_KEYS) {
     const list = flagged[k] || [];
-    say(`  ${k}: ${list.length}`);
+    say(`  ${k}: ${list.length} confirmed`);
     for (const l of list.slice(0, 40)) say(`      ${l}`);
     if (list.length > 40) say(`      ... and ${list.length - 40} more`);
   }
-  const cards = (await P.query(`SELECT q.id, q.brand_name, q.agent_id, q.athlete_id, u.email FROM outreach_queue q LEFT JOIN users u ON u.id = q.agent_id WHERE q.state = 'queued'`)).rows;
-  const openBad = cards.map((c) => ({ c, hit: Compliance.classifyBusiness(c.brand_name, { types: [] }).hits.find((h) => REPORT_KEYS.includes(h.key)) })).filter((x) => x.hit);
-  say('', `  open agent cards to a flagged business: ${openBad.length} of ${cards.length}`);
-  for (const { c, hit } of openBad.slice(0, 40)) say(`      card ${c.id}: ${c.brand_name} for ${c.athlete_id} (${c.email || c.agent_id}) -- ${hit.key}: ${hit.basis}`);
+  const maybeN = Object.values(maybe).reduce((s, l) => s + l.length, 0);
+  say('', `  possible, NOT blocked (a weak word alone): ${maybeN}`);
+  for (const k of REPORT_KEYS) for (const l of (maybe[k] || []).slice(0, 15)) say(`      ${k}: ${l}`);
 
   say('', `SUMMARY: ${newly} university business(es) newly blocked, ${bad.length} waiting team ask(s) to a blocked business, `
-    + `${Object.values(flagged).reduce((s, l) => s + l.length, 0)} agent-pool business(es) flagged, ${openBad.length} open agent card(s) flagged.`);
+    + `${openBad.length} open agent card(s) to a restricted business${APPLY ? ' (pulled)' : ''}, ${logBad.length} approved unsent email(s), `
+    + `${Object.values(flagged).reduce((s, l) => s + l.length, 0)} agent-pool business(es) confirmed, ${maybeN} possible.`);
   console.log(out.join('\n'));
   try { await P.end(); } catch (_) {}
   process.exit(0);
