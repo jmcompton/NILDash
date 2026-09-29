@@ -108,6 +108,8 @@ async function main() {
     `SELECT consecutive_failures, paused_at FROM outreach_queue_athlete_state WHERE athlete_id=$1`,
     [id])).rows[0] || null;
 
+  // Our own rows only, so a leftover from an earlier run cannot answer for us.
+  await P.query(`DELETE FROM outreach_queue_athlete_state WHERE athlete_id IN ('pz-fault','pz-real','pz-mix')`);
   // A night where every attempt threw on our side.
   await job.recordAttempt(P, 'pz-fault', { filled: 0, spent: 0.2, runDate: D,
     faults: 3, tried: [{ fault: true }, { fault: true }, { fault: true }], systemic: false });
@@ -120,11 +122,17 @@ async function main() {
   ok('  but a night of genuine rejections still does',
     (await stateOf('pz-real')).consecutive_failures === 1, await stateOf('pz-real'));
 
-  // A mix: some ours, some theirs. Real evidence is still evidence.
+  // A mix: some ours, some theirs. THE RULE (services/ourFault): a failure on
+  // our side never counts toward a pause. This used to count ("real evidence
+  // is still evidence"), and it is exactly the outage shape: with Places down,
+  // the other lanes still produce a few rejections every night, so three such
+  // nights paused athletes for a failure that was ours. A night we could not
+  // fully try is not a verdict on the market. It is not silent either: each
+  // one is on the run row, the morning alert and /admin/status.
   await job.recordAttempt(P, 'pz-mix', { filled: 0, spent: 0.2, runDate: D,
     faults: 1, tried: [{ fault: true }, { result: 'rejected' }, { result: 'rejected' }], systemic: false });
-  ok('  and a night that was only PARTLY our fault still counts',
-    (await stateOf('pz-mix')).consecutive_failures === 1, await stateOf('pz-mix'));
+  ok('  and a night that was even PARTLY our fault does not count either',
+    (await stateOf('pz-mix')) === null, await stateOf('pz-mix'));
 
   // ── THE GUARD THAT WOULD HAVE STOPPED 2026-08-23 ──────────────────────────
   await job.recordAttempt(P, 'pz-sys', { filled: 0, spent: 0.2, runDate: D,
