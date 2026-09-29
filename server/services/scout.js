@@ -172,6 +172,77 @@ function normBrand(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// ── THE SUBJECT: WHO THE SLATE IS FOR, AND WHAT IT MAY READ ────────────────
+//
+// The engine was written for one subject, an agent's athlete, and named that
+// subject's tables in its SQL. A university team is a second subject, and
+// university data lives in its own tables (migrations/007, 014). So the five
+// table-named queries below -- the shown pool, the market pool, the prior
+// exclusion, the empty-pool count and the skip signals -- take their tables
+// from the subject.
+//
+// THE TABLE NAMES COME FROM THIS FILE, NEVER FROM A CALLER. tablesOf() looks
+// the kind up in SUBJECT_TABLES and ignores anything else on the object, so a
+// subject cannot be built to point a query at another table, and every name
+// interpolated into SQL is one of the literals below.
+//
+// WHAT A TEAM MAY NOT READ is decided here too, as switches on the subject:
+//   sponsorSignals  schoolSponsorSignals reads an agent's deals, an agent's
+//                   replies (their Gmail or Outlook) and deal_comps. OFF.
+//   brandFlags      services/brandFlags reads every agent's deals and replies.
+//                   OFF.
+//   skipSignals     card_skips is an agent's. A team has no skips table yet.
+//   lanes           social and national are built on an athlete's audience,
+//                   and national reads deal_comps. A team gets local only.
+const SUBJECT_TABLES = Object.freeze({
+  athlete: Object.freeze({
+    engagement: 'brand_engagement', queue: 'outreach_queue', pool: 'market_business_seen',
+    key: 'athlete_id',
+    // The market pool is also filtered against the national-brand index,
+    // because the agent Deal Scan once filed national brands under a town.
+    nationalIndexExclusion: true,
+    poolColumns: '',
+  }),
+  team: Object.freeze({
+    engagement: 'university_brand_engagement', queue: 'university_outreach_queue', pool: 'university_market_seen',
+    key: 'team_id',
+    // Written only by services/teamScan from Places, which never files a
+    // national brand; and social_brands is not the university's to read.
+    nationalIndexExclusion: false,
+    poolColumns: `, m.place_id, m.types, m.address, m.distance_m, m.rating, m.user_ratings_total,
+            m.fit AS "fitHint", m.fit_reasons`,
+  }),
+});
+function tablesOf(subject) {
+  const kind = subject && subject.subjectKind ? subject.subjectKind : 'athlete';
+  const t = SUBJECT_TABLES[kind];
+  if (!t) throw new Error(`scout: unknown subject kind ${JSON.stringify(kind)}`);
+  return t;
+}
+
+// An agent's athlete: every behaviour this file had before subjects existed.
+function athleteSubject(athlete, agentId) {
+  return Object.freeze({
+    ...(athlete || {}), subjectKind: 'athlete', agentId: agentId == null ? null : agentId,
+    sponsorSignals: true, brandFlags: true, skipSignals: true,
+    lanes: Object.freeze({ local: true, social: true, national: true }),
+  });
+}
+
+// A university team. No agent, no audience, and none of the agent signals.
+function teamSubject({ team, university, marketKey }) {
+  const t = team || {};
+  return Object.freeze({
+    subjectKind: 'team', id: t.id, universityId: t.university_id || (university && university.id) || null,
+    agentId: null, name: t.name || null, school: (university && university.name) || null,
+    market: (university && university.location) || null,
+    marketKey: marketKey || t.market_key || null, hasLocalMarket: !!(marketKey || t.market_key),
+    instagram: 0, tiktok: 0,
+    sponsorSignals: false, brandFlags: false, skipSignals: false,
+    lanes: Object.freeze({ local: true, social: false, national: false }),
+  });
+}
+
 // ── THE SPONSORSHIP SIGNAL ───────────────────────────────────────────────────
 //
 // Businesses do not sponsor athletes for ROI, they sponsor because they love the
@@ -345,6 +416,7 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
 // which pools are consulted at all, not by filtering afterwards.
 async function localCandidates(pool, { agentId, athlete, limit }) {
   if (!athlete.hasLocalMarket) return { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
+  const T = tablesOf(athlete);
   const q = async (label, sql, params) => {
     try { return (await pool.query(sql, params)).rows; }
     catch (e) { console.error('[scout/local] ' + label, e.message); return []; }
@@ -369,13 +441,13 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
     `SELECT be.brand_key, be.brand_name, be.lane, 'shown' AS pool,
             -- The scan's evidence line, for the WRITER only. Not has_evidence:
             -- this pool's ranking is deliberately unchanged.
-            (SELECT ms.evidence FROM market_business_seen ms
+            (SELECT ms.evidence FROM ${T.pool} ms
               WHERE ms.market_key = $3 AND ms.brand = be.brand_name) AS evidence_text
-       FROM brand_engagement be
-      WHERE be.athlete_id = $1 AND be.state = 'shown'
+       FROM ${T.engagement} be
+      WHERE be.${T.key} = $1 AND be.state = 'shown'
         AND be.lane = 'local'
-        AND NOT EXISTS (SELECT 1 FROM outreach_queue q
-                         WHERE q.athlete_id = be.athlete_id AND q.brand_key = be.brand_key)
+        AND NOT EXISTS (SELECT 1 FROM ${T.queue} q
+                         WHERE q.${T.key} = be.${T.key} AND q.brand_key = be.brand_key)
       ORDER BY be.last_shown_at DESC NULLS LAST
       LIMIT $2`, [athlete.id, limit * 3, athlete.marketKey || null]);
 
@@ -395,8 +467,8 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
             -- The scan knew both of these and the table used to drop them. NULL
             -- on rows written before, and NULL means UNKNOWN: an uncategorised
             -- business is not a category, and unknown evidence is not thin.
-            m.category, m.has_evidence, m.evidence AS evidence_text
-       FROM market_business_seen m
+            m.category, m.has_evidence, m.evidence AS evidence_text${T.poolColumns}
+       FROM ${T.pool} m
       WHERE m.market_key = $1
         -- ── A BRAND FELL THROUGH BOTH POOLS AND VANISHED ───────────────────
         -- This excluded a brand with ANY brand_engagement row, at any state.
@@ -416,11 +488,11 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
         -- actually been WORKED on is excluded now -- the same states the slate's
         -- own prior-exclusion uses, so the two agree. Anything queued is still
         -- caught by the outreach_queue clause below and by that prior-exclusion.
-        AND NOT EXISTS (SELECT 1 FROM brand_engagement be
-                         WHERE be.athlete_id = $2 AND LOWER(be.brand_name) = LOWER(m.brand)
+        AND NOT EXISTS (SELECT 1 FROM ${T.engagement} be
+                         WHERE be.${T.key} = $2 AND LOWER(be.brand_name) = LOWER(m.brand)
                            AND be.state IN ('contacted','replied','closed','retired'))
-        AND NOT EXISTS (SELECT 1 FROM outreach_queue q
-                         WHERE q.athlete_id = $2 AND LOWER(q.brand_name) = LOWER(m.brand))
+        AND NOT EXISTS (SELECT 1 FROM ${T.queue} q
+                         WHERE q.${T.key} = $2 AND LOWER(q.brand_name) = LOWER(m.brand))
         -- ── A NATIONAL BRAND IS NOT IN A TOWN ──────────────────────────────
         -- The Deal Scan route wrote this pool for WHATEVER lane it had just
         -- run, so a social or Top NIL scan filed its national brands under the
@@ -433,8 +505,8 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
         -- table. social_brands is the index that says what a national brand IS,
         -- so it is asked here rather than the contamination being migrated out:
         -- self-healing, and it holds if the writer ever regresses.
-        AND NOT EXISTS (SELECT 1 FROM social_brands sb
-                         WHERE LOWER(sb.brand) = LOWER(m.brand))
+        ${T.nationalIndexExclusion ? `AND NOT EXISTS (SELECT 1 FROM social_brands sb
+                         WHERE LOWER(sb.brand) = LOWER(m.brand))` : ''}
       ORDER BY m.last_seen_at DESC NULLS LAST
       LIMIT $3`, [athlete.marketKey, athlete.id, limit * 4]) : [];
 
@@ -547,15 +619,24 @@ async function nationalCandidates(pool, { limit, store }) {
 const BI = require('./brandIdentity');
 
 async function assembleSlate(pool, ctx) {
-  const { agentId, athlete, store } = ctx;
+  // An agent's athlete unless the caller hands a subject. The athlete path is
+  // every existing caller (jobs/outreachQueue, the scripts) and is unchanged.
+  const subject = ctx.subject || athleteSubject(ctx.athlete, ctx.agentId);
+  const T = tablesOf(subject);
+  const athlete = subject;
+  const agentId = subject.agentId;
+  const store = subject.subjectKind === 'athlete' ? ctx.store : null;
   const limit = ctx.limit || SLATE_MAX;
 
   // The agent is passed, not implied: these signals are that agent's own deal
-  // and reply history, and without an agentId the function returns none.
-  const signals = await schoolSponsorSignals(pool, athlete.school, { agentId });
-  const local = await localCandidates(pool, { agentId, athlete, limit });
-  let social = await socialCandidates(pool, { athlete, limit, store });
-  let national = await nationalCandidates(pool, { limit, store });
+  // and reply history, and without an agentId the function returns none. A
+  // team never reads them at all.
+  const signals = subject.sponsorSignals
+    ? await schoolSponsorSignals(pool, athlete.school, { agentId }) : new Map();
+  const local = subject.lanes.local
+    ? await localCandidates(pool, { agentId, athlete, limit }) : { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
+  let social = subject.lanes.social ? await socialCandidates(pool, { athlete, limit, store }) : [];
+  let national = subject.lanes.national ? await nationalCandidates(pool, { limit, store }) : [];
 
   // ── A CANDIDATE THAT CANNOT SUCCEED DOES NOT GET A SLOT ──────────────────
   // Jeremiah Wilkinson: twelve attempts, all social or national, nine rejected
@@ -619,7 +700,7 @@ async function assembleSlate(pool, ctx) {
     // it, not a market that has been worked out.
     if (reason === EMPTY.MARKET_EXHAUSTED && athlete.marketKey) {
       try {
-        const n = await pool.query(`SELECT COUNT(*)::int AS n FROM market_business_seen WHERE market_key = $1`, [athlete.marketKey]);
+        const n = await pool.query(`SELECT COUNT(*)::int AS n FROM ${T.pool} WHERE market_key = $1`, [athlete.marketKey]);
         if (n.rows[0] && n.rows[0].n === 0) reason = EMPTY.NO_POOL_FOR_KEY;
         lanes.local.poolRowsUnderKey = n.rows[0] ? n.rows[0].n : null;
       } catch (_) { /* the count is diagnostic; its failure must not empty the slate twice */ }
@@ -641,7 +722,7 @@ async function assembleSlate(pool, ctx) {
   // booleans.
   const BF = require('./brandFlags');
   let flagIndex = new Map();
-  try {
+  if (subject.brandFlags) try {
     const keys = [];
     for (const c of all) keys.push(...BF.crossAgentKeys(c));
     flagIndex = await BF.loadFlagIndex(pool, keys);
@@ -655,7 +736,7 @@ async function assembleSlate(pool, ctx) {
   // them, this athlete's category counts, and the agent's decayed counts across
   // the whole roster. Absent (or unreadable) means no penalty, never a crash.
   let skips = { identities: new Set(), athleteCats: new Map(), agentCats: new Map() };
-  if (store && typeof store.loadSkipSignals === 'function') {
+  if (subject.skipSignals && store && typeof store.loadSkipSignals === 'function') {
     try { skips = await store.loadSkipSignals(agentId, athlete.id); }
     catch (e) { console.error('[slate] skip signals:', e.message); }
   }
@@ -758,7 +839,7 @@ async function assembleSlate(pool, ctx) {
   try {
     const prior = (await pool.query(
       `SELECT brand_name, brand_key, identity_key, 'queued' AS why
-         FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'
+         FROM ${T.queue} WHERE ${T.key} = $1 AND state = 'queued'
        UNION ALL
        -- ── THE COOLDOWN ON A RETIRED CARD ────────────────────────────────
        -- An expired card frees its slot, which is the point. Without this line
@@ -766,13 +847,13 @@ async function assembleSlate(pool, ctx) {
        -- on the slate the very next run, paid for again, expiring again seven
        -- days later. A treadmill that costs money and never produces a deal.
        SELECT brand_name, brand_key, identity_key, 'expired' AS why
-         FROM outreach_queue
-        WHERE athlete_id = $1 AND state = 'expired'
+         FROM ${T.queue}
+        WHERE ${T.key} = $1 AND state = 'expired'
           AND COALESCE(expired_at, updated_at, created_at) > NOW() - ($2 || ' days')::interval
        UNION ALL
        SELECT brand_name, brand_key, NULL AS identity_key, 'contacted' AS why
-         FROM brand_engagement
-        WHERE athlete_id = $1 AND state IN ('contacted','replied','closed','retired')`,
+         FROM ${T.engagement}
+        WHERE ${T.key} = $1 AND state IN ('contacted','replied','closed','retired')`,
       [athlete.id, String(ctx.expireCooldownDays || EXPIRE_COOLDOWN_DAYS)])).rows;
     for (const r of (prior || [])) {
       if (r.identity_key) { priorKeys.add(r.identity_key); continue; }
@@ -957,7 +1038,7 @@ async function assembleSlate(pool, ctx) {
 
 module.exports = {
   assembleSlate, schoolSponsorSignals, localCandidates, socialCandidates, nationalCandidates,
-  normBrand, SLATE_MAX, LANE_SOFT_CAP, EMPTY, EMPTY_TEXT, SIGNAL_WEIGHT,
+  normBrand, athleteSubject, teamSubject, tablesOf, SUBJECT_TABLES, SLATE_MAX, LANE_SOFT_CAP, EMPTY, EMPTY_TEXT, SIGNAL_WEIGHT,
   EXPIRE_COOLDOWN_DAYS,
   MIN_CATEGORIES, SOCIAL_MIN_REACH, THIN_NOTE,
   SKIP_ATHLETE_PER, SKIP_ATHLETE_MAX, SKIP_AGENT_PER, SKIP_AGENT_MAX,

@@ -3847,7 +3847,11 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // just shown: Fayetteville had 241 in the pool and 20 in the table, and
     // the nightly local lane reads the table. Every athlete there exhausted at
     // twenty. Keyed by town via marketPoolKey, same as the slate reads.
-    await store.recordMarketPool(found, { schoolMarket, hometown: hasHometown ? hometown : null });
+    // NOT FOR A MANUAL ADD. The business is one the agent typed in for their
+    // athlete, and the pool is shared: writing it here put an agent's own
+    // prospect into every other scan of the market, which the note on
+    // _isManual above says this never does.
+    if (!_isManual) await store.recordMarketPool(found, { schoolMarket, hometown: hasHometown ? hometown : null });
 
     // #1: ONE unambiguous pool-size line on EVERY local scan (cold build, warm
     // cache, or Places), so "did the pool actually build for this market" is never

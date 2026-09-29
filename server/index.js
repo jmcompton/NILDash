@@ -5308,6 +5308,18 @@ const ADMIN_SCRIPTS = {
   // Read-only; no arguments.
   //   /api/admin/scripts/demo-stats?text=1
   'demo-stats': { file: 'scripts/demo-stats.js', args: () => [] },
+  // One university team's sponsor scan (services/teamScan): Places around the
+  // campus, the slate with fit scores, and each ask written, left awaiting
+  // approval. Never sends. University tables only.
+  //   /api/admin/scripts/team-scan?university=univ-cypress&team=mbb&text=1
+  //   add &write=0 to print the slate without writing asks
+  'team-scan': { file: 'scripts/team-scan.js', args: (q) => {
+    if (!q.university || !q.team) { const e = new Error('university and team are required, e.g. ?university=univ-cypress&team=mbb'); e.status = 400; throw e; }
+    return ['--university', String(q.university).replace(/[^a-z0-9:_-]/gi, '').slice(0, 60),
+      '--team', String(q.team).replace(/[^a-z0-9:_-]/gi, '').slice(0, 80)].concat(
+      q.limit ? ['--limit', String(parseInt(q.limit, 10) || 5)] : [],
+      q.write === '0' ? ['--no-write'] : [], q.discover === '0' ? ['--no-discover'] : []);
+  } },
   // Who is in the legacy university_users table (the compliance-portal
   // accounts behind /api/university/register and /login), flagged test or real.
   // Read-only; no password hash is read. Decides whether those routes retire.
