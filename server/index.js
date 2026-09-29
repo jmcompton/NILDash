@@ -5308,6 +5308,18 @@ const ADMIN_SCRIPTS = {
   // Read-only; no arguments.
   //   /api/admin/scripts/demo-stats?text=1
   'demo-stats': { file: 'scripts/demo-stats.js', args: () => [] },
+  // What this morning's alert says (services/morningAlert), printed and NOT
+  // sent. ?send=1 sends it now, whatever the hour, if nothing has gone today.
+  //   /api/admin/scripts/morning-alert?text=1
+  'morning-alert': { file: 'scripts/morning-alert.js', args: (q) => (q.send === '1' ? ['--send'] : []) },
+  // Rebuild the Places pool for markets and print how many businesses each
+  // returned (services/placesMarket, the New API). Writes the market cache and
+  // market_business_seen for an agent market, university_market_seen for a campus.
+  //   /api/admin/scripts/places-rebuild?market=Auburn%20University&campus=univ-cypress&text=1
+  'places-rebuild': { file: 'scripts/places-rebuild.js', args: (q) => [].concat(
+    q.market ? ['--market', String(q.market).replace(/[^a-z0-9 ,.'&-]/gi, '').slice(0, 120)] : [],
+    q.campus ? ['--campus', String(q.campus).replace(/[^a-z0-9:_-]/gi, '').slice(0, 60)] : [],
+    q.write === '0' ? ['--no-write'] : []) },
   // One university team's sponsor scan (services/teamScan): Places around the
   // campus, the slate with fit scores, and each ask written, left awaiting
   // approval. Never sends. University tables only.
@@ -9305,8 +9317,8 @@ app.get('/api/agent/places/autocomplete', requireAuth, requireAgentSubscription,
 
     // Market coordinates for the location restriction. The New-API geocoder is
     // PRIMARY because autocomplete itself runs on the New API, so if that is the
-    // only product enabled the bias still works. The scan's legacy geocodeSchool
-    // is the fallback. Without coordinates the request would be unbiased, which is
+    // only product enabled the bias still works. The market builder's
+    // geocodeSchool (also the New API now, uncached-on-failure) is the fallback. Without coordinates the request would be unbiased, which is
     // exactly how out-of-market results leaked in, so we log which source won.
     const { autocompletePlaces, geocodePlace } = require('./services/placesLookup');
     const school = loaded.athleteObj.school || '';
@@ -9320,8 +9332,8 @@ app.get('/api/agent/places/autocomplete', requireAuth, requireAgentSubscription,
       try {
         const { geocodeSchool } = require('./services/placesMarket');
         const geo = await geocodeSchool(school, (process.env.GOOGLE_PLACES_API_KEY || '').trim());
-        if (geo && geo.coords) { bias = { lat: geo.coords.lat, lng: geo.coords.lng, radiusM: 50000 }; biasSource = 'legacy'; }
-      } catch (e) { console.warn('[addBusiness] legacy geocode failed:', e.message); }
+        if (geo && geo.coords) { bias = { lat: geo.coords.lat, lng: geo.coords.lng, radiusM: 50000 }; biasSource = 'market'; }
+      } catch (e) { console.warn('[addBusiness] market geocode failed:', e.message); }
     }
     if (biasSource === 'none') console.warn(`[addBusiness] autocomplete UNBIASED school="${school}": both geocoders failed, results will not be market-limited`);
     else console.log(`[addBusiness] autocomplete bias source=${biasSource} school="${school}" center=${bias.lat.toFixed(4)},${bias.lng.toFixed(4)} radiusM=${bias.radiusM}`);
@@ -14691,6 +14703,23 @@ try {
   }
 } catch (e) {
   console.warn('[queue] scheduler failed to start:', e.message);
+}
+
+// ── The morning alert (services/morningAlert) ──────────────────────────────
+// After the nightly window closes, once per Central date: email the admin when
+// an agent with athletes got no cards last night, or a Places market build
+// failed in the last day. Not gated on OUTREACH_QUEUE_ENABLED: a failed market
+// build breaks every agent's Deal Scan whether or not the nightly queue runs.
+try {
+  const MA = require('./services/morningAlert');
+  const alertTick = () => {
+    MA.runOnce(store.pool).catch((e) => console.error('[morning-alert] tick failed:', e.message));
+  };
+  setTimeout(alertTick, 3 * 60 * 1000);
+  setInterval(alertTick, 15 * 60 * 1000);
+  console.log(`[morning-alert] scheduled: checked every 15 min, sent ${MA.ALERT_FROM_HOUR}am-${MA.ALERT_UNTIL_HOUR}pm Central, once a day, to ADMIN_ALERT_EMAIL or ADMIN_EMAIL`);
+} catch (e) {
+  console.error('[morning-alert] scheduler failed to start:', e.message);
 }
 
 // ── Analyst refresh scheduler ────────────────────────────────────────────────

@@ -3649,7 +3649,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       if ((opts && opts.forcePlaces) || _placesBuildAllowed(schoolCacheKey)) {
         console.log(`[dealScan] Places branch ENTER market=${schoolCacheKey} force=${!!(opts && opts.forcePlaces)}`);
         try {
-          const pr = await buildMarketPoolFromPlaces(school);
+          const pr = await buildMarketPoolFromPlaces(school, { source: 'deal-scan' });
           if (pr.ok && pr.candidates.length) {
             _placesBuildRecord(schoolCacheKey);
             for (const c of pr.candidates) {
@@ -3662,7 +3662,14 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
             if (poolSchool.length) store.setMarketCache(schoolCacheKey, poolSchool);
             console.log(`[dealScan] PLACES school market=${schoolCacheKey} poolSize=${poolSchool.length} placesCalls=${pr.placesCalls} elapsedMs=${pr.ms}`);
           } else {
-            console.warn(`[dealScan] Places returned nothing (${pr.reason || 'empty'}) for ${schoolCacheKey}; falling back to web search`);
+            // NOT A WARNING. This branch is where the main discovery source for
+            // every agent scan went missing for days without anyone seeing it.
+            // A failed build is an ERROR (placesMarket has already recorded it in
+            // places_market_builds for the morning alert); an ok build that found
+            // nothing is a thin market, which is a warning.
+            if (!pr.ok) console.error(`[dealScan] PLACES MARKET BUILD FAILED for ${schoolCacheKey}: ${pr.reason || 'unknown'}. `
+              + 'This scan is running on web search only.');
+            else console.warn(`[dealScan] Places found no businesses that pass the filters for ${schoolCacheKey}; falling back to web search`);
           }
         } catch (e) {
           console.error('[dealScan] Places build threw, falling back to web search:', e.message);
@@ -4467,7 +4474,7 @@ module.exports = {
   deriveMatchedTags,
   validTagSubs,
   lookupSchoolLocation,
-  resolveLocalMarketKey,
+  resolveLocalMarketKey, getSchoolLocation,
   resolveBrandKey,
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder

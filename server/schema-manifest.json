@@ -11,6 +11,17 @@
       "last_name": "TEXT",
       "status": "TEXT DEFAULT 'pending'"
     },
+    "admin_alerts": {
+      "alert_date": "DATE",
+      "attempts": "INT DEFAULT 0",
+      "body": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "error": "TEXT",
+      "problems": "INT DEFAULT 0",
+      "sent_at": "TIMESTAMPTZ",
+      "status": "TEXT",
+      "subject": "TEXT"
+    },
     "agent_auto_mode": {
       "agent_id": "TEXT",
       "enabled_at": "TIMESTAMPTZ DEFAULT NOW()",
@@ -918,6 +929,20 @@
       "id": "TEXT",
       "match_score_id": "TEXT REFERENCES brand_match_scores(id) ON DELETE SET NULL",
       "version": "INT DEFAULT 1"
+    },
+    "places_market_builds": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "failed_calls": "INT DEFAULT 0",
+      "id": "SERIAL",
+      "ms": "INT DEFAULT 0",
+      "ok": "BOOLEAN",
+      "places_calls": "INT DEFAULT 0",
+      "pool_size": "INT DEFAULT 0",
+      "query": "TEXT",
+      "raw_size": "INT DEFAULT 0",
+      "reason": "TEXT",
+      "saturated_types": "INT DEFAULT 0",
+      "source": "TEXT"
     },
     "program_contact": {
       "collective_email": "TEXT",

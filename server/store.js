@@ -4031,6 +4031,47 @@ async function ensureMarketSightings() {
     `ALTER TABLE market_business_seen ADD COLUMN IF NOT EXISTS evidence TEXT`,
   ]) await pool.query(sql).catch(e => console.error('[init] market_business_seen col:', e.message));
 
+  // ── EVERY PLACES MARKET BUILD, AND HOW IT WENT ────────────────────────────
+  // Google disabled the legacy Places API and every market build returned
+  // ok:false to a caller that fell back to web search without a word: new
+  // businesses a day went from 1,512 to 0 and it was found by accident, three
+  // days later. services/placesMarket writes one row per build, failed or not;
+  // scripts/nightly-run-report.js and services/morningAlert read it.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS places_market_builds (
+      id              SERIAL PRIMARY KEY,
+      query           TEXT,
+      source          TEXT,
+      ok              BOOLEAN NOT NULL,
+      reason          TEXT,
+      pool_size       INT DEFAULT 0,
+      raw_size        INT DEFAULT 0,
+      places_calls    INT DEFAULT 0,
+      failed_calls    INT DEFAULT 0,
+      saturated_types INT DEFAULT 0,
+      ms              INT DEFAULT 0,
+      at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `).catch(e => console.error('[init] places_market_builds:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS places_market_builds_at_idx ON places_market_builds (at)`)
+    .catch(e => console.error('[init] places_market_builds index:', e.message));
+  // ── THE MORNING ALERT, ONCE A DAY ─────────────────────────────────────────
+  // services/morningAlert: one row per Central date, claimed before anything is
+  // sent, so a restart or a second instance cannot mail it twice.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_alerts (
+      alert_date DATE PRIMARY KEY,
+      status     TEXT NOT NULL,
+      problems   INT DEFAULT 0,
+      subject    TEXT,
+      body       TEXT,
+      attempts   INT DEFAULT 0,
+      error      TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      sent_at    TIMESTAMPTZ
+    )
+  `).catch(e => console.error('[init] admin_alerts:', e.message));
+
   // ── WHAT THE AGENT SAID NO TO ─────────────────────────────────────────────
   // A skip was a state change and nothing more: outreach_queue went to
   // 'skipped' and no part of discovery ever read it. An agent could skip nine

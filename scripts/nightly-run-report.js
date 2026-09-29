@@ -42,6 +42,29 @@ async function main() {
        FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`, [u.id])).rows;
   console.log(`\n${u.name || u.email} <${u.email}>  —  ${roster.length} athletes on the roster\n`);
 
+  // ── DISCOVERY HEALTH, FOR EVERY AGENT ─────────────────────────────────────
+  // Not about this agent: the Places market build feeds every scan. It failed
+  // for days with nothing but a warning in the log while new businesses a day
+  // went from 1,512 to 0. So the report opens with it, one line a day.
+  try {
+    const days = (await pool.query(
+      `WITH d AS (SELECT generate_series(0, $1 - 1) AS n)
+       SELECT (CURRENT_DATE - d.n)::text AS day,
+              (SELECT COUNT(*)::int FROM places_market_builds b WHERE b.at::date = CURRENT_DATE - d.n) AS builds,
+              (SELECT COUNT(*)::int FROM places_market_builds b WHERE b.at::date = CURRENT_DATE - d.n AND NOT b.ok) AS failed,
+              (SELECT MIN(reason) FROM places_market_builds b WHERE b.at::date = CURRENT_DATE - d.n AND NOT b.ok) AS reason,
+              (SELECT COUNT(*)::int FROM market_business_seen m WHERE m.first_seen_at::date = CURRENT_DATE - d.n) AS discovered
+         FROM d ORDER BY d.n`, [nights + 1])).rows;
+    const down = days.find((d) => d.failed && d.failed === d.builds);
+    console.log('DISCOVERY (all agents): Places market builds and new businesses discovered, by day (UTC)');
+    if (down) console.log(`  !!! PLACES DISCOVERY FAILING: every build on ${down.day} failed: ${short(down.reason, 200)}`);
+    for (const d of days) {
+      console.log(`  ${d.day}  builds ${String(d.builds).padStart(3)}  failed ${String(d.failed).padStart(3)}`
+        + `  new businesses ${String(d.discovered).padStart(5)}${d.failed ? '  ' + short(d.reason, 110) : ''}`);
+    }
+    console.log('');
+  } catch (e) { console.log('  (discovery health could not be read: ' + e.message + ')\n'); }
+
   const runs = (await pool.query(
     `SELECT run_date, filled, note, details, created_at, finished_at
        FROM outreach_queue_runs WHERE agent_id = $1

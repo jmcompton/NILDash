@@ -146,7 +146,7 @@ function cityOf(address) {
 // GOOGLE_PLACES_API_KEY from the environment (never passed or printed here).
 async function discover(pool, { university, marketKey, places }) {
   const P = places || require('./placesMarket');
-  const built = await P.buildMarketPoolFromPlaces(university.location);
+  const built = await P.buildMarketPoolFromPlaces(university.location, { source: 'team-scan' });
   if (!built.ok) return { ok: false, reason: built.reason || 'places_failed', placesCalls: built.placesCalls || 0 };
   const center = built.geocoded || null;
   const kept = [], blocked = [];

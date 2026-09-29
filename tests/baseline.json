@@ -762,6 +762,11 @@
       "total": 28,
       "fault": null
     },
+    "placesnew.js": {
+      "failed": 0,
+      "total": 43,
+      "fault": null
+    },
     "pm.js": {
       "failed": 0,
       "total": 15,
