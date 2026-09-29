@@ -107,7 +107,7 @@ ok('  and it no longer returns before the slate is assembled',
 // first failed.
 const noLane = body.indexOf('if (!cand.lane) {');
 const nonLocal = body.indexOf("if (cand.lane !== 'local') {");
-const places = body.indexOf('await lookupPlace(');
+const places = body.indexOf('await lookupPlaceResult(');   // the result shape: a failure is a fault, not "not found"
 const ladderCall = body.indexOf('ai.getBrandContacts(');
 ok('a non-local candidate never reaches a Places lookup',
   nonLocal > 0 && places > 0 && nonLocal < places, { nonLocal, places });
@@ -116,8 +116,10 @@ ok('  nor the local contact ladder',
 ok('  AND A CANDIDATE WITH NO LANE IS REFUSED, not treated as local',
   noLane > 0 && noLane < nonLocal && noLane < places
   && /no lane recorded for this brand, so it cannot be routed/.test(body), { noLane, nonLocal, places });
-ok('  before spending anything', JOB.indexOf('noMarket: true') < JOB.indexOf('lookupPlace('), 
-  [JOB.indexOf('noMarket: true'), JOB.indexOf('lookupPlace(')]);
+// Both indices real: 'noMarket: true' was removed long ago and this compared
+// -1 against a real index, passing vacuously until the call was renamed.
+const _nm = JOB.indexOf('const noMarket ='), _pl = JOB.indexOf('await lookupPlaceResult(');
+ok('  before spending anything', _nm > 0 && _pl > 0 && _nm < _pl, [_nm, _pl]);
 ok('  and the comment says geography binds the LOCAL lane only',
   /binds the LOCAL lane only|local lane only/i.test(JOB) || /Social, DTC and national/.test(JOB));
 

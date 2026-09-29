@@ -70,7 +70,7 @@ async function main() {
   const ai = src('server/ai.js'), job = src('server/jobs/outreachQueue.js'), st = src('server/store.js');
   ok('addCandidate refuses placeholders from every source', /if \(store\.placeholderReason\(nm\)\) \{ _placeholdersDropped\+\+; return; \}/.test(ai));
   ok('the knowledge path refuses them and an all-placeholder answer is an empty one', /model-knowledge refused \$\{fake\.length\} placeholder name\(s\)/.test(ai) && /throw new Error\('model knowledge returned only placeholder names'\)/.test(ai));
-  ok('the job refuses a placeholder before the Places lookup, and records it', /not a real business name \(\$\{ph\}\)/.test(job) && job.indexOf('store.placeholderReason(cand.brand_name)') < job.indexOf('place = await lookupPlace(cand.brand_name'));
+  ok('the job refuses a placeholder before the Places lookup, and records it', /not a real business name \(\$\{ph\}\)/.test(job) && job.indexOf('store.placeholderReason(cand.brand_name)') < job.indexOf('await lookupPlaceResult(cand.brand_name'));
   ok('  and insertCard is the last gate', /const ph = store\.placeholderReason \? store\.placeholderReason\(card && card\.brandName\) : null;\s*if \(ph\) \{[\s\S]*?return false;/.test(job));
   ok('the social pool is a per-athlete spread, not the same first brand for everyone', /ORDER BY \(brand_size = 'small'\) DESC NULLS LAST, md5\(\$\$\{params\.length \+ 1\}::text \|\| brand\)/.test(st));
   ok('the scripts exist: purge the placeholders, inspect a social brand', /outcome = 'placeholder'/.test(src('scripts/purge-placeholder-brands.js')) && /DELETE FROM brand_engagement WHERE id = ANY\(\$1::int\[\]\) AND state = 'shown'/.test(src('scripts/purge-placeholder-brands.js')) && /--deactivate/.test(src('scripts/inspect-social-brand.js')));

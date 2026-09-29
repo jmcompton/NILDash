@@ -94,7 +94,7 @@ async function main() {
   const jobSrc = require('fs').readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
   ok('the login route stamps users.last_login', /UPDATE users SET last_login = NOW\(\) WHERE id = \$1/.test(idx));
   ok('  and, for a dormant agent, starts resumeAgent in the background', /_wasDormant && OQfillOnDemandEnabled\(\)/.test(idx) && /resumeAgent\(store\.pool, user\.id\)/.test(idx));
-  ok('the skipped agent\'s cards are NOT expired: expiry runs only inside the fill', (jobSrc.match(/expireStaleCards\(pool, \{ agentId \}\)/g) || []).length === 1 && /if \(!ctx\.keepStale\) await expireStaleCards/.test(jobSrc));
+  ok('the skipped agent\'s cards are NOT expired: expiry runs only inside the fill', (jobSrc.match(/expireStaleCards\(pool, \{ agentId \}\)/g) || []).length === 1 && /if \(!ctx\.keepStale\) \{\s*try \{ await expireStaleCards/.test(jobSrc));
   ok('  and the resume fill passes keepStale', /fillOnDemand\(pool, ath, \{ keepStale: true, budget \}\)/.test(jobSrc));
   ok('  under one shared budget the size of a night', /const budget = opts\.budget \|\| Q\.newBudget\(CAP_USD\);/.test(jobSrc));
   ok('  only for athletes with an open slot', /if \(!Q\.slotsToFill\(held\)\.length\) continue;/.test(jobSrc));

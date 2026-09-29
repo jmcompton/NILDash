@@ -242,7 +242,7 @@ async function main() {
   {
     const jobSrc = fs.readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8');
     ok('the run passes lookupPlaceResult, not the bare lookupPlace',
-      /geocodeSchool\(school, \{ lookupPlaceResult, store \}\)/.test(jobSrc), null);
+      /geocodeSchool\(school, \{ lookupPlaceResult, store(, reportFault: true)? \}\)/.test(jobSrc), null);
     const pl = fs.readFileSync(ROOT + 'server/services/placesLookup.js', 'utf8');
     ok('  which Places exports', /module\.exports = \{ lookupPlace, lookupPlaceResult,/.test(pl), null);
     ok('  reporting ok:false for an HTTP error', /reason: 'http-' \+ resp\.status/.test(pl), null);

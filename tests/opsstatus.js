@@ -237,6 +237,8 @@ async function main() {
   ok('status: no read failed', st.readErrors.length === 0, st.readErrors);
   const gp = st.services.find((s) => s.service === 'google-places');
   ok('each service has a state and when it was last checked', st.services.length >= 10 && st.services.every((s) => ['ok', 'failed', 'unchecked'].includes(s.state)) && gp && gp.checkedAt, st.services.map((s) => s.service + ':' + s.state));
+  ok('  an old token-encryption failure does not stay red once the mailbox check has run since', !SP.SERVICES.includes('token-encryption')
+    && !st.services.some((x) => x.service === 'token-encryption' && x.state === 'failed'), st.services.filter((x) => /token|mailbox/.test(x.service)));
   ok('  the seven nights are all there, a quiet one included', st.agents.length === 7 && st.universities.length === 7);
   ok('  a department with no ask in seven days is listed', st.quietTeams.some((t) => t.id === UNI + ':sb'));
   // A red service: its last check failed.

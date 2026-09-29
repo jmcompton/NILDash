@@ -81,6 +81,13 @@ async function httpJson(fetchImpl, url, init) {
   } finally { clearTimeout(k); }
 }
 
+// The two Anthropic pings call the client directly (a wrapper could swallow the
+// very error being checked for), so they write their own ledger rows: no model
+// call bypasses the ledger (tests/directcalls.js).
+function _ledger(resp, model, t0) {
+  try { require('./aiLedger').record(resp, { model, ms: Date.now() - t0, site: 'preflight' }); } catch (_) { /* bookkeeping never fails a check */ }
+}
+
 const isEmail = (s) => /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(String(s || '').trim());
 
 // Every check. deps: { fetch, pool, ai, ds, wst, gmail, outlook, emailStore } for tests.
@@ -111,18 +118,22 @@ function checks(deps) {
     anthropic: async () => {
       const ai = deps.ai || require('../ai');
       const client = ai.getClient();
-      await withTimeout(client.messages.create({ model: ai.MODEL_FAST, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }), TIMEOUT_MS, 'anthropic');
+      const _t0 = Date.now();
+      const resp = await withTimeout(client.messages.create({ model: ai.MODEL_FAST, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }), TIMEOUT_MS, 'anthropic');
+      _ledger(resp, ai.MODEL_FAST, _t0);
       return `${ai.MODEL_FAST} answered`;
     },
 
     'anthropic-web-search': async () => {
       const ai = deps.ai || require('../ai');
       const client = ai.getClient();
+      const _t0 = Date.now();
       const msg = await withTimeout(client.messages.create({
         model: ai.MODEL_FAST, max_tokens: 64,
         tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
         messages: [{ role: 'user', content: 'Search the web once for "Cypress College" and reply with one word.' }],
       }), TIMEOUT_MS * 2, 'anthropic web search');
+      _ledger(msg, ai.MODEL_FAST, _t0);
       const f = ai._webSearchFault ? ai._webSearchFault(msg.content, 'preflight') : null;
       if (f) throw new Error(f.reason);
       const ran = (msg.content || []).some((b) => b && b.type === 'web_search_tool_result');

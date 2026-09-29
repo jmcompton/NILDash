@@ -108,7 +108,7 @@ async function main() {
     ok('the search helper returns a distinct value on error, not null',
       /return \{ error: \(e && e\.message\) \|\| 'search failed' \};/.test(src), null);
     ok('  and the NONE write is gated on it',
-      /if \(searchFailed\) \{[\s\S]{0,300}return null;\s*\}[\s\S]{0,400}saveBrandEvidence\(key, 'instagram'/.test(src), null);
+      /if \(searchFailed\) \{[\s\S]{0,300}return (o\.reportFault \? \{ fault: String\(searchFailed\) \} : )?null;\s*\}[\s\S]{0,700}saveBrandEvidence\(key, 'instagram'/.test(src), null);
     const sc = fs.readFileSync(REPO + 'scripts/clear-negative-cache.js', 'utf8').replace(/^\s*\/\/.*$/gm, '');
     ok('the clearing script deletes only instagram NONE rows',
       /lane = 'instagram'/.test(sc) && /outcome = 'NONE'/.test(sc) && !/outcome = 'OK'/.test(sc), null);

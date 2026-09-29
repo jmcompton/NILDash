@@ -12,7 +12,9 @@
 // (readErrors), never rendered as an empty table that looks like a quiet week.
 const PF = require('./preflight');
 
-const SERVICES = Object.keys(PF.CONSEQUENCE);
+// token-encryption is not its own check: the mailbox check reports it when no
+// stored token decrypts. It is shown only while that is the latest word.
+const SERVICES = Object.keys(PF.CONSEQUENCE).filter((s) => s !== 'token-encryption');
 const DAYS = 7;
 
 async function collect(pool) {
@@ -30,6 +32,8 @@ async function collect(pool) {
     SELECT service, MAX(checked_at) AS at FROM service_checks WHERE ok GROUP BY service`);
   const byService = new Map((latest || []).map((r) => [r.service, r]));
   const okAt = new Map((lastOk || []).map((r) => [r.service, r.at]));
+  const te = byService.get('token-encryption'), mb = byService.get('mailbox-tokens');
+  if (te && mb && new Date(mb.checked_at) > new Date(te.checked_at)) byService.delete('token-encryption');
   const names = [...SERVICES, ...[...byService.keys()].filter((s) => !SERVICES.includes(s))];
   const services = names.map((s) => {
     const r = byService.get(s);

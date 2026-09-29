@@ -52,8 +52,12 @@ function walk(d, out = []) {
     });
   }
   const files = [...new Set(direct.map((d) => d.split(':')[0]))].sort();
-  ok('EXACTLY TWO FILES STILL CALL messages.create DIRECTLY', JSON.stringify(files)
-    === JSON.stringify(['server/nilCompJob.js', 'server/services/contractExtraction.js']), direct);
+  ok('EXACTLY THREE FILES STILL CALL messages.create DIRECTLY', JSON.stringify(files)
+    === JSON.stringify(['server/nilCompJob.js', 'server/services/contractExtraction.js', 'server/services/preflight.js']), direct);
+  const pfl = read('server/services/preflight.js');
+  ok('  the preflight pings record their own ledger rows, labelled',
+    /require\('\.\/aiLedger'\)\.record\(resp, \{ model, ms: Date\.now\(\) - t0, site: 'preflight' \}\)/.test(pfl)
+    && (pfl.match(/_ledger\((resp|msg), ai\.MODEL_FAST, _t0\)/g) || []).length === 2);
   const ce = read('server/services/contractExtraction.js');
   ok('  the PDF call records its own ledger row, labelled',
     /require\('\.\/aiLedger'\)\.record\(resp, \{ model: 'claude-opus-4-8', ms: Date\.now\(\) - _t0, site: 'contract\.pdf' \}\)/.test(ce));
