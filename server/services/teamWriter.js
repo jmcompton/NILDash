@@ -51,7 +51,10 @@ function facts({ university, team, business, item }) {
     team.home_dates ? `HOME DATES THIS SEASON: ${team.home_dates}` : null,
     team.roster_size ? `ROSTER SIZE: ${team.roster_size}` : null,
     `BUSINESS: ${business.brand_name}`,
-    business.category ? `KIND OF BUSINESS: ${business.category}` : null,
+    // Google's own description when there is one ("Physical therapist"), so
+    // the ask never calls a racetrack "your restaurant" because a restaurant
+    // search is what found it.
+    (business.kindLabel || business.category) ? `KIND OF BUSINESS: ${business.kindLabel || business.category}` : null,
     business.address ? `ADDRESS: ${business.address}` : null,
     milesFrom(business.distance_m) ? `DISTANCE FROM CAMPUS: ${milesFrom(business.distance_m)}` : null,
     business.rating ? `GOOGLE RATING: ${business.rating} from ${business.user_ratings_total || 'some'} reviews` : null,
@@ -67,7 +70,8 @@ function buildPrompt(ctx, retryBecause) {
 Write the email body and a subject line.
 - 70 to 140 words. Plain sentences, no bullet points, no headings.
 - Do NOT write a greeting or a sign-off; they are added for you.
-- Say why this business and this team fit, from the facts above only.
+- Say why this business and this team fit, from the facts above only. A real reason is one of: they are close to campus; home games bring students and families past them; or what they do serves players and the people who watch them (training, recovery, health, getting to games, banking for students).
+- Never build the reason on a coincidence: a shared word, a name, a theme, a mascot, a colour or a pun. A pirate-themed restaurant is not a fit for basketball because of pirates, and a business called Eagle is not a fit for a team called the Eagles. If the only true reasons are that they are nearby and games bring people past them, say that plainly and stop.
 - The sponsorship money goes to the ${ctx.team.name} program. Say what it supports in general terms (the season, travel, equipment), never a person.
 - Never name or describe any student athlete, coach or staff member. Never invent a fact that is not above.
 - Never use the words NIL, endorsement or influencer.
@@ -92,6 +96,10 @@ function parse(raw) {
 
 const ROLE_THEN_NAME = /\b(guard|forward|center|point guard|captain|player|athlete|student-athlete|freshman|sophomore|junior|senior|coach|star|standout)\s+[A-Z][a-z]+\s+[A-Z][a-z]+/;
 const JERSEY = /(?:#|\bNo\.\s?)\d{1,2}\b/;
+// REASONING FROM A COINCIDENCE. The Pirates Dinner Adventure ask argued the
+// pirate theme was a natural match for basketball. The words that carry that
+// kind of argument, refused in the text rather than trusted to the prompt.
+const COINCIDENCE = /\b(theme[ds]?|mascot|namesake|pun)\b|\b(natural|perfect|fitting)\s+(fit|match|pairing|partner(ship)?)\b|\bshare[sd]?\s+(?:(?:a|the|our|your)\s+)?(?:same\s+)?(name|spirit|theme|colou?rs?|nickname)\b|\bjust\s+like\s+(our|the)\s+(team|players|program)\b/i;
 
 // The rules the prompt states, checked in the text. Returns { ok } or { ok:false, why }.
 function checkAsk(parsed, ctx) {
@@ -105,6 +113,8 @@ function checkAsk(parsed, ctx) {
   if (/\bNIL\b|\bendorse(ment|s)?\b|\binfluencer/i.test(text)) return { ok: false, why: 'it uses NIL, endorsement or influencer language' };
   if (ROLE_THEN_NAME.test(body) || JERSEY.test(body)) return { ok: false, why: 'it names or identifies a person on the team' };
   if (/^\s*(hi|hello|dear|hey)\b/i.test(body)) return { ok: false, why: 'it includes a greeting; the greeting is added separately' };
+  const co = text.match(COINCIDENCE);
+  if (co) return { ok: false, why: `it argues from a coincidence ("${co[0]}"); give a true reason (proximity, the crowd at home games, what they do for players) or just say they are nearby` };
   const words = body.split(/\s+/).filter(Boolean).length;
   if (words > MAX_WORDS) return { ok: false, why: `it is ${words} words; keep it under 140` };
   return { ok: true };
@@ -136,4 +146,4 @@ async function writeAsk(ctx, opts = {}) {
   return { ok: false, error: 'refused after retry: ' + lastWhy };
 }
 
-module.exports = { writeAsk, buildPrompt, checkAsk, parse, compose, money, facts, MODEL, SYSTEM };
+module.exports = { writeAsk, buildPrompt, checkAsk, parse, compose, money, facts, MODEL, SYSTEM, COINCIDENCE };

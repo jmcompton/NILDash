@@ -5339,6 +5339,11 @@ const ADMIN_SCRIPTS = {
     if (!d(q.since)) { const e = new Error('since=YYYY-MM-DD is required'); e.status = 400; throw e; }
     return ['--since', d(q.since)].concat(d(q.until) ? ['--until', d(q.until)] : [], q.apply === '1' ? ['--apply'] : []);
   } },
+  // What the stronger block (name + Google's description) catches in the pools
+  // already built; with apply=1, marks the university pools and withdraws
+  // waiting team asks to a blocked business.
+  //   /api/admin/scripts/block-audit?text=1   (&apply=1)
+  'block-audit': { file: 'scripts/block-audit.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
   // Rebuild the Places pool for markets and print how many businesses each
   // returned (services/placesMarket, the New API). Writes the market cache and
   // market_business_seen for an agent market, university_market_seen for a campus.

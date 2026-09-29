@@ -68,6 +68,12 @@ async function main() {
     console.log(`\nDISCOVERY  Places around the campus: ${d.found} found, ${d.kept} kept, ${d.blocked.length} blocked, ${d.placesCalls} Places requests`);
     for (const b of d.blocked) console.log(`  blocked  ${String(b.name).padEnd(40)} ${b.key} (${b.why})`);
   }
+  if (r.poolRecheck) {
+    const rc = r.poolRecheck;
+    console.log(`\nPOOL RECHECK  ${rc.checked} businesses in the pool, ${rc.blocked} blocked for a team`
+      + (rc.newlyBlocked.length ? `, ${rc.newlyBlocked.length} newly blocked:` : ', nothing new'));
+    for (const b of rc.newlyBlocked) console.log(`  blocked  ${String(b.brand).padEnd(40)} ${b.reason}`);
+  }
 
   // The engine's empty texts are written for an athlete; a team gets its own.
   const TEAM_EMPTY = {
@@ -76,10 +82,12 @@ async function main() {
     'no-market': 'the team has no market key and the campus address did not give one',
   };
   const empty = r.slate.emptyReason ? (TEAM_EMPTY[r.slate.emptyReason] || r.slate.emptyText) : '';
-  console.log(`\nSLATE  ${r.picks.length} business(es)` + (empty ? `  EMPTY: ${empty}` : ''));
+  const kinds = [...new Set(r.picks.map((p) => p.category || 'uncategorised'))];
+  console.log(`\nSLATE  ${r.picks.length} business(es), ${kinds.length} kind(s): ${kinds.join(', ')}` + (empty ? `  EMPTY: ${empty}` : '')
+    + (r.slate.shape && r.slate.shape.spreadShortfall ? `\n  spread short: ${r.slate.shape.spreadShortfall}` : ''));
   r.picks.forEach((p, i) => {
     console.log(`\n  ${i + 1}. ${p.brand_name}   fit ${p.fit == null ? '-' : p.fit}/100`);
-    console.log(`     ${p.category || 'uncategorised'} · ${p.address || 'no address'} · ${mi(p.distance_m)} · rated ${p.rating || '-'} (${p.user_ratings_total || 0} reviews)`);
+    console.log(`     ${p.category || 'uncategorised'}${p.kindLabel ? ` (Google: ${p.kindLabel})` : ''} · ${p.address || 'no address'} · ${mi(p.distance_m)} · rated ${p.rating || '-'} (${p.user_ratings_total || 0} reviews)`);
     console.log(`     fit: ${(p.fitReasons || []).join(', ') || '-'}`);
     console.log(`     ask: ${p.item ? `${p.item.name}, $${(p.item.price_cents / 100).toLocaleString('en-US')}` : 'none available'}`);
   });

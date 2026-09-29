@@ -112,3 +112,11 @@ CREATE TABLE IF NOT EXISTS university_drafts (
 );
 
 CREATE INDEX IF NOT EXISTS university_drafts_team_idx ON university_drafts (team_id, status);
+
+-- What Google says each business IS (primaryType, and its own words for it),
+-- and why a business is blocked for a team. blocked_reason is re-checked on
+-- every scan and read by the slate, so a business the block learns about later
+-- leaves the slate without the pool being rebuilt.
+ALTER TABLE university_market_seen ADD COLUMN IF NOT EXISTS primary_type TEXT;
+ALTER TABLE university_market_seen ADD COLUMN IF NOT EXISTS primary_type_label TEXT;
+ALTER TABLE university_market_seen ADD COLUMN IF NOT EXISTS blocked_reason TEXT;

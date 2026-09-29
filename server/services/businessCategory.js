@@ -27,7 +27,7 @@
 // would actually make when they say "stop sending me gyms", not a taxonomy.
 const CATEGORIES = [
   'restaurant', 'coffee', 'bar', 'food',
-  'gym', 'wellness', 'salon', 'medspa',
+  'gym', 'wellness', 'salon', 'medspa', 'health',
   'apparel', 'retail', 'supplement',
   'auto', 'dealership', 'realestate', 'insurance', 'bank',
   'services', 'education', 'entertainment', 'pet',
@@ -43,9 +43,12 @@ const PLACES_TYPE = {
   bar: 'bar', night_club: 'bar', liquor_store: 'bar',
   bakery: 'food', supermarket: 'retail', grocery_or_supermarket: 'retail', convenience_store: 'retail',
   gym: 'gym', fitness_center: 'gym', sports_complex: 'gym', stadium: 'entertainment',
-  spa: 'wellness', physiotherapist: 'wellness', chiropractor: 'wellness', veterinary_care: 'pet',
+  // HEALTH is its own kind: an orthodontist or a physical therapy clinic is not
+  // a med spa, and for a sports team it is one of the best sponsors there is.
+  spa: 'wellness', physiotherapist: 'health', chiropractor: 'health', veterinary_care: 'pet',
   hair_care: 'salon', beauty_salon: 'salon', nail_salon: 'salon', barber_shop: 'salon',
-  dentist: 'medspa', doctor: 'medspa', hospital: 'medspa', pharmacy: 'retail',
+  dentist: 'health', dental_clinic: 'health', doctor: 'health', medical_clinic: 'health', hospital: 'health',
+  medical_lab: 'health', pharmacy: 'retail', credit_union: 'bank',
   clothing_store: 'apparel', shoe_store: 'apparel', jewelry_store: 'retail',
   car_dealer: 'dealership', car_repair: 'auto', car_wash: 'auto', car_rental: 'auto',
   bicycle_store: 'retail', pet_store: 'pet', book_store: 'retail', furniture_store: 'retail',
@@ -62,19 +65,29 @@ const PLACES_TYPE = {
 // the first match wins, so the more specific words come first ("coffee shop"
 // must not be caught by "shop").
 const TEXT_HINTS = [
+  // Specific phrases before the single words they contain: "bar and grill" is
+  // a bar, not a grill; a salad or juice bar is not a bar.
+  ['bar and grill', 'bar'], ['sports bar', 'bar'], ['wine bar', 'bar'], ['cocktail', 'bar'], ['beer', 'bar'],
+  ['juice bar', 'food'], ['smoothie', 'food'], ['salad', 'restaurant'],
+  ['nail bar', 'salon'], ['brow bar', 'salon'], ['blow dry', 'salon'],
   ['coffee', 'coffee'], ['cafe', 'coffee'], ['café', 'coffee'], ['espresso', 'coffee'], ['roaster', 'coffee'],
-  ['restaurant', 'restaurant'], ['diner', 'restaurant'], ['pizzeria', 'restaurant'], ['pizza', 'restaurant'],
+  ['restaurant', 'restaurant'], ['steak', 'restaurant'], ['sushi', 'restaurant'], ['ramen', 'restaurant'],
+  ['noodle', 'restaurant'], ['buffet', 'restaurant'], ['bistro', 'restaurant'], ['cafeteria', 'restaurant'],
+  ['food court', 'restaurant'], ['tea house', 'coffee'], ['diner', 'restaurant'], ['pizzeria', 'restaurant'], ['pizza', 'restaurant'],
   ['taco', 'restaurant'], ['burger', 'restaurant'], ['barbecue', 'restaurant'], ['bbq', 'restaurant'],
   ['grill', 'restaurant'], ['eatery', 'restaurant'], ['deli', 'restaurant'], ['sandwich', 'restaurant'],
   ['brewery', 'bar'], ['brewing', 'bar'], ['taproom', 'bar'], ['brewpub', 'bar'], ['pub', 'bar'],
   ['bar', 'bar'], ['winery', 'bar'], ['distillery', 'bar'], ['cantina', 'bar'],
-  ['bakery', 'food'], ['smoothie', 'food'], ['juice', 'food'], ['ice cream', 'food'], ['creamery', 'food'],
+  ['bakery', 'food'], ['donut', 'food'], ['dessert', 'food'], ['candy', 'food'], ['chocolate', 'food'],
+  ['confection', 'food'], ['bagel', 'food'], ['acai', 'food'], ['smoothie', 'food'], ['juice', 'food'], ['ice cream', 'food'], ['creamery', 'food'],
   ['supplement', 'supplement'], ['nutrition', 'supplement'], ['vitamin', 'supplement'],
   ['gym', 'gym'], ['fitness', 'gym'], ['crossfit', 'gym'], ['martial art', 'gym'], ['jiu', 'gym'],
   ['yoga', 'wellness'], ['pilates', 'wellness'], ['spa', 'wellness'], ['massage', 'wellness'],
-  ['chiroprac', 'wellness'], ['physical therap', 'wellness'], ['recovery', 'wellness'], ['wellness', 'wellness'],
-  ['med spa', 'medspa'], ['medspa', 'medspa'], ['dental', 'medspa'], ['dentist', 'medspa'],
-  ['dermatol', 'medspa'], ['orthodont', 'medspa'], ['clinic', 'medspa'],
+  ['med spa', 'medspa'], ['medspa', 'medspa'], ['dermatol', 'medspa'], ['aesthetic', 'medspa'],
+  ['chiroprac', 'health'], ['physical therap', 'health'], ['physiotherap', 'health'], ['sports medicine', 'health'],
+  ['dental', 'health'], ['dentist', 'health'], ['orthodont', 'health'], ['optometr', 'health'], ['podiatr', 'health'],
+  ['urgent care', 'health'], ['pediatric', 'health'], ['medical', 'health'], ['clinic', 'health'],
+  ['recovery', 'wellness'], ['wellness', 'wellness'],
   ['salon', 'salon'], ['barber', 'salon'], ['hair', 'salon'], ['nail', 'salon'], ['tattoo', 'salon'],
   ['apparel', 'apparel'], ['clothing', 'apparel'], ['boutique', 'apparel'], ['outfitter', 'apparel'],
   ['footwear', 'apparel'], ['shoe', 'apparel'],
@@ -107,7 +120,10 @@ function normalise(raw) {
   if (VALID.has(s)) return s;
   if (PLACES_TYPE[snake]) return PLACES_TYPE[snake];
   if (VALID.has(snake)) return snake;
-  for (const [needle, cat] of TEXT_HINTS) if (s.includes(needle)) return cat;
+  // Google's specific types arrive snake_cased ("ice_cream_shop",
+  // "dental_clinic"); the hints are written with spaces.
+  const spaced = s.replace(/_/g, ' ');
+  for (const [needle, cat] of TEXT_HINTS) if (spaced.includes(needle)) return cat;
   return null;
 }
 

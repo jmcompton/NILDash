@@ -46,8 +46,11 @@ const scanMeter = require('../scanMeter');
 const MIN_RATINGS = 10;       // filter: drop businesses with fewer than this many reviews
 const REQ_TIMEOUT_MS = 8000;
 
+// primaryTypeDisplayName is Google's own word for what the place IS ("Race
+// Course", "Sports Bar"). Same field tier as primaryType. The compliance
+// check reads it, because the types list can say `restaurant` for a racetrack.
 const NEARBY_FIELDS = ['id', 'displayName', 'formattedAddress', 'shortFormattedAddress', 'types', 'primaryType',
-  'location', 'rating', 'userRatingCount', 'businessStatus', 'priceLevel'];
+  'primaryTypeDisplayName', 'location', 'rating', 'userRatingCount', 'businessStatus', 'priceLevel'];
 const NEARBY_MASK = NEARBY_FIELDS.map((f) => 'places.' + f).join(',');
 const GEOCODE_MASK = 'places.id,places.location,places.formattedAddress';
 
@@ -60,11 +63,23 @@ const TYPE_CATEGORY = {
   clothing_store: 'apparel', shoe_store: 'apparel', jewelry_store: 'retail',
   car_dealer: 'dealership', car_repair: 'auto', bicycle_store: 'retail', pet_store: 'retail',
   book_store: 'retail', furniture_store: 'retail', home_goods_store: 'retail', hardware_store: 'retail',
-  supermarket: 'retail', pharmacy: 'retail', dentist: 'medspa', physiotherapist: 'wellness',
+  supermarket: 'retail', pharmacy: 'retail', dentist: 'health', physiotherapist: 'health',
   real_estate_agency: 'realestate', insurance_agency: 'insurance', bank: 'bank',
   florist: 'retail', sporting_goods_store: 'retail', veterinary_care: 'wellness',
 };
 const NEARBY_TYPES = Object.keys(TYPE_CATEGORY);
+
+// WHAT THE PLACE IS, not what we searched for. Google's primaryType first, then
+// its description; the search type only when Google gave neither. A primaryType
+// that is not one of our kinds ("race_course", "event_venue") is 'local', an
+// unknown kind -- never the kind of the search that happened to find it.
+function categoryFor(r, searchType) {
+  const BC = require('./businessCategory');
+  if (r.primary_type || r.primary_type_label) {
+    return BC.normalise(r.primary_type) || BC.normalise(r.primary_type_label) || 'local';
+  }
+  return TYPE_CATEGORY[searchType] || 'local';
+}
 
 // The New API's price level is an enum; the pool stored the legacy 0-4 number.
 const PRICE_LEVEL = {
@@ -140,6 +155,8 @@ function _legacyShape(p) {
     vicinity: p.shortFormattedAddress || p.formattedAddress || null,
     formatted_address: p.formattedAddress || null,
     types: Array.isArray(p.types) ? p.types : [],
+    primary_type: p.primaryType || null,
+    primary_type_label: (p.primaryTypeDisplayName && p.primaryTypeDisplayName.text) || null,
     geometry: { location: p.location ? { lat: p.location.latitude, lng: p.location.longitude } : {} },
     rating: p.rating != null ? p.rating : null,
     user_ratings_total: p.userRatingCount != null ? p.userRatingCount : 0,
@@ -253,8 +270,10 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
 
   const perType = await _limit(NEARBY_TYPES, CONCURRENCY, (type) => _nearbyType(center, type, apiKey, opts));
 
-  // Dedupe on place_id across every type. First type that returns a place wins its
-  // category (search types are ordered so food/service/retail lead).
+  // Dedupe on place_id across every type. The search type is only a fallback
+  // for the category now (categoryFor below): it said what we SEARCHED for, not
+  // what the place is, and every racetrack or bowling alley with a kitchen came
+  // back from the restaurant search first and was filed as a restaurant.
   const byId = new Map();
   const errors = [];
   let saturatedTypes = 0, failedCalls = 0;
@@ -299,7 +318,7 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
       // Exact shape the market cache stores:
       name: r.name,
       website: null,                       // nearby has no website; lookupPlace fills later
-      category: TYPE_CATEGORY[type] || 'local',
+      category: categoryFor(r, type),
       email: null,
       evidence: null,                      // scorer writes the rationale, not discovery
       franchise: false,                    // Places can't assert a locally-owned franchise
@@ -308,6 +327,8 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
       chain,
       place_id: r.place_id,
       types: Array.isArray(r.types) ? r.types : [],
+      primary_type: r.primary_type || null,
+      primary_type_label: r.primary_type_label || null,
       address: r.vicinity || r.formatted_address || null,
       lat: loc.lat != null ? loc.lat : null,
       lng: loc.lng != null ? loc.lng : null,
@@ -327,5 +348,5 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
   { failedCalls, saturatedTypes, warning: errors.length ? `partial: ${errors.length} type(s) failed, e.g. ${errors[0]}` : null });
 }
 
-module.exports = { buildMarketPoolFromPlaces, geocodeSchool, recordBuild, NEARBY_TYPES, TYPE_CATEGORY,
+module.exports = { categoryFor, buildMarketPoolFromPlaces, geocodeSchool, recordBuild, NEARBY_TYPES, TYPE_CATEGORY,
   RADIUS_M, MAX_PER_CALL, SEARCH_NEARBY_URL, SEARCH_TEXT_URL, NEARBY_MASK, _legacyShape };

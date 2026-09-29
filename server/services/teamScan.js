@@ -55,10 +55,25 @@ function _marks(name, markers) {
 }
 
 // Returns null when the business may be pitched, or { key, why } when it may not.
+//
+// THE NAME AND WHAT IT ACTUALLY IS, not the Google type alone. Los Alamitos
+// Race Course was typed `restaurant` (it has one inside) and reached a
+// basketball team's slate. So three things are checked: the name, the types,
+// and Google's own description of the place (primaryType and its display
+// name, "Race Course"). Anything Google describes as a bar is alcohol for a
+// team, whatever else it serves.
 function blockedFor(c) {
-  const { hits } = Compliance.classifyBusiness(c.name || c.brand_name, { types: c.types || [] });
+  const name = c.name || c.brand_name;
+  const evidence = { types: c.types || [], primaryType: c.primary_type || c.primaryType || null,
+    primaryTypeDisplayName: c.primary_type_label || c.primaryTypeDisplayName || null };
+  const { hits } = Compliance.classifyBusiness(name, evidence);
   const hit = hits.find((h) => BLOCKED_KEYS.includes(h.key));
-  if (hit) return { key: hit.key === 'gambling' ? 'sports betting' : hit.key, why: hit.basis };
+  if (hit) return { key: hit.key === 'gambling' ? 'gambling' : hit.key, why: hit.basis };
+  const BC = require('./businessCategory');
+  const kind = BC.normalise(evidence.primaryType) || BC.normalise(evidence.primaryTypeDisplayName);
+  if (kind === 'bar') {
+    return { key: 'alcohol', why: `Google describes it as "${evidence.primaryTypeDisplayName || evidence.primaryType}"` };
+  }
   const pd = _marks(c.name || c.brand_name, PAYDAY_MARKERS);
   if (pd) return { key: 'payday lending', why: `the business name contains "${pd}"` };
   return null;
@@ -69,9 +84,18 @@ function blockedFor(c) {
 // what makes a local sponsorship likely -- the kind of business, how close it
 // is to the campus, how established it is -- and marks down a chain, where no
 // one at the counter can say yes.
+//
+// WEIGHTED FOR A SPORTS TEAM, not for an athlete's feed. Restaurant was +26,
+// above almost everything, and in a town with 300 restaurants that put five
+// of them on every slate. A team's natural sponsors are the businesses that
+// serve athletes and the families in the stands: training, physical therapy
+// and sports medicine, orthodontists and dentists, the credit union students
+// bank with, dealerships and insurers with a real marketing budget. A
+// restaurant is still a good sponsor; it is no longer the best one by default.
 const CATEGORY_FIT = {
-  dealership: 30, gym: 28, restaurant: 26, wellness: 24, food: 24, auto: 22, insurance: 22,
-  realestate: 22, coffee: 22, medspa: 20, apparel: 20, bank: 18, retail: 16, salon: 14,
+  gym: 30, health: 30, bank: 28, dealership: 28, insurance: 24, wellness: 22, realestate: 22,
+  apparel: 20, auto: 18, restaurant: 16, food: 14, coffee: 14, medspa: 14, retail: 14,
+  education: 14, entertainment: 12, services: 12, salon: 10, pet: 10,
 };
 function fitFor(c) {
   const reasons = [];
@@ -99,7 +123,7 @@ function fitFor(c) {
 // team has none. A business with a bigger marketing budget is asked for a
 // bigger item. Spread across the run so five businesses are not all asked for
 // the same thing.
-const HIGH = new Set(['dealership', 'realestate', 'insurance', 'bank', 'medspa']);
+const HIGH = new Set(['dealership', 'realestate', 'insurance', 'bank', 'medspa', 'health']);
 const LOW = new Set(['coffee', 'food', 'salon', 'retail']);
 function pickItem(category, items, used) {
   const avail = (items || []).filter((i) => i.status === 'available');
@@ -149,13 +173,18 @@ async function discover(pool, { university, marketKey, places }) {
   const built = await P.buildMarketPoolFromPlaces(university.location, { source: 'team-scan' });
   if (!built.ok) return { ok: false, reason: built.reason || 'places_failed', placesCalls: built.placesCalls || 0 };
   const center = built.geocoded || null;
+  // A BLOCKED BUSINESS IS KEPT IN THE POOL, MARKED. It used to be dropped here,
+  // which meant a business the block learned about later (a new marker) was
+  // already in the pool unmarked and stayed there. Now every row carries
+  // blocked_reason, recheckPool re-decides it on every scan, and the slate
+  // never reads a blocked row.
   const kept = [], blocked = [];
   for (const c of built.candidates || []) {
     const b = blockedFor(c);
-    if (b) { blocked.push({ name: c.name, ...b }); continue; }
+    if (b) blocked.push({ name: c.name, ...b });
     const withD = { ...c, distance_m: distanceM(center, c) };
     const f = fitFor(withD);
-    kept.push({ ...withD, fit: f.fit, fit_reasons: f.reasons });
+    kept.push({ ...withD, fit: f.fit, fit_reasons: f.reasons, blocked_reason: b ? `${b.key}: ${b.why}` : null });
   }
   // ONE ROW PER NAME before the upsert. The pool is keyed (market_key, brand)
   // and Places can return two places with the same display name (two branches
@@ -174,22 +203,53 @@ async function discover(pool, { university, marketKey, places }) {
   if (kept.length) {
     await pool.query(
       `INSERT INTO university_market_seen
-         (market_key, brand, place_id, category, types, address, distance_m, rating, user_ratings_total, chain, fit, fit_reasons, has_evidence, evidence)
-       SELECT $1, u.brand, u.place_id, u.category, u.types::jsonb, u.address, u.distance_m, u.rating, u.nrev, u.chain, u.fit, u.reasons::jsonb, NULL, NULL
-         FROM UNNEST($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::numeric[], $9::int[], $10::boolean[], $11::int[], $12::text[])
-           AS u(brand, place_id, category, types, address, distance_m, rating, nrev, chain, fit, reasons)
+         (market_key, brand, place_id, category, types, address, distance_m, rating, user_ratings_total, chain, fit, fit_reasons, has_evidence, evidence,
+          primary_type, primary_type_label, blocked_reason)
+       SELECT $1, u.brand, u.place_id, u.category, u.types::jsonb, u.address, u.distance_m, u.rating, u.nrev, u.chain, u.fit, u.reasons::jsonb, NULL, NULL,
+              u.ptype, u.plabel, u.blocked
+         FROM UNNEST($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::numeric[], $9::int[], $10::boolean[], $11::int[], $12::text[],
+                     $13::text[], $14::text[], $15::text[])
+           AS u(brand, place_id, category, types, address, distance_m, rating, nrev, chain, fit, reasons, ptype, plabel, blocked)
        ON CONFLICT (market_key, brand) DO UPDATE SET
          place_id = COALESCE(EXCLUDED.place_id, university_market_seen.place_id),
+         -- The category is what the place IS now (placesMarket.categoryFor), so
+         -- a fresh answer replaces the old search-type guess rather than
+         -- deferring to it.
          category = COALESCE(EXCLUDED.category, university_market_seen.category),
+         primary_type = COALESCE(EXCLUDED.primary_type, university_market_seen.primary_type),
+         primary_type_label = COALESCE(EXCLUDED.primary_type_label, university_market_seen.primary_type_label),
+         blocked_reason = EXCLUDED.blocked_reason,
          types = EXCLUDED.types, address = EXCLUDED.address, distance_m = EXCLUDED.distance_m,
          rating = EXCLUDED.rating, user_ratings_total = EXCLUDED.user_ratings_total, chain = EXCLUDED.chain,
          fit = EXCLUDED.fit, fit_reasons = EXCLUDED.fit_reasons, last_seen_at = NOW()`,
       [marketKey, kept.map((c) => c.name), kept.map((c) => c.place_id || null), kept.map((c) => c.category || null),
         kept.map((c) => JSON.stringify(c.types || [])), kept.map((c) => c.address || null), kept.map((c) => c.distance_m),
         kept.map((c) => c.rating), kept.map((c) => c.user_ratings_total || 0), kept.map((c) => !!c.chain),
-        kept.map((c) => c.fit), kept.map((c) => JSON.stringify(c.fit_reasons))]);
+        kept.map((c) => c.fit), kept.map((c) => JSON.stringify(c.fit_reasons)),
+        kept.map((c) => c.primary_type || null), kept.map((c) => c.primary_type_label || null), kept.map((c) => c.blocked_reason || null)]);
   }
-  return { ok: true, found: (built.candidates || []).length, kept: kept.length, blocked, duplicates, placesCalls: built.placesCalls || 0, center };
+  return { ok: true, found: (built.candidates || []).length, kept: kept.length - blocked.length, blocked, duplicates, placesCalls: built.placesCalls || 0, center };
+}
+
+// ── RE-DECIDE THE BLOCK FOR EVERY ROW IN THE POOL ───────────────────────────
+// Runs before every slate, with or without discovery, so a marker added today
+// reaches a business discovered last month. Returns what changed: rows newly
+// blocked (these are the ones that were slipping through) and rows cleared.
+async function recheckPool(pool, marketKey, opts = {}) {
+  const rows = (await pool.query(
+    `SELECT brand, types, category, primary_type, primary_type_label, blocked_reason
+       FROM university_market_seen WHERE market_key = $1`, [marketKey])).rows;
+  const newlyBlocked = [], cleared = [];
+  for (const r of rows) {
+    const b = blockedFor({ name: r.brand, types: r.types || [], primary_type: r.primary_type, primary_type_label: r.primary_type_label });
+    const reason = b ? `${b.key}: ${b.why}` : null;
+    if (reason === r.blocked_reason) continue;
+    if (!opts.dryRun) await pool.query(`UPDATE university_market_seen SET blocked_reason = $3 WHERE market_key = $1 AND brand = $2`, [marketKey, r.brand, reason]);
+    if (reason && !r.blocked_reason) newlyBlocked.push({ brand: r.brand, category: r.category, reason });
+    else if (!reason) cleared.push({ brand: r.brand, was: r.blocked_reason });
+  }
+  const total = rows.filter((r) => r.blocked_reason).length - cleared.length + newlyBlocked.length;
+  return { checked: rows.length, blocked: total, newlyBlocked, cleared };
 }
 
 // ── ONE TEAM, ONE NIGHT ─────────────────────────────────────────────────────
@@ -215,6 +275,9 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     if (!out.discovery.ok) return { ...out, ok: false, error: `Places discovery failed: ${out.discovery.reason}` };
   }
 
+  // Every row re-decided before the slate is built (see recheckPool).
+  if (marketKey) out.poolRecheck = await recheckPool(pool, marketKey);
+
   const subject = Scout.teamSubject({ team, university, marketKey });
   const slate = await Scout.assembleSlate(pool, { subject, limit });
   out.slate = { emptyReason: slate.emptyReason, emptyText: slate.emptyText, lanes: slate.lanes, shape: slate.shape };
@@ -225,7 +288,16 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     const identity = BI.identitiesOf(c, { market: marketKey })[0];
     const brandKey = c.place_id ? 'place:' + c.place_id : (identity ? identity.key : Scout.normBrand(c.brand_name));
     const item = pickItem(c.category || c.businessCategory, items, used);
-    const pick = { brand_name: c.brand_name, brandKey, category: c.category || c.businessCategory, address: c.address,
+    // THE LAST CHECK, at the ask. The slate never reads a blocked row, so this
+    // should never fire; if it does, the ask is not written and it says so.
+    const lateBlock = blockedFor({ name: c.brand_name, types: c.types || [], primary_type: c.primary_type, primary_type_label: c.primary_type_label });
+    if (lateBlock) {
+      console.error(`[teamScan] BLOCKED AT THE ASK (the slate should have excluded it): ${c.brand_name} -- ${lateBlock.key}: ${lateBlock.why}`);
+      out.skipped.push({ brand: c.brand_name, why: `blocked for a team: ${lateBlock.key} (${lateBlock.why})` });
+      continue;
+    }
+    const pick = { brand_name: c.brand_name, brandKey, category: c.category || c.businessCategory,
+      kindLabel: c.primary_type_label || null, address: c.address,
       distance_m: c.distance_m, rating: c.rating, user_ratings_total: c.user_ratings_total,
       fit: Number(c.fitHint) || null, fitReasons: c.fit_reasons || [], slateFit: c.fit, item };
     out.picks.push(pick);
@@ -274,5 +346,5 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   return out;
 }
 
-module.exports = { runTeamScan, discover, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
+module.exports = { runTeamScan, discover, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
   BLOCKED_KEYS, PAYDAY_MARKERS, CATEGORY_FIT, MIGRATION };

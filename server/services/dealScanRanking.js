@@ -68,7 +68,7 @@ const LOW_TIER_TYPES = [
 // Category-keyword fallback (substring on the normalized category string).
 const HIGH_TIER_CATEGORIES = [
   'restaurant', 'food', 'coffee', 'bar', 'gym', 'fitness', 'apparel', 'dealership',
-  'nutrition', 'supplement', 'smoothie', 'chiro', 'chiropract', 'medspa', 'med spa',
+  'nutrition', 'supplement', 'smoothie', 'chiro', 'chiropract', 'medspa', 'med spa', 'health',
 ];
 const LOW_TIER_CATEGORIES = ['pet', 'vet', 'veterinary', 'animal'];
 

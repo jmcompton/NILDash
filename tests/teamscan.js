@@ -92,12 +92,16 @@ async function main() {
   OUT.push('-- migration 014 --');
   const MIG = read('server/migrations/014_university_sponsor_scan.sql');
   const stmts = MIG.replace(/--[^\n]*/g, '').split(';').map((s) => s.trim()).filter(Boolean);
-  ok('every statement is CREATE ... IF NOT EXISTS', stmts.every((s) => /^CREATE (TABLE|INDEX) IF NOT EXISTS /i.test(s)), stmts.map((s) => s.slice(0, 50)));
+  // Adding a column to a university table is as safe to repeat as a CREATE.
+  const ADD_COL = /^ALTER TABLE university_[a-z_]+ ADD COLUMN IF NOT EXISTS /i;
+  ok('every statement is CREATE ... IF NOT EXISTS, or ADD COLUMN IF NOT EXISTS on a university table',
+    stmts.every((s) => /^CREATE (TABLE|INDEX) IF NOT EXISTS /i.test(s) || ADD_COL.test(s)), stmts.map((s) => s.slice(0, 50)));
   let twice = true;
   try { await TeamScan.ensureTables(P); await TeamScan.ensureTables(P); } catch (e) { twice = false; OUT.push('  ' + e.message); }
   ok('  and it runs twice without an error', twice);
   const MIGsql = MIG.replace(/--[^\n]*/g, '');
-  ok('  it names no agent table and alters nothing', !/ALTER/i.test(MIGsql) && AGENT_TABLES.filter((t) => t !== 'users').every((t) => !namesTable(MIGsql, t)),
+  ok('  it names no agent table and alters only university tables, only by adding columns',
+    stmts.filter((s) => /ALTER/i.test(s)).every((s) => ADD_COL.test(s)) && AGENT_TABLES.filter((t) => t !== 'users').every((t) => !namesTable(MIGsql, t)),
     AGENT_TABLES.filter((t) => namesTable(MIGsql, t)));
 
   // ── 2. THE SUBJECT ────────────────────────────────────────────────────────
@@ -124,9 +128,9 @@ async function main() {
   const shouldBlock = ['Cypress Brewing Company', 'Harbor Smoke Shop', 'Green Leaf Dispensary', 'Orange County Gun Range',
     'Lucky Sportsbook Lounge', 'Speedy Payday Loans', 'Velvet Adult Boutique', 'The Corner Bar & Grill'];
   const got = Object.fromEntries(blocks.map(([n, b]) => [n, b && b.key]));
-  ok('alcohol, tobacco, cannabis, firearms, sports betting, payday lending and adult are blocked',
+  ok('alcohol, tobacco, cannabis, firearms, gambling, payday lending and adult are blocked',
     got['Cypress Brewing Company'] === 'alcohol' && got['Harbor Smoke Shop'] === 'tobacco' && got['Green Leaf Dispensary'] === 'cannabis'
-    && got['Orange County Gun Range'] === 'firearms' && got['Lucky Sportsbook Lounge'] === 'sports betting'
+    && got['Orange County Gun Range'] === 'firearms' && got['Lucky Sportsbook Lounge'] === 'gambling'
     && got['Speedy Payday Loans'] === 'payday lending' && got['Velvet Adult Boutique'] === 'adult', got);
   ok('  a bar typed by Places is alcohol even when the name says grill', got['The Corner Bar & Grill'] === 'alcohol');
   ok('  and the rest are not blocked', blocks.filter(([n]) => !shouldBlock.includes(n)).every(([, b]) => !b), blocks.filter(([n, b]) => !shouldBlock.includes(n) && b));
@@ -190,8 +194,12 @@ async function main() {
     touched.map((t) => [t, rec.seen.find((s) => namesTable(s, t)).slice(0, 160)]));
   ok('  the agent pool canary is not on the slate', !run.picks.some((p) => p.brand_name === 'Agent Only Pizza'));
   ok('  and the agent "contacted" canary did not exclude the team\'s business', run.picks.some((p) => p.brand_name === 'Ironside Fitness'));
-  ok('no blocked business entered the university pool',
-    (await P.query(`SELECT COUNT(*)::int n FROM university_market_seen WHERE brand = ANY($1)`, [shouldBlock])).rows[0].n === 0);
+  // Blocked businesses are KEPT in the pool, marked, so a later marker reaches
+  // them (recheckPool); what matters is that none is ever on a slate.
+  const bRows = (await P.query(`SELECT brand, blocked_reason FROM university_market_seen WHERE brand = ANY($1)`, [shouldBlock])).rows;
+  ok('every blocked business in the university pool is marked with why',
+    bRows.length === shouldBlock.length && bRows.every((r) => r.blocked_reason), bRows);
+  ok('  and none of them is on the slate', !run.picks.some((p) => shouldBlock.includes(p.brand_name)), run.picks.map((p) => p.brand_name));
   ok('  and the run says what it blocked', run.discovery.blocked.length === shouldBlock.length, run.discovery.blocked.map((b) => b.name));
   const drafts = (await P.query(`SELECT * FROM university_drafts WHERE team_id = $1`, [TEAM])).rows;
   ok('every ask is left awaiting approval, naming an item and its price', drafts.length === run.drafts.length
@@ -204,6 +212,76 @@ async function main() {
   const again2 = (await P.query(`SELECT COUNT(*)::int n FROM university_drafts WHERE team_id = $1`, [TEAM])).rows[0].n;
   ok('run again the same night: nothing already queued is asked twice', again.ok && again2 === drafts.length
     && !again.picks.some((p) => run.drafts.some((d) => d.brand === p.brand_name)), [again2, drafts.length, again.picks.map((p) => p.brand_name)]);
+
+  // ── 6b. THE RACETRACK, THE SPREAD, AND THE PIRATES ────────────────────────
+  // What the first real Cypress run got wrong: Los Alamitos Race Course (typed
+  // `restaurant`) was asked as "your restaurant", all five were restaurants
+  // because the pool read 20 arbitrary rows, and an ask argued a pirate theme
+  // fit basketball.
+  OUT.push('', '-- the racetrack, the spread and the pirates --');
+  const B = (name, extra) => TeamScan.blockedFor({ name, types: ['restaurant', 'food', 'point_of_interest'], ...(extra || {}) });
+  const bk = (b) => b && b.key;
+  ok('Los Alamitos Race Course, typed restaurant, is blocked as gambling by its name', bk(B('Los Alamitos Race Course')) === 'gambling', B('Los Alamitos Race Course'));
+  ok('  a track whose name says nothing is blocked by what Google says it is', bk(B('Santa Anita Park', { primary_type_label: 'Race Course' })) === 'gambling'
+    && /Google describes it as "Race Course"/.test(B('Santa Anita Park', { primary_type_label: 'Race Course' }).why));
+  const gamblingNames = ['Commerce Casino', 'The Bicycle Hotel & Casino', 'Hawaiian Gardens Card Club', 'Normandie Cardroom', 'Del Mar Thoroughbred Club',
+    'Churchill Downs Racetrack', 'OTB Sports Lounge', 'Lucky Bingo Hall', 'Golden Keno', 'Super Lotto Mart', 'DraftKings at Casino Queen', 'FanDuel Sportsbook'];
+  const missed = gamblingNames.filter((n) => bk(B(n)) !== 'gambling');
+  ok(`  racetracks, casinos, card rooms, OTB, bingo, keno, lottery and the betting brands are all blocked (${gamblingNames.length})`, missed.length === 0, missed);
+  ok('  anything Google describes as a bar is alcohol for a team', bk(B('Tavern on Main', { primary_type: 'sports_bar' })) === 'alcohol'
+    && bk(B('The Local', { primary_type_label: 'Bar and grill' })) === 'alcohol');
+  const fine = ['Pirates Dinner Adventure', 'Chuze Fitness', 'Select Physical Therapy', 'SchoolsFirst Federal Credit Union', 'Boulton Orthodontics',
+    'Bet Tzedek Legal Services', 'Race Street Cafe', 'Downs Family Dentistry', 'K1 Speed Indoor Kart Racing'];
+  ok('  and ordinary businesses are not (including "race", "bet" and "downs" in other senses)', fine.every((n) => !B(n)), fine.filter((n) => B(n)).map((n) => [n, B(n)]));
+
+  const PM = require(REPO + 'server/services/placesMarket.js');
+  ok('discovery files a place by what it IS, not by the search that found it',
+    PM.categoryFor({ primary_type: 'race_course' }, 'restaurant') === 'local'
+    && PM.categoryFor({ primary_type: 'physiotherapist' }, 'restaurant') === 'health'
+    && PM.categoryFor({ primary_type: 'korean_restaurant' }, 'cafe') === 'restaurant'
+    && PM.categoryFor({ primary_type_label: 'Orthodontist' }, 'dentist') === 'health'
+    && PM.categoryFor({}, 'gym') === 'gym');
+  ok('  and asks Google for its description of the place', /'primaryTypeDisplayName'/.test(read('server/services/placesMarket.js')));
+
+  // The pool at a market of its own: fourteen high-fit restaurants (the old
+  // read took 20 rows and every one was a restaurant), the four businesses the
+  // real run missed, a dealership, and the racetrack as an OLD unmarked row.
+  const MK2 = 'tspread, zz';
+  await P.query(`DELETE FROM university_market_seen WHERE market_key = $1`, [MK2]);
+  const poolRows = [];
+  for (let i = 0; i < 14; i++) poolRows.push([`Korean BBQ ${i}`, 'restaurant', 'korean_restaurant', 'Korean restaurant', 70 - i]);
+  poolRows.push(['Chuze Fitness', 'gym', 'gym', 'Gym', 83], ['Select Physical Therapy', 'health', 'physiotherapist', 'Physical therapist', 80],
+    ['SchoolsFirst Federal Credit Union', 'bank', 'bank', 'Credit union', 78], ['Boulton Orthodontics', 'health', 'dentist', 'Orthodontist', 76],
+    ['Cypress Toyota', 'dealership', 'car_dealer', 'Car dealer', 74], ['Los Alamitos Race Course', 'restaurant', null, null, 95]);
+  for (const [brand, category, pt, label, fit] of poolRows) {
+    await P.query(`INSERT INTO university_market_seen (market_key, brand, category, types, primary_type, primary_type_label, fit, fit_reasons, first_seen_at, last_seen_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'[]'::jsonb, NOW(), NOW())`, [MK2, brand, category, JSON.stringify(['restaurant', 'food']), pt, label, fit]);
+  }
+  const rc = await TeamScan.recheckPool(P, MK2);
+  ok('the pool recheck finds the racetrack that was already in the pool, unmarked', rc.newlyBlocked.some((b) => b.brand === 'Los Alamitos Race Course' && /^gambling:/.test(b.reason)), rc);
+  const tsub = Scout.teamSubject({ team: { id: 'tspread:mbb', university_id: 'univ-tspread', name: 'Test Spread MBB' }, university: { id: 'univ-tspread', name: 'Tspread', location: 'X, ZZ' }, marketKey: MK2 });
+  const sl = await Scout.assembleSlate(P, { subject: tsub, limit: 5 });
+  const names = sl.picks.map((p) => p.brand_name);
+  const kinds = new Set(sl.picks.map((p) => p.businessCategory));
+  ok('the racetrack is never on the slate, though it had the highest fit in the pool', !names.includes('Los Alamitos Race Course'), names);
+  ok(`a team slate has a different kind of business in every seat (${kinds.size} kinds in ${sl.picks.length})`, sl.picks.length === 5 && kinds.size === 5, [...kinds]);
+  ok('  Chuze Fitness, Select Physical Therapy and SchoolsFirst Credit Union are on it', ['Chuze Fitness', 'Select Physical Therapy', 'SchoolsFirst Federal Credit Union'].every((n) => names.includes(n)), names);
+  ok('  and at most one restaurant', names.filter((n) => /Korean BBQ/.test(n)).length <= 1, names);
+  ok('for a team, gym and health outweigh a restaurant; restaurant is no longer the top weight',
+    TeamScan.CATEGORY_FIT.gym > TeamScan.CATEGORY_FIT.restaurant && TeamScan.CATEGORY_FIT.health > TeamScan.CATEGORY_FIT.restaurant
+    && TeamScan.CATEGORY_FIT.bank > TeamScan.CATEGORY_FIT.restaurant);
+  const ath = Scout.athleteSubject({ id: 'x' }, 'a');
+  ok('  the agent slate keeps its own spread rule (3 kinds) and pool order', !ath.minCategories && Scout.MIN_CATEGORIES === 3);
+  await P.query(`DELETE FROM university_market_seen WHERE market_key = $1`, [MK2]);
+
+  const tctx = { university: { name: 'Cypress College' }, team: { name: "Men's Basketball", sport: 'Basketball' },
+    business: { brand_name: 'Pirates Dinner Adventure', category: 'restaurant', kindLabel: 'Dinner theater' }, item: { name: 'Courtside banner', price_cents: 150000 } };
+  const pirate = TW.checkAsk({ subject: 'Sponsor the Chargers', body: 'Your pirate theme is a natural match for basketball: bold and competitive. Courtside banner, $1,500. Reply to talk.' }, tctx);
+  ok('an ask that argues from a theme is refused, with a reason the retry can use', !pirate.ok && /coincidence/.test(pirate.why), pirate);
+  const honest = TW.checkAsk({ subject: 'Courtside banner for the Chargers', body: 'You are two miles from campus and home games bring students and families down Valley View all winter. A Courtside banner, $1,500, puts your name in front of them every home date. Can we talk this week?' }, tctx);
+  ok('  an ask with a true reason passes', honest.ok, honest);
+  ok('the prompt names coincidence reasoning, with the pirate example', /Never build the reason on a coincidence/.test(TW.buildPrompt(tctx)) && /pirate/.test(TW.buildPrompt(tctx)));
+  ok('  and tells the model what the business actually is, in Google\'s words', /KIND OF BUSINESS: Dinner theater/.test(TW.facts(tctx)));
 
   // ── 7. THE ATHLETE PATH IS UNCHANGED ──────────────────────────────────────
   OUT.push('', '-- the agent path --');

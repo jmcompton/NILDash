@@ -202,6 +202,9 @@ const SUBJECT_TABLES = Object.freeze({
     // because the agent Deal Scan once filed national brands under a town.
     nationalIndexExclusion: true,
     poolColumns: '',
+    poolWhere: '',
+    poolOrder: 'm.last_seen_at DESC NULLS LAST',
+    poolLimitFactor: 4,
   }),
   team: Object.freeze({
     engagement: 'university_brand_engagement', queue: 'university_outreach_queue', pool: 'university_market_seen',
@@ -210,7 +213,17 @@ const SUBJECT_TABLES = Object.freeze({
     // national brand; and social_brands is not the university's to read.
     nationalIndexExclusion: false,
     poolColumns: `, m.place_id, m.types, m.address, m.distance_m, m.rating, m.user_ratings_total,
-            m.fit AS "fitHint", m.fit_reasons`,
+            m.fit AS "fitHint", m.fit_reasons, m.primary_type, m.primary_type_label`,
+    // A business blocked for a team (teamScan.recheckPool) is never read.
+    poolWhere: 'AND m.blocked_reason IS NULL',
+    // BEST OF EACH KIND FIRST. This read 20 rows by last_seen_at; a scan
+    // writes the whole pool in one statement, so that order is arbitrary, and
+    // at Cypress the 20 were all restaurants: Chuze Fitness (fit 83), Select
+    // Physical Therapy and SchoolsFirst Credit Union were never read, and the
+    // spread rule had one kind to choose from. Now the best of every category,
+    // then the second-best of every category, and so on, best fit first.
+    poolOrder: `ROW_NUMBER() OVER (PARTITION BY COALESCE(m.category, '') ORDER BY m.fit DESC NULLS LAST), m.fit DESC NULLS LAST`,
+    poolLimitFactor: 12,
   }),
 });
 function tablesOf(subject) {
@@ -240,6 +253,8 @@ function teamSubject({ team, university, marketKey }) {
     instagram: 0, tiktok: 0,
     sponsorSignals: false, brandFlags: false, skipSignals: false,
     lanes: Object.freeze({ local: true, social: false, national: false }),
+    // Every seat a different kind of business before any kind repeats.
+    minCategories: 5,
   });
 }
 
@@ -510,8 +525,9 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
         -- self-healing, and it holds if the writer ever regresses.
         ${T.nationalIndexExclusion ? `AND NOT EXISTS (SELECT 1 FROM social_brands sb
                          WHERE LOWER(sb.brand) = LOWER(m.brand))` : ''}
-      ORDER BY m.last_seen_at DESC NULLS LAST
-      LIMIT $3`, [athlete.marketKey, athlete.id, limit * 4]) : [];
+        ${T.poolWhere}
+      ORDER BY ${T.poolOrder}
+      LIMIT $3`, [athlete.marketKey, athlete.id, limit * T.poolLimitFactor]) : [];
 
   // EACH POOL EARNS ITS LANE, rather than everything being stamped local on the
   // way out. The blanket `lane: 'local'` here was the second of four places that
@@ -920,9 +936,19 @@ async function assembleSlate(pool, ctx) {
   const chosen = new Set();
   const perLane = {};
   const cats = new Set();
+  // The subject can ask for more spread than the default: a team asks for a
+  // different kind of business in every seat (teamSubject), so a slate is a
+  // gym, a clinic, a credit union, a dealership and a restaurant, not five
+  // restaurants. Still a target and not a quota: short only when the pool
+  // truly has fewer kinds, and the shortfall is reported.
+  const minCats = Math.max(MIN_CATEGORIES, Number(athlete.minCategories) || 0);
   const shape = { socialSeat: null, spreadPicks: 0, categories: 0, laneCapHit: 0 };
 
-  const laneOk = (c) => (perLane[c.lane] || 0) < LANE_SOFT_CAP;
+  // The lane ceiling balances lanes against each other. A subject with one lane
+  // (a team is local only) has nothing to balance, and the cap there only
+  // pushed the last two seats into the rank-order top-up, past the spread rule.
+  const oneLane = Object.values(athlete.lanes || {}).filter(Boolean).length <= 1;
+  const laneOk = (c) => oneLane || (perLane[c.lane] || 0) < LANE_SOFT_CAP;
   const take = (c, why) => {
     if (!c || chosen.has(c) || picks.length >= limit) return false;
     chosen.add(c); picks.push(c);
@@ -951,7 +977,7 @@ async function assembleSlate(pool, ctx) {
   //    then fall back to rank order.
   while (picks.length < limit) {
     let next = null;
-    if (cats.size < MIN_CATEGORIES) {
+    if (cats.size < minCats) {
       next = fresh.find((c) => !chosen.has(c) && c.businessCategory
         && !cats.has(c.businessCategory) && laneOk(c));
     }
@@ -978,7 +1004,7 @@ async function assembleSlate(pool, ctx) {
   // SAY WHEN THE SHAPE COULD NOT BE MET, rather than quietly returning five of
   // one kind. Both of these are facts about the market, not failures, and the
   // morning report can repeat them.
-  if (picks.length && cats.size < MIN_CATEGORIES) {
+  if (picks.length && cats.size < minCats) {
     shape.spreadShortfall = `only ${cats.size} distinct categor${cats.size === 1 ? 'y' : 'ies'} `
       + `available across ${fresh.length} candidate(s)`;
     console.log(`[slate] athlete=${athlete.id} category spread short: ${shape.spreadShortfall}`);

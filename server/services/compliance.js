@@ -102,14 +102,28 @@ const CATEGORIES = [
     key: 'cannabis', label: 'cannabis, THC or CBD',
     // Google publishes no cannabis type; the name is all we have.
     placesTypes: [],
-    nameMarkers: ['cannabis', 'marijuana', 'dispensary', 'thc', 'cbd', 'hemp', 'kratom', 'kava'],
+    // Plus the dispensary chains whose names carry none of those words (a
+    // Stiiizy or a MedMen reads as a clothing brand). Only unambiguous names.
+    nameMarkers: ['cannabis', 'marijuana', 'dispensary', 'thc', 'cbd', 'hemp', 'kratom', 'kava',
+      'stiiizy', 'medmen', 'trulieve', 'curaleaf', 'cannabist', 'zen leaf', 'planet 13'],
     minor: 'block', adult: 'hold',
     why: 'cannabis or a related product',
   },
   {
     key: 'gambling', label: 'gambling or sports betting',
     placesTypes: ['casino'],
-    nameMarkers: ['casino', 'sportsbook', 'sports book', 'betting', 'wager', 'poker', 'lottery'],
+    // A racetrack, card room, off-track betting parlour or bingo hall is a
+    // gambling business whatever Google types it: Los Alamitos Race Course
+    // came back typed `restaurant` (it has one inside) and reached a college
+    // team's slate as "your restaurant". Matched against the name AND against
+    // Google's own description of the place (primaryTypeDisplayName).
+    nameMarkers: ['casino', 'casinos', 'sportsbook', 'sports book', 'betting', 'bets', 'wager', 'wagering',
+      'poker', 'lottery', 'lotto', 'keno', 'bingo', 'slots', 'pachinko', 'bookmaker', 'bookie',
+      'race course', 'racecourse', 'race track', 'racetrack', 'horse racing', 'harness racing', 'thoroughbred',
+      'turf club', 'jockey club', 'off track', 'off-track', 'otb', 'simulcast', 'satellite wagering',
+      'greyhound', 'dog track', 'jai alai', 'card room', 'cardroom', 'card club', 'gaming hall', 'gaming club',
+      // The betting operators by name ("bet" alone matched a legal-aid charity).
+      'draftkings', 'fanduel', 'betmgm', 'bet365', 'pointsbet', 'prizepicks', 'underdog fantasy', 'caesars sportsbook'],
     // Athlete endorsement of sports betting is prohibited by the NCAA for every
     // athlete, not only minors.
     minor: 'block', adult: 'block',
@@ -165,14 +179,22 @@ function classifyBusiness(brandName, evidence) {
   const types = (evidence && Array.isArray(evidence.types) ? evidence.types : [])
     .concat(evidence && evidence.primaryType ? [evidence.primaryType] : [])
     .map((t) => String(t).toLowerCase());
+  // WHAT GOOGLE SAYS IT IS, in words ("Race Course", "Sports Bar"). The name
+  // markers are checked against it too: a type list can say `restaurant` for a
+  // racetrack that serves food, but its description says what it is.
+  const described = evidence && (evidence.primaryTypeDisplayName || evidence.primaryTypeLabel || evidence.primary_type_label) || '';
+  const describedAs = (evidence && evidence.primaryType ? String(evidence.primaryType).replace(/_/g, ' ') : '');
   const hits = [];
   for (const c of CATEGORIES) {
     const byType = types.find((t) => c.placesTypes.indexOf(t) !== -1) || null;
     const byName = _marks(brandName, c.nameMarkers);
-    if (byType || byName) {
+    const byDesc = byType || byName ? null : (_marks(described, c.nameMarkers) || _marks(describedAs, c.nameMarkers));
+    if (byType || byName || byDesc) {
       hits.push({
         key: c.key, label: c.label, why: c.why,
-        basis: byType ? `Google Places type "${byType}"` : `the business name contains "${byName}"`,
+        basis: byType ? `Google Places type "${byType}"`
+          : byName ? `the business name contains "${byName}"`
+          : `Google describes it as "${described || describedAs}"`,
       });
     }
   }
