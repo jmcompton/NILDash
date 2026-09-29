@@ -1,10 +1,11 @@
 'use strict';
 // ── WHO IS IN university_users? ─────────────────────────────────────────────
 //
-// The legacy compliance-portal accounts: POST /api/university/register writes
-// them (with no auth in front of it) and POST /api/university/login reads them.
-// The university portal is consolidating on the users table, and those two
-// routes are retired only once this shows the table is empty or test-only.
+// The legacy compliance-portal accounts. The routes that wrote and read them
+// (/api/university/register, /login and the rest) were deleted once this
+// showed the table empty on production; the university portal signs in
+// through the users table (scripts/create-university-user.js). Kept so the
+// table can be checked again before it is dropped.
 //
 // Read-only. No password hash is read, let alone printed.
 //

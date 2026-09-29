@@ -110,7 +110,7 @@ async function main() {
   OUT.push('', '-- the real server --');
   const hash = await bcrypt.hash(PASS, 8);
   await P.query(`DELETE FROM athletes WHERE agent_id = ANY($1)`, [Object.values(U)]).catch(() => {});
-  await P.query(`DELETE FROM users WHERE id = ANY($1)`, [Object.values(U)]).catch(() => {});
+  await P.query(`DELETE FROM users WHERE id = ANY($1) OR email LIKE '%@wall.test'`, [Object.values(U)]).catch(() => {});
   await require(REPO + 'scripts/seed-cypress.js').seed(P);
   const mk = (id, role, uid) => P.query(`INSERT INTO users (id, name, email, password, role, university_id, plan_tier)
     VALUES ($1, $1, $2, $3, $4, $5, 'unlimited')`, [id, id + '@wall.test', hash, role, uid]);
@@ -177,11 +177,29 @@ async function main() {
     const dTeams = await call(cd, 'GET', '/api/university/teams');
     ok('ADMIN: reaches the agent side', dList.status === 200, dList.status);
     ok('  and the university side', dTeams.status === 200 && dTeams.body.teams.length === 13, dTeams.status);
+
+    // THE LEGACY PORTAL IS GONE: nothing answers where it used to.
+    const reg = await call('', 'POST', '/api/university/register', { email: 'x@x.test', password: 'x', universityId: 'univ-cypress', name: 'x' });
+    const ulog = await call('', 'POST', '/api/university/login', { email: 'x@x.test', password: 'x' });
+    const ulist = await call('', 'GET', '/api/university/list');
+    ok('LEGACY: /api/university/register, /login and /list are 404', reg.status === 404 && ulog.status === 404 && ulist.status === 404,
+      [reg.status, ulog.status, ulist.status]);
+
+    // THE WAY IN NOW: an account made by scripts/create-university-user.js.
+    const CU = require(REPO + 'scripts/create-university-user.js');
+    const madeU = await CU.createUniversityUser(P, { email: U.legacy + '@wall.test', name: 'Script Made', universityId: 'univ-cypress', password: PASS });
+    const cs = await login(U.legacy);
+    const sTeams = await call(cs, 'GET', '/api/university/teams');
+    const sInv = await call(cs, 'GET', '/api/university/inventory');
+    const sAgent = await call(cs, 'POST', '/api/athletes', athlete);
+    ok('SCRIPT-MADE ACCOUNT: signs in and sees Cypress: 13 teams, 59 items',
+      madeU.ok && sTeams.status === 200 && sTeams.body.teams.length === 13 && sInv.status === 200 && sInv.body.items.length === 59, [madeU, sTeams.status]);
+    ok('  and is walled off from the agent side like any university account', sAgent.status === 403, sAgent.status);
   } finally {
     srv.kill('SIGTERM');
     await new Promise((r) => setTimeout(r, 500));
     await P.query(`DELETE FROM athletes WHERE agent_id = ANY($1)`, [Object.values(U)]).catch(() => {});
-    await P.query(`DELETE FROM users WHERE id = ANY($1)`, [Object.values(U)]).catch(() => {});
+    await P.query(`DELETE FROM users WHERE id = ANY($1) OR email LIKE '%@wall.test'`, [Object.values(U)]).catch(() => {});
   }
 
   OUT.push(''); OUT.push('failures: ' + F);
