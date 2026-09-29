@@ -1097,6 +1097,11 @@
       "total": 42,
       "fault": null
     },
+    "teamscan.js": {
+      "failed": 0,
+      "total": 44,
+      "fault": null
+    },
     "turns.js": {
       "failed": null,
       "total": null,

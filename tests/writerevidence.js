@@ -125,9 +125,13 @@ async function main() {
   ok('  and neither passes the two hard-wired nulls any more', !/siteSummary:|sponsorsLocal:/.test(job));
   const scout = read('server/services/scout.js');
   ok('both local pools carry the line, as evidence_text',
-    /m\.evidence AS evidence_text/.test(scout) && /AS evidence_text\s*\n\s*FROM brand_engagement be/.test(scout));
+    // The tables come from the subject now (scout.SUBJECT_TABLES); for an athlete
+    // these are brand_engagement and market_business_seen.
+    /m\.evidence AS evidence_text/.test(scout) && /AS evidence_text\s*\n\s*FROM \$\{T\.engagement\} be/.test(scout)
+    && require(REPO + 'server/services/scout.js').tablesOf({}).engagement === 'brand_engagement');
   ok('  and the shown pool\'s ranking input is unchanged (it reads the line only, never has_evidence)',
-    /\(SELECT ms\.evidence FROM market_business_seen ms/.test(scout) && !/ms\.has_evidence/.test(scout));
+    /\(SELECT ms\.evidence FROM \$\{T\.pool\} ms/.test(scout) && !/ms\.has_evidence/.test(scout)
+    && require(REPO + 'server/services/scout.js').tablesOf({}).pool === 'market_business_seen');
 
   const P = store.pool;
   const town = 'Evidenceville, AL';
