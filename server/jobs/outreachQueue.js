@@ -793,6 +793,15 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // What each lookup really cost, so the run can report a measured per-athlete
   // figure instead of a ceiling multiplied by a count.
   const spendLog = [];
+  // ── THE CEILINGS (Q.ATHLETE_TIME_CEILING_MS, Q.ATHLETE_COST_CEILING_USD) ──
+  // Measured from here. The cost is every lookup and scan booked to this
+  // athlete in spendLog, except a market refresh, which is the market's and is
+  // shared by every athlete in it.
+  const _t0 = Date.now();
+  // Overridable per call (an on-demand fill, a test); the job's defaults otherwise.
+  const TIME_CEILING_MS = Number(ctx.timeCeilingMs) > 0 ? Number(ctx.timeCeilingMs) : Q.ATHLETE_TIME_CEILING_MS;
+  const COST_CEILING_USD = Number(ctx.costCeilingUsd) > 0 ? Number(ctx.costCeilingUsd) : Q.ATHLETE_COST_CEILING_USD;
+  const athleteCost = () => spendLog.reduce((sum, x) => sum + (x && x.lane !== 'market-refresh' ? (Number(x.cost) || 0) : 0), 0);
 
   // NO NAMES, NO CARDS -- the sender's or the athlete's. The run and the
   // on-demand fill already refuse a nameless agent before calling this; this
@@ -973,6 +982,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   const _refillFaultsLocal = new Map();                        // market -> why its refill failed tonight
   const knownBrands = new Set();                              // every candidate ever handed out tonight
   let widenedTonight = false;
+  // THE LADDER (Q.LADDER): which rungs fired tonight, in order. The first is
+  // always the athlete's own market at the normal radius.
+  const rungsFired = ['local'];
+  const fire = (r) => { if (!rungsFired.includes(r)) { rungsFired.push(r); say(`${athleteName}: ladder rung ${Q.LADDER.indexOf(r) + 1} (${r})`); } };
   const slateLimit = Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT;
   const bk = (name) => String(name || '').trim().toLowerCase();
 
@@ -980,6 +993,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     const fresh = await Scout.assembleSlate(pool, {
       agentId, athlete: profile, store, limit: slateLimit * 2,
       heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
+      // Everything handed out tonight, so the read moves on to rows not yet
+      // seen instead of returning the same top of the pool every time.
+      exclude: [...knownBrands],
     });
     for (const f of (fresh.faults || [])) faultOf(f.service, f.reason, 'slate redraw');
     const added = (fresh.picks || []).filter((c) => c && !knownBrands.has(bk(c.brand_name)));
@@ -1044,11 +1060,15 @@ async function _fillAthlete(pool, ctx, nightFaults) {
 
   // The refill. Returns the candidates that are NEW tonight (possibly none),
   // and updates `slate` so the up-front caller and the notes see the latest.
-  async function refillSlate(why) {
-    // 1. Re-draw.
-    let { fresh, added } = await redraw();
-    slate = fresh;
-    if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) (${why})`); return added; }
+  async function localRefill(why, opts = {}) {
+    // 1. Re-draw -- unless the rate floor sent us here, in which case this
+    //    rung is not producing and the next one is tried directly.
+    let fresh, added = [];
+    if (!opts.skipRedraw) {
+      ({ fresh, added } = await redraw());
+      slate = fresh;
+      if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) (${why})`); return added; }
+    }
 
     // 2. Refill from the market -- once per market per run.
     const refillFaults = ctx.refillFaults || _refillFaultsLocal;
@@ -1058,6 +1078,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       faultOf('discovery', `market refill for ${profile.marketKey} failed earlier tonight: ${refillFaults.get(profile.marketKey)}`, 'market refill');
     } else if (profile.hasLocalMarket && profile.marketKey && !refilledMarkets.has(profile.marketKey) && !ctx.noWiden) {
       refilledMarkets.add(profile.marketKey);
+      fire('local-wide');
       say(`${athleteName}: slate drained (${why}) — refilling the ${profile.marketKey} pool from the market scan`);
       const _nf = nightFaults.length;
       const got = await discover('market refill', 0.05, {});
@@ -1072,6 +1093,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     // 3. Widen -- once per athlete per night, gated per athlete per market.
     if (profile.hasLocalMarket && !widenedTonight && !ctx.noWiden) {
       widenedTonight = true;
+      fire('local-wide');
       // The widen ledger is keyed on the school; a pro has none, so their
       // market (the city they play in) is the key instead.
       const widenKey = profile.school || profile.market;
@@ -1106,6 +1128,130 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           faultOf('discovery', 'widening failed: ' + e.message, 'widen');
         }
       }
+    }
+    return [];
+  }
+
+  const fresh = (list) => {
+    const out = [];
+    for (const c of (list || [])) {
+      if (!c || !c.brand_name || knownBrands.has(bk(c.brand_name))) continue;
+      knownBrands.add(bk(c.brand_name)); out.push(c);
+    }
+    return out;
+  };
+
+  // RUNG 3: A FRESH PLACES BUILD OF THIS MARKET, at the next ring out. Once per
+  // market per run (shared by every athlete in it), only when the scheduled
+  // build (services/marketPools) has not built it in the last few days, and
+  // within the run's allowance of refreshes.
+  async function placesRefresh() {
+    if (!profile.hasLocalMarket || !profile.marketKey || ctx.noWiden) return [];
+    const MP = require('../services/marketPools');
+    if (!MP.enabled()) return [];
+    const done = ctx.placesRefreshed || (ctx.placesRefreshed = new Set());
+    if (!done.has(profile.marketKey)) {
+      const maxRuns = parseInt(process.env.OUTREACH_PLACES_REFRESH_MAX_PER_RUN, 10) || 5;
+      const minDays = parseInt(process.env.OUTREACH_PLACES_REFRESH_MIN_DAYS, 10) || 3;
+      let sched = null;
+      try {
+        await MP.ensureTables(pool);
+        sched = (await pool.query(`SELECT last_built_at, last_ok, radius_m FROM market_pool_schedule WHERE market_key = $1`, [profile.marketKey])).rows[0] || null;
+      } catch (e) { faultOf('database', 'market schedule read: ' + e.message, 'places refresh'); return []; }
+      const ageDays = sched && sched.last_built_at ? (Date.now() - new Date(sched.last_built_at).getTime()) / 86400000 : Infinity;
+      if (done.size >= maxRuns) say(`${athleteName}: no Places refresh, tonight's allowance of ${maxRuns} is used`);
+      else if (ageDays < minDays && sched && sched.last_ok) say(`${athleteName}: no Places refresh, the market was built ${ageDays.toFixed(1)} day(s) ago`);
+      else {
+        done.add(profile.marketKey);
+        const ring = sched && sched.last_ok && sched.radius_m ? (MP.RADII.find((r) => r > sched.radius_m) || sched.radius_m) : MP.RADII[0];
+        say(`${athleteName}: refreshing the ${profile.marketKey} pool from Places at ${Math.round(ring / 1000)} km`);
+        const b = await MP.buildMarket(pool, { key: profile.marketKey, query: profile.school || profile.market, region: profile.market,
+          usable: 0, startRadius: ring }).catch((e) => ({ ok: false, reason: e.message, calls: 0, usable: 0 }));
+        const cost = Math.round((b.calls || 0) * Q.USD_PER_PLACES_REQUEST * 1000) / 1000;
+        spendLog.push({ brand: '[places refresh]', lane: 'market-refresh', cost, placesCalls: b.calls || 0 });
+        if (!b.ok) faultOf('google-places', `Places refresh of ${profile.marketKey} failed: ${b.reason}`, 'places refresh');
+        else say(`${athleteName}: Places refresh: ${b.usable} usable business(es) in ${profile.marketKey}, ${b.calls} request(s)`);
+      }
+    }
+    const { added } = await redraw();
+    return added;
+  }
+
+  // RUNGS 4 AND 5: deeper into the social/DTC index (matched to the athlete's
+  // reach by the index itself) and the national brands with disclosed deals.
+  async function laneRung(lane) {
+    const fn = lane === 'social' ? Scout.socialCandidates : Scout.nationalCandidates;
+    let rows = [];
+    try { rows = await fn(pool, { athlete: profile, limit: slateLimit * 3, store }); }
+    catch (e) { faultOf('database', `${lane} rung: ${e.message}`, lane + ' rung'); return []; }
+    if (rows && rows.fault) faultOf('database', rows.fault, lane + ' rung');
+    return fresh(rows);
+  }
+
+  // RUNG 6: THE HOMETOWN. The athlete's hometown market, built from Places if
+  // it has no pool. Every card from here says so (cand.hometown), and every
+  // lookup is located in that town, not the school's.
+  async function hometownRung() {
+    const home = profile.hometown || (ctx.athleteRow && ctx.athleteRow.hometown) || null;
+    if (!home) return [];
+    const hk = canonicalRegionOf(home);
+    if (!hk || hk === profile.marketKey) return [];
+    const homeProfile = { ...profile, market: home, marketKey: hk, hasLocalMarket: true };
+    const draw = async () => {
+      const sl = await Scout.assembleSlate(pool, { agentId, athlete: homeProfile, store, limit: slateLimit * 2, heldPrograms, programCap: Q.PROGRAM_SLOT_CAP, exclude: [...knownBrands] });
+      return fresh((sl.picks || []).filter((c) => c.lane === 'local'));
+    };
+    let got = await draw();
+    const MP = require('../services/marketPools');
+    const done = ctx.placesRefreshed || (ctx.placesRefreshed = new Set());
+    if (!got.length && MP.enabled() && !done.has(hk)) {
+      done.add(hk);
+      say(`${athleteName}: building the hometown pool (${home}) from Places`);
+      await MP.ensureTables(pool).catch(() => {});
+      const b = await MP.buildMarket(pool, { key: hk, query: home, region: home, usable: 0, startRadius: MP.RADII[0] })
+        .catch((e) => ({ ok: false, reason: e.message, calls: 0 }));
+      spendLog.push({ brand: '[hometown build]', lane: 'market-refresh', cost: Math.round((b.calls || 0) * Q.USD_PER_PLACES_REQUEST * 1000) / 1000, placesCalls: b.calls || 0 });
+      if (!b.ok) faultOf('google-places', `hometown build for ${home} failed: ${b.reason}`, 'hometown rung');
+      got = await draw();
+    }
+    return got.map((c) => ({ ...c, region: home, hometown: home }));
+  }
+
+  // ── THE LADDER ───────────────────────────────────────────────────────────
+  // Every call returns the next batch of NEW candidates, from the lowest rung
+  // that still has any. The bar is the same on every rung.
+  let rung = 0;
+  // opts.fromRate: the pass rate is under the floor, so this rung is not
+  // producing: climb first, and only come back to the re-draw if nothing
+  // higher has anything. Otherwise the free re-draw of the athlete's own
+  // pool (which skips everything handed out tonight) always comes first, and
+  // a rung is climbed only when it is empty. A rung that has run is not run
+  // again tonight.
+  async function refillSlate(why, opts = {}) {
+    if (!opts.fromRate) {
+      const { fresh: f, added } = await redraw();
+      slate = f;
+      if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) from the pool (${why})`); return added; }
+    }
+    for (;;) {
+      if (rung === 0) rung = 1;             // rung 1 is the re-draw above
+      const name = Q.LADDER[rung];
+      if (!name) break;
+      let added = [];
+      if (name === 'local-wide') added = await localRefill(why, { skipRedraw: true });
+      else if (name === 'places-refresh') { fire(name); added = await placesRefresh(); }
+      else if (name === 'social' || name === 'national') { fire(name); added = await laneRung(name); }
+      else if (name === 'hometown') { fire(name); added = await hometownRung(); }
+      rung++;
+      if (added.length) {
+        say(`${athleteName}: ${added.length} new candidate(s) from rung ${rung} (${name}) — ${why}`);
+        return added;
+      }
+    }
+    if (opts.fromRate) {
+      const { fresh: f, added } = await redraw();
+      slate = f;
+      if (added.length) return added;
     }
     return [];
   }
@@ -1150,29 +1296,36 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   //   - the pool drawn: re-draw, refill and widen all produced nothing new
   // A stop ends the athlete's turn for the night, and the note says which one
   // and what the counts were. The three-nights backoff remains the outer stop.
-  let stop = null, rateWidened = false, rateInfo = null;
+  // ── WHILE THE ATHLETE HOLDS FEWER THAN FIVE, AND THE CEILINGS ALLOW ─────
+  // Every rejection pulls a replacement. The fill stops for exactly one of:
+  //   time    Q.ATHLETE_TIME_CEILING_MS on this athlete
+  //   cost    Q.ATHLETE_COST_CEILING_USD on this athlete (the next lookup would pass it)
+  //   ladder  every rung of Q.LADDER tried and nothing new came back
+  //   agent-cap / share   the agent's nightly money (unchanged, below)
+  // A pass rate under the floor no longer stops anything: it moves the fill
+  // to the next rung, because this rung is not producing.
+  let stop = null, rateInfo = null, rateMark = 0, capStop = null, candidatesToFloor = null;
   for (const slot of open) {
     let placed = false;
     let slotLost = false;
     for (let attempt = 0; !placed && !stop; attempt++) {
-      // Rate floor, checked before drawing the next candidate.
-      const rs = Q.passRateStop(tried);
+      if (Date.now() - _t0 > TIME_CEILING_MS) { stop = 'time'; break; }
+      if (athleteCost() + LOOKUP_CEILING_USD > COST_CEILING_USD + 1e-9) { stop = 'cost'; break; }
+      // The rate floor, over the candidates tried since the last move: under
+      // it, move up the ladder (candidates from the new rung go next).
+      const rs = Q.passRateStop(tried.slice(rateMark));
       if (rs.stop) {
-        rateInfo = rs;
-        if (!rateWidened) {
-          rateWidened = true;
-          say(`${athleteName}: pass rate ${rs.passes}/${rs.window} is under the floor — widening before trying more`);
-          const added = await refillSlate('rate floor');
-          if (!added.length) { stop = 'rate'; break; }
-          cands.push(...added);
-        } else {
-          stop = 'rate'; break;
-        }
+        rateInfo = rs; rateMark = tried.length;
+        say(`${athleteName}: pass rate ${rs.passes}/${rs.window} is under the floor — moving up the ladder`);
+        const added = await refillSlate('rate floor', { fromRate: true });
+        // Nothing higher up: keep working what is left on this rung. Only an
+        // empty slate AND an empty ladder ends the night.
+        if (added.length) cands.splice(ci, 0, ...added);
       }
-      // Drained: ask for more before giving up on the slot.
+      // Drained: ask the ladder for more before giving up on the slot.
       if (ci >= cands.length) {
         const added = await refillSlate('slate drained');
-        if (!added.length) { stop = 'drawn'; break; }
+        if (!added.length) { stop = 'ladder'; break; }
         cands.push(...added);
       }
       const cand = cands[ci++];
@@ -1186,9 +1339,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         // the agent's CAP ends the night. Reporting both as cappedOut is what
         // made one athlete's spending stop everyone after them.
         const potGone = !budget.canSpendFromPot(LOOKUP_CEILING_USD);
-        return { filled, open: open.length, cappedOut: potGone, shareSpent: !potGone,
-          tried, note: why, spendLog, emptyReason: Scout.EMPTY.CAPPED,
-          faults: tried.filter((t) => t && t.fault).length };
+        capStop = { potGone, why };
+        stop = potGone ? 'agent-cap' : 'share';
+        break;
       }
       // ── RESTRICTED, BY NAME, IN EVERY LANE: no lookup, no card ──────────
       // Before the lanes split, so a social or national brand is checked too
@@ -1449,7 +1602,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       let place = null;
       try {
-        const _pr = await lookupPlaceResult(cand.brand_name || cand.brand_key, region || '');
+        const _pr = await lookupPlaceResult(cand.brand_name || cand.brand_key, cand.region || region || '');
         place = _pr.place;
         // COULD NOT ASK is not "not on Places" (services/ourFault).
         if (!_pr.ok && _pr.reason !== 'no-query') faultOf('google-places', `lookup unavailable (${_pr.reason})`, 'places lookup');
@@ -1495,7 +1648,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           { site: 'contacts', agentId, athleteId, brand: cand.brand_name },
           () => ai.getBrandContacts(
             cand.brand_name || cand.brand_key, null,
-            region || '', ai.deepContactCtx({ market: null, lean: true }))));
+            cand.region || region || '', ai.deepContactCtx({ market: null, lean: true }))));
         out = m.result;
         meter = m.meter;
       } catch (e) {
@@ -1663,7 +1816,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       if (NAME_REQUIRED && !Q.greetNameOf(ladder)) {
         let found = null;
         try {
-          found = await finalNameFor(cand.brand_name, region || (facts && facts.city) || '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null });
+          found = await finalNameFor(cand.brand_name, cand.region || region || (facts && facts.city) || '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null });
         } catch (e) {
           // Could not search is not "no name found" (services/ourFault).
           say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
@@ -1741,6 +1894,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             // of it and nothing else about the business; with none, nothing.
             evidence: WriterEvidence.evidenceFor(cand),
             isFranchise: !!(out && out.siteEmail && out.siteEmail.corporate),
+            // Rung 6 of the ladder: a business in the athlete's HOMETOWN.
+            inHometown: cand.hometown || null,
           },
           athlete: { ...(ctx.athleteProfile || { name: athleteName }), partnershipCount,
             instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,
@@ -1860,10 +2015,46 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       break;
     }
+    if (placed && filled === open.length && candidatesToFloor === null) candidatesToFloor = tried.length;
     if (stop) break;
     if (!placed && !slotLost) say(`slot ${slot}: nothing passed the bar`);
   }
-  if (stop) say(`${athleteName}: stopped (${stop === 'rate' ? 'pass rate under the floor after widening' : 'pool drawn, refill and widen found nothing new'}) with ${filled} of ${open.length} slot(s) filled`);
+  const STOP_TEXT = {
+    time: `the time ceiling (${(TIME_CEILING_MS / 60000).toFixed(1)} min) for this athlete`,
+    cost: `the cost ceiling ($${COST_CEILING_USD.toFixed(2)}) for this athlete`,
+    ladder: 'every rung of the ladder, with nothing new left',
+    'agent-cap': "the agent's nightly cap", share: "this athlete's share of the agent's nightly cap",
+  };
+  const loop = {
+    stop: stop || (filled === open.length ? 'floor' : null),
+    candidates: tried.length, candidatesToFloor, rungs: rungsFired.slice(),
+    elapsedMs: Date.now() - _t0, costUsd: Math.round(athleteCost() * 1000) / 1000,
+    held: Q.SLOTS_PER_ATHLETE - open.length + filled, floor: Q.SLOTS_PER_ATHLETE,
+    byLane: tried.reduce((m, t) => {
+      const k = (t && t.lane) || 'local';
+      m[k] = m[k] || { tried: 0, passed: 0 };
+      m[k].tried++; if (t && t.result === 'queued') m[k].passed++;
+      return m;
+    }, {}),
+  };
+  say(`${athleteName}: ${loop.held} of ${loop.floor} cards after ${loop.candidates} candidate(s), `
+    + `${(loop.elapsedMs / 1000).toFixed(0)}s, $${loop.costUsd.toFixed(2)}; rungs ${loop.rungs.join(' > ')}; `
+    + `stopped by ${stop ? STOP_TEXT[stop] || stop : 'the floor: five held'}`);
+  // ── SHORT OF FIVE: SHIP WHAT THERE IS, AND SAY SO LOUDLY ─────────────────
+  // The bar never moved; the cards that passed are on the agent's screen. The
+  // shortfall is an alert (services/ourFault -> service_faults -> the morning
+  // alert and the status page) naming the athlete, the count and the rungs.
+  // Not a nightFault: it must not change how the pause counts the night.
+  if (loop.held < loop.floor && !dry) {
+    OF.record('nightly-floor', `${athleteName}: ${loop.held} of ${loop.floor} cards after ${loop.candidates} candidate(s); `
+      + `stopped by ${stop ? STOP_TEXT[stop] || stop : 'unknown'}; rungs tried: ${loop.rungs.join(', ')}`, 'fill athlete=' + athleteId)
+      .catch(() => {});
+  }
+  if (capStop) {
+    return { filled, open: open.length, cappedOut: capStop.potGone, shareSpent: !capStop.potGone,
+      tried, note: capStop.why, spendLog, emptyReason: filled ? null : Scout.EMPTY.CAPPED,
+      faults: tried.filter((t) => t && t.fault).length, loop, stop };
+  }
 
   // OUR FAILURES, COUNTED. A lookup that threw is not a business that could not
   // be reached; it is a night we could not measure. recordAttempt refuses to
@@ -1876,7 +2067,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // week, how many were reachable, how many widens -- and what to do next.
   // Read by the empty tab (homeQueue lastRun) and the shift report verbatim.
   let stopNote = null;
-  if (stop && filled < open.length && !nightFaults.length && !tried.some((t) => t && t.fault)) {
+  if (stop === 'ladder' && filled < open.length && !nightFaults.length && !tried.some((t) => t && t.fault)) {
     let triedWeek = tried.length, reachableWeek = tried.filter((t) => t && t.result === 'queued').length, widenedWeek = 0;
     try {
       const prior = await pool.query(
@@ -1916,7 +2107,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     // from the run row rather than the process log.
     lanes: slate.lanes || null, dropped: slate.dropped || null,
     // Which stop ended the night, if one did, and the pass rate that decided it.
-    stop: stop || null, rate: rateInfo || null,
+    stop: stop || null, rate: rateInfo || null, loop,
     discoveryUsd: (budget.discoverySpent ? budget.discoverySpent() : 0) + (budget.widenSpent ? budget.widenSpent() : 0) };
 }
 
@@ -1951,7 +2142,13 @@ async function fillAgent(pool, agent, opts) {
   // A flat discovery pot handed a 30-athlete agent the same budget as a
   // 3-athlete agent, and the first two athletes spent it. Sized here, where
   // the roster length is finally known, and shared per athlete by openFor.
-  budget = Q.newBudget(CAP_USD, undefined, { rosterSize: athletes.length });
+  // THE CAP COVERS EVERY ATHLETE'S CEILING. The fill now runs until five or
+  // until an athlete's own ceiling (Q.ATHLETE_COST_CEILING_USD); a flat $8 for
+  // a 30-athlete roster would stop it at the cap long before any ceiling. The
+  // cap is still the hard stop, sized as the larger of the configured cap and
+  // the roster times the per-athlete ceiling.
+  const nightCap = Math.max(CAP_USD, athletes.length * Q.ATHLETE_COST_CEILING_USD);
+  budget = Q.newBudget(nightCap, undefined, { rosterSize: athletes.length });
   console.log(`[queue] agent=${agent.id} roster=${athletes.length} discovery pot ${budget.discoveryCap().toFixed(2)} `
     + `(${Q.DISCOVERY_PER_ATHLETE_USD.toFixed(2)} an athlete, floor ${Q.DISCOVERY_CAP_USD.toFixed(2)}), `
     + `widen allowance ${budget.widenCap().toFixed(2)} (${Q.WIDEN_PER_ATHLETE_USD.toFixed(2)} an athlete)`);
@@ -2063,6 +2260,11 @@ async function fillAgent(pool, agent, opts) {
       // athlete" is answerable from the run row rather than estimated.
       spentUsd: Math.round((budget.spent() - before) * 10000) / 10000,
       spendLog: r.spendLog || [],
+      // THE LOOP (see the fill): what stopped it, how many candidates it
+      // chewed through, how many it took to reach five, which rungs fired,
+      // the time and money on this athlete, and pass rate by lane.
+      // scripts/floor-report.js and /admin/scan-rejects read this.
+      loop: r.loop || null,
     });
     // ── THE BACKOFF IS DECIDED AFTER THE RUN, NOT DURING IT ────────────────
     // This called recordAttempt inline, so each athlete was judged in isolation

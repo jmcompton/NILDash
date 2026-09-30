@@ -439,7 +439,11 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
 // LOCAL BINDS TO THE SCHOOL CITY. Social and national do not: a brand that ships
 // product does not care where the athlete lives. That rule is enforced here by
 // which pools are consulted at all, not by filtering afterwards.
-async function localCandidates(pool, { agentId, athlete, limit }) {
+async function localCandidates(pool, { agentId, athlete, limit, exclude }) {
+  // EXCLUDE: names already handed out tonight (lowercased). The nightly loop
+  // re-draws until the athlete holds five; without this the read returned the
+  // same top rows every time and a 72-business market ran dry after 31.
+  const excl = Array.isArray(exclude) ? exclude.map((x) => String(x || '').toLowerCase()).filter(Boolean) : [];
   if (!athlete.hasLocalMarket) return { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
   const T = tablesOf(athlete);
   // A query that FAILED is not an empty pool (services/ourFault): it is kept
@@ -476,8 +480,9 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
         AND be.lane = 'local'
         AND NOT EXISTS (SELECT 1 FROM ${T.queue} q
                          WHERE q.${T.key} = be.${T.key} AND q.brand_key = be.brand_key)
+        AND NOT (LOWER(be.brand_name) = ANY($4::text[]))
       ORDER BY be.last_shown_at DESC NULLS LAST
-      LIMIT $2`, [athlete.id, limit * 3, athlete.marketKey || null]);
+      LIMIT $2`, [athlete.id, limit * 3, athlete.marketKey || null, excl]);
 
   // b. THE POOL THAT WAS NEVER READ. Businesses the market scan discovered and
   //    passed over, plus any discovered since. This is what stops a market going
@@ -498,6 +503,7 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
             m.category, m.has_evidence, m.evidence AS evidence_text${T.poolColumns}
        FROM ${T.pool} m
       WHERE m.market_key = $1
+        AND NOT (LOWER(m.brand) = ANY($4::text[]))
         -- ── A BRAND FELL THROUGH BOTH POOLS AND VANISHED ───────────────────
         -- This excluded a brand with ANY brand_engagement row, at any state.
         -- The shown pool above requires lane = 'local' and deliberately drops
@@ -537,7 +543,7 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
                          WHERE LOWER(sb.brand) = LOWER(m.brand))` : ''}
         ${T.poolWhere}
       ORDER BY ${T.poolOrder}
-      LIMIT $3`, [athlete.marketKey, athlete.id, limit * T.poolLimitFactor]) : [];
+      LIMIT $3`, [athlete.marketKey, athlete.id, limit * T.poolLimitFactor, excl]) : [];
 
   // EACH POOL EARNS ITS LANE, rather than everything being stamped local on the
   // way out. The blanket `lane: 'local'` here was the second of four places that
@@ -671,7 +677,7 @@ async function assembleSlate(pool, ctx) {
   const signals = subject.sponsorSignals
     ? await schoolSponsorSignals(pool, athlete.school, { agentId }) : new Map();
   const local = subject.lanes.local
-    ? await localCandidates(pool, { agentId, athlete, limit }) : { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
+    ? await localCandidates(pool, { agentId, athlete, limit, exclude: ctx.exclude }) : { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
   let social = subject.lanes.social ? await socialCandidates(pool, { athlete, limit, store }) : [];
   let national = subject.lanes.national ? await nationalCandidates(pool, { limit, store }) : [];
   // Our failures building the pools (services/ourFault), carried on the slate

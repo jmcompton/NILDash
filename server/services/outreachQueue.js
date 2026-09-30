@@ -1069,7 +1069,29 @@ function priceOf(meter) {
 //   note is a sentence with counts -- how many tried this week, how many were
 //   reachable, how many widens -- and what to do next. Not "none passed the bar".
 //
+// ── THE OUTCOME-DRIVEN FILL: FIVE, OR A CEILING ─────────────────────────────
+// The fill runs until the athlete holds SLOTS_PER_ATHLETE approvable cards. It
+// stops for one of three things only, and says which:
+//   time   ATHLETE_TIME_CEILING_MS spent on this athlete tonight
+//   cost   ATHLETE_COST_CEILING_USD spent on this athlete's lookups and scans
+//   ladder every rung of LADDER tried and nothing new came back
+// (and the agent's nightly cap, the hard money stop above everything).
+// A candidate count is never a stop: a rejection pulls a replacement.
+const ATHLETE_TIME_CEILING_MS = parseInt(process.env.OUTREACH_ATHLETE_TIME_CEILING_MS, 10) || 10 * 60 * 1000;
+const ATHLETE_COST_CEILING_USD = parseFloat(process.env.OUTREACH_ATHLETE_COST_CEILING_USD) || 1.50;
+// Where the replacements come from, in order. The bar never moves; only the
+// place the next candidate is drawn from does.
+//   local          the athlete's market pool at the normal radius (the slate, re-drawn)
+//   local-wide     the market refill and the widen into neighbouring towns
+//   places-refresh a fresh Places build of the market at the next ring
+//   social         social / DTC brands matched to the athlete's reach
+//   national       national brands with disclosed NIL deals
+//   hometown       the athlete's hometown market
+const LADDER = ['local', 'local-wide', 'places-refresh', 'social', 'national', 'hometown'];
+
 // The three-nights-then-pause backoff stays as the outer stop, unchanged.
+// The pass rate below no longer STOPS the fill: under the floor, the fill
+// moves to the next rung of the ladder instead.
 const RATE_FLOOR = 1 / 8;
 const RATE_WINDOW = 8;
 // A separate pot for DISCOVERY -- cold-market scans and widens -- so finding
@@ -1242,6 +1264,7 @@ module.exports = {
   inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor, routeOf, genericRowsOf,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
   passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD, WIDEN_PER_ATHLETE_USD,
+  ATHLETE_TIME_CEILING_MS, ATHLETE_COST_CEILING_USD, LADDER,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
   waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf, greetRowOf, ensureGreeting, emailNoteOf,

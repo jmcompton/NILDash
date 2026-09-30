@@ -1004,6 +1004,10 @@ function describeBusiness(b) {
   L.push('Name: ' + name);
   if (b.category) L.push('Google category: ' + String(b.category).replace(/_/g, ' '));
   if (b.address) L.push('Where: ' + b.address);
+  // A business in the athlete's hometown, not their college town (the nightly
+  // ladder's last rung). The connection is that they grew up there.
+  if (b.inHometown) L.push(`This business is in the athlete's HOMETOWN, ${b.inHometown}, not where they go to school. `
+    + 'The connection is that they grew up there: say so, and do not call it their college town.');
   if (b.rating != null && b.userRatingCount != null) {
     L.push(`Reviews: ${b.rating} stars from ${b.userRatingCount} reviews`
       + (b.userRatingCount >= 300 ? ' (well established locally)'

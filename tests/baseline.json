@@ -417,6 +417,11 @@
       "total": 19,
       "fault": null
     },
+    "floorloop.js": {
+      "failed": 0,
+      "total": 21,
+      "fault": null
+    },
     "funnel.js": {
       "failed": 0,
       "total": 40,
