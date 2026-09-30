@@ -114,8 +114,12 @@ async function main() {
                   WHERE market_key = $1 AND category <> 'restaurant'`, [MK]);
   const rankOnly = await S.assembleSlate(P, { agentId: AG, athlete: A(), store, limit: 5, explain: true });
   const topFive = (rankOnly.considered || []).slice(0, 5);
-  ok('on rank alone the top five ARE all restaurants',
-    topFive.length === 5 && topFive.every((c) => c.category === 'restaurant'),
+  // THE READ NO LONGER LETS THEM. Making the restaurants the most recently
+  // seen used to put all five at the top, because the pool was read by
+  // last_seen_at. The athlete read now takes one of each kind first
+  // (scout SUBJECT_TABLES.athlete.poolOrder), so recency cannot stack a kind.
+  ok('recency no longer stacks one kind: the read itself spreads the top five',
+    topFive.length === 5 && new Set(topFive.map((c) => c.category)).size >= 3,
     topFive.map((c) => c.brand + ':' + c.category + ':' + c.fit));
   let sl = rankOnly;
   ok('five picks', sl.picks.length === 5, names(sl));

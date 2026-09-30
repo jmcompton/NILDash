@@ -697,6 +697,11 @@
       "total": 41,
       "fault": null
     },
+    "nightlyfixes.js": {
+      "failed": 0,
+      "total": 19,
+      "fault": null
+    },
     "noagentname.js": {
       "failed": 0,
       "total": 50,
