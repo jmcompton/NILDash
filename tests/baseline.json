@@ -567,6 +567,11 @@
       "total": 8,
       "fault": null
     },
+    "instagram.js": {
+      "failed": 0,
+      "total": 42,
+      "fault": null
+    },
     "keeprate.js": {
       "failed": 0,
       "total": 13,

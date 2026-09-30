@@ -1313,6 +1313,14 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   if (existing.agentId !== req.session.userId && user.email !== ADMIN_EMAIL)
     return res.status(403).json({ error: 'Forbidden' });
   const patch = { ...req.body };
+  // ── A CONNECTED INSTAGRAM IS THE ONLY SOURCE OF ITS NUMBERS ───────────────
+  // (services/instagramConnect). The profile form still posts its old fields,
+  // blank or stale; for a connected athlete they are dropped, so a save can
+  // never overwrite the real follower count or rate with a typed or empty one.
+  if (await require('./services/instagramConnect').isConnected(store.pool, req.params.id)) {
+    for (const k of ['instagram', 'engagement', 'engagementSource', 'engagementAsOf', 'reachSource', 'reachAsOf',
+      'igStatsSource', 'igStatsFetchedAt', 'instagramHandle']) delete patch[k];
+  }
   // The same validation the create path uses. A spread would let a junk birthday
   // straight through here and the compliance gate would resolve minor status
   // from it -- an unvalidated date is worse than none, because none holds.
@@ -2933,7 +2941,10 @@ app.post('/api/athletes/:id/fetch-social-stats', requireAuth, statsLimiter, asyn
   // The handle always saves. Numbers, the source label, and the fetched-at
   // timestamp only update when a real value was actually found, so a failed
   // lookup never relabels a manually entered number.
-  if (!isNew && athlete) {
+  // A connected athlete's numbers come from Instagram itself; a third-party
+  // estimate is never written over them.
+  const _igLive = !isNew && athlete && await require('./services/instagramConnect').isConnected(store.pool, id);
+  if (!isNew && athlete && !_igLive) {
     try {
       const merged = { ...athlete, agentId: athlete.agentId };
       merged.instagramHandle = handle;
@@ -6978,6 +6989,12 @@ app.get('/api/athlete/stripe-complete', async (req, res) => {
     res.redirect('/athletes?error=server_error');
   }
 });
+
+// ── INSTAGRAM CONNECT (routes/instagram, services/instagramConnect) ──────────
+// The athlete authorises once from a link the agent sends; real follower and
+// engagement numbers from then on. Athlete page, OAuth, Meta's deauthorize and
+// data-deletion callbacks, and the agent's invite/status/sync endpoints.
+require('./routes/instagram').mount(app, { store, requireAuth });
 
 // POST /api/agents/athletes/:id/invite-token — agent generates new invite token
 app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) => {
@@ -14905,6 +14922,21 @@ try {
   console.error('[market-pools] scheduler failed to start:', e.message);
 }
 
+// ── Instagram connect: token refresh and nightly stats (services/instagramConnect)
+// Once per Central date, 5-7am: refresh every long-lived token within
+// INSTAGRAM_REFRESH_DAYS_LEFT (20) days of expiry, then re-fetch every
+// connected athlete. A token that cannot be refreshed is an alert
+// (service_faults 'instagram-token', read by the morning alert).
+try {
+  const IGC = require('./services/instagramConnect');
+  const igTick = () => { IGC.tick(store.pool).catch((e) => console.error('[instagram] tick failed:', e.message)); };
+  setTimeout(igTick, 4 * 60 * 1000);
+  setInterval(igTick, 15 * 60 * 1000);
+  console.log(`[instagram] scheduled: token refresh and stats sync once a night 5-7am Central${IGC.configured() ? '' : ' (INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET not set: nothing to refresh until they are)'}`);
+} catch (e) {
+  console.error('[instagram] scheduler failed to start:', e.message);
+}
+
 // ── The preflight (services/preflight) ──────────────────────────────────────
 // Half an hour before the nightly window: one real call to every external
 // service the night depends on, results in service_checks, and an immediate
@@ -17056,6 +17088,19 @@ app.get('/api/media-kit/:slug', async (req, res) => {
     recordKitView(req, mk, forSlug || null, brandLabel || null);
 
     const { variants: _v, ...mkPublic } = mk;
+    // ── CONNECTED INSTAGRAM WINS (services/instagramConnect) ───────────────
+    // The kit's own Instagram fields are hand-typed. When the athlete has
+    // connected, the stored numbers from Instagram replace them, with the date
+    // they were fetched; when not, the kit is unchanged.
+    try {
+      const ig = await require('./services/instagramConnect').latestFor(store.pool, mk.athlete_id);
+      if (ig) {
+        if (ig.followers_count !== null) mkPublic.instagram_followers = Number(ig.followers_count);
+        if (ig.username) mkPublic.instagram_handle = ig.username;
+        mkPublic.instagram_engagement = ig.engagement_rate !== null ? (Math.round(Number(ig.engagement_rate) * 1000) / 10) + '%' : null;
+        mkPublic.instagram_live = { source: 'instagram', fetchedAt: ig.fetched_at };
+      }
+    } catch (e) { console.warn('[api/media-kit] instagram stats unavailable:', e.message); }
     res.json({
       ...mkPublic,
       athlete_name: ath.name || '',

@@ -745,6 +745,59 @@
       "id": "SERIAL",
       "run_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "instagram_connect_tokens": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "expires_at": "TIMESTAMPTZ",
+      "revoked_at": "TIMESTAMPTZ",
+      "token": "TEXT",
+      "used_at": "TIMESTAMPTZ"
+    },
+    "instagram_connections": {
+      "access_token_enc": "TEXT",
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "connected_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "ig_user_id": "TEXT",
+      "last_sync_error": "TEXT",
+      "last_synced_at": "TIMESTAMPTZ",
+      "status": "TEXT DEFAULT 'connected'",
+      "status_reason": "TEXT",
+      "token_expires_at": "TIMESTAMPTZ",
+      "token_issued_at": "TIMESTAMPTZ",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "username": "TEXT"
+    },
+    "instagram_deletion_requests": {
+      "athlete_ids": "TEXT[]",
+      "completed_at": "TIMESTAMPTZ",
+      "confirmation_code": "TEXT",
+      "ig_user_id": "TEXT",
+      "requested_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "status": "TEXT DEFAULT 'received'"
+    },
+    "instagram_stats": {
+      "athlete_id": "TEXT",
+      "avg_comments": "NUMERIC",
+      "avg_likes": "NUMERIC",
+      "engagement_rate": "NUMERIC",
+      "fetched_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "followers_count": "INT",
+      "follows_count": "INT",
+      "id": "SERIAL",
+      "ig_user_id": "TEXT",
+      "media_count": "INT",
+      "posts": "JSONB",
+      "posts_counted": "INT",
+      "username": "TEXT"
+    },
+    "instagram_sync_runs": {
+      "finished_at": "TIMESTAMPTZ",
+      "run_date": "DATE",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "summary": "JSONB"
+    },
     "kit_open_notifications": {
       "agent_id": "TEXT",
       "dedupe_key": "TEXT",

@@ -3606,23 +3606,26 @@ tbody td{padding:11px 14px;vertical-align:middle}
                    handle greyed into the box. Invented, and matching the "e.g."
                    form the rest of this modal uses. -->
               <input class="input-sm" id="a_handle" placeholder="e.g. paige.briggs" style="flex:1">
-              <button class="run-btn" onclick="fetchStatsForForm()" id="a-fetch-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">Fetch stats</button>
+              <!-- Third-party "Fetch stats" is gone: its counts were wrong. Numbers
+                   come from the athlete's connected Instagram (the panel below). -->
+              <button class="run-btn" onclick="fetchStatsForForm()" id="a-fetch-btn" style="display:none">Fetch stats</button>
             </div>
             <div id="a-fetch-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
           </div>
           <div class="form-row" style="margin-bottom:4px">
             <div>
-              <label class="form-label-sm">Instagram Followers</label>
-              <input class="input-sm" id="a_ig" type="number" placeholder="45000" oninput="flagStatManual('ig')">
-              <div id="a-ig-src" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
+              <label class="form-label-sm">Instagram</label>
+              <!-- INSTAGRAM CONNECT (services/instagramConnect). Followers and
+                   engagement come from the athlete's own Instagram once they tap
+                   the link; they are never typed here. The old inputs stay as
+                   hidden fields so nothing that reads them breaks, and the
+                   server ignores them for a connected athlete. -->
+              <input id="a_ig" type="hidden"><div id="a-ig-src" style="display:none"></div>
+              <div id="a-ig-connect" style="font-size:12px;color:var(--muted);padding:8px 10px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface)">Save the client, then send them the Instagram link from here.</div>
             </div>
             <div><label class="form-label-sm">TikTok Followers</label><input class="input-sm" id="a_tt" type="number" placeholder="120000"></div>
           </div>
-          <div class="form-group-sm">
-            <label class="form-label-sm">Engagement Rate (%)</label>
-            <input class="input-sm" id="a_eng" type="number" step="0.1" placeholder="6.2" oninput="flagStatManual('eng')">
-            <div id="a-eng-src" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
-          </div>
+          <input id="a_eng" type="hidden"><div id="a-eng-src" style="display:none"></div>
           <div class="form-group-sm"><label class="form-label-sm">Notes</label><input class="input-sm" id="a_notes" placeholder="Draft year, brand restrictions, etc."></div>
           <div class="form-group-sm" id="a_year_wrap"><label class="form-label-sm">Year</label>
             <select class="select-sm" id="a_year" onchange="acYearChanged()">
@@ -6190,6 +6193,7 @@ async function loadAthletes() {
     athletes = await r.json();
     window.athletes = athletes;
     window._allAthletes = athletes;
+    await loadIgStatus();
     renderRoster();
     populateAthleteSelect();
     populatePitchClientDropdown();
@@ -6339,7 +6343,6 @@ async function renderRoster() {
     return;
   }
   grid.innerHTML = athletes.map(a => {
-    const reach = (a.instagram + a.tiktok).toLocaleString();
     return `<div class="athlete-card ${a.id===selectedAthleteId?'selected':''}" onclick="selectAthlete('${a.id}')">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <div style="width:36px;height:36px;border-radius:50%;background:${ ['rgba(74,222,128,0.15)','rgba(96,165,250,0.15)','rgba(245,158,11,0.15)','rgba(167,139,250,0.15)'][Math.abs((a.name||'').charCodeAt(0))%4] };display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${ ['#4ade80','#60a5fa','#f59e0b','#a78bfa'][Math.abs((a.name||'').charCodeAt(0))%4] };flex-shrink:0">${ (a.name||'?').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase() }</div>
@@ -6347,14 +6350,7 @@ async function renderRoster() {
       </div>
       <div class="ac-meta">${escHtml(a.sport)} · ${escHtml(a.position || '')} · ${escHtml(a.athleteType === 'pro' ? (a.team || 'Team not set') : (a.school || 'School not set'))}</div>
       <div class="ac-meta" style="font-size:10px;margin-top:2px">${escHtml(a.year || '')} ${a.stats ? '· ' + escHtml(a.stats) : ''}</div>
-      <div class="ac-stats">
-        <div class="ac-stat"><span>${reach}</span> reach</div>
-        <div class="ac-stat"><span>${a.engagement}%</span> eng</div>
-      </div>
-      ${a.instagramHandle ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px">
-        <span style="font-size:10px;color:var(--muted)">@${escHtml(a.instagramHandle)}${(a.igStatsSource==='instagram_page'||a.igStatsSource==='web_estimate') && a.igStatsFetchedAt ? ' · ' + statSourceLabel(a.igStatsSource, new Date(a.igStatsFetchedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})) : (a.igStatsSource==='manual' ? ' · Manual' : '')}</span>
-        <button onclick="event.stopPropagation();refreshAthleteStats('${a.id}', this)" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:3px 8px;cursor:pointer;white-space:nowrap;font-weight:600">Refresh stats</button>
-      </div>` : ''}
+      ${igStatusBlock(a)}
       <div style="margin-top:10px;margin-bottom:8px">
         <textarea
           onclick="event.stopPropagation()"
@@ -6652,6 +6648,74 @@ function resetAthleteForm() {
   const err = document.getElementById('addAthleteError'); if (err) err.textContent = '';
   const btn = document.getElementById('saveAthleteBtn');
   if (btn) { btn.textContent = 'Save Client →'; btn.setAttribute('onclick', 'addAthlete()'); }
+  renderIgConnectPanel(null);
+}
+
+// ── INSTAGRAM CONNECT, AGENT SIDE (services/instagramConnect) ───────────────
+// Per athlete: connected / not connected / token expired / disconnected, the
+// last sync, and a link to copy or text. An unconnected athlete says "not
+// connected" -- never "0 followers", never "0% eng".
+let igStatus = {};
+async function loadIgStatus() {
+  try {
+    const r = await fetch(`${API_BASE}/api/agents/instagram/status`, { credentials: 'include' });
+    if (r.ok) igStatus = (await r.json()).athletes || {};
+  } catch (e) { /* the roster still renders; statuses read as not connected */ }
+}
+function igFmt(n) { n = Number(n); return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'K' : n.toLocaleString(); }
+function igWhen(d) { return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }
+function igStatusHtml(id) {
+  const s = igStatus[id] || { status: 'not_connected' };
+  if (s.status === 'connected') {
+    const bits = [];
+    if (s.followers !== null && s.followers !== undefined) bits.push(`<b style="color:var(--text)">${igFmt(s.followers)}</b> followers`);
+    if (s.engagementRate !== null && s.engagementRate !== undefined) bits.push(`<b style="color:var(--text)">${(s.engagementRate * 100).toFixed(1)}%</b> eng`);
+    return `<span style="color:var(--accent);font-weight:600">Instagram connected</span>${s.username ? ' · @' + escHtml(s.username) : ''}`
+      + (bits.length ? `<br>${bits.join(' · ')}` : '')
+      + `<br><span style="font-size:10px">${s.lastSyncedAt ? 'Last sync ' + igWhen(s.lastSyncedAt) : 'Not synced yet'}${s.lastSyncError ? ' · last sync failed' : ''}</span>`;
+  }
+  if (s.status === 'expired') return `<span style="color:var(--red);font-weight:600">Instagram token expired</span><br><span style="font-size:10px">Send a new link to reconnect${s.lastSyncedAt ? ' · last sync ' + igWhen(s.lastSyncedAt) : ''}</span>`;
+  if (s.status === 'disconnected') return `<span style="color:var(--muted);font-weight:600">Instagram disconnected</span><br><span style="font-size:10px">${escHtml(s.reason || 'Removed by the athlete')}</span>`;
+  return `<span style="color:var(--muted);font-weight:600">Instagram not connected</span>`
+    + (s.inviteExpiresAt ? `<br><span style="font-size:10px">Link sent, good until ${igWhen(s.inviteExpiresAt)}</span>` : '');
+}
+function igButtonsHtml(id) {
+  const s = igStatus[id] || { status: 'not_connected' };
+  const label = s.status === 'connected' ? 'New link' : 'Copy link';
+  return `<div style="display:flex;gap:6px;margin-top:6px">
+    <button onclick="event.stopPropagation();igInvite('${id}','copy',this)" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:5px;cursor:pointer;font-weight:600">${label}</button>
+    <button onclick="event.stopPropagation();igInvite('${id}','text',this)" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:5px;cursor:pointer;font-weight:600">Text link</button>
+  </div>`;
+}
+function igStatusBlock(a) {
+  // TikTok is still entered by hand; it shows only when there is a number.
+  const tt = Number(a.tiktok) > 0 ? `<div style="font-size:10px;color:var(--muted);margin-top:4px">TikTok ${igFmt(a.tiktok)} (entered by hand)</div>` : '';
+  return `<div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5">${igStatusHtml(a.id)}</div>${tt}${igButtonsHtml(a.id)}`;
+}
+function renderIgConnectPanel(id) {
+  const el = document.getElementById('a-ig-connect');
+  if (!el) return;
+  if (!id) { el.innerHTML = 'Save the client, then send them the Instagram link from here.'; return; }
+  el.innerHTML = igStatusHtml(id) + igButtonsHtml(id);
+}
+async function igInvite(id, how, btn) {
+  const old = btn ? btn.textContent : '';
+  if (btn) btn.textContent = '…';
+  try {
+    const r = await fetch(`${API_BASE}/api/agents/athletes/${encodeURIComponent(id)}/instagram-invite`, { method: 'POST', credentials: 'include' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'could not create a link');
+    if (how === 'text') {
+      window.location.href = j.sms;
+      try { await navigator.clipboard.writeText(j.text); } catch (e) {}
+      showToast('Opening Messages. The message and link are also copied.');
+    } else {
+      try { await navigator.clipboard.writeText(j.url); showToast('Instagram link copied. It works once and expires in 14 days.'); }
+      catch (e) { window.prompt('Copy this link and send it to your athlete:', j.url); }
+    }
+    await loadIgStatus(); renderRoster(); if (_editingAthleteId === id) renderIgConnectPanel(id);
+  } catch (e) { showToast('Could not create the link: ' + e.message); }
+  finally { if (btn) btn.textContent = old; }
 }
 
 async function editAthlete(id) {
@@ -6684,6 +6748,7 @@ async function editAthlete(id) {
   const pwEl = document.getElementById('a_productwants'); if (pwEl) pwEl.value = a.productWants || '';
   _statFetchedSource = a.igStatsSource || null;  // preserve existing source unless re-fetched/edited
   renderStatSourceLabels(a);
+  renderIgConnectPanel(a.id);
   document.getElementById('a_notes').value = a.notes || '';
   const ppgEl = document.getElementById('a_ppg'); if (ppgEl) ppgEl.value = a.ppg || '';
   const rpgEl = document.getElementById('a_rpg'); if (rpgEl) rpgEl.value = a.rpg || '';

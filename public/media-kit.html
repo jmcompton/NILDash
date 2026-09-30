@@ -473,6 +473,9 @@ function render(data){
       '<div class="mk-stat-num">' + esc(count) + '</div>' +
       (n.handle ? '<div class="mk-stat-sub">@' + esc(n.handle) + '</div>' : '') +
       (n.eng ? '<div class="mk-stat-eng">' + esc(n.eng) + ' engagement</div>' : '') +
+      // Numbers from the athlete's connected Instagram carry where and when.
+      (n.key === 'instagram' && data.instagram_live && data.instagram_live.fetchedAt
+        ? '<div class="mk-stat-sub" style="opacity:.7">From Instagram, ' + esc(new Date(data.instagram_live.fetchedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })) + '</div>' : '') +
     '</div>';
   });
   if (reach > 0){
