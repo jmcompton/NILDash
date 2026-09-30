@@ -1167,9 +1167,14 @@
       "total": 42,
       "fault": null
     },
+    "teamfloor.js": {
+      "failed": 0,
+      "total": 8,
+      "fault": null
+    },
     "teamscan.js": {
       "failed": 0,
-      "total": 63,
+      "total": 64,
       "fault": null
     },
     "turns.js": {

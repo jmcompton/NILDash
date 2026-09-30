@@ -95,6 +95,12 @@ async function main() {
     console.log('\nNOT WRITTEN');
     for (const s of r.skipped) console.log(`  ${s.brand}: ${s.why}`);
   }
+  if (r.loop) {
+    const L = r.loop;
+    console.log(`\nTHE FLOOR  ${L.held} of ${L.floor} asks after ${L.candidates} candidate(s)`
+      + `${L.candidatesToFloor != null ? ` (reached ${L.floor} at candidate ${L.candidatesToFloor})` : ''}; stopped by ${L.stop}; `
+      + `rungs ${L.rungs.join(' > ')}; ${(L.elapsedMs / 1000).toFixed(0)}s, $${L.costUsd.toFixed(2)} in writer calls, ${L.placesCalls} Places request(s)`);
+  }
   if (r.drafts.length) {
     console.log(`\nASKS WRITTEN  ${r.drafts.length}, all awaiting approval in university_drafts`);
     for (const d of r.drafts) {

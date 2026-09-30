@@ -168,9 +168,10 @@ function cityOf(address) {
 // ── DISCOVERY: Places around the campus address, into the university pool ──
 // `places` is injectable for tests; the default is placesMarket, which reads
 // GOOGLE_PLACES_API_KEY from the environment (never passed or printed here).
-async function discover(pool, { university, marketKey, places }) {
+async function discover(pool, { university, marketKey, places, radiusM }) {
   const P = places || require('./placesMarket');
-  const built = await P.buildMarketPoolFromPlaces(university.location, { source: 'team-scan' });
+  // radiusM: the team loop widens the campus pool ring by ring (MP.RADII).
+  const built = await P.buildMarketPoolFromPlaces(university.location, { source: 'team-scan', ...(radiusM ? { radiusM } : {}) });
   if (!built.ok) return { ok: false, reason: built.reason || 'places_failed', placesCalls: built.placesCalls || 0 };
   const center = built.geocoded || null;
   // A BLOCKED BUSINESS IS KEPT IN THE POOL, MARKED. It used to be dropped here,
@@ -284,7 +285,9 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
 
   const used = new Set();
   const night = new Date().toISOString().slice(0, 10);
-  for (const c of slate.picks) {
+  let noItem = false;
+  // One business: an ask written (true), or the reason it was not (false).
+  const handle = async (c) => {
     const identity = BI.identitiesOf(c, { market: marketKey })[0];
     const brandKey = c.place_id ? 'place:' + c.place_id : (identity ? identity.key : Scout.normBrand(c.brand_name));
     const item = pickItem(c.category || c.businessCategory, items, used);
@@ -294,22 +297,23 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     if (lateBlock) {
       console.error(`[teamScan] BLOCKED AT THE ASK (the slate should have excluded it): ${c.brand_name} -- ${lateBlock.key}: ${lateBlock.why}`);
       out.skipped.push({ brand: c.brand_name, why: `blocked for a team: ${lateBlock.key} (${lateBlock.why})` });
-      continue;
+      return false;
     }
     const pick = { brand_name: c.brand_name, brandKey, category: c.category || c.businessCategory,
       kindLabel: c.primary_type_label || null, address: c.address,
       distance_m: c.distance_m, rating: c.rating, user_ratings_total: c.user_ratings_total,
       fit: Number(c.fitHint) || null, fitReasons: c.fit_reasons || [], slateFit: c.fit, item };
     out.picks.push(pick);
-    if (!item) { out.skipped.push({ brand: c.brand_name, why: 'the team has no available inventory item to ask for' }); continue; }
+    if (!item) { out.skipped.push({ brand: c.brand_name, why: 'the team has no available inventory item to ask for' }); noItem = true; return false; }
     used.add(item.id);
-    if (!write) continue;
+    if (!write) return true;
 
     const claim = await pool.query(
       `INSERT INTO university_research_claims (team_id, brand_key, night) VALUES ($1,$2,$3)
        ON CONFLICT DO NOTHING RETURNING 1`, [team.id, brandKey, night]);
-    if (!claim.rowCount) { out.skipped.push({ brand: c.brand_name, why: 'already researched for this team tonight' }); continue; }
+    if (!claim.rowCount) { out.skipped.push({ brand: c.brand_name, why: 'already researched for this team tonight' }); return false; }
 
+    asks++;   // a writer call, for the cost ceiling
     const ask = await TeamWriter.writeAsk({ university, team, business: pick, item }, { ai: deps.ai });
     if (!ask.ok) {
       // No ask was written, so the business was not used up tonight: the claim
@@ -320,7 +324,7 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       const fault = /^model:/.test(String(ask.error || ''));
       if (fault) require('./ourFault').record('anthropic', 'team ask: ' + ask.error, 'teamScan ' + team.id);
       out.skipped.push({ brand: c.brand_name, why: ask.error, fault });
-      continue;
+      return false;
     }
 
     await pool.query(
@@ -352,6 +356,70 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
         item.id, item.name, item.price_cents, ask.subject, ask.body, ask.model]);
     out.drafts.push({ id, brand: c.brand_name, item: item.name, price: TeamWriter.money(item.price_cents),
       subject: ask.subject, body: ask.body, status: 'awaiting_approval', retried: ask.retried });
+    return true;
+  };
+
+  // ── FIVE, OR A CEILING (the same loop as the agents' night) ───────────────
+  // This wrote one slate of `limit` and stopped: every business refused at the
+  // ask (blocked, already researched, the writer declined) was a seat lost.
+  // Now a refusal pulls a replacement until the team holds `limit` asks,
+  // stopping only for the time or cost ceiling, the ladder, or inventory:
+  //   rung 1  the team's pool, re-drawn past everything tried tonight
+  //   rung 2+ a fresh Places build of the campus at the next ring out
+  // (A team has one lane, local; there is no social, national or hometown.)
+  const MP = require('./marketPools');
+  const Qs = require('./outreachQueue');
+  const TIME_CEILING_MS = Number(deps.timeCeilingMs) > 0 ? Number(deps.timeCeilingMs)
+    : (parseInt(process.env.UNIVERSITY_TEAM_TIME_CEILING_MS, 10) || 10 * 60 * 1000);
+  const COST_CEILING_USD = Number(deps.costCeilingUsd) > 0 ? Number(deps.costCeilingUsd)
+    : (parseFloat(process.env.UNIVERSITY_TEAM_COST_CEILING_USD) || 1.50);
+  const t0 = Date.now();
+  const triedKeys = new Set();
+  const triedNames = new Set();   // as the pool stores them, for the re-draw's exclusion
+  const rungs = ['local'];
+  let ringIdx = 0, placesCalls = (out.discovery && out.discovery.placesCalls) || 0, asks = 0, candidates = 0, stop = null, toFloor = null;
+  // The ceiling counts the writer calls. A Places build is the campus
+  // market's, not this team's night, and is reported separately (placesCalls),
+  // as a market refresh is for agents.
+  const cost = () => asks * Qs.USD_PER_AI_CALL;
+  const have = () => (write ? out.drafts.length : out.picks.filter((p) => p.item).length);
+  let picks = slate.picks;
+  for (;;) {
+    for (const c of picks) {
+      if (have() >= limit) break;
+      if (Date.now() - t0 > TIME_CEILING_MS) { stop = 'time'; break; }
+      if (cost() + Qs.USD_PER_AI_CALL > COST_CEILING_USD + 1e-9) { stop = 'cost'; break; }
+      const k = Scout.normBrand(c.brand_name);
+      if (triedKeys.has(k)) continue;
+      triedKeys.add(k); candidates++;
+      triedNames.add(String(c.brand_name || '').trim().toLowerCase());
+      await handle(c);
+      if (have() >= limit && toFloor === null) toFloor = candidates;
+      if (noItem && items.every((it) => used.has(it.id))) { stop = 'inventory'; break; }
+    }
+    if (stop || have() >= limit) break;
+    const next = await Scout.assembleSlate(pool, { subject, limit: limit * 2, exclude: [...triedNames] });
+    picks = (next.picks || []).filter((c) => !triedKeys.has(Scout.normBrand(c.brand_name)));
+    if (picks.length) continue;
+    const nextRing = MP.RADII[ringIdx + 1];
+    if (discoverPool && nextRing && university.location) {
+      ringIdx++;
+      rungs.push(`places-${Math.round(nextRing / 1000)}km`);
+      const d = await discover(pool, { university, marketKey, places: deps.places, radiusM: nextRing });
+      placesCalls += d.placesCalls || 0;
+      if (!d.ok) require('./ourFault').record('google-places', `team pool widen to ${nextRing} m failed: ${d.reason}`, 'teamScan ' + team.id);
+      if (marketKey) await recheckPool(pool, marketKey);
+      picks = [];
+      continue;
+    }
+    stop = 'ladder'; break;
+  }
+  const held = have();
+  out.loop = { stop: stop || (held >= limit ? 'floor' : null), candidates, candidatesToFloor: toFloor, rungs,
+    held, floor: limit, elapsedMs: Date.now() - t0, costUsd: Math.round(cost() * 1000) / 1000, placesCalls };
+  if (held < limit && write) {
+    require('./ourFault').record('nightly-floor', `${university.name} ${team.name}: ${held} of ${limit} asks after ${candidates} candidate(s); `
+      + `stopped by ${out.loop.stop}; rungs tried: ${rungs.join(', ')}`, 'teamScan ' + team.id).catch(() => {});
   }
   return out;
 }
