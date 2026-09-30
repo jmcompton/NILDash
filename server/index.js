@@ -12220,7 +12220,9 @@ app.get('/admin/cache-health', async (req, res) => {
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   try {
-    const V = 6;   // _CONTACTS_CACHE_VERSION
+    // The real constant. A hard-coded 6 here called every live v8 row "never
+    // served" and sent a diagnosis the wrong way.
+    const V = ai.CONTACTS_CACHE_VERSION;
     const lanes = (await store.pool.query(
       `SELECT lane, COUNT(*)::int AS n,
               COUNT(*) FILTER (WHERE refreshed_at > NOW() - INTERVAL '30 days')::int AS fresh,

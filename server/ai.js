@@ -4527,6 +4527,8 @@ Return ONLY this JSON:
 }
 
 module.exports = {
+  // Read by /admin/cache-health, which hard-coded 6 while the cache wrote 8.
+  CONTACTS_CACHE_VERSION: _CONTACTS_CACHE_VERSION,
   MODEL_FAST,
   MODEL_STANDARD,
   MODEL_BALANCED,

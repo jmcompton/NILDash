@@ -970,9 +970,16 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // Runs one scan under the meter and books it to discovery. Returns the
   // recommendations (or []), or null when the pot could not afford it.
   async function discover(label, estimateUsd, opts) {
-    if (!budget.canSpendDiscovery(estimateUsd)) {
-      say(`${athleteName}: not ${label} — the discovery pot is spent `
-        + `($${budget.discoverySpent().toFixed(2)} of $${budget.discoveryCap().toFixed(2)})`);
+    // The widen draws on its own per-athlete allowance, not the share (see
+    // Q.newBudget): the share is too small for it on any roster over eight.
+    const widen = !!(opts && opts.deepen);
+    if (widen ? (typeof budget.canSpendWiden === 'function' ? !budget.canSpendWiden(estimateUsd) : !budget.canSpendDiscovery(estimateUsd))
+      : !budget.canSpendDiscovery(estimateUsd)) {
+      const why = widen && typeof budget.widenCap === 'function'
+        ? `the night's widen allowance is spent ($${budget.widenSpent().toFixed(2)} of $${budget.widenCap().toFixed(2)})`
+        : (typeof budget.discoveryRefusal === 'function' ? budget.discoveryRefusal(estimateUsd)
+          : `the discovery pot is spent ($${budget.discoverySpent().toFixed(2)} of $${budget.discoveryCap().toFixed(2)})`);
+      say(`${athleteName}: not ${label} — ${why}`);
       return null;
     }
     // THE LOOP STOP. However many times this athlete's fill is entered tonight
@@ -997,7 +1004,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       return null;
     }
     const cost = Q.priceOf(meter);
-    if (cost > 0) budget.spendDiscovery(cost);
+    if (cost > 0) {
+      if (widen && typeof budget.spendWiden === 'function') budget.spendWiden(cost);
+      else budget.spendDiscovery(cost);
+    }
     spendLog.push({ brand: `[${label}]`, lane: 'discovery', cost,
       webSearches: meter.webSearches, aiCalls: meter.aiCalls, placesCalls: meter.placesCalls });
     say(`${athleteName}: ${label} cost $${cost.toFixed(3)} `
@@ -1887,7 +1897,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     lanes: slate.lanes || null, dropped: slate.dropped || null,
     // Which stop ended the night, if one did, and the pass rate that decided it.
     stop: stop || null, rate: rateInfo || null,
-    discoveryUsd: budget.discoverySpent ? budget.discoverySpent() : 0 };
+    discoveryUsd: (budget.discoverySpent ? budget.discoverySpent() : 0) + (budget.widenSpent ? budget.widenSpent() : 0) };
 }
 
 async function fillAgent(pool, agent, opts) {
@@ -1923,7 +1933,8 @@ async function fillAgent(pool, agent, opts) {
   // the roster length is finally known, and shared per athlete by openFor.
   budget = Q.newBudget(CAP_USD, undefined, { rosterSize: athletes.length });
   console.log(`[queue] agent=${agent.id} roster=${athletes.length} discovery pot ${budget.discoveryCap().toFixed(2)} `
-    + `(${Q.DISCOVERY_PER_ATHLETE_USD.toFixed(2)} an athlete, floor ${Q.DISCOVERY_CAP_USD.toFixed(2)})`);
+    + `(${Q.DISCOVERY_PER_ATHLETE_USD.toFixed(2)} an athlete, floor ${Q.DISCOVERY_CAP_USD.toFixed(2)}), `
+    + `widen allowance ${budget.widenCap().toFixed(2)} (${Q.WIDEN_PER_ATHLETE_USD.toFixed(2)} an athlete)`);
   let filled = 0;
   // Banked per athlete, settled once at the end. See the note at the push.
   const attempts = [];
@@ -2340,7 +2351,7 @@ module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor, applyFaultRule,
   athleteState, recordAttempt, releasePause, expireStaleCards,
   insertCard, slotStillOpen, SLOT_TAKEN_REASON, NAME_REQUIRED, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
-  loadAthletesForQueue, resumeAgent,
+  loadAthletesForQueue, resumeAgent, localContextFor,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
 };

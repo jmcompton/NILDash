@@ -203,7 +203,17 @@ const SUBJECT_TABLES = Object.freeze({
     nationalIndexExclusion: true,
     poolColumns: '',
     poolWhere: '',
-    poolOrder: 'm.last_seen_at DESC NULLS LAST',
+    // ROTATED, AND EVERY KIND. This read limit*4 rows by last_seen_at, and a
+    // scan writes its whole pool in one statement, so that order is arbitrary
+    // and FIXED: night after night the same 60 rows came back, dedupe drained
+    // them, and the rest of the market was never read. The same bug the team
+    // read had. Now one of each category, then the second of each, and so on
+    // (a business with marketing evidence first within its kind), and within
+    // that a shuffle keyed on the athlete and the date, so each night reads a
+    // different slice and two athletes in one town do not read the same one.
+    poolOrder: `ROW_NUMBER() OVER (PARTITION BY COALESCE(m.category, '')
+                  ORDER BY m.has_evidence DESC NULLS LAST, md5(m.brand || $2::text || CURRENT_DATE::text)),
+                m.has_evidence DESC NULLS LAST, md5(m.brand || $2::text || CURRENT_DATE::text)`,
     poolLimitFactor: 4,
   }),
   team: Object.freeze({

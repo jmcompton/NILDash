@@ -930,6 +930,15 @@ function newBudget(capUsd, discoveryCapUsd, opts = {}) {
     ? discoveryCapUsd
     : Math.max(DISCOVERY_CAP_USD, rosterSize * DISCOVERY_PER_ATHLETE_USD);
   let discoveryUsed = 0;
+  // ── THE WIDEN HAS ITS OWN ALLOWANCE ────────────────────────────────────────
+  // A widen is estimated at $0.25. It used to come out of the athlete's SHARE
+  // of the discovery pot, and the share is pot / roster: past eight athletes
+  // it is under $0.25, so a 30-athlete roster never widened once, and the log
+  // said "the discovery pot is spent" when the pot was nearly full. The widen
+  // runs at most once per athlete per night, so it is budgeted per athlete,
+  // outside the share: WIDEN_PER_ATHLETE_USD times the roster, a hard cap.
+  const widenCap = typeof opts.widenCapUsd === 'number' ? opts.widenCapUsd : rosterSize * WIDEN_PER_ATHLETE_USD;
+  let widenUsed = 0;
   let discoveryShare = Infinity;
   let discoveryShareUsed = 0;
   // Per-athlete share, so the ordering of the roster stops deciding who eats.
@@ -996,6 +1005,19 @@ function newBudget(capUsd, discoveryCapUsd, opts = {}) {
     // the roster left behind rather than leave it unspent on principle.
     canSpendDiscoveryFromPot: (amount) => discoveryUsed + (amount || 0) <= discoveryCap + 1e-9,
     spendDiscovery: (amount) => { discoveryUsed += (amount || 0); discoveryShareUsed += (amount || 0); return discoveryUsed; },
+    // Why canSpendDiscovery said no, in words that are true: the athlete's
+    // share, or the night's pot. Never "the pot is spent" when it is not.
+    discoveryRefusal: (amount) => {
+      const a = amount || 0;
+      if (discoveryUsed + a > discoveryCap + 1e-9) return `the night's discovery pot is spent ($${discoveryUsed.toFixed(2)} of $${discoveryCap.toFixed(2)})`;
+      return `this athlete's discovery share is $${Math.max(0, discoveryShare - discoveryShareUsed).toFixed(2)} and this costs about $${a.toFixed(2)} `
+        + `(pot $${discoveryUsed.toFixed(2)} of $${discoveryCap.toFixed(2)} used)`;
+    },
+    // The widen's own allowance (see widenCap above).
+    widenCap: () => widenCap,
+    widenSpent: () => widenUsed,
+    canSpendWiden: (amount) => widenUsed + (amount || 0) <= widenCap + 1e-9,
+    spendWiden: (amount) => { widenUsed += (amount || 0); return widenUsed; },
   };
   return b;
 }
@@ -1059,6 +1081,9 @@ const DISCOVERY_CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_DISCOVERY_USD) |
 // big roster is not handed a small roster's budget -- which is what left 28
 // of 30 athletes untried on a single night.
 const DISCOVERY_PER_ATHLETE_USD = parseFloat(process.env.OUTREACH_QUEUE_DISCOVERY_PER_ATHLETE_USD) || 0.12;
+// The widen's allowance per athlete per night (one widen, estimated $0.25),
+// outside the discovery share so it runs at any roster size.
+const WIDEN_PER_ATHLETE_USD = parseFloat(process.env.OUTREACH_QUEUE_WIDEN_PER_ATHLETE_USD) || 0.30;
 
 // Only attempts that SAY SOMETHING ABOUT THE MARKET count toward the rate. A
 // routing skip (no lane, program cap, brand cap) costs nothing and reveals
@@ -1216,7 +1241,7 @@ module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor, routeOf, genericRowsOf,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
-  passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD,
+  passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD, WIDEN_PER_ATHLETE_USD,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
   waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf, greetRowOf, ensureGreeting, emailNoteOf,
