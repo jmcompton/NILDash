@@ -11,17 +11,27 @@ const Ledger = require('./services/aiLedger');
 Ledger.usePool(pool);
 const Anthropic = require('@anthropic-ai/sdk');
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Built on first use, so requiring this file (tests read acceptDeal) never
+// constructs a client without a key.
+let _client = null;
+const client = { get messages() { if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }); return _client.messages; } };
 
+// ── BRANDS THAT BUY ENDORSEMENTS, NOT WHOEVER WAS IN THE STORY ─────────────
+// These queries used to ask for collective payments, transfer-portal values
+// and On3 valuations, and the extraction asked for "collective name or brand
+// name". The national lane then served collectives, athletic programs, On3
+// and "College Football 2026 Cover Star" as sponsor prospects. The job exists
+// to find COMPANIES THAT PAY ATHLETES FOR ENDORSEMENTS, so that is what it
+// searches for and what it keeps (acceptDeal, below).
 const SEARCH_QUERIES = [
-  "disclosed NIL deal 2026 college football transfer portal value",
-  "NIL contract signed 2026 basketball player collective payment",
-  "college athlete NIL deal announced 2026 dollar amount",
-  "NIL collective payment 2026 transfer portal disclosed",
-  "SEC Big Ten ACC NIL deal disclosed 2026 athlete signed",
-  "NIL deal basketball 2026 signed announced value",
-  "NIL deal football quarterback wide receiver 2026 disclosed",
-  "On3 NIL valuation 2026 transfer portal deal signed",
+  "brand signs college athlete NIL endorsement deal 2026",
+  "company announces NIL partnership college athletes 2026 roster",
+  "NIL endorsement deal brand ambassador college athlete 2026 signed",
+  "consumer brand NIL deal women's college athlete 2026",
+  "local business NIL sponsorship college athlete 2026 announced",
+  "national brand NIL campaign college football basketball players 2026",
+  "restaurant chain NIL deal college athletes 2026",
+  "apparel beverage brand NIL deal college athlete 2026 amount",
 ];
 
 const POSITIONS = ['qb','wr','rb','cb','edge','de','dt','ol','lb','s','pg','sg','sf','pf','c','f/c'];
@@ -51,15 +61,16 @@ Return ONLY a JSON array of deals found. Each deal must have these exact fields:
   "school_tier": "p4-top10|p4-top25|p4-mid|p4-lower|highmajor-top|highmajor-mid|mid-top|mid-mid|unknown",
   "deal_value": number (annual value in dollars, 0 if unknown),
   "deal_type": "collective-roster|ig-reel|ig-post|retainer|bundle|appearance|endorsement|other",
-  "brand": "string (collective name or brand name)",
+  "brand": "string: the COMPANY that paid the athlete for an endorsement (e.g. a restaurant chain, an apparel or beverage brand, a car dealership, a bank). NEVER an NIL collective, a school, an athletic department, a team, a media or valuation site (On3, 247Sports), an NIL marketplace or agency, or an event. If the payer is not a company buying an endorsement, use null.",
+  "payer_type": "brand|collective|school|media|platform|other",
   "followers": number (estimated social following, 0 if unknown),
   "engagement": number (engagement rate 0-10, 3 if unknown),
   "year_in_school": "freshman|sophomore|junior|senior|unknown",
   "draft_status": "declared|first-round|second-round|not-eligible|unknown",
   "source_url": "string"
 }
-Only include deals with a real dollar amount disclosed. Return [] if no valid deals found.`,
-      messages: [{ role: 'user', content: `Search for and extract NIL deal data from this query: "${query}". Find any disclosed NIL deals with specific dollar amounts mentioned.` }]
+Only include deals where a COMPANY paid for an endorsement. Deals paid by a collective, a school or a platform are NOT wanted: leave them out. Only include deals with a real dollar amount disclosed. Return [] if no valid deals found.`,
+      messages: [{ role: 'user', content: `Search for and extract NIL deal data from this query: "${query}". Find NIL endorsement deals a company paid for, and name the company.` }]
     });
     Ledger.record(response,
       { model: 'claude-haiku-4-5-20251001', ms: Date.now() - _t0, site: 'nilcomps' });
@@ -107,7 +118,11 @@ async function saveDealsToComps(deals) {
   let saved = 0;
   for (const deal of deals) {
     try {
-      // Skip deals with no real value
+      // ONLY A COMPANY THAT BOUGHT AN ENDORSEMENT (acceptDeal).
+      const why = acceptDeal(deal);
+      if (why) { console.log(`Skipped: ${deal.brand || '(no brand)'} for ${deal.athlete_name || '?'}: ${why}`); continue; }
+      // deal_comps is also the rate-calibration table: a deal with no disclosed
+      // amount would pull those averages down, so the $1,000 floor stays.
       if (!deal.deal_value || deal.deal_value < 1000) continue;
       
       // Check for duplicate (same athlete + value + deal_type)
@@ -186,9 +201,27 @@ async function runIngestionJob() {
   process.exit(0);
 }
 
-runIngestionJob().catch(async (e) => {
-  console.error('Job failed:', e);
-  // A failed run still spent what it spent.
-  await Ledger.drain().catch(() => {});
-  process.exit(1);
-});
+// null when the deal is a company buying an endorsement, else why it is not.
+// (The $1,000 disclosed-value floor is applied separately, in the save.)
+function acceptDeal(deal) {
+  const d = deal || {};
+  const brand = String(d.brand || '').trim();
+  if (!brand) return 'no company named as the payer';
+  const pt = String(d.payer_type || 'brand').toLowerCase();
+  if (pt && pt !== 'brand') return `paid by a ${pt}, not a company buying an endorsement`;
+  const hit = require('./services/notASponsor').detect(brand, {});
+  if (hit) return hit.why;
+  if (!String(d.athlete_name || '').trim()) return 'no athlete named';
+  return null;
+}
+
+module.exports = { acceptDeal, SEARCH_QUERIES };
+
+if (require.main === module) {
+  runIngestionJob().catch(async (e) => {
+    console.error('Job failed:', e);
+    // A failed run still spent what it spent.
+    await Ledger.drain().catch(() => {});
+    process.exit(1);
+  });
+}

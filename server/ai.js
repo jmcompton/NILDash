@@ -3140,7 +3140,8 @@ async function _topnilFromComps(athlete, excludeBrands) {
   // 1) Brands with REAL disclosed deals from the comp database lead: richest
   // context. Each still renders as a "brand to know" card, never as an apology.
   let compBrands = [];
-  try { compBrands = await store.getTopNilComps(6, 3); } catch (_) { compBrands = []; }
+  // Tiered to this athlete (store.getTopNilComps), the same as the nightly lane.
+  try { compBrands = await store.getTopNilComps(6, 3, { instagram: athlete.instagram, tiktok: athlete.tiktok, sport: athlete.sport }); } catch (_) { compBrands = []; }
   for (const b of compBrands) {
     const name = String(b.brand || '').trim();
     const key = name.toLowerCase();

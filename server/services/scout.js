@@ -619,10 +619,13 @@ async function socialCandidates(pool, { athlete, limit, store }) {
   } catch (e) { console.error('[scout/social]', e.message); const r = []; r.fault = 'social pool failed: ' + e.message; return r; }
 }
 
-async function nationalCandidates(pool, { limit, store }) {
+async function nationalCandidates(pool, { limit, store, athlete }) {
   if (!store || typeof store.getTopNilComps !== 'function') return [];
   let rows = [];
-  try { rows = (await store.getTopNilComps(limit * 2, 2)) || []; }
+  // TIERED TO THIS ATHLETE (store.getTopNilComps): brands whose disclosed
+  // deals went to athletes of similar reach and sport first.
+  const a = athlete || {};
+  try { rows = (await store.getTopNilComps(limit * 2, 2, { reach: a.reach, instagram: a.instagram, tiktok: a.tiktok, sport: a.sport })) || []; }
   catch (e) { console.error('[scout/national]', e.message); const r = []; r.fault = 'national pool failed: ' + e.message; return r; }
   // deal_comps is "mostly NIL collectives and national brands" (see above). A
   // collective pays athletes and is never a sponsor prospect: dropped here,
@@ -679,7 +682,7 @@ async function assembleSlate(pool, ctx) {
   const local = subject.lanes.local
     ? await localCandidates(pool, { agentId, athlete, limit, exclude: ctx.exclude }) : { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
   let social = subject.lanes.social ? await socialCandidates(pool, { athlete, limit, store }) : [];
-  let national = subject.lanes.national ? await nationalCandidates(pool, { limit, store }) : [];
+  let national = subject.lanes.national ? await nationalCandidates(pool, { limit, store, athlete }) : [];
   // Our failures building the pools (services/ourFault), carried on the slate
   // so the nightly run records them as faults, never as an empty market.
   const faults = [].concat(local.faults || [],

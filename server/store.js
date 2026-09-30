@@ -3691,22 +3691,55 @@ async function getCompsByBrand(brand, limit = 3) {
 }
 
 // Top NIL lane, served from deal_comps ONLY (zero web searches). Returns the
-// brands with disclosed deals on record, most recent first, each with up to
-// `dealsPerBrand` of its deals. Empty when deal_comps holds no brand rows, which
-// is the honest state today and correctly renders an empty lane.
-async function getTopNilComps(brandLimit = 8, dealsPerBrand = 3) {
+// brands with disclosed deals on record, each with up to `dealsPerBrand` of
+// its deals. Empty when deal_comps holds no brand rows.
+//
+// ── TIERED TO THE ATHLETE, NOT ONE LIST FOR EVERYONE ──────────────────────
+// This served the same most-recent brands to every athlete. With an athlete
+// (their reach and sport), a brand ranks by how close its disclosed deals are
+// to them: a deal with an athlete of similar following (within 4x either way)
+// is the strongest evidence it would buy this one; a deal in the same sport
+// counts too; recency breaks ties. A brand whose every deal went to athletes
+// far above this one's reach sinks. Nothing that is not a sponsor
+// (services/notASponsor: collectives, media, valuation sites, programs) is
+// returned, whatever the table holds.
+async function getTopNilComps(brandLimit = 8, dealsPerBrand = 3, athlete = null) {
   try {
+    const NS = require('./services/notASponsor');
+    const reach = athlete ? (Number(athlete.reach) || ((Number(athlete.instagram) || 0) + (Number(athlete.tiktok) || 0))) : 0;
+    const sport = athlete && athlete.sport ? String(athlete.sport).toLowerCase() : null;
     const bR = await pool.query(`
-      SELECT brand, COUNT(*)::int AS n, MAX(created_at) AS recent
+      SELECT brand, COUNT(*)::int AS n, MAX(created_at) AS recent,
+             -- deals with an athlete within 4x of this reach (0 when no reach given)
+             COUNT(*) FILTER (WHERE $2::int > 0 AND followers > 0 AND followers BETWEEN $2::int / 4 AND $2::int * 4)::int AS near,
+             COUNT(*) FILTER (WHERE $3::text IS NOT NULL AND LOWER(sport) = $3::text)::int AS same_sport,
+             MIN(NULLIF(followers, 0)) AS min_followers
         FROM deal_comps
        WHERE brand IS NOT NULL AND btrim(brand) <> ''
        GROUP BY brand
-       ORDER BY recent DESC NULLS LAST, n DESC
-       LIMIT $1`, [brandLimit]);
+       -- A deal with an athlete of similar reach IN THE SAME SPORT is the
+       -- strongest evidence (4), similar reach alone next (2), same sport
+       -- alone last (1); a brand whose smallest deal is 10x past this reach sinks.
+       ORDER BY (CASE WHEN $2::int > 0 THEN
+                   (COUNT(*) FILTER (WHERE followers > 0 AND followers BETWEEN $2::int / 4 AND $2::int * 4
+                                       AND $3::text IS NOT NULL AND LOWER(sport) = $3::text)) * 4
+                   + (COUNT(*) FILTER (WHERE followers > 0 AND followers BETWEEN $2::int / 4 AND $2::int * 4)) * 2
+                   + (CASE WHEN MIN(NULLIF(followers, 0)) IS NOT NULL AND MIN(NULLIF(followers, 0)) > $2::int * 10 THEN -5 ELSE 0 END)
+                 ELSE 0 END)
+                + (CASE WHEN $3::text IS NOT NULL THEN COUNT(*) FILTER (WHERE LOWER(sport) = $3::text) ELSE 0 END) DESC,
+                recent DESC NULLS LAST, n DESC
+       LIMIT $1`, [brandLimit * 3, Math.round(reach), sport]);
     const out = [];
     for (const row of bR.rows) {
+      if (out.length >= brandLimit) break;
+      if (NS.detect(row.brand, {})) continue;
       const deals = await getCompsByBrand(row.brand, dealsPerBrand);
-      if (deals.length) out.push({ brand: row.brand, count: row.n, deals });
+      if (!deals.length) continue;
+      const why = [];
+      if (row.near) why.push(`${row.near} deal${row.near === 1 ? '' : 's'} with an athlete of similar reach`);
+      if (row.same_sport) why.push(`${row.same_sport} in ${athlete.sport}`);
+      out.push({ brand: row.brand, count: row.n, deals, near: row.near, sameSport: row.same_sport,
+        why: why.length ? why.join(', ') : null });
     }
     return out;
   } catch (e) {
