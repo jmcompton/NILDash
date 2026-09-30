@@ -179,9 +179,11 @@ const LANE2_EMPTY = { followers: null, engagement_rate: null, source: null, conf
   // heading up: "AGENT ADD CLIENT ALREADY DOES THIS". Read Add Client.
   ok2('the Add Client form renders the suggestion',
     /engSrc\.textContent = data\.engagement_suggestion \|\| 'No published rate found/.test(IDX2));
-  ok2('next to a manual engagement input',
-    /id="a_eng" type="number"[^>]*oninput="flagStatManual\('eng'\)"/.test(IDX2)
-    && /id="a-eng-src"/.test(IDX2));
+  // Instagram connect (services/instagramConnect) replaced the manual rate
+  // box: the field is kept hidden so the code above still has somewhere to
+  // write, and a connected athlete's real rate comes from Instagram.
+  ok2('the manual engagement input is now a hidden field beside the Instagram connect panel',
+    /<input id="a_eng" type="hidden">/.test(IDX2) && /id="a-eng-src"/.test(IDX2) && /id="a-ig-connect"/.test(IDX2));
   ok2('with an honest fallback string', /No published rate found\. Typical range is 1 to 5 percent\./.test(IDX2));
 
   console.log('\nappended failures: ' + g);
