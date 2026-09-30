@@ -104,6 +104,7 @@ async function main() {
   ok('  and the lane numbers are on the result', L1.byLane && L1.byLane.local && L1.byLane.local.passed >= 5, L1.byLane);
   const rows1 = (await P.query(`SELECT COUNT(*)::int n FROM outreach_queue WHERE athlete_id='fl-a1' AND state='queued'`)).rows[0].n;
   ok('  five cards are on the agent\'s screen', rows1 === 5, rows1);
+  ok('  and the channel mix of the five is recorded', Object.values(L1.channels || {}).reduce((a, b) => a + b, 0) === 5 && (L1.channels || {}).dm === 5, L1.channels);
 
   // ── 2. NOT ENOUGH ANYWHERE: SHIP WHAT THERE IS, ALERT ─────────────────────
   OUT.push('', '-- a market with only three reachable businesses --');
@@ -154,8 +155,11 @@ async function main() {
     { athleteName: 'A', loop: { ...L1 } }, { athleteName: 'B', loop: { ...L2 } }, { athleteName: 'C', loop: { ...L4 } }] }]);
   const text = FR.format(s, 1);
   ok('floor-report gives the median / p90 candidates to reach five and who fell short', /CANDIDATES TO REACH FIVE: median \d+/.test(text)
-    && /SHORT OF FIVE: 1 athlete-night/.test(text) && /BY LANE/.test(text), text.slice(0, 600));
+    && /SHORT OF FIVE: 1 athlete-night/.test(text) && /BY LANE/.test(text) && /CHANNEL MIX of cards placed: dm \d+/.test(text), text.slice(0, 600));
   ok('the run row carries the loop', /loop: r\.loop \|\| null/.test(J));
+  const IDX = require('fs').readFileSync(REPO + 'server/index.js', 'utf8');
+  ok('/admin/scan-rejects shows the floor per run: lanes, who hit it, rungs, candidates to five',
+    /<h2>The floor of five<\/h2>/.test(IDX) && /FR\.summarise\(runs\)/.test(IDX) && /Candidates to reach five/.test(IDX) && /Short of five/.test(IDX));
   OUT.push(`   (in this fixture: ${L1.candidatesToFloor} candidates to reach five at 1 in 12)`);
 
   await clean();

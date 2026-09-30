@@ -39,7 +39,7 @@
     },
     "admingate.js": {
       "failed": 0,
-      "total": 36,
+      "total": 37,
       "fault": null
     },
     "adminjs.js": {
@@ -419,7 +419,7 @@
     },
     "floorloop.js": {
       "failed": 0,
-      "total": 21,
+      "total": 23,
       "fault": null
     },
     "funnel.js": {

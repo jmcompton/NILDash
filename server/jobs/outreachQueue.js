@@ -1305,6 +1305,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // A pass rate under the floor no longer stops anything: it moves the fill
   // to the next rung, because this rung is not producing.
   let stop = null, rateInfo = null, rateMark = 0, capStop = null, candidatesToFloor = null;
+  // THE CHANNEL MIX: how each card placed tonight reaches the business
+  // (email, dm, call, program). The target is mostly email and DM.
+  const channels = [];
   for (const slot of open) {
     let placed = false;
     let slotLost = false;
@@ -1563,7 +1566,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         if (dry) {
           say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`);
           if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
-          placed = true; filled++; break;
+          placed = true; filled++; channels.push(pcard.channel); break;
         }
         if (!(await slotStillOpen(pool, athleteId, slot))) {
           say(`slot ${slot}: taken by another fill while the writer ran; ${pcard.brandName} not offered`);
@@ -1577,7 +1580,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           // open-slot unique index does not burn the athlete's one program slot
           // -- nor the brand's allowance across the rest of the roster.
           if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
-          placed = true; filled++; say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`); break;
+          placed = true; filled++; channels.push(pcard.channel); say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`); break;
         }
         continue;
       }
@@ -1997,14 +2000,14 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         card.thin = cand.thin === true;
         card.thinNote = card.thin ? Scout.THIN_NOTE : null;
       }
-      if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; break; }
+      if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; channels.push(card.channel); break; }
       if (!(await slotStillOpen(pool, athleteId, slot))) {
         say(`slot ${slot}: taken by another fill while the writer ran; ${card.brandName} not offered`);
         loseSlot(cand.brand_name, slot, card.lane, pitch);
         slotLost = true; break;
       }
       if (await insertCard(pool, { agentId, athleteId, slot, card })) {
-        placed = true; filled++;
+        placed = true; filled++; channels.push(card.channel);
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
           + (card.contactName ? `, ${card.contactName}` : ''));
       } else if (card._insertFault) {
@@ -2030,6 +2033,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     candidates: tried.length, candidatesToFloor, rungs: rungsFired.slice(),
     elapsedMs: Date.now() - _t0, costUsd: Math.round(athleteCost() * 1000) / 1000,
     held: Q.SLOTS_PER_ATHLETE - open.length + filled, floor: Q.SLOTS_PER_ATHLETE,
+    channels: channels.reduce((m, c) => { const k = c || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {}),
     byLane: tried.reduce((m, t) => {
       const k = (t && t.lane) || 'local';
       m[k] = m[k] || { tried: 0, passed: 0 };

@@ -35,18 +35,19 @@ function summarise(rows) {
   }
   const reached = nights.filter((n) => n.candidatesToFloor != null).map((n) => n.candidatesToFloor).sort((a, b) => a - b);
   const short = nights.filter((n) => n.held < n.floor);
-  const byLane = {}, rungs = {}, stops = {};
+  const byLane = {}, rungs = {}, stops = {}, channels = {};
   for (const n of nights) {
     for (const [k, v] of Object.entries(n.byLane || {})) {
       byLane[k] = byLane[k] || { tried: 0, passed: 0 };
       byLane[k].tried += v.tried || 0; byLane[k].passed += v.passed || 0;
     }
     for (const g of (n.rungs || [])) rungs[g] = (rungs[g] || 0) + 1;
+    for (const [c, k] of Object.entries(n.channels || {})) channels[c] = (channels[c] || 0) + k;
     stops[n.stop || 'none'] = (stops[n.stop || 'none'] || 0) + 1;
   }
   const allCands = nights.map((n) => n.candidates || 0);
   return {
-    nights, reached, short, byLane, rungs, stops,
+    nights, reached, short, byLane, rungs, stops, channels,
     toFloor: { n: reached.length, median: pct(reached, 50), p75: pct(reached, 75), p90: pct(reached, 90), max: reached[reached.length - 1] || null },
     candidatesTotal: allCands.reduce((a, b) => a + b, 0),
     costTotal: Math.round(nights.reduce((a, n) => a + (n.costUsd || 0), 0) * 100) / 100,
@@ -63,6 +64,9 @@ function format(s, days) {
   L.push(`  ${s.candidatesTotal} candidate(s) tried in all, $${s.costTotal.toFixed(2)} on athletes`);
   L.push('', '  stopped by: ' + Object.entries(s.stops).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', '));
   L.push('  rungs fired: ' + Object.entries(s.rungs).map(([k, n]) => `${k} ${n}`).join(', '));
+  const chTotal = Object.values(s.channels).reduce((a, b) => a + b, 0);
+  L.push('  CHANNEL MIX of cards placed: ' + (chTotal ? Object.entries(s.channels).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${k} ${n} (${Math.round((100 * n) / chTotal)}%)`).join(', ') : '-'));
   L.push('', '  BY LANE          tried  passed  pass rate');
   for (const [k, v] of Object.entries(s.byLane).sort((a, b) => b[1].tried - a[1].tried)) {
     L.push(`  ${k.padEnd(16)} ${String(v.tried).padStart(5)}  ${String(v.passed).padStart(6)}  ${v.tried ? Math.round((100 * v.passed) / v.tried) + '%' : '-'}`);

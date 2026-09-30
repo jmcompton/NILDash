@@ -164,6 +164,17 @@ async function main() {
     ok('the admin gets /admin/state-rules', (await call(cAdmin, 'GET', '/admin/state-rules')).status === 200);
     ok('  and /admin/status and /admin/cache-health', (await call(cAdmin, 'GET', '/admin/status')).status === 200
       && (await call(cAdmin, 'GET', '/admin/cache-health')).status === 200);
+    // The loop's numbers render on /admin/scan-rejects (jobs/outreachQueue details[].loop).
+    await P.query(`DELETE FROM outreach_queue_runs WHERE agent_id = $1`, [U.agent]).catch(() => {});
+    await P.query(`INSERT INTO outreach_queue_runs (agent_id, run_date, details) VALUES ($1, CURRENT_DATE, $2::jsonb)`, [U.agent, JSON.stringify([
+      { athleteId: 'g1', athleteName: 'Gate Athlete', tried: [{ brand: 'X', result: 'queued', lane: 'local' }],
+        loop: { stop: 'floor', candidates: 22, candidatesToFloor: 22, rungs: ['local'], held: 5, floor: 5, channels: { email: 3, dm: 2 }, byLane: { local: { tried: 22, passed: 5 } } } },
+      { athleteId: 'g2', athleteName: 'Gate Short', tried: [],
+        loop: { stop: 'ladder', candidates: 40, candidatesToFloor: null, rungs: ['local', 'local-wide', 'social'], held: 2, floor: 5, byLane: { social: { tried: 10, passed: 0 } } } }])]);
+    const sr2 = await call(cAdmin, 'GET', '/admin/scan-rejects');
+    ok('/admin/scan-rejects renders the floor of five: candidates to five, lanes, who fell short', sr2.status === 200
+      && /The floor of five/.test(sr2.text) && /median 22/.test(sr2.text) && /Gate Short/.test(sr2.text) && /2\/5/.test(sr2.text) && /email 3 \(60%\)/.test(sr2.text), sr2.text.slice(0, 300));
+    await P.query(`DELETE FROM outreach_queue_runs WHERE agent_id = $1`, [U.agent]).catch(() => {});
     const cats = require(REPO + 'server/services/compliance').CATEGORIES.map((c) => c.key);
     const cat = cats.includes('alcohol') ? 'alcohol' : cats[0];
     await P.query(`DELETE FROM state_category_rules WHERE state_code = 'ZZ'`);

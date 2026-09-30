@@ -12549,6 +12549,12 @@ app.get('/admin/scan-rejects', async (req, res) => {
     const reasons = Object.keys(byReason).sort((a, b) => byReason[b] - byReason[a]);
     const tried = attempts.length;
     const queued = byResult.queued || 0;
+    // ── THE LOOP, PER RUN (jobs/outreachQueue details[].loop) ───────────────
+    // Candidates and pass rate by lane, who hit the floor of five, who fell
+    // short and why, the rungs that fired, and the candidates-to-five number.
+    const FR = require('../scripts/floor-report');
+    const fl = FR.summarise(runs);
+    const pctOf = (a, b) => (b ? Math.round((100 * a) / b) + '%' : '—');
 
     res.set('Content-Type', 'text/html').send(`<!doctype html><meta charset="utf-8">
 <title>Scan rejects</title>
@@ -12566,6 +12572,26 @@ th{color:#7d8fa6;font-weight:600}.dim{color:#7d8fa6}.mono{font-variant-numeric:t
 <tr><td>Queued</td><td class="mono ${queued ? 'ok' : 'bad'}">${queued}</td></tr>
 <tr><td>Pass rate</td><td class="mono ${queued ? '' : 'bad'}">${tried ? ((queued / tried) * 100).toFixed(1) + '%' : '—'}</td></tr>
 </tbody></table>
+
+<h2>The floor of five</h2>
+${fl.nights.length ? `<table><tbody>
+<tr><td>Athlete-nights run by the loop</td><td class="mono">${fl.nights.length}</td></tr>
+<tr><td>Reached five</td><td class="mono ${fl.toFloor.n === fl.nights.length ? 'ok' : 'warn'}">${fl.toFloor.n} (${pctOf(fl.toFloor.n, fl.nights.length)})</td></tr>
+<tr><td>Candidates to reach five</td><td class="mono">median ${fl.toFloor.median ?? '—'} · p75 ${fl.toFloor.p75 ?? '—'} · p90 ${fl.toFloor.p90 ?? '—'} · max ${fl.toFloor.max ?? '—'}</td></tr>
+<tr><td>Stopped by</td><td class="mono">${Object.entries(fl.stops).map(([k, n]) => esc(k) + ' ' + n).join(' · ')}</td></tr>
+<tr><td>Rungs fired</td><td class="mono">${Object.entries(fl.rungs).map(([k, n]) => esc(k) + ' ' + n).join(' · ') || '—'}</td></tr>
+<tr><td>Channel mix of cards placed</td><td class="mono">${(() => { const t = Object.values(fl.channels).reduce((a, b) => a + b, 0);
+  return t ? Object.entries(fl.channels).sort((a, b) => b[1] - a[1]).map(([k, n]) => esc(k) + ' ' + n + ' (' + pctOf(n, t) + ')').join(' · ') : '—'; })()}</td></tr>
+</tbody></table>
+<table><tr><th>Lane</th><th>Candidates</th><th>Passed</th><th>Pass rate</th></tr>
+${Object.entries(fl.byLane).sort((a, b) => b[1].tried - a[1].tried).map(([k, v]) =>
+  `<tr><td>${esc(k)}</td><td class="mono">${v.tried}</td><td class="mono">${v.passed}</td><td class="mono">${pctOf(v.passed, v.tried)}</td></tr>`).join('')}
+</table>
+${fl.short.length ? `<div class="warn">Short of five: ${fl.short.length}</div>
+<table><tr><th>Night</th><th>Athlete</th><th>Held</th><th>Candidates</th><th>Stopped by</th><th>Rungs</th></tr>
+${fl.short.map((n) => `<tr><td class="mono">${esc(n.date)}</td><td>${esc(n.athlete)} <span class="dim">${esc(n.agent)}</span></td>`
+  + `<td class="mono bad">${n.held}/${n.floor}</td><td class="mono">${n.candidates}</td><td>${esc(n.stop)}</td><td class="dim">${esc((n.rungs || []).join(' › '))}</td></tr>`).join('')}
+</table>` : '<div class="ok">Every athlete reached five.</div>'}` : '<div class="dim">No run carries loop numbers yet; the loop records them from its first night.</div>'}
 
 <h2>By outcome</h2>
 <table><tr><th>Result</th><th>Count</th></tr>
