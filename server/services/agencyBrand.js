@@ -83,7 +83,14 @@ function validate(body) {
 }
 
 // The brand a document shows, from the account row. Never NILDash.
-function brandFor(user) {
+//
+// THE CONTACT ADDRESS a business sees on a deck, a kit or a contract: the one
+// the agent typed into My Brand, else the mailbox their outreach actually
+// sends from (opts.sendingAddress, from brandForUser), and the signup email
+// only when neither exists. It was agency_contact_email || users.email, so a
+// deck could tell a brand to write to an address the agent's outreach never
+// came from.
+function brandFor(user, opts = {}) {
   const u = user || {};
   const set = !!(u.agency_name || u.agency_logo);
   const person = cleanText(u.name, MAX_NAME);
@@ -94,7 +101,7 @@ function brandFor(user) {
     primaryColor: u.agency_primary_color || '',
     secondaryColor: u.agency_secondary_color || '',
     contactName: person || '',
-    contactEmail: u.agency_contact_email || cleanEmail(u.email) || '',
+    contactEmail: u.agency_contact_email || cleanEmail(opts.sendingAddress) || cleanEmail(u.email) || '',
     contactPhone: u.agency_contact_phone || '',
     website: u.agency_website || '',
     contactLine: u.agency_contact_line || '',
@@ -102,8 +109,19 @@ function brandFor(user) {
   };
 }
 
+// brandFor with the sending mailbox loaded. Every caller that renders the brand
+// into something a business or a family reads uses this, not brandFor alone.
+async function brandForUser(user) {
+  let sendingAddress = null;
+  if (user && user.id) {
+    try { sendingAddress = (await require('./emailStore').sendingMailbox(user.id)).address; }
+    catch (e) { console.warn('[agencyBrand] sending mailbox lookup failed, contact falls back:', e.message); }
+  }
+  return brandFor(user, { sendingAddress });
+}
+
 // The columns, for the ALTERs in store.js and the SELECTs that read them.
 const COLUMNS = ['agency_name', 'agency_logo', 'agency_primary_color', 'agency_secondary_color',
   'agency_contact_email', 'agency_contact_phone', 'agency_website', 'agency_contact_line'];
 
-module.exports = { brandFor, validate, COLUMNS, POWERED_BY, MAX_LOGO_CHARS };
+module.exports = { brandForUser, brandFor, validate, COLUMNS, POWERED_BY, MAX_LOGO_CHARS };

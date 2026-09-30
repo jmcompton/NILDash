@@ -337,6 +337,11 @@
       "total": 23,
       "fault": null
     },
+    "draftsender.js": {
+      "failed": 0,
+      "total": 31,
+      "fault": null
+    },
     "drift.js": {
       "failed": 0,
       "total": 29,

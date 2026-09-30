@@ -56,7 +56,16 @@ function laneOf(row) { return row && row.lane ? row.lane : 'local'; }
 // ── Building tonight's batch ─────────────────────────────────────────────────
 // Drafts that are ready to go out: written, addressed, not yet approved, not to
 // a suppressed address, and inside the athlete's allocation.
+// Every answer carries `from`: the mailbox the drafts send from, or that there
+// is none (emailStore.sendingMailbox). Wrapped so no early return can drop it.
 async function buildBatch(pool, agentId, opts = {}) {
+  const out = await _buildBatch(pool, agentId, opts);
+  let from = null;
+  try { from = await require('./emailStore').sendingMailbox(agentId); }
+  catch (e) { from = { address: null, connected: false, why: 'the mailbox could not be read: ' + e.message }; }
+  return { ...out, from };
+}
+async function _buildBatch(pool, agentId, opts = {}) {
   const guard = await sendGuard.status(pool, agentId, opts);
   if (guard.blocked) {
     return { batch: [], budget: guard, blocked: true,

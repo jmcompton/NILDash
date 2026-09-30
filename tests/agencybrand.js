@@ -75,15 +75,15 @@ async function main() {
   const routeSrc = (sig) => { const i = IDX.indexOf(sig); return i < 0 ? '' : IDX.slice(i, IDX.indexOf('\n});', i)); };
   const contract = stripComments(routeSrc("app.post('/api/ai/contract/pdf'"));
   ok('contract PDF: no NILDash literal; the footer is POWERED_BY', contract && stray(contract) === 0 && /agencyBrand\.POWERED_BY/.test(contract), contract.match(/.*NILDash.*/g));
-  ok('  prepared by the agency (or the agent), from brandFor', /Prepared by ' \+ agency\.name/.test(contract) && /brandFor\(await store\.getUser\(req\.session\.userId\)\)/.test(contract));
+  ok('  prepared by the agency (or the agent), from brandForUser, the sending mailbox as contact', /Prepared by ' \+ agency\.name/.test(contract) && /brandForUser\(await store\.getUser\(req\.session\.userId\)\)/.test(contract));
   const H = read('public/index.html');
   const rs0 = H.indexOf('async function exportRateSheet()');
   const rate = stripComments(H.slice(rs0, H.indexOf('\nasync function getRateScript', rs0)));
   ok('rate sheet: NILDash only as "Powered by NILDash"', rs0 > 0 && stray(rate) === 0 && poweredCount(rate) === 1, rate.match(/.*NILDash.*/g));
   ok('  header and "Represented by" are the agency', /\$\{agName \? agName \+ ' · ' : ''\}Rate Sheet/.test(rate) && /Represented by ' \+ agName/.test(rate));
   ok('  the window opens before the brand is fetched (pop-up blockers)', rate.indexOf("window.open(") < rate.indexOf('await loadAgencyBrand()'));
-  ok('report API returns the agency', /agency: agencyBrand\.brandFor\(agent\)/.test(routeSrc("app.get('/api/reports/:token'")));
-  ok('pitch-data and media-kit APIs return the agency', /agency: require\('\.\/services\/agencyBrand'\)\.brandFor\(/.test(IDX) && /const agency = require\('\.\/services\/agencyBrand'\)\.brandFor\(_owner/.test(IDX));
+  ok('report API returns the agency', /_agency = await agencyBrand\.brandForUser\(agent\)/.test(routeSrc("app.get('/api/reports/:token'")) && /agency: _agency/.test(routeSrc("app.get('/api/reports/:token'")));
+  ok('pitch-data and media-kit APIs return the agency', /agency: await require\('\.\/services\/agencyBrand'\)\.brandForUser\(/.test(IDX) && /const agency = await require\('\.\/services\/agencyBrand'\)\.brandForUser\(_owner/.test(IDX));
 
   // ── 3. THE ONE-PAGE DECK PDF, RENDERED ────────────────────────────────────
   OUT.push('', '-- deck PDF --');

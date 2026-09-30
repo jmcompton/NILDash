@@ -43,7 +43,8 @@ async function senderFor(pool, agentId, cache) {
   try {
     const emailStore = require('../services/emailStore');
     const accounts = await emailStore.getEmailAccountsByUser(agentId);
-    const acct = (accounts || []).find((a) => a.status !== 'disconnected') || (accounts || [])[0];
+    // The same choice every draft preview shows (emailStore.pickSendingAccount).
+    const acct = emailStore.pickSendingAccount(accounts);
     if (acct) {
       const full = await emailStore.getEmailAccountWithTokens(acct.id);
       if (full) {

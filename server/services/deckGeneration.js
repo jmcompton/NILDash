@@ -78,7 +78,7 @@ async function generateDeck(inputs) {
   let agency = brandFor(null);
   try {
     const u = (await pool.query(`SELECT * FROM users WHERE id = $1`, [agentId])).rows[0];
-    agency = brandFor(u);
+    agency = await require('./agencyBrand').brandForUser(u);
   } catch (e) { console.warn('[deckGeneration] agency brand lookup failed:', e.message); }
 
   if (PDFDocument) {

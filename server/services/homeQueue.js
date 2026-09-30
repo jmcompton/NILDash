@@ -446,7 +446,14 @@ async function buildHome(pool, agentId, opts = {}) {
     stopReason: o.sent_at ? null : (o.cadence_stop_reason || null),
   }));
 
+  // What every email card's From row shows: the mailbox it will actually send
+  // from (emailStore.sendingMailbox, the send's own choice), or that there is
+  // none. Never the login email.
+  let from = null;
+  try { from = await require('./emailStore').sendingMailbox(agentId); }
+  catch (e) { from = { address: null, connected: false, why: 'the mailbox could not be read: ' + e.message }; }
   return {
+    from,
     // Approved emails for this athlete: Sending until they have a sent_at.
     outbox,
     // The tab count MATCHES THE SCREEN. Showing 63 on a tab that renders five

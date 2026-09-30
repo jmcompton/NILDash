@@ -7878,7 +7878,17 @@ async function prefillContract() {
   const agentName = document.getElementById('con-agent-name');
   const agentEmail = document.getElementById('con-agent-email');
   if (agentName && !agentName.value) agentName.value = currentUser ? (currentUser.name || '') : '';
-  if (agentEmail && !agentEmail.value) agentEmail.value = currentUser ? (currentUser.email || '') : '';
+  // The address a brand sees on the contract: the same contact every document
+  // uses (My Brand's contact, else the mailbox outreach sends from, else the
+  // signup email -- services/agencyBrand.brandForUser). Not the login email
+  // straight, which is often not the address the agent's outreach comes from.
+  if (agentEmail && !agentEmail.value) {
+    try {
+      const r = await fetch(API_BASE + '/api/agent/brand', { credentials: 'same-origin' });
+      const d = r.ok ? await r.json() : null;
+      if (!agentEmail.value) agentEmail.value = (d && d.shown && d.shown.contactEmail) || '';
+    } catch (_) { /* left empty for the agent to fill, rather than guessed */ }
+  }
 }
 
 //  AI: COMMAND 
@@ -18191,6 +18201,7 @@ function srDraftRow(it) {
     // WHO IT IS GOING TO, said plainly. "the general inbox" is a fact worth
     // seeing before the message goes out, not after a reply comes back odd.
     var to = it.to || {};
+    bits.push('<div class="sr-to"><b>From:</b> ' + mailFromHtml(_srBatch && _srBatch.from) + '</div>');
     bits.push('<div class="sr-to"><b>To:</b> ' + hqEsc(to.name || 'the general inbox')
       + (to.title ? ' &middot; ' + hqEsc(to.title) : '')
       + (it.toEmail ? ' <span class="dimmed">' + hqEsc(it.toEmail) + '</span>' : '') + '</div>');
@@ -21326,6 +21337,27 @@ function hqRenderCard(c, i) {
     + '</div>';
 }
 
+// ── WHO IT SENDS FROM, said on every draft ─────────────────────────────────
+// The mailbox the email will actually go out from: the server's own choice
+// (emailStore.sendingMailbox), the same one the send uses. An agent read his
+// login Gmail on every draft (it was written into the signature) and believed
+// that was the sender; it never was. With no mailbox this says so, and it
+// never falls back to the login email.
+function mailFromHtml(from) {
+  var go = ' <a href="#" onclick="event.preventDefault();showView(\'settings\')" style="color:var(--accent,#84CC16)">';
+  if (from && from.address && from.connected) {
+    return hqEscape(from.address) + (from.provider
+      ? ' <span style="color:var(--dim,#63635a)">(your connected ' + hqEscape(from.provider === 'gmail' ? 'Gmail' : from.provider === 'outlook' ? 'Outlook' : from.provider) + ' mailbox)</span>' : '');
+  }
+  if (from && from.address) {
+    return hqEscape(from.address) + ' <span style="color:#fbbf24">&mdash; ' + hqEscape(from.why || 'this mailbox cannot send right now') + '.</span>'
+      + go + 'Reconnect</a>';
+  }
+  return '<span style="color:#fbbf24"><b>No mailbox connected.</b> '
+    + hqEscape(from && from.why && !/no mailbox/.test(from.why) ? from.why : 'Nothing can send until you connect one.') + '</span>'
+    + go + 'Connect a mailbox</a>';
+}
+
 function hqEmailBody(c, i) {
   // The email is rendered from TEXT PARAGRAPHS the server derived, escaped here.
   // The page never injects stored markup, and what a recipient reads is the
@@ -21335,6 +21367,7 @@ function hqEmailBody(c, i) {
   }).join('');
   return '<div class="hq-mail">'
     + '<dl>'
+    + '<dt>From</dt><dd>' + mailFromHtml(HQ.data && HQ.data.from) + '</dd>'
     // VERIFIED-BAD ADDRESSES NEVER GET HERE -- the gate holds those cards back.
     + '<dt>To</dt><dd>' + hqEscape(c.to || 'no address on this draft')
     + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '')

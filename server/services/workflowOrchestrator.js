@@ -291,8 +291,15 @@ async function loadSenderIdentity(ownerId, isAthlete, athleteRow) {
       const data = (athleteRow && (athleteRow.data || athleteRow)) || {};
       return { agentName: row.name || data.name || null, agentEmail: row.email || null };
     }
+    // THE ADDRESS IT SENDS FROM, not the signup email. This signed every draft
+    // with users.email while the send went out from the connected mailbox:
+    // Asante Bradford's body said ceo@ his company while it went out from a
+    // personal Gmail, telling brands to reply somewhere else. The sign-off is
+    // the active sending mailbox (emailStore.sendingMailbox, the send's own
+    // choice); users.email only when no mailbox is connected at all.
     const r = await pool.query('SELECT name, email FROM users WHERE id=$1', [ownerId]);
-    return { agentName: r.rows[0]?.name || null, agentEmail: r.rows[0]?.email || null };
+    const mb = await require('./emailStore').sendingMailbox(ownerId).catch(() => null);
+    return { agentName: r.rows[0]?.name || null, agentEmail: (mb && mb.address) || r.rows[0]?.email || null };
   } catch (e) {
     return { agentName: null, agentEmail: null };   // non-fatal: the pitch falls back
   }
@@ -416,4 +423,4 @@ function logWorkflowEvent(runId, agentId, eventType, payload) {
   ).catch(() => {});
 }
 
-module.exports = { runOutreachWorkflow, getRunStatus, listRunsForAgent };
+module.exports = { runOutreachWorkflow, getRunStatus, listRunsForAgent, loadSenderIdentity, renderProfessionalEmail };

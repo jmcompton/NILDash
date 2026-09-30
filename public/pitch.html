@@ -472,7 +472,9 @@ function openContactModal(){
     if(agentInfo){
       const a = JSON.parse(agentInfo);
       if(a.name) agentNameEl.textContent = a.name;
-      if(a.email) agentEmailEl.textContent = a.email;
+      // Never the login email: the server's contactEmail is the address the
+      // agent's outreach sends from (services/agencyBrand.brandForUser), and
+      // when it has none there is no address to show a brand.
     }
   } catch(e){}
 }

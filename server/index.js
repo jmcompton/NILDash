@@ -2150,7 +2150,7 @@ app.get('/api/agent/brand', requireAuth, async (req, res) => {
         website: u.agency_website || '', contactLine: u.agency_contact_line || '',
       },
       // What the documents will actually show, fallback included.
-      shown: AB.brandFor(u),
+      shown: await AB.brandForUser(u),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2170,7 +2170,7 @@ app.post('/api/agent/brand', requireAuth, async (req, res) => {
         f.agency_secondary_color || null, f.agency_contact_email || null, f.agency_contact_phone || null,
         f.agency_website || null, f.agency_contact_line || null]);
     const u = await store.getUser(req.session.userId);
-    res.json({ ok: true, shown: AB.brandFor(u) });
+    res.json({ ok: true, shown: await AB.brandForUser(u) });
   } catch (e) {
     console.error('[agent/brand]', e.message);
     res.status(500).json({ error: e.message });
@@ -3928,7 +3928,7 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
   if (!contract) return res.status(400).json({ error: 'No contract text provided' });
   // Prepared by the agency (or the agent, unbranded). NILDash appears once, in the footer.
   let agency = agencyBrand.brandFor(null);
-  try { agency = agencyBrand.brandFor(await store.getUser(req.session.userId)); } catch (_) {}
+  try { agency = await agencyBrand.brandForUser(await store.getUser(req.session.userId)); } catch (_) {}
 
   const doc = new PDFDocument({ margin: 60, size: 'LETTER' });
   const filename = ((athleteName || 'athlete') + '-' + (brand || 'brand') + '-NIL-contract.pdf')
@@ -5339,6 +5339,10 @@ const ADMIN_SCRIPTS = {
     if (!d(q.since)) { const e = new Error('since=YYYY-MM-DD is required'); e.status = 400; throw e; }
     return ['--since', d(q.since)].concat(d(q.until) ? ['--until', d(q.until)] : [], q.apply === '1' ? ['--apply'] : []);
   } },
+  // Unsent drafts signed with the login email instead of the sending mailbox;
+  // apply=1 rewrites that one generated signature line.
+  //   /api/admin/scripts/fix-draft-sender?text=1   (&apply=1)
+  'fix-draft-sender': { file: 'scripts/fix-draft-sender.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
   // What the stronger block (name + Google's description) catches in the pools
   // already built; with apply=1, marks the university pools and withdraws
   // waiting team asks to a blocked business.
@@ -11394,7 +11398,9 @@ app.get('/api/reports/:token', async (req, res) => {
     const deals = await store.getDealsByAthlete(report.athlete_id);
     const { nilViewVal } = require('./benchmarks');
     const rate = nilViewVal(athlete, 'ig-reel');
-    res.json({ athlete, agent: { name: agent?.name, email: agent?.email }, agency: agencyBrand.brandFor(agent), deals, rate, agentMessage: report.agent_message, createdAt: report.created_at, expiresAt: report.expires_at });
+    // The address shown is the brand's contact (the sending mailbox, not the signup email).
+    const _agency = await agencyBrand.brandForUser(agent);
+    res.json({ athlete, agent: { name: agent?.name, email: _agency.contactEmail || null }, agency: _agency, deals, rate, agentMessage: report.agent_message, createdAt: report.created_at, expiresAt: report.expires_at });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14642,7 +14648,7 @@ app.get('/api/pitch-data/:athleteId', async (req, res) => {
       gpa: athlete.gpa || '',
       // Who represents the athlete: the agent's agency brand, or their own name
       // and email when none is set. Never NILDash (services/agencyBrand).
-      agency: require('./services/agencyBrand').brandFor(
+      agency: await require('./services/agencyBrand').brandForUser(
         athlete.agentId ? (await store.getUser(athlete.agentId).catch(() => null)) || {} : {}),
       nilScores: {
         marketabilityScore: igReel.marketabilityScore,
@@ -16960,7 +16966,7 @@ app.get('/api/media-kit/:slug', async (req, res) => {
     // THE AGENCY ON THE KIT, never NILDash (services/agencyBrand): the athlete's
     // agent's brand, or their own name and email when none is set.
     const _owner = ath.agent_id ? await store.getUser(ath.agent_id).catch(() => null) : null;
-    const agency = require('./services/agencyBrand').brandFor(_owner || {});
+    const agency = await require('./services/agencyBrand').brandForUser(_owner || {});
 
     const rcR = await store.pool.query(
       'SELECT * FROM media_kit_rate_cards WHERE media_kit_id = $1 ORDER BY id',

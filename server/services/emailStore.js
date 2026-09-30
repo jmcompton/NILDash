@@ -149,6 +149,32 @@ function sanitizeAccount(row) {
   return safe;
 }
 
+// ── WHICH MAILBOX AN AGENT'S OUTREACH SENDS FROM ───────────────────────────
+// ONE ANSWER for the send (jobs/closerRelease) and every preview of a draft.
+// The previews used to show the login email (users.email), written into the
+// draft's signature, while the send went out from the connected mailbox: an
+// agent read his personal Gmail on every draft and believed that was the
+// sender. It never was.
+//
+// The first mailbox that is not disconnected, else the first at all (the send
+// has always done exactly this). null when none is connected, and a caller
+// says so in words -- it never falls back to the login email.
+function pickSendingAccount(accounts) {
+  const list = accounts || [];
+  return list.find((a) => a.status !== 'disconnected') || list[0] || null;
+}
+async function sendingMailbox(userId) {
+  const acct = pickSendingAccount(await getEmailAccountsByUser(userId));
+  if (!acct) return { address: null, provider: null, connected: false, why: 'no mailbox is connected' };
+  const disconnected = acct.status === 'disconnected';
+  return {
+    address: acct.email_address, provider: acct.provider, accountId: acct.id,
+    connected: !disconnected && acct.canSend !== false,
+    why: disconnected ? 'the mailbox is disconnected; reconnect it to send'
+      : acct.canSend === false ? 'the mailbox is connected without send permission; reconnect it and allow sending' : null,
+  };
+}
+
 // ── Emails ──────────────────────────────────────────────────────────────────
 
 async function saveEmail(msg) {
@@ -310,7 +336,7 @@ module.exports = {
   saveEmailAccount, getEmailAccount, getEmailAccountsByUser,
   getEmailAccountWithTokens, updateAccountTokens, updateAccountStatus,
   updateSyncCursor, deleteEmailAccount,
-  recordGrantedScopes, sendability, knownCannotSend,
+  recordGrantedScopes, sendability, knownCannotSend, pickSendingAccount, sendingMailbox,
   // Emails
   saveEmail, getEmailsByThread, getEmailsByAthlete, markEmailRead, searchEmails,
   // Threads
