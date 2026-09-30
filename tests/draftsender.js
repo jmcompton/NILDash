@@ -102,6 +102,21 @@ async function main() {
   ok('the contract form pre-fills the brand contact, not the login', /d\.shown && d\.shown\.contactEmail/.test(read('public/index.html'))
     && !/agentEmail\.value = currentUser \? \(currentUser\.email/.test(read('public/index.html')));
 
+  // ── 3c. THE WEEKLY REPORT TO FAMILIES, AND THE CONTRACT ───────────────────
+  OUT.push('', '-- the family report and the contract --');
+  await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('ds-ath-a', $1, '{"name":"Report Kid","school":"Auburn University"}'),
+                 ('ds-ath-b', $2, '{"name":"Other Kid","school":"Auburn University"}') ON CONFLICT DO NOTHING`, [A, B]);
+  const RPT = require(REPO + 'server/services/athleteReport.js');
+  const since = new Date(Date.now() - 7 * 864e5).toISOString(), until = new Date().toISOString();
+  const rA = await RPT.collectReportData('ds-ath-a', A, since, until);
+  ok('a parent\'s reply goes to the mailbox the agent sends from, not the signup email', rA && rA.agent && rA.agent.email === WORK, rA && rA.agent);
+  const rB = await RPT.collectReportData('ds-ath-b', B, since, until);
+  ok('  and to the signup email only when no mailbox is connected', rB && rB.agent && rB.agent.email === 'nomail@x.test', rB && rB.agent);
+  ok('  the send uses it as the reply-to', /replyTo: data\.agent\.email \|\| undefined/.test(read('server/index.js')));
+  ok('the contract\'s agent party email falls back to the brand contact, not the login',
+    /\(_contact && _contact\.contactEmail\) \|\| \(_me && _me\.email\) \|\| null/.test(read('server/index.js'))
+    && /const _contact = _me \? \(await require\('\.\/services\/agencyBrand'\)\.brandForUser\(_me\)/.test(read('server/index.js')));
+
   // ── 4. DRAFTS ALREADY WRITTEN ─────────────────────────────────────────────
   OUT.push('', '-- drafts already signed with the login --');
   const old = `<div>Pitch.</div><div><br></div><div>Best,</div><div>Jamond Dubose</div>${FIX.sigLine(LOGIN)}`;

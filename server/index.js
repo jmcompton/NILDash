@@ -3841,7 +3841,11 @@ app.post('/api/ai/contract', requireAuth, aiLimiter, async (req, res) => {
   const _me = await store.getUser(req.session.userId).catch(() => null);
   const partyAgentName = require('./services/agentName').agentFullName({ name: agentName, email: agentEmail || (_me && _me.email) })
     || require('./services/agentName').agentFullName(_me);
-  const partyAgentEmail = (agentEmail && String(agentEmail).includes('@')) ? String(agentEmail).trim() : (_me && _me.email) || null;
+  // Not the login email straight: the same contact every document shows (My
+  // Brand's, else the mailbox outreach sends from, else the signup email).
+  const _contact = _me ? (await require('./services/agencyBrand').brandForUser(_me).catch(() => null)) : null;
+  const partyAgentEmail = (agentEmail && String(agentEmail).includes('@')) ? String(agentEmail).trim()
+    : (_contact && _contact.contactEmail) || (_me && _me.email) || null;
   if (!partyAgentName || !partyAgentEmail) {
     return res.status(400).json({ error: 'Add your name in Settings before generating a contract; it goes on the contract as a party.' });
   }

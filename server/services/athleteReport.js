@@ -46,6 +46,9 @@ async function collectReportData(athleteId, agentId, since, until) {
   if (!athleteRow) return null;
 
   const ath = athleteRow.data || {};
+  let _replyTo = null;
+  try { _replyTo = (await require('./emailStore').sendingMailbox(agentId)).address; }
+  catch (e) { console.warn('[athleteReport] sending mailbox lookup failed, reply-to falls back to signup email:', e.message); }
   // NO STAND-IN NAMES. The report went out "Sent by Your agent" about
   // "there" when either name was missing. It is signed by the agent and about
   // the athlete, so without both it is not built; the route says which.
@@ -143,7 +146,11 @@ async function collectReportData(athleteId, agentId, since, until) {
     },
     agent: {
       name: _agentName,
-      email: athleteRow.agent_email || null,
+      // WHERE A PARENT'S REPLY GOES: the mailbox the agent's outreach sends
+      // from (emailStore.sendingMailbox), the signup email only when none is
+      // connected. A parent replying to a personal Gmail the agent never chose
+      // is the same confusion the outreach sign-off had.
+      email: _replyTo || athleteRow.agent_email || null,
     },
     period: { since, until },
     pitched,
