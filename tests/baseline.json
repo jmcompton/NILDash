@@ -712,6 +712,11 @@
       "total": 52,
       "fault": null
     },
+    "notasponsor.js": {
+      "failed": 0,
+      "total": 13,
+      "fault": null
+    },
     "onboardchat.js": {
       "failed": 0,
       "total": 74,
@@ -795,6 +800,11 @@
     "placeholder.js": {
       "failed": 0,
       "total": 28,
+      "fault": null
+    },
+    "placeholders.js": {
+      "failed": 0,
+      "total": 15,
       "fault": null
     },
     "placesnew.js": {

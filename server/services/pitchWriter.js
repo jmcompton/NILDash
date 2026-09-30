@@ -178,6 +178,8 @@ function lintMessage(msg, opts = {}) {
   const t = String(msg || '').trim();
   if (!t) return { ok: false, problems: ['empty message'] };
 
+  const _slots = require('./placeholders').find(t);
+  if (_slots.length) problems.push('contains a placeholder where a value should be: ' + _slots.slice(0, 3).join(', '));
   if (/—|–/.test(t)) problems.push('contains an em or en dash');
   if (/!/.test(t)) problems.push('contains an exclamation mark');
   // The opener is tested AFTER any greeting. "Hi Dave, I hope this finds you
@@ -296,7 +298,11 @@ function repairSignOff(text, signOff) {
 }
 
 function autoRepair(msg) {
-  let t = String(msg || '');
+  // A MISSING VALUE DROPS THE LINE (services/placeholders): the model filled
+  // a gap with "[athlete_handle]" once, and it reached a business.
+  const _ph = require('./placeholders').dropLines(String(msg || ''));
+  if (_ph.dropped.length) console.log(`[writer] dropped ${_ph.dropped.length} line(s) holding a placeholder: ${_ph.dropped.join(' | ').slice(0, 200)}`);
+  let t = _ph.text;
   t = t.replace(/\s*—\s*/g, ', ').replace(/\s*–\s*/g, ', ');
   t = t.replace(/!+/g, '.');
   // Horizontal whitespace only. Collapsing ALL whitespace destroyed the blank
@@ -1326,7 +1332,7 @@ ${ctx.hasSchedulingLink
       + 'invite them to use it: "use my scheduling link below to set up a call".'
     : 'The agent has NO scheduling link. Do not mention one, and do not refer to anything "below".'}
 The channel: ${ctx.channel === 'email' ? 'email' : 'an Instagram DM'}
-
+${ctx.athlete && ctx.athlete.instagramHandle ? '' : 'There is NO Instagram link for this athlete. Do not write a link, a handle, or any placeholder for one.\n'}
 Return ONLY JSON, in exactly this order:
 {
   "angle": "one sentence naming the real connection between THIS athlete and THIS business",
@@ -1334,7 +1340,7 @@ Return ONLY JSON, in exactly this order:
   "ask": "what you would propose if they reply — for the agent's card, NOT for the message itself",
   "confidence": "strong" | "thin",
   "evidenceUsed": the number of the ONE evidence line the message states, or 0 if it states none,
-  "message": "the message itself, four to five sentences in the prescribed order, the Instagram link on its own line, signed off"
+  "message": "the message itself, four to five sentences in the prescribed order, ${ctx.athlete && ctx.athlete.instagramHandle ? 'the Instagram link on its own line, ' : ''}signed off"
 }
 
 If there is no real connection worth pitching, return instead:

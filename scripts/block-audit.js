@@ -36,7 +36,7 @@ const APPLY = process.argv.includes('--apply');
 
 // What an agent may never be pitched, and what is held by age: every
 // compliance category the classifier knows, reported by name.
-const REPORT_KEYS = ['collective', 'gambling', 'alcohol', 'cannabis', 'tobacco', 'firearms', 'adult'];
+const REPORT_KEYS = ['collective', 'not-a-sponsor', 'gambling', 'alcohol', 'cannabis', 'tobacco', 'firearms', 'adult'];
 
 async function main() {
   await new Promise((r) => setTimeout(r, INIT_WAIT_MS));
@@ -107,15 +107,19 @@ async function main() {
   }
   if (!openBad.length) say(`  none of the ${cards.length} open card(s)`);
   // COLLECTIVES, BY ATHLETE: who is looking at one right now.
+  // And NOT A SPONSOR (services/notASponsor): media, valuation sites,
+  // recruiting services, NIL platforms, athletic programs.
   const colCards = openBad.filter((x) => x.rx.key === 'collective');
-  if (colCards.length) {
+  const nsCards = openBad.filter((x) => x.rx.key === 'not-a-sponsor');
+  for (const [label, list0] of [['collective', colCards], ['not-a-sponsor', nsCards]]) {
+    if (!list0.length) continue;
     const byAth = new Map();
-    for (const { c } of colCards) {
+    for (const { c } of list0) {
       const k = `${(c.data && c.data.name) || c.athlete_id} (${c.email || c.agent_id})`;
       if (!byAth.has(k)) byAth.set(k, []);
       byAth.get(k).push(c.brand_name);
     }
-    say('', `  collective cards by athlete: ${colCards.length} card(s) for ${byAth.size} athlete(s)`);
+    say('', `  ${label} cards by athlete: ${list0.length} card(s) for ${byAth.size} athlete(s)`);
     for (const [k, list] of byAth) say(`      ${k}: ${list.join('; ')}`);
   }
   if (openBad.length && APPLY) {
@@ -143,7 +147,7 @@ async function main() {
   const colRows = [];
   for (const r of rows) {
     const cls = Compliance.classifyBusiness(r.brand, { types: [], category: r.category });
-    if (cls.hits.some((h) => h.key === 'collective')) colRows.push(r);
+    if (cls.hits.some((h) => h.key === 'collective' || h.key === 'not-a-sponsor')) colRows.push(r);
     const hit = cls.hits.find((h) => REPORT_KEYS.includes(h.key));
     if (hit) { (flagged[hit.key] = flagged[hit.key] || []).push(`${r.brand} (${r.market_key}, filed as ${r.category || '?'}) -- ${hit.basis}`); continue; }
     const pos = (cls.possible || []).find((h) => REPORT_KEYS.includes(h.key));
@@ -162,13 +166,17 @@ async function main() {
   if (colRows.length && APPLY) {
     let n = 0;
     for (const r of colRows) n += (await P.query(`DELETE FROM market_business_seen WHERE market_key = $1 AND brand = $2`, [r.market_key, r.brand])).rowCount;
-    say(`  removed ${n} collective row(s) from the agent market pools`);
-  } else if (colRows.length) say(`  ${colRows.length} collective row(s) would be removed from the agent market pools with --apply`);
+    say(`  removed ${n} collective / not-a-sponsor row(s) from the agent market pools`);
+  } else if (colRows.length) say(`  ${colRows.length} collective / not-a-sponsor row(s) would be removed from the agent market pools with --apply`);
   const maybeN = Object.values(maybe).reduce((s, l) => s + l.length, 0);
   say('', `  possible, NOT blocked (a weak word alone): ${maybeN}`);
   for (const k of REPORT_KEYS) for (const l of (maybe[k] || []).slice(0, 15)) say(`      ${k}: ${l}`);
 
-  say('', `COLLECTIVES: ${colRows.length} agent-pool row(s), ${colCards.length} open agent card(s), `
+  const nsRows = (flagged['not-a-sponsor'] || []).length;
+  say('', `NOT A SPONSOR (media, valuation, recruiting, platforms, athletic programs): ${nsRows} agent-pool row(s), `
+    + `${nsCards.length} open agent card(s), ${bad.filter((d) => /^not-a-sponsor:/.test(d.why)).length} waiting university ask(s)`
+    + `${APPLY ? ' -- all removed / pulled / withdrawn' : ' (report only)'}`);
+  say(`COLLECTIVES: ${colRows.length - nsRows} agent-pool row(s), ${colCards.length} open agent card(s), `
     + `${bad.filter((d) => /^collective:/.test(d.why)).length} waiting university ask(s)${APPLY ? ' -- all removed / pulled / withdrawn' : ' (report only)'}`);
   say('', `SUMMARY: ${newly} university business(es) newly blocked, ${bad.length} waiting team ask(s) to a blocked business, `
     + `${openBad.length} open agent card(s) to a restricted business${APPLY ? ' (pulled)' : ''}, ${logBad.length} approved unsent email(s), `

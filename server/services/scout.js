@@ -621,7 +621,9 @@ async function nationalCandidates(pool, { limit, store }) {
   // deal_comps is "mostly NIL collectives and national brands" (see above). A
   // collective pays athletes and is never a sponsor prospect: dropped here,
   // before it can take a seat on a slate (services/collectives).
-  const COL = require('./collectives');
+  // Nor is a media or valuation site, a recruiting service, an NIL platform or
+  // an athletic program (services/notASponsor): On3 was queued as a DM.
+  const COL = require('./notASponsor');
   rows = rows.filter((b) => !COL.detect(b.brand, { category: b.category }));
   if (!rows.length) return [];
 

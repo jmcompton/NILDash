@@ -4605,11 +4605,11 @@ async function recordMarketPool(found, { schoolMarket, hometown } = {}) {
     const { marketPoolKey } = require('./services/regionKey');
     // NO COLLECTIVE ENTERS THE POOL, whichever writer calls (services/
     // collectives). The writers filter too; this is the one door they share.
-    const COL = require('./services/collectives');
+    const COL = require('./services/notASponsor');
     const list = (Array.isArray(found) ? found : []).filter((f) => {
       const nm = f && (f.name || f.brand);
       const hit = nm && COL.detect(nm, { category: f.category, types: f.types, primaryType: f.primaryType || f.primary_type, primaryTypeDisplayName: f.primary_type_label });
-      if (hit) console.log(`[pool] not recorded: "${nm}" is an NIL collective (${hit.why})`);
+      if (hit) console.log(`[pool] not recorded: "${nm}" is ${hit.key === 'collective' ? 'an NIL collective' : 'not a sponsor'} (${hit.why})`);
       return !hit;
     });
     const nameOf = (f) => (f && (f.name || f.brand)) ? String(f.name || f.brand).trim() : null;

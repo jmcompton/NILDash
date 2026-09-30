@@ -188,6 +188,16 @@ const CATEGORIES = [
     why: 'an NIL collective, which pays athletes and is never a sponsor',
   },
   {
+    // NOT A BUSINESS THAT BUYS ENDORSEMENTS: NIL media and valuation sites
+    // (On3), recruiting services, NIL platforms, sports media, athletic
+    // departments and teams. Detected by services/notASponsor. Blocked for
+    // everyone: it is a category error, not an age question.
+    key: 'not-a-sponsor', label: 'not a sponsor (media, valuation, recruiting, platform or athletic program)',
+    placesTypes: [], nameMarkers: [], weakMarkers: [],
+    minor: 'block', adult: 'block',
+    why: 'not a business that buys athlete endorsements',
+  },
+  {
     key: 'supplements', label: 'supplements',
     placesTypes: [],
     nameMarkers: ['supplement', 'supplements', 'nutraceutical', 'sarms', 'peptide', 'pre-workout', 'preworkout'],
@@ -248,13 +258,15 @@ function classifyBusiness(brandName, evidence) {
   }
   // THE COLLECTIVE RULE (services/collectives): its own detector, because the
   // word "collective" blocks only when the business is not a consumer one.
-  if (!hits.some((h) => h.key === 'collective')) {
-    const col = require('./collectives').detect(brandName, {
+  // services/notASponsor asks the collective detector first, then its own
+  // rules (media, valuation, recruiting, platforms, athletic programs).
+  if (!hits.some((h) => h.key === 'collective' || h.key === 'not-a-sponsor')) {
+    const col = require('./notASponsor').detect(brandName, {
       types, primaryType: evidence && evidence.primaryType, primaryTypeDisplayName: described || null,
       category: evidence && evidence.category,
     });
     if (col) {
-      const c = CATEGORY_BY_KEY.collective;
+      const c = CATEGORY_BY_KEY[col.key];
       hits.push({ key: c.key, label: c.label, why: c.why, basis: col.why, needsCategory: col.needsCategory });
     }
   }

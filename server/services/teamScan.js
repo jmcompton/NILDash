@@ -44,7 +44,7 @@ const MIGRATION = path.join(__dirname, '..', 'migrations', '014_university_spons
 // Six of the seven are compliance.js categories, reused so a marker added
 // there is added here. Payday lending is not a compliance category (it is not
 // an age question for an athlete), so its markers live here.
-const BLOCKED_KEYS = ['alcohol', 'cannabis', 'tobacco', 'firearms', 'gambling', 'adult', 'collective'];
+const BLOCKED_KEYS = ['alcohol', 'cannabis', 'tobacco', 'firearms', 'gambling', 'adult', 'collective', 'not-a-sponsor'];
 const PAYDAY_MARKERS = ['payday', 'cash advance', 'check cashing', 'check cashers', 'title loan', 'title loans',
   'car title', 'installment loan', 'installment loans', 'speedy cash', 'advance america', 'ace cash', 'cash store',
   'money tree', 'moneytree', 'check into cash', 'checkmate'];
@@ -333,6 +333,16 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [university.id, team.id, brandKey, c.brand_name, identity ? identity.key : null, c.place_id || null, item.id,
         pick.fit, pick.fitReasons.join('; ')]);
+    // A MISSING VALUE DROPS THE LINE (services/placeholders), as for agents.
+    {
+      const PH = require('./placeholders');
+      const r = PH.dropLines(ask.body);
+      if (r.dropped.length) {
+        console.log(`[teamScan] ${c.brand_name}: dropped ${r.dropped.length} placeholder line(s): ${r.dropped.join(' | ').slice(0, 200)}`);
+        ask.body = r.text;
+      }
+      if (PH.has(ask.subject)) ask.subject = String(ask.subject).replace(/\s*(\[[^\]]*\]|\{\{?[^}]*\}\}?)\s*/g, ' ').trim();
+    }
     const id = 'udraft_' + crypto.randomBytes(8).toString('hex');
     await pool.query(
       `INSERT INTO university_drafts (id, university_id, team_id, queue_id, brand_key, brand_name, place_id,

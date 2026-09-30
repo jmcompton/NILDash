@@ -1208,7 +1208,7 @@ function fillingSince(athleteId) { return _filling.get(String(athleteId)) || nul
 // this athlete is not made into a card: a held card is one the agent cannot
 // send without a compliance review, and a brewery is not a card to review.
 // Returns null, or { key, label, severity, why }.
-const RESTRICTED_AT_FILL = new Set(['alcohol', 'tobacco', 'cannabis', 'gambling', 'firearms', 'adult', 'collective']);
+const RESTRICTED_AT_FILL = new Set(['alcohol', 'tobacco', 'cannabis', 'gambling', 'firearms', 'adult', 'collective', 'not-a-sponsor']);
 // opts.defer: at the name check BEFORE the Places lookup, a collective hit
 // that only lacks a category ("Blue Collective", no category yet) is left to
 // the check after the lookup, where Google's type decides; if there is still

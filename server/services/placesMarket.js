@@ -314,7 +314,7 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
     // A COLLECTIVE PAYS ATHLETES; it never enters a market pool (services/
     // collectives: the named list, collective-only phrases, and the word
     // "collective" unless Google says it is a consumer business).
-    if (require('./collectives').detect(r.name, { types: r.types, primaryType: r.primary_type, primaryTypeDisplayName: r.primary_type_label })) {
+    if (require('./notASponsor').detect(r.name, { types: r.types, primaryType: r.primary_type, primaryTypeDisplayName: r.primary_type_label })) {
       dropCollective++; continue;
     }
     const chain = isNationalChain(r.name);

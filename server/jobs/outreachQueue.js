@@ -502,6 +502,26 @@ async function matchFor(pool, agentId, athleteId, brandName) {
 // partial unique index on (athlete_id, slot) WHERE state='queued' is what makes
 // a double-fill a no-op rather than a duplicate.
 async function insertCard(pool, { agentId, athleteId, slot, card }) {
+  // ── A MISSING VALUE DROPS THE LINE (services/placeholders) ────────────────
+  // Every path that saves a card comes through here, so this is the backstop
+  // for any writer: a line holding "[athlete_handle]" or "{{first_name}}" is
+  // removed from the DM, the email body and the subject before anything is
+  // stored. The writer already does this; this catches the ones that do not.
+  if (card) {
+    const PH = require('../services/placeholders');
+    for (const f of ['dmText', 'emailBody']) {
+      if (typeof card[f] !== 'string') continue;
+      const r = PH.dropLines(card[f]);
+      if (r.dropped.length) {
+        console.log(`[queue] athlete=${athleteId} "${card.brandName}": dropped ${r.dropped.length} placeholder line(s) from ${f}: ${r.dropped.join(' | ').slice(0, 200)}`);
+        card = { ...card, [f]: r.text };
+      }
+    }
+    if (typeof card.subject === 'string' && PH.has(card.subject)) {
+      console.log(`[queue] athlete=${athleteId} "${card.brandName}": subject held a placeholder; not written`);
+      return false;
+    }
+  }
   // ── NO NAMED PERSON, NO CARD. THE ONE RULE, HERE, FOR EVERY PATH ──────────
   // The nightly fill, the on-demand fill, the admin button, the seed script:
   // everything that saves a card comes through this function, and this is

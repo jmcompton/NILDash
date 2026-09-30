@@ -5352,6 +5352,11 @@ const ADMIN_SCRIPTS = {
   // waiting team asks to a blocked business.
   //   /api/admin/scripts/block-audit?text=1   (&apply=1)
   'block-audit': { file: 'scripts/block-audit.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
+  // Every unsent draft (cards, email drafts, university asks, mailbox drafts,
+  // growth templates) checked for a placeholder such as "[athlete_handle]"
+  // (services/placeholders). Report only; apply removes the lines.
+  //   /api/admin/scripts/placeholder-audit?text=1   (&apply=1)
+  'placeholder-audit': { file: 'scripts/placeholder-audit.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
   // Rebuild the Places pool for markets and print how many businesses each
   // returned (services/placesMarket, the New API). Writes the market cache and
   // market_business_seen for an agent market, university_market_seen for a campus.

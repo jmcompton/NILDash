@@ -3590,8 +3590,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       if (store.placeholderReason(nm)) { _placeholdersDropped++; return; }
       // A COLLECTIVE IS NOT A SPONSOR (services/collectives). Refused here, so
       // it never reaches the scan results, the pool or a card.
-      { const col = require('./services/collectives').detect(nm, { category: it.category, types: it.types, primaryType: it.primaryType || it.primary_type });
-        if (col) { console.log(`[dealScan] dropped "${nm}": NIL collective (${col.why})`); return; } }
+      { const col = require('./services/notASponsor').detect(nm, { category: it.category, types: it.types, primaryType: it.primaryType || it.primary_type });
+        if (col) { console.log(`[dealScan] dropped "${nm}": ${col.key === 'collective' ? 'NIL collective' : 'not a sponsor'} (${col.why})`); return; } }
       // THE PRO LANE carries no single-location small business (services/proLane).
       if (isProAth) { const why = PL.proSkipReason(it); if (why) { console.log(`[dealScan] pro lane dropped "${nm}": ${why}`); return; } }
       // Dedup by _brandKey (not raw lowercase) so a suffix/case variant of a pool
