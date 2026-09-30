@@ -1052,22 +1052,11 @@ function priceOf(meter) {
   return Math.round((web * USD_PER_WEB_SEARCH + ai * USD_PER_AI_CALL + places * USD_PER_PLACES_REQUEST) * 10000) / 10000;
 }
 
-// ── FIVE EVERY MORNING, AND WHEN TO STOP TRYING ──────────────────────────────
+// ── FIVE EVERY MORNING ───────────────────────────────────────────────────────
 //
-// The fill used to draw open slots x 3 candidates and stop; if none passed the
-// bar the athlete got nothing. It now keeps drawing until every open slot is
-// filled -- more candidates, a market refill, a widen -- with two stops besides
-// the money:
-//
-//   THE RATE FLOOR. A thin market and a worked-out market are indistinguishable
-//   to a loop whose only stop is money, and the loop pays full price to not tell
-//   them apart. So the running pass rate over the last RATE_WINDOW real attempts
-//   is watched: below RATE_FLOOR, stop grinding this pool. Widen once, then if
-//   the rate is still under the floor, stop for the night and say why.
-//
-//   THE HONEST STOP. When the pool is drawn and the widens are used, the athlete's
-//   note is a sentence with counts -- how many tried this week, how many were
-//   reachable, how many widens -- and what to do next. Not "none passed the bar".
+// THE HONEST STOP. When the ladder is exhausted short of five, the athlete's
+// note is a sentence with counts -- how many tried this week, how many were
+// reachable, how many widens -- and what to do next. Not "none passed the bar".
 //
 // ── THE OUTCOME-DRIVEN FILL: FIVE, OR A CEILING ─────────────────────────────
 // The fill runs until the athlete holds SLOTS_PER_ATHLETE approvable cards. It
@@ -1075,10 +1064,18 @@ function priceOf(meter) {
 //   time   ATHLETE_TIME_CEILING_MS spent on this athlete tonight
 //   cost   ATHLETE_COST_CEILING_USD spent on this athlete's lookups and scans
 //   ladder every rung of LADDER tried and nothing new came back
-// (and the agent's nightly cap, the hard money stop above everything).
-// A candidate count is never a stop: a rejection pulls a replacement.
-const ATHLETE_TIME_CEILING_MS = parseInt(process.env.OUTREACH_ATHLETE_TIME_CEILING_MS, 10) || 10 * 60 * 1000;
-const ATHLETE_COST_CEILING_USD = parseFloat(process.env.OUTREACH_ATHLETE_COST_CEILING_USD) || 1.50;
+// There is NO candidate-count stop and NO pass-rate stop (passRateStop is
+// gone): a rejection pulls a replacement, and a rung is left only when it
+// has nothing new. The agent's nightly cap is sized to the roster times this
+// ceiling, so it never binds before an athlete's own ceiling does.
+// THE COST CEILING. The best night on record was 187 cards for $7.73, about
+// 4 cents a card all-in (rejections included), so five cards is ~$0.21 at
+// that night's pass rate. A thin market costs more: at 1 in 12 reachable the
+// loop chews ~50 candidates, ~$1.50-$2.00 of lookups. $2.50 reaches five in a
+// market that thin with room to spare; it is a ceiling, not a spend -- an
+// athlete stops the moment they hold five.
+const ATHLETE_TIME_CEILING_MS = parseInt(process.env.OUTREACH_ATHLETE_TIME_CEILING_MS, 10) || 8 * 60 * 1000;
+const ATHLETE_COST_CEILING_USD = parseFloat(process.env.OUTREACH_ATHLETE_COST_CEILING_USD) || 2.50;
 // Where the replacements come from, in order. The bar never moves; only the
 // place the next candidate is drawn from does.
 //   local          the athlete's market pool at the normal radius (the slate, re-drawn)
@@ -1090,10 +1087,6 @@ const ATHLETE_COST_CEILING_USD = parseFloat(process.env.OUTREACH_ATHLETE_COST_CE
 const LADDER = ['local', 'local-wide', 'places-refresh', 'social', 'national', 'hometown'];
 
 // The three-nights-then-pause backoff stays as the outer stop, unchanged.
-// The pass rate below no longer STOPS the fill: under the floor, the fill
-// moves to the next rung of the ladder instead.
-const RATE_FLOOR = 1 / 8;
-const RATE_WINDOW = 8;
 // A separate pot for DISCOVERY -- cold-market scans and widens -- so finding
 // businesses never competes with reaching them. Per agent per night, alongside
 // the $8 lookup cap, not inside it.
@@ -1106,23 +1099,6 @@ const DISCOVERY_PER_ATHLETE_USD = parseFloat(process.env.OUTREACH_QUEUE_DISCOVER
 // The widen's allowance per athlete per night (one widen, estimated $0.25),
 // outside the discovery share so it runs at any roster size.
 const WIDEN_PER_ATHLETE_USD = parseFloat(process.env.OUTREACH_QUEUE_WIDEN_PER_ATHLETE_USD) || 0.30;
-
-// Only attempts that SAY SOMETHING ABOUT THE MARKET count toward the rate. A
-// routing skip (no lane, program cap, brand cap) costs nothing and reveals
-// nothing about whether businesses here can be reached; a lookup that threw is
-// our fault. Those are ignored, so the floor measures the pool, not the plumbing.
-const RATE_RESULTS = new Set(['queued', 'rejected', 'no_angle', 'prescreen_skip']);
-function passRateStop(tried, opts = {}) {
-  const floor = opts.floor == null ? RATE_FLOOR : opts.floor;
-  const window = opts.window || RATE_WINDOW;
-  const real = (tried || []).filter((t) => t && !t.fault && RATE_RESULTS.has(t.result)
-    && !/already holding|no lane recorded|already has .* program application/.test(t.reason || ''));
-  if (real.length < window) return { stop: false, rate: null, passes: null, window, seen: real.length };
-  const last = real.slice(-window);
-  const passes = last.filter((t) => t.result === 'queued').length;
-  const rate = passes / window;
-  return { stop: rate < floor, rate, passes, window, seen: real.length };
-}
 
 // The sentence an agent reads on an empty tab when a market is genuinely worked
 // out. Counts, a place, and a next step -- because "none passed the bar" tells
@@ -1263,7 +1239,7 @@ module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor, routeOf, genericRowsOf,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
-  passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD, WIDEN_PER_ATHLETE_USD,
+  workedOutNote, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD, WIDEN_PER_ATHLETE_USD,
   ATHLETE_TIME_CEILING_MS, ATHLETE_COST_CEILING_USD, LADDER,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,

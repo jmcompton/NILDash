@@ -1150,8 +1150,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     const MP = require('../services/marketPools');
     if (!MP.enabled()) return [];
     const done = ctx.placesRefreshed || (ctx.placesRefreshed = new Set());
-    if (!done.has(profile.marketKey)) {
-      const maxRuns = parseInt(process.env.OUTREACH_PLACES_REFRESH_MAX_PER_RUN, 10) || 5;
+    const maxRuns = parseInt(process.env.OUTREACH_PLACES_REFRESH_MAX_PER_RUN, 10) || 5;
+    if (!done.has(profile.marketKey) && done.size >= maxRuns) {
+      say(`${athleteName}: no Places refresh, tonight's allowance of ${maxRuns} is used`);
+    } else if (!done.has(profile.marketKey)) {
+      // Claimed BEFORE any await: agents run in parallel, and two athletes in
+      // one market must not both start a build.
+      done.add(profile.marketKey);
       const minDays = parseInt(process.env.OUTREACH_PLACES_REFRESH_MIN_DAYS, 10) || 3;
       let sched = null;
       try {
@@ -1159,10 +1164,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         sched = (await pool.query(`SELECT last_built_at, last_ok, radius_m FROM market_pool_schedule WHERE market_key = $1`, [profile.marketKey])).rows[0] || null;
       } catch (e) { faultOf('database', 'market schedule read: ' + e.message, 'places refresh'); return []; }
       const ageDays = sched && sched.last_built_at ? (Date.now() - new Date(sched.last_built_at).getTime()) / 86400000 : Infinity;
-      if (done.size >= maxRuns) say(`${athleteName}: no Places refresh, tonight's allowance of ${maxRuns} is used`);
-      else if (ageDays < minDays && sched && sched.last_ok) say(`${athleteName}: no Places refresh, the market was built ${ageDays.toFixed(1)} day(s) ago`);
+      if (ageDays < minDays && sched && sched.last_ok) say(`${athleteName}: no Places refresh, the market was built ${ageDays.toFixed(1)} day(s) ago`);
       else {
-        done.add(profile.marketKey);
         const ring = sched && sched.last_ok && sched.radius_m ? (MP.RADII.find((r) => r > sched.radius_m) || sched.radius_m) : MP.RADII[0];
         say(`${athleteName}: refreshing the ${profile.marketKey} pool from Places at ${Math.round(ring / 1000)} km`);
         const b = await MP.buildMarket(pool, { key: profile.marketKey, query: profile.school || profile.market, region: profile.market,
@@ -1204,7 +1207,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     let got = await draw();
     const MP = require('../services/marketPools');
     const done = ctx.placesRefreshed || (ctx.placesRefreshed = new Set());
-    if (!got.length && MP.enabled() && !done.has(hk)) {
+    const maxRuns = parseInt(process.env.OUTREACH_PLACES_REFRESH_MAX_PER_RUN, 10) || 5;
+    if (!got.length && MP.enabled() && !done.has(hk) && done.size < maxRuns) {
       done.add(hk);
       say(`${athleteName}: building the hometown pool (${home}) from Places`);
       await MP.ensureTables(pool).catch(() => {});
@@ -1221,37 +1225,27 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // Every call returns the next batch of NEW candidates, from the lowest rung
   // that still has any. The bar is the same on every rung.
   let rung = 0;
-  // opts.fromRate: the pass rate is under the floor, so this rung is not
-  // producing: climb first, and only come back to the re-draw if nothing
-  // higher has anything. Otherwise the free re-draw of the athlete's own
-  // pool (which skips everything handed out tonight) always comes first, and
-  // a rung is climbed only when it is empty. A rung that has run is not run
-  // again tonight.
-  async function refillSlate(why, opts = {}) {
-    if (!opts.fromRate) {
-      const { fresh: f, added } = await redraw();
-      slate = f;
-      if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) from the pool (${why})`); return added; }
-    }
+  // The free re-draw of the athlete's own pool (which skips everything handed
+  // out tonight) always comes first; a rung is climbed only when that is
+  // empty. A rung that has run is not run again tonight.
+  async function refillSlate(why) {
+    const { fresh: f, added } = await redraw();
+    slate = f;
+    if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) from the pool (${why})`); return added; }
     for (;;) {
       if (rung === 0) rung = 1;             // rung 1 is the re-draw above
       const name = Q.LADDER[rung];
       if (!name) break;
-      let added = [];
-      if (name === 'local-wide') added = await localRefill(why, { skipRedraw: true });
-      else if (name === 'places-refresh') { fire(name); added = await placesRefresh(); }
-      else if (name === 'social' || name === 'national') { fire(name); added = await laneRung(name); }
-      else if (name === 'hometown') { fire(name); added = await hometownRung(); }
+      let got = [];
+      if (name === 'local-wide') got = await localRefill(why, { skipRedraw: true });
+      else if (name === 'places-refresh') { fire(name); got = await placesRefresh(); }
+      else if (name === 'social' || name === 'national') { fire(name); got = await laneRung(name); }
+      else if (name === 'hometown') { fire(name); got = await hometownRung(); }
       rung++;
-      if (added.length) {
-        say(`${athleteName}: ${added.length} new candidate(s) from rung ${rung} (${name}) — ${why}`);
-        return added;
+      if (got.length) {
+        say(`${athleteName}: ${got.length} new candidate(s) from rung ${rung} (${name}) — ${why}`);
+        return got;
       }
-    }
-    if (opts.fromRate) {
-      const { fresh: f, added } = await redraw();
-      slate = f;
-      if (added.length) return added;
     }
     return [];
   }
@@ -1302,9 +1296,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   //   cost    Q.ATHLETE_COST_CEILING_USD on this athlete (the next lookup would pass it)
   //   ladder  every rung of Q.LADDER tried and nothing new came back
   //   agent-cap / share   the agent's nightly money (unchanged, below)
-  // A pass rate under the floor no longer stops anything: it moves the fill
-  // to the next rung, because this rung is not producing.
-  let stop = null, rateInfo = null, rateMark = 0, capStop = null, candidatesToFloor = null;
+  // There is no candidate-count stop and no pass-rate stop: a rung is left
+  // only when it has nothing new left to offer.
+  let stop = null, capStop = null, candidatesToFloor = null;
   // THE CHANNEL MIX: how each card placed tonight reaches the business
   // (email, dm, call, program). The target is mostly email and DM.
   const channels = [];
@@ -1314,17 +1308,6 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     for (let attempt = 0; !placed && !stop; attempt++) {
       if (Date.now() - _t0 > TIME_CEILING_MS) { stop = 'time'; break; }
       if (athleteCost() + LOOKUP_CEILING_USD > COST_CEILING_USD + 1e-9) { stop = 'cost'; break; }
-      // The rate floor, over the candidates tried since the last move: under
-      // it, move up the ladder (candidates from the new rung go next).
-      const rs = Q.passRateStop(tried.slice(rateMark));
-      if (rs.stop) {
-        rateInfo = rs; rateMark = tried.length;
-        say(`${athleteName}: pass rate ${rs.passes}/${rs.window} is under the floor — moving up the ladder`);
-        const added = await refillSlate('rate floor', { fromRate: true });
-        // Nothing higher up: keep working what is left on this rung. Only an
-        // empty slate AND an empty ladder ends the night.
-        if (added.length) cands.splice(ci, 0, ...added);
-      }
       // Drained: ask the ladder for more before giving up on the slot.
       if (ci >= cands.length) {
         const added = await refillSlate('slate drained');
@@ -2050,7 +2033,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // alert and the status page) naming the athlete, the count and the rungs.
   // Not a nightFault: it must not change how the pause counts the night.
   if (loop.held < loop.floor && !dry) {
-    OF.record('nightly-floor', `${athleteName}: ${loop.held} of ${loop.floor} cards after ${loop.candidates} candidate(s); `
+    OF.record('nightly-floor', `${loop.held === 0 ? 'EMERGENCY, ZERO CARDS. ' : ''}${athleteName}: ${loop.held} of ${loop.floor} cards after ${loop.candidates} candidate(s); `
       + `stopped by ${stop ? STOP_TEXT[stop] || stop : 'unknown'}; rungs tried: ${loop.rungs.join(', ')}`, 'fill athlete=' + athleteId)
       .catch(() => {});
   }
@@ -2111,7 +2094,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     // from the run row rather than the process log.
     lanes: slate.lanes || null, dropped: slate.dropped || null,
     // Which stop ended the night, if one did, and the pass rate that decided it.
-    stop: stop || null, rate: rateInfo || null, loop,
+    stop: stop || null, loop,
     discoveryUsd: (budget.discoverySpent ? budget.discoverySpent() : 0) + (budget.widenSpent ? budget.widenSpent() : 0) };
 }
 
@@ -2167,6 +2150,7 @@ async function fillAgent(pool, agent, opts) {
   // One market refill per market per run, shared across the roster: nine
   // athletes in one town cost one scan, not nine. See refillSlate.
   const _refilledMarkets = new Set();
+  const _placesRefreshed = new Set();
   const _refillFaults = new Map();   // market -> why its refill failed on our side tonight
 
   for (let ai2 = 0; ai2 < athletes.length; ai2++) {
@@ -2207,6 +2191,9 @@ async function fillAgent(pool, agent, opts) {
         // dozens of businesses rather than three.
         maxSlots: Q.NIGHTLY_SLOTS, signature,
         refilledMarkets: _refilledMarkets, refillFaults: _refillFaults,
+        // Shared by the whole run (run()), so a mid-run Places refresh happens
+        // once per market and within the run's allowance.
+        placesRefreshed: opts.placesRefreshed || _placesRefreshed,
         // Shared across the roster — see loadProgramBrandTally.
         programBrandTally,
         onProgress: (m) => console.log('[queue] ' + m),
@@ -2406,7 +2393,16 @@ async function run(opts = {}) {
       `SELECT id, name, email, signature_text, scheduling_url, last_login FROM users
         WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
   let filled = 0, spent = 0, skipped = 0;
-  for (const a of agents) {
+  // Shared by every agent and athlete tonight: a market refreshed from Places
+  // mid-run is refreshed once, and the run's allowance of refreshes holds.
+  opts = { ...opts, placesRefreshed: opts.placesRefreshed || new Set() };
+  // ── AGENTS IN PARALLEL ────────────────────────────────────────────────────
+  // The fill now runs each athlete to five, which takes longer than the old
+  // batch. One agent after another, a 40-account night could run past the
+  // morning. Each agent's fill is self-contained (its own claim, budget and
+  // roster), so OUTREACH_QUEUE_AGENT_CONCURRENCY agents run at once.
+  const CONC = Math.max(1, parseInt(process.env.OUTREACH_QUEUE_AGENT_CONCURRENCY, 10) || 4);
+  const one = async (a) => {
     // NO NAME, NO CARDS. Checked before the inactivity test's bypass, so a
     // forced or single-agent run refuses too: every card this agent could get
     // tonight would be signed by nobody. Recorded as the night's note, so Home
@@ -2426,7 +2422,7 @@ async function run(opts = {}) {
              ON CONFLICT (agent_id, run_date) DO NOTHING`, [a.id, opts.runDate || today(), why]).catch((e) =>
             console.error('[queue] could not record the skip for ' + a.id + ': ' + e.message));
         }
-        continue;
+        return;
       }
     }
     const r = await fillAgent(pool, a, opts).catch(async (e) => {
@@ -2442,7 +2438,11 @@ async function run(opts = {}) {
       return { filled: 0, spent: 0 };
     });
     filled += r.filled; spent += r.spent;
-  }
+  };
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(CONC, agents.length) }, async () => {
+    while (next < agents.length) { const a = agents[next++]; await one(a); }
+  }));
   console.log(`[queue] run complete agents=${agents.length} skipped=${skipped} filled=${filled} spent=$${spent.toFixed(2)}`);
   return { agents: agents.length, skipped, filled, spent };
 }

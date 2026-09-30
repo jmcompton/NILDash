@@ -83,7 +83,8 @@ async function collect(pool, { now } = {}) {
   const runs = new Map((await pool.query(
     `SELECT agent_id, filled, note, details, finished_at FROM outreach_queue_runs WHERE run_date = $1`, [runDate]))
     .rows.map((r) => [r.agent_id, r]));
-  const out = { runDate, queueEnabled, problems: [], skippedByDesign: 0, agentsWithAthletes: 0, cardsLastNight: 0 };
+  const out = { runDate, queueEnabled, problems: [], skippedByDesign: 0, agentsWithAthletes: 0, cardsLastNight: 0,
+    floor: { athletes: 0, hit: 0, short: [] } };
   for (const a of agents) {
     if (!a.athletes) continue;
     out.agentsWithAthletes++;
@@ -92,7 +93,16 @@ async function collect(pool, { now } = {}) {
     if (run && /^skipped: /.test(String(run.note || ''))) out.skippedByDesign++;
     const p = agentProblem({ athletes: a.athletes, run, queueEnabled });
     if (p) out.problems.push({ agent: `${a.name || a.email} <${a.email}>`, ...p });
+    // ── FIVE EVERY MORNING (the loop's numbers, details[].loop) ─────────────
+    for (const d of (run && Array.isArray(run.details) ? run.details : [])) {
+      if (!d || !d.loop) continue;
+      out.floor.athletes++;
+      if (d.loop.held >= d.loop.floor) { out.floor.hit++; continue; }
+      out.floor.short.push({ agent: a.name || a.email, athlete: d.athleteName || d.athleteId, held: d.loop.held, floor: d.loop.floor,
+        candidates: d.loop.candidates, stop: d.loop.stop, rungs: d.loop.rungs || [] });
+    }
   }
+  out.floor.short.sort((x, y) => x.held - y.held);
   const b = (await pool.query(
     `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE NOT ok)::int AS failed,
             COALESCE(SUM(pool_size) FILTER (WHERE ok), 0)::int AS pooled
@@ -166,7 +176,7 @@ async function collect(pool, { now } = {}) {
   // to stop a silent night did not run, which is silent.
   out.preflightMissing = (!out.preflight || ymd(out.preflight.night) !== ymd(runDate));
 
-  out.problemCount = out.problems.length + (b.failed ? 1 : 0)
+  out.problemCount = out.problems.length + (b.failed ? 1 : 0) + out.floor.short.length
     + (out.preflightMissing && !(out.readErrors || []).length ? 1 : 0)
     + ((out.digests.failed || out.digests.held || out.digests.stuck) ? 1 : 0)
     + (out.overdueSends.total ? 1 : 0)
@@ -182,6 +192,7 @@ function render(r) {
     const subject = `NILDash all clear ${r.runDate}: ${r.cardsLastNight} card(s) last night, `
       + `${r.builds.total} market build(s) and none failed, ${r.newBusinesses24h} new business(es)`;
     const text = [subject, '',
+      (r.floor && r.floor.athletes ? `Five every morning: ${r.floor.hit} of ${r.floor.athletes} athlete(s) reached five.` : ''),
       `${r.agentsWithAthletes} agent(s) with athletes; every one either got cards or had every slot already full`
         + (r.skippedByDesign ? `; ${r.skippedByDesign} skipped by design (not signed in recently)` : '') + '.',
       r.digests ? `Agent digests last night: ${r.digests.sent} sent, none failed or held.` : '',
@@ -199,6 +210,10 @@ function render(r) {
   if (r.preflightMissing) bits.push('no preflight ran for last night');
   if (r.preflight && r.preflight.status === 'failed') bits.push(`preflight failed (${(r.preflightFailures || []).map((f) => f.service).join(', ') || r.preflight.failed})`);
   if (r.builds.failed) bits.push(`${r.builds.failed} Places market build(s) failed`);
+  if ((r.floor || {}).short && r.floor.short.length) {
+    const zero = r.floor.short.filter((x) => !x.held).length;
+    bits.push(`${r.floor.short.length} athlete(s) short of five${zero ? ` (${zero} with ZERO)` : ''}`);
+  }
   if (r.problems.length) bits.push(`${r.problems.length} agent(s) got no cards`);
   if ((r.universityProblems || []).length) bits.push(`${r.universityProblems.length} athletics department(s) went quiet`);
   if (r.digests && (r.digests.failed || r.digests.stuck)) bits.push(`${r.digests.failed + r.digests.stuck} digest(s) not sent`);
@@ -207,6 +222,14 @@ function render(r) {
   if ((r.faults24h || []).length) bits.push(`our failures in ${r.faults24h.length} service(s)`);
   const subject = `NILDash alert ${r.runDate}: ${bits.join(', ')}`;
   lines.push(subject, '');
+  if ((r.floor || {}).short && r.floor.short.length) {
+    lines.push(`ATHLETES SHORT OF FIVE (${r.runDate}): ${r.floor.short.length} of ${r.floor.athletes}; ${r.floor.hit} reached five. The bar did not move; what passed shipped.`);
+    for (const x of r.floor.short) {
+      lines.push(`  ${x.held ? '' : 'EMERGENCY '}${x.athlete} (${x.agent}): ${x.held} of ${x.floor} after ${x.candidates} candidate(s); `
+        + `stopped by ${x.stop}; rungs tried: ${x.rungs.join(', ')}`);
+    }
+    lines.push('');
+  }
   if (r.builds.failed) {
     lines.push(`PLACES MARKET BUILDS, last 24 hours: ${r.builds.failed} of ${r.builds.total} FAILED.`,
       'A failed build means that market got no Places discovery; scans fell back to web search only.', '');

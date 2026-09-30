@@ -9,7 +9,7 @@
 // The fill used to draw open slots x 3 candidates and stop; if none passed the
 // bar the athlete got nothing. It now keeps drawing until every open slot is
 // filled -- re-draw, refill the market, widen -- and stops for exactly one of:
-// the money, the rate floor, or the pool drawn. And when it stops short, the
+// the money, the ceilings, or the ladder exhausted (the rate floor is gone). And when it stops short, the
 // note is a sentence with counts, not "none passed the bar".
 //
 // WHAT THIS SUITE PROTECTS:
@@ -43,33 +43,11 @@ const ok = (n, c, g) => {
 const rej = (n) => Array.from({ length: n }, (_, i) => ({ brand: 'R' + i, result: 'rejected', reason: 'nothing reachable — found only a name' }));
 const q = (n) => Array.from({ length: n }, (_, i) => ({ brand: 'Q' + i, result: 'queued', reason: null }));
 
-// ── 1. THE FLOOR ──────────────────────────────────────────────────────────
+// ── 1. THERE IS NO RATE STOP ────────────────────────────────────────────
+// passRateStop is deleted: the fill exits on five, the cost ceiling, the time
+// ceiling or an exhausted ladder, and nothing else (tests/floorloop.js).
 {
-  ok('the floor is one in eight', Q.RATE_FLOOR === 1 / 8 && Q.RATE_WINDOW === 8, [Q.RATE_FLOOR, Q.RATE_WINDOW]);
-  ok('fewer than eight real attempts never stops', Q.passRateStop(rej(7)).stop === false, Q.passRateStop(rej(7)));
-  ok('eight rejections in a row stops', Q.passRateStop(rej(8)).stop === true, Q.passRateStop(rej(8)));
-  const oneInEight = rej(7).concat(q(1));
-  ok('exactly one pass in eight is AT the floor, not under it', Q.passRateStop(oneInEight).stop === false, Q.passRateStop(oneInEight));
-  const earlyPass = q(1).concat(rej(8));
-  ok('the window is the LAST eight: an early pass followed by eight fails stops', Q.passRateStop(earlyPass).stop === true, Q.passRateStop(earlyPass));
-  const recovers = rej(8).concat(q(2), rej(6));
-  ok('  and two passes in the last eight lifts it back over', Q.passRateStop(recovers).stop === false, Q.passRateStop(recovers));
-  ok('the rate is reported', Q.passRateStop(oneInEight).rate === 0.125 && Q.passRateStop(oneInEight).passes === 1, Q.passRateStop(oneInEight));
-}
-
-// ── 2. PLUMBING DOES NOT COUNT ────────────────────────────────────────────
-{
-  const skips = Array.from({ length: 8 }, (_, i) => ({ brand: 'S' + i, result: 'rejected',
-    reason: 'already holding 1 program application, which is the cap of 1 per athlete' }));
-  ok('eight program-cap skips are not eight failed attempts', Q.passRateStop(skips).stop === false && Q.passRateStop(skips).seen === 0, Q.passRateStop(skips));
-  const faults = Array.from({ length: 8 }, (_, i) => ({ brand: 'F' + i, result: 'error', reason: 'Places timed out', fault: true }));
-  ok('eight lookups that threw are our fault, not the market\'s', Q.passRateStop(faults).stop === false, Q.passRateStop(faults));
-  const noLane = Array.from({ length: 8 }, (_, i) => ({ brand: 'L' + i, result: 'rejected', reason: 'no lane recorded for this brand, so it cannot be routed' }));
-  ok('routing rejects are ignored', Q.passRateStop(noLane).seen === 0, Q.passRateStop(noLane));
-  const mixed = skips.concat(rej(8));
-  ok('  while real rejections behind them still count', Q.passRateStop(mixed).stop === true && Q.passRateStop(mixed).seen === 8, Q.passRateStop(mixed));
-  const preScreen = Array.from({ length: 8 }, (_, i) => ({ brand: 'P' + i, result: 'prescreen_skip', reason: 'closed permanently' }));
-  ok('a prescreen skip is a fact about the market and counts', Q.passRateStop(preScreen).stop === true, Q.passRateStop(preScreen));
+  ok('passRateStop and the rate floor are gone', Q.passRateStop === undefined && Q.RATE_FLOOR === undefined && Q.RATE_WINDOW === undefined);
 }
 
 // ── 3. DISCOVERY IS ITS OWN POT ───────────────────────────────────────────
@@ -140,9 +118,8 @@ const q = (n) => Array.from({ length: n }, (_, i) => ({ brand: 'Q' + i, result: 
     /for \(let attempt = 0; !placed && !stop; attempt\+\+\)/.test(job)
     && !/for \(let attempt = 0; attempt < Q\.MAX_ATTEMPTS_PER_SLOT/.test(job), null);
   ok('  it refills when the slate drains', /if \(ci >= cands\.length\) \{\s*const added = await refillSlate\('slate drained'\)/.test(job), null);
-  // The outcome loop (tests/floorloop.js): under the rate floor the fill
-  // climbs the ladder; it no longer stops on the rate.
-  ok('  and climbs the ladder on the rate floor instead of stopping', /refillSlate\('rate floor', \{ fromRate: true \}\)/.test(job) && !/stop = 'rate'; break;/.test(job), null);
+  // The outcome loop (tests/floorloop.js): no rate stop, no rate trigger.
+  ok('  and nothing reads a pass rate any more', !/passRateStop/.test(job) && !/stop = 'rate'/.test(job), null);
   ok('  the money check is still the first thing before a lookup', /const cand = cands\[ci\+\+\];[\s\S]{0,400}if \(!budget\.canSpend\(LOOKUP_CEILING_USD\)\)/.test(job), null);
   // The discovery call is metered AND labelled 'discovery' for the call ledger.
   ok('both scans run under the meter', (job.match(/scanMeter\.run\(\(\) =>\s*scanMeter\.label\(\{ site: 'discovery'[^\n]*\n\s*\(\) => ai\.getDealRecommendations/g) || []).length === 1

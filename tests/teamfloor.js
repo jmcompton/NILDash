@@ -79,7 +79,7 @@ async function main() {
   const r = await TeamScan.runTeamScan(P, { universityId: UNI, teamId: TEAM, limit: 5, deps: { places, ai: fakeAi(refuse) } });
   ok('five asks written', r.ok && r.drafts.length === 5, [r.error, r.drafts && r.drafts.map((d) => d.brand), r.skipped]);
   ok('  none to a business the writer refused', !r.drafts.some((d) => refuse.has(d.brand)));
-  ok(`  it tried ${r.loop && r.loop.candidates} and stopped at the floor`, r.loop && r.loop.stop === 'floor' && r.loop.candidates >= 8 && r.loop.candidatesToFloor === r.loop.candidates, r.loop);
+  ok(`  it tried ${r.loop && r.loop.candidates} and stopped at the floor`, r.loop && r.loop.stop === 'floor' && r.loop.candidates > 5 && r.loop.candidatesToFloor === r.loop.candidates, r.loop);
 
   // ── 2. TOO FEW: WIDEN RING BY RING, THEN SHIP WHAT THERE IS AND ALERT ─────
   OUT.push('', '-- a small campus market widens, then stops short and says so --');

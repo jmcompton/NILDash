@@ -38,7 +38,8 @@ const REFRESH_DAYS = parseInt(process.env.MARKET_POOL_REFRESH_DAYS, 10) || 30;
 const THIN_RETRY_DAYS = parseInt(process.env.MARKET_POOL_THIN_RETRY_DAYS, 10) || 7;
 const RADII = String(process.env.MARKET_POOL_RADII_M || '8000,16000,24000').split(',')
   .map((x) => parseInt(x, 10)).filter((x) => x > 0);
-const MAX_MARKETS = parseInt(process.env.MARKET_POOL_MAX_MARKETS, 10) || 25;
+// 10 a night to start, so the real Places cost is seen before it is opened up.
+const MAX_MARKETS = parseInt(process.env.MARKET_POOL_MAX_MARKETS, 10) || 10;
 const MAX_PLACES_CALLS = parseInt(process.env.MARKET_POOL_MAX_PLACES_CALLS, 10) || 3000;
 // The hour (Central) the nightly build may start: before the 1am fill.
 const WINDOW_START_HOUR = 22, WINDOW_END_HOUR = 24;

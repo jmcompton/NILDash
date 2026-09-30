@@ -100,7 +100,7 @@ async function main() {
   ok('the athlete reaches five', r1.filled === 5 && L1.held === 5, { filled: r1.filled, loop: L1, note: r1.note });
   ok('  and stopped because five were held, not a breaker', L1.stop === 'floor', L1.stop);
   ok(`  it chewed through ${L1.candidates} candidate(s) to get there, far past the old 15 (5 slots x 3)`, L1.candidates > 15 && L1.candidatesToFloor === L1.candidates, L1);
-  ok('  the pass rate under the floor moved it up the ladder instead of stopping it', (L1.rungs || []).length > 1 && (L1.rungs || [])[0] === 'local', L1.rungs);
+  ok('  a low pass rate does not move it off a pool that still has businesses: five from the athlete\'s own market', JSON.stringify(L1.rungs) === '["local"]', L1.rungs);
   ok('  and the lane numbers are on the result', L1.byLane && L1.byLane.local && L1.byLane.local.passed >= 5, L1.byLane);
   const rows1 = (await P.query(`SELECT COUNT(*)::int n FROM outreach_queue WHERE athlete_id='fl-a1' AND state='queued'`)).rows[0].n;
   ok('  five cards are on the agent\'s screen', rows1 === 5, rows1);
@@ -157,6 +157,29 @@ async function main() {
   ok('floor-report gives the median / p90 candidates to reach five and who fell short', /CANDIDATES TO REACH FIVE: median \d+/.test(text)
     && /SHORT OF FIVE: 1 athlete-night/.test(text) && /BY LANE/.test(text) && /CHANNEL MIX of cards placed: dm \d+/.test(text), text.slice(0, 600));
   ok('the run row carries the loop', /loop: r\.loop \|\| null/.test(J));
+  // THE MORNING ALERT names every athlete short of five, zero first as an emergency.
+  const MA = require(REPO + 'server/services/morningAlert.js');
+  const base = { runDate: '2026-10-01', problems: [], cardsLastNight: 8, agentsWithAthletes: 1, queueEnabled: true,
+    builds: { total: 0, failed: 0, failures: [] }, digests: null, overdueSends: { total: 0, reasons: [] }, faults24h: [], universityProblems: [],
+    preflight: { night: '2026-10-01', status: 'ok' }, preflightFailures: [], universities: [] };
+  const shortRep = { ...base, problemCount: 2, floor: { athletes: 3, hit: 1, short: [
+    { agent: 'Greg', athlete: 'Fl Zero', held: 0, floor: 5, candidates: 40, stop: 'ladder', rungs: ['local', 'local-wide', 'social'] },
+    { agent: 'Greg', athlete: 'Fl Three', held: 3, floor: 5, candidates: 61, stop: 'cost', rungs: ['local'] }] } };
+  const mt = MA.render(shortRep);
+  ok('the morning alert lists every athlete short of five, zero as an EMERGENCY, with the count and rungs',
+    /2 athlete\(s\) short of five \(1 with ZERO\)/.test(mt.subject) && /EMERGENCY Fl Zero \(Greg\): 0 of 5 after 40 candidate\(s\); stopped by ladder; rungs tried: local, local-wide, social/.test(mt.text)
+    && /Fl Three \(Greg\): 3 of 5 after 61/.test(mt.text), mt.text.slice(0, 500));
+  const clear = MA.render({ ...base, problemCount: 0, floor: { athletes: 4, hit: 4, short: [] } });
+  ok('  and the all-clear says how many reached five', /Five every morning: 4 of 4 athlete\(s\) reached five/.test(clear.text), clear.text.slice(0, 300));
+  const MAsrc = require('fs').readFileSync(REPO + 'server/services/morningAlert.js', 'utf8');
+  ok('  a short athlete makes the morning a problem, not an all-clear', /out\.problemCount = out\.problems\.length \+ \(b\.failed \? 1 : 0\) \+ out\.floor\.short\.length/.test(MAsrc));
+  ok('the loop exits on five, the cost ceiling, the time ceiling or the ladder, and nothing else: no pass rate, no candidate count',
+    !/passRateStop/.test(J) && !/MAX_ATTEMPTS_PER_SLOT[^\n]*attempt/.test(J) && /stop = 'time'/.test(J) && /stop = 'cost'/.test(J) && /stop = 'ladder'/.test(J));
+  ok('the per-athlete cost ceiling defaults to $2.50 and the time ceiling to 8 minutes', Q.ATHLETE_COST_CEILING_USD === 2.5 && Q.ATHLETE_TIME_CEILING_MS === 480000,
+    [Q.ATHLETE_COST_CEILING_USD, Q.ATHLETE_TIME_CEILING_MS]);
+  ok('agents run in parallel, and a mid-run Places refresh is shared by the whole run', /OUTREACH_QUEUE_AGENT_CONCURRENCY/.test(J)
+    && /placesRefreshed: opts\.placesRefreshed \|\| new Set\(\)/.test(J) && /placesRefreshed: opts\.placesRefreshed \|\| _placesRefreshed/.test(J));
+  ok('the scheduled pool build starts at 10 markets a night', require(REPO + 'server/services/marketPools.js').MAX_MARKETS === 10);
   const IDX = require('fs').readFileSync(REPO + 'server/index.js', 'utf8');
   ok('/admin/scan-rejects shows the floor per run: lanes, who hit it, rungs, candidates to five',
     /<h2>The floor of five<\/h2>/.test(IDX) && /FR\.summarise\(runs\)/.test(IDX) && /Candidates to reach five/.test(IDX) && /Short of five/.test(IDX));
