@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-09-29",
+  "recordedAt": "2026-09-30",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_idx.js": {
@@ -945,6 +945,11 @@
     "resendinbound_test.js": {
       "failed": 0,
       "total": 25,
+      "fault": null
+    },
+    "restricted.js": {
+      "failed": 0,
+      "total": 22,
       "fault": null
     },
     "retire.js": {
