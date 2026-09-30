@@ -78,7 +78,7 @@ async function main() {
     /if \(result && result\._fault\) \{\s*faultOf\('discovery'/.test(J) && (J.match(/Claims\.releaseDiscovery\(/g) || []).length === 2);
   ok('  a failed widen is handed back too', /Deepen\.releaseDeepen\(pool, widenKey/.test(J));
   ok('  a failed market refill is a fault for every athlete in that market, not silence', /market refill for \$\{profile\.marketKey\} failed earlier tonight/.test(J));
-  ok('  the worked-out note is never written on a night with our failures', /if \(stop && filled < open\.length && !nightFaults\.length && !tried\.some\(\(t\) => t && t\.fault\)\)/.test(J));
+  ok('  the worked-out note is never written on a night with our failures', /if \(stop === 'ladder' && filled < open\.length && !nightFaults\.length && !tried\.some\(\(t\) => t && t\.fault\)\)/.test(J));
   ok('contacts ERROR/TIMEOUT, owner search, Instagram and the writer each record a fault, not a rejection',
     /out\.outcome === 'ERROR' \|\| out\.outcome === 'TIMEOUT'/.test(J) && (J.match(/owner search failed on our side/g) || []).length === 2
     && /instagram lookup failed on our side/.test(J) && (J.match(/the writer failed on our side/g) || []).length === 2);

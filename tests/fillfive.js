@@ -140,7 +140,9 @@ const q = (n) => Array.from({ length: n }, (_, i) => ({ brand: 'Q' + i, result: 
     /for \(let attempt = 0; !placed && !stop; attempt\+\+\)/.test(job)
     && !/for \(let attempt = 0; attempt < Q\.MAX_ATTEMPTS_PER_SLOT/.test(job), null);
   ok('  it refills when the slate drains', /if \(ci >= cands\.length\) \{\s*const added = await refillSlate\('slate drained'\)/.test(job), null);
-  ok('  and widens once on the rate floor, then stops', /refillSlate\('rate floor'\)/.test(job) && /stop = 'rate'; break;/.test(job), null);
+  // The outcome loop (tests/floorloop.js): under the rate floor the fill
+  // climbs the ladder; it no longer stops on the rate.
+  ok('  and climbs the ladder on the rate floor instead of stopping', /refillSlate\('rate floor', \{ fromRate: true \}\)/.test(job) && !/stop = 'rate'; break;/.test(job), null);
   ok('  the money check is still the first thing before a lookup', /const cand = cands\[ci\+\+\];[\s\S]{0,400}if \(!budget\.canSpend\(LOOKUP_CEILING_USD\)\)/.test(job), null);
   // The discovery call is metered AND labelled 'discovery' for the call ledger.
   ok('both scans run under the meter', (job.match(/scanMeter\.run\(\(\) =>\s*scanMeter\.label\(\{ site: 'discovery'[^\n]*\n\s*\(\) => ai\.getDealRecommendations/g) || []).length === 1

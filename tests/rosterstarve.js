@@ -70,7 +70,7 @@ const src = (p) => fs.readFileSync(REPO + p, 'utf8');
   ok('  and the pot is still the hard stop', carry.canSpendDiscoveryFromPot(carry.discoveryCap() * 2) === false);
 
   const job = src('server/jobs/outreachQueue.js');
-  ok('the job sizes the pot from the roster it is about to work', /Q\.newBudget\(CAP_USD, undefined, \{ rosterSize: athletes\.length \}\)/.test(job));
+  ok('the job sizes the pot from the roster it is about to work', /Q\.newBudget\(nightCap, undefined, \{ rosterSize: athletes\.length \}\)/.test(job));
   ok('  and says so in the log, so a starved roster is visible the next morning', /roster=\$\{athletes\.length\} discovery pot/.test(job));
   ok('  the per-athlete share is opened for discovery as well as for lookups', /discoveryShare = Math\.max\(0, discoveryCap - discoveryUsed\) \/ n/.test(src('server/services/outreachQueue.js')));
 
