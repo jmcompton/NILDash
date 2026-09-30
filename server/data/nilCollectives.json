@@ -1,0 +1,23 @@
+{
+  "_about": "NIL collectives by name, for the ones whose name does not say collective or fund. A collective PAYS athletes; it is never a sponsor prospect. One entry per line; matched case-insensitively as a whole phrase anywhere in a business name (curly apostrophes and '&' are normalised). Add a name here and every gate picks it up: discovery, cards, the send gate, the team scan and scripts/block-audit.js.",
+  "names": [
+    "Yea Alabama",
+    "Texas One Fund",
+    "Champions Circle",
+    "1870 Society",
+    "Cohesion Foundation",
+    "Grove Collective",
+    "The Battle's End",
+    "Happy Valley United",
+    "Volunteer Club",
+    "Spyre Sports",
+    "Classic City Collective",
+    "Bayou Traditions",
+    "Rising Spear",
+    "Florida Victorious",
+    "Horns With Heart",
+    "Hoosiers For Good",
+    "Division Street",
+    "Players Trunk"
+  ]
+}

@@ -1183,8 +1183,12 @@ function fillingSince(athleteId) { return _filling.get(String(athleteId)) || nul
 // this athlete is not made into a card: a held card is one the agent cannot
 // send without a compliance review, and a brewery is not a card to review.
 // Returns null, or { key, label, severity, why }.
-const RESTRICTED_AT_FILL = new Set(['alcohol', 'tobacco', 'cannabis', 'gambling', 'firearms', 'adult']);
-function restrictedFor(brandName, place, athleteData, now) {
+const RESTRICTED_AT_FILL = new Set(['alcohol', 'tobacco', 'cannabis', 'gambling', 'firearms', 'adult', 'collective']);
+// opts.defer: at the name check BEFORE the Places lookup, a collective hit
+// that only lacks a category ("Blue Collective", no category yet) is left to
+// the check after the lookup, where Google's type decides; if there is still
+// no category then, it is a collective and it is refused.
+function restrictedFor(brandName, place, athleteData, now, opts = {}) {
   const C = require('./compliance');
   const a = athleteData || {};
   const over18 = a.over18 === true || a.over18 === 'true' ? true : (a.over18 === false || a.over18 === 'false' ? false : undefined);
@@ -1197,6 +1201,7 @@ function restrictedFor(brandName, place, athleteData, now) {
     // substance risk), not a restricted trade: they stay cards and the send
     // holds them for review, as before. Every other category is refused here.
     if (!RESTRICTED_AT_FILL.has(h.key)) continue;
+    if (opts.defer && h.key === 'collective' && h.needsCategory) continue;
     const severity = C.severityFor(h.key, age);
     if (severity === 'block' || severity === 'hold') {
       return { key: h.key, label: h.label, severity, why: `${h.label} (${h.basis}); the send would ${severity} it for this athlete` };

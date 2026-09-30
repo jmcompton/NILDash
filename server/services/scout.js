@@ -608,6 +608,11 @@ async function nationalCandidates(pool, { limit, store }) {
   let rows = [];
   try { rows = (await store.getTopNilComps(limit * 2, 2)) || []; }
   catch (e) { console.error('[scout/national]', e.message); const r = []; r.fault = 'national pool failed: ' + e.message; return r; }
+  // deal_comps is "mostly NIL collectives and national brands" (see above). A
+  // collective pays athletes and is never a sponsor prospect: dropped here,
+  // before it can take a seat on a slate (services/collectives).
+  const COL = require('./collectives');
+  rows = rows.filter((b) => !COL.detect(b.brand, { category: b.category }));
   if (!rows.length) return [];
 
   // Deal comps prove a brand SPENDS on NIL. They do not tell us where to apply.

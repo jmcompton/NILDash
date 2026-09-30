@@ -4603,7 +4603,15 @@ async function recordMarketPool(found, { schoolMarket, hometown } = {}) {
   const out = { schoolKey: null, hometownKey: null, school: 0, hometown: 0 };
   try {
     const { marketPoolKey } = require('./services/regionKey');
-    const list = Array.isArray(found) ? found : [];
+    // NO COLLECTIVE ENTERS THE POOL, whichever writer calls (services/
+    // collectives). The writers filter too; this is the one door they share.
+    const COL = require('./services/collectives');
+    const list = (Array.isArray(found) ? found : []).filter((f) => {
+      const nm = f && (f.name || f.brand);
+      const hit = nm && COL.detect(nm, { category: f.category, types: f.types, primaryType: f.primaryType || f.primary_type, primaryTypeDisplayName: f.primary_type_label });
+      if (hit) console.log(`[pool] not recorded: "${nm}" is an NIL collective (${hit.why})`);
+      return !hit;
+    });
     const nameOf = (f) => (f && (f.name || f.brand)) ? String(f.name || f.brand).trim() : null;
     // ── THE KIND, AND WHETHER THE SCAN FOUND ANY ACTIVITY ──────────────────
     // Both are on the record the scan just produced and both were dropped here.

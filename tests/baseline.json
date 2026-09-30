@@ -222,6 +222,11 @@
       "total": 27,
       "fault": null
     },
+    "collectives.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
     "compath.js": {
       "failed": null,
       "total": null,

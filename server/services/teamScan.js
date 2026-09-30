@@ -44,7 +44,7 @@ const MIGRATION = path.join(__dirname, '..', 'migrations', '014_university_spons
 // Six of the seven are compliance.js categories, reused so a marker added
 // there is added here. Payday lending is not a compliance category (it is not
 // an age question for an athlete), so its markers live here.
-const BLOCKED_KEYS = ['alcohol', 'cannabis', 'tobacco', 'firearms', 'gambling', 'adult'];
+const BLOCKED_KEYS = ['alcohol', 'cannabis', 'tobacco', 'firearms', 'gambling', 'adult', 'collective'];
 const PAYDAY_MARKERS = ['payday', 'cash advance', 'check cashing', 'check cashers', 'title loan', 'title loans',
   'car title', 'installment loan', 'installment loans', 'speedy cash', 'advance america', 'ace cash', 'cash store',
   'money tree', 'moneytree', 'check into cash', 'checkmate'];

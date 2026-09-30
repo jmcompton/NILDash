@@ -1167,7 +1167,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         // The candidate's recorded category counts as a description: a social-
         // index brand says "sports betting" in its category even when its
         // name ("Underdog") says nothing.
-        const rx = Q.restrictedFor(cand.brand_name, cand.category ? { types: [], primaryTypeDisplayName: cand.category } : null, ctx.athleteRow);
+        const rx = Q.restrictedFor(cand.brand_name, cand.category ? { types: [], primaryTypeDisplayName: cand.category } : null, ctx.athleteRow, undefined, { defer: true });
         if (rx) {
           say(`${cand.brand_name}: not a card, ${rx.why}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', restricted: rx.key, reason: 'restricted: ' + rx.why,
@@ -1428,7 +1428,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       const facts = Q.placesFacts(place);
       // ── RESTRICTED, BY WHAT GOOGLE SAYS IT IS: a bar typed as one ──────
       {
-        const rx = place ? Q.restrictedFor(cand.brand_name, place, ctx.athleteRow) : null;
+        // Not on Places at all is no evidence of a consumer business: a
+        // deferred collective is decided here with whatever there is.
+        const rx = Q.restrictedFor(cand.brand_name, place || (cand.category ? { types: [], primaryTypeDisplayName: cand.category } : null), ctx.athleteRow);
         if (rx) {
           say(`${cand.brand_name}: not a card, ${rx.why}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', restricted: rx.key, reason: 'restricted: ' + rx.why, places: facts, risk: 'normal' });

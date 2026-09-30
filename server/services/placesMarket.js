@@ -304,13 +304,19 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
   // pharmacy/grocery, gas stations): no local manager can approve a deal there, so
   // they are removed from the pool entirely rather than ranked. This does NOT narrow
   // the Places pull (every type/radius is still fetched); it filters the results.
-  let dropClosed = 0, dropThin = 0, dropCorporate = 0, chains = 0;
+  let dropClosed = 0, dropThin = 0, dropCorporate = 0, dropCollective = 0, chains = 0;
   const candidates = [];
   for (const { r, type } of byId.values()) {
     if (r.business_status && r.business_status !== 'OPERATIONAL') { dropClosed++; continue; }
     const ratings = Number(r.user_ratings_total) || 0;
     if (ratings < MIN_RATINGS) { dropThin++; continue; }
     if (isNoLocalAuthority(r.name)) { dropCorporate++; continue; }
+    // A COLLECTIVE PAYS ATHLETES; it never enters a market pool (services/
+    // collectives: the named list, collective-only phrases, and the word
+    // "collective" unless Google says it is a consumer business).
+    if (require('./collectives').detect(r.name, { types: r.types, primaryType: r.primary_type, primaryTypeDisplayName: r.primary_type_label })) {
+      dropCollective++; continue;
+    }
     const chain = isNationalChain(r.name);
     if (chain) chains++;
     const loc = (r.geometry && r.geometry.location) || {};
@@ -340,7 +346,7 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
   }
 
   const ms = Date.now() - t0;
-  console.log(`[placesMarket] school="${school}" @${center.lat},${center.lng} placesCalls=${placesCalls} raw=${poolBeforeFilter} -> pool=${candidates.length} (dropped closed=${dropClosed} thinReviews=${dropThin} corporate=${dropCorporate}, flaggedChains=${chains}, fullTypesTiled=${saturatedTypes}, failedCalls=${failedCalls}) in ${ms}ms`);
+  console.log(`[placesMarket] school="${school}" @${center.lat},${center.lng} placesCalls=${placesCalls} raw=${poolBeforeFilter} -> pool=${candidates.length} (dropped closed=${dropClosed} thinReviews=${dropThin} corporate=${dropCorporate} collective=${dropCollective}, flaggedChains=${chains}, fullTypesTiled=${saturatedTypes}, failedCalls=${failedCalls}) in ${ms}ms`);
   // A market with places but none that survive the filter is still a real
   // answer (ok, empty), not a failure; the caller already treats it as "nothing".
   return done({ ok: true, candidates, placesCalls, poolBeforeFilter, geocoded: center,

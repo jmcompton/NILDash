@@ -74,7 +74,7 @@ async function main() {
   const JOB = read('server/jobs/outreachQueue.js');
   const byName = JOB.indexOf("const rx = Q.restrictedFor(cand.brand_name, cand.category ?");
   const laneSplit = JOB.indexOf('// ── THE LANE DECIDES THE ROUTE');
-  const byPlace = JOB.indexOf("Q.restrictedFor(cand.brand_name, place, ctx.athleteRow)");
+  const byPlace = JOB.indexOf("Q.restrictedFor(cand.brand_name, place || (cand.category");
   const prescreen = JOB.indexOf('const pre = Q.prescreen(place);');
   ok('the fill checks the name BEFORE the lanes split, so social and national are checked too', byName > 0 && byName < laneSplit, { byName, laneSplit });
   ok('  and again with Google\'s types after the Places lookup, before any money on contacts', byPlace > prescreen && prescreen > 0);

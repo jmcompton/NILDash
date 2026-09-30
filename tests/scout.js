@@ -265,11 +265,11 @@ async function main() {
       ]),
       getTopNilComps: async () => ([
         { brand: 'National With Page', brandKey: 'nationalwithpage', website: 'https://nwp.example', why: 'signs athletes' },
-        { brand: 'Collective No Page', brandKey: 'collectivenopage', why: 'a collective' },
+        { brand: 'Plain No Page', brandKey: 'plainnopage', why: 'no program page' },
       ]),
       // A handle search already ran for one of the page-less brands and found
       // nothing; asking again would re-spend for the same answer.
-      getBrandEvidence: async (key) => (/collectivenopage/.test(key) ? { evidence: { found: false } } : null),
+      getBrandEvidence: async (key) => (/plainnopage/.test(key) ? { evidence: { found: false } } : null),
     };
     const capped = await S.assembleSlate(P, { agentId: AG, athlete: BARE, store: capStore, limit: 5,
       heldPrograms: 1, programCap: 1 });
@@ -279,7 +279,7 @@ async function main() {
     ok('  a page-less brand with no cached answer still enters (one search is how a DM is found)',
       names(capped).includes('DM Possible Co'), names(capped));
     ok('  a page-less brand whose search already found nothing is dropped',
-      !names(capped).includes('Collective No Page'), names(capped));
+      !names(capped).includes('Plain No Page'), names(capped));
     ok('  and the drops are counted on the slate',
       capped.dropped && capped.dropped.programCapped === 2 && capped.dropped.noHandleCached === 1, capped.dropped);
 

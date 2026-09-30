@@ -176,6 +176,18 @@ const CATEGORIES = [
     why: 'adult entertainment',
   },
   {
+    // A COLLECTIVE PAYS ATHLETES; IT DOES NOT SPONSOR THEM. Pitching one is a
+    // category error, not an age question, so it is blocked for everyone.
+    // Detected by services/collectives (a named list, collective-only
+    // phrases, and the word "collective" when the business is not a consumer
+    // business) -- see classifyBusiness below. No markers here: the detector
+    // owns the rule, including the Coffee Collective exception.
+    key: 'collective', label: 'NIL collective (pays athletes; not a sponsor)',
+    placesTypes: [], nameMarkers: [], weakMarkers: [],
+    minor: 'block', adult: 'block',
+    why: 'an NIL collective, which pays athletes and is never a sponsor',
+  },
+  {
     key: 'supplements', label: 'supplements',
     placesTypes: [],
     nameMarkers: ['supplement', 'supplements', 'nutraceutical', 'sarms', 'peptide', 'pre-workout', 'preworkout'],
@@ -233,6 +245,18 @@ function classifyBusiness(brandName, evidence) {
     // A weak word alone: reported, never enforced (see the table above).
     const weak = _marks(brandName, c.weakMarkers || []);
     if (weak) possible.push({ key: c.key, label: c.label, basis: `the name contains "${weak}", which alone is not enough` });
+  }
+  // THE COLLECTIVE RULE (services/collectives): its own detector, because the
+  // word "collective" blocks only when the business is not a consumer one.
+  if (!hits.some((h) => h.key === 'collective')) {
+    const col = require('./collectives').detect(brandName, {
+      types, primaryType: evidence && evidence.primaryType, primaryTypeDisplayName: described || null,
+      category: evidence && evidence.category,
+    });
+    if (col) {
+      const c = CATEGORY_BY_KEY.collective;
+      hits.push({ key: c.key, label: c.label, why: c.why, basis: col.why, needsCategory: col.needsCategory });
+    }
   }
   return {
     hits,

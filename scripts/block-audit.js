@@ -16,6 +16,12 @@
 //                                          to a restricted business
 //   /api/admin/scripts/block-audit?text=1  (&apply=1)
 //
+// COLLECTIVES (services/collectives) are reported on their own line and by
+// athlete. A collective pays athletes and is never a sponsor, so --apply also
+// REMOVES collective rows from the agent market pools (market_business_seen),
+// not just their cards; the other categories stay in the pools and are
+// decided per athlete at the card.
+//
 // THE AGENT SIDE. With --apply, open agent cards to a restricted business are
 // PULLED (retired; the slot refills tonight). A card used to sit on an agent's
 // screen until send, where the compliance gate stopped it; the nightly fill now
@@ -30,7 +36,7 @@ const APPLY = process.argv.includes('--apply');
 
 // What an agent may never be pitched, and what is held by age: every
 // compliance category the classifier knows, reported by name.
-const REPORT_KEYS = ['gambling', 'alcohol', 'cannabis', 'tobacco', 'firearms', 'adult'];
+const REPORT_KEYS = ['collective', 'gambling', 'alcohol', 'cannabis', 'tobacco', 'firearms', 'adult'];
 
 async function main() {
   await new Promise((r) => setTimeout(r, INIT_WAIT_MS));
@@ -86,15 +92,32 @@ async function main() {
     `SELECT q.id, q.brand_name, q.agent_id, q.athlete_id, q.lane, u.email, a.data
        FROM outreach_queue q LEFT JOIN users u ON u.id = q.agent_id LEFT JOIN athletes a ON a.id = q.athlete_id
       WHERE q.state = 'queued'`)).rows;
+  // The business's category from the pools, so a card for a "Hair
+  // Collective" filed as a salon is judged as the salon it is.
+  const catOf = new Map();
+  for (const r of (await P.query(`SELECT LOWER(brand) AS b, MAX(category) AS category FROM market_business_seen WHERE category IS NOT NULL GROUP BY 1`)).rows) catOf.set(r.b, r.category);
+  const placeFor = (name) => { const c = catOf.get(String(name || '').toLowerCase()); return c ? { types: [], primaryTypeDisplayName: c } : null; };
   const openBad = [];
   for (const c of cards) {
-    const rx = Q.restrictedFor(c.brand_name, null, c.data || {});
+    const rx = Q.restrictedFor(c.brand_name, placeFor(c.brand_name), c.data || {});
     if (rx) openBad.push({ c, rx });
   }
   for (const { c, rx } of openBad) {
     say(`  card ${c.id}: ${c.brand_name} for ${(c.data && c.data.name) || c.athlete_id} (${c.email || c.agent_id}) -- ${rx.why}`);
   }
   if (!openBad.length) say(`  none of the ${cards.length} open card(s)`);
+  // COLLECTIVES, BY ATHLETE: who is looking at one right now.
+  const colCards = openBad.filter((x) => x.rx.key === 'collective');
+  if (colCards.length) {
+    const byAth = new Map();
+    for (const { c } of colCards) {
+      const k = `${(c.data && c.data.name) || c.athlete_id} (${c.email || c.agent_id})`;
+      if (!byAth.has(k)) byAth.set(k, []);
+      byAth.get(k).push(c.brand_name);
+    }
+    say('', `  collective cards by athlete: ${colCards.length} card(s) for ${byAth.size} athlete(s)`);
+    for (const [k, list] of byAth) say(`      ${k}: ${list.join('; ')}`);
+  }
   if (openBad.length && APPLY) {
     const r = await P.query(
       `UPDATE outreach_queue SET state = 'retired', outcome = 'restricted', outcome_at = NOW(), updated_at = NOW()
@@ -107,7 +130,7 @@ async function main() {
   const logs = (await P.query(
     `SELECT l.id, l.brand_name, l.status, a.data FROM outreach_logs l LEFT JOIN athletes a ON a.id = l.athlete_id
       WHERE l.status = 'approved' AND l.sent_at IS NULL`).catch(() => ({ rows: [] }))).rows;
-  const logBad = logs.map((l) => ({ l, rx: Q.restrictedFor(l.brand_name, null, l.data || {}) })).filter((x) => x.rx);
+  const logBad = logs.map((l) => ({ l, rx: Q.restrictedFor(l.brand_name, placeFor(l.brand_name), l.data || {}) })).filter((x) => x.rx);
   say('', `  approved, unsent emails to a restricted business: ${logBad.length} (the send gate stops these)`);
   for (const { l, rx } of logBad.slice(0, 40)) say(`      log ${l.id}: ${l.brand_name} -- ${rx.why}`);
 
@@ -117,8 +140,10 @@ async function main() {
   say('', '== Agent market pools ==');
   const rows = (await P.query(`SELECT market_key, brand, category FROM market_business_seen`)).rows;
   const flagged = {}, maybe = {};
+  const colRows = [];
   for (const r of rows) {
-    const cls = Compliance.classifyBusiness(r.brand, { types: [] });
+    const cls = Compliance.classifyBusiness(r.brand, { types: [], category: r.category });
+    if (cls.hits.some((h) => h.key === 'collective')) colRows.push(r);
     const hit = cls.hits.find((h) => REPORT_KEYS.includes(h.key));
     if (hit) { (flagged[hit.key] = flagged[hit.key] || []).push(`${r.brand} (${r.market_key}, filed as ${r.category || '?'}) -- ${hit.basis}`); continue; }
     const pos = (cls.possible || []).find((h) => REPORT_KEYS.includes(h.key));
@@ -130,10 +155,21 @@ async function main() {
     for (const l of list.slice(0, 40)) say(`      ${l}`);
     if (list.length > 40) say(`      ... and ${list.length - 40} more`);
   }
+  // A collective is not a business anyone sponsors from: its pool rows are
+  // removed, not just kept off cards. (The other categories stay in the pool;
+  // whether they can be pitched depends on the athlete's age, decided at the
+  // card.)
+  if (colRows.length && APPLY) {
+    let n = 0;
+    for (const r of colRows) n += (await P.query(`DELETE FROM market_business_seen WHERE market_key = $1 AND brand = $2`, [r.market_key, r.brand])).rowCount;
+    say(`  removed ${n} collective row(s) from the agent market pools`);
+  } else if (colRows.length) say(`  ${colRows.length} collective row(s) would be removed from the agent market pools with --apply`);
   const maybeN = Object.values(maybe).reduce((s, l) => s + l.length, 0);
   say('', `  possible, NOT blocked (a weak word alone): ${maybeN}`);
   for (const k of REPORT_KEYS) for (const l of (maybe[k] || []).slice(0, 15)) say(`      ${k}: ${l}`);
 
+  say('', `COLLECTIVES: ${colRows.length} agent-pool row(s), ${colCards.length} open agent card(s), `
+    + `${bad.filter((d) => /^collective:/.test(d.why)).length} waiting university ask(s)${APPLY ? ' -- all removed / pulled / withdrawn' : ' (report only)'}`);
   say('', `SUMMARY: ${newly} university business(es) newly blocked, ${bad.length} waiting team ask(s) to a blocked business, `
     + `${openBad.length} open agent card(s) to a restricted business${APPLY ? ' (pulled)' : ''}, ${logBad.length} approved unsent email(s), `
     + `${Object.values(flagged).reduce((s, l) => s + l.length, 0)} agent-pool business(es) confirmed, ${maybeN} possible.`);
