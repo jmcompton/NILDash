@@ -76,10 +76,69 @@ const ESPN_LEAGUES = {
   'USL League One': { path: 'soccer/usa.usl.l1', sport: 'soccer' },
 };
 
+// ── A LEAGUE NAME IS A SPORT ────────────────────────────────────────────────
+// Agents say "he's in the NFL", not "football". A league named in the sport
+// field used to match nothing and read as sport "unknown".
+const LEAGUE_SPORT = [
+  [/\b(nfl|ufl|cfl|xfl)\b/, 'football'], [/\b(wnba)\b/, 'women basketball'], [/\b(nba|g league|gleague)\b/, 'men basketball'],
+  [/\b(mlb|milb|minor league)\b/, 'baseball'], [/\b(nhl|ahl|echl)\b/, 'hockey'],
+  [/\b(nwsl)\b/, 'women soccer'], [/\b(mls|usl)\b/, 'men soccer'],
+];
+
+// ── THE TEAM SAYS THE SPORT ─────────────────────────────────────────────────
+// The onboarding chat is told never to ask for the sport, so a pro arrives as
+// a name and a team. The feed stage then gave up ("no roster feed for sport
+// unknown") and every pro went to a 15-25 second web search. A club nickname
+// names its sport; one shared by two leagues (Giants, Cardinals, Rangers,
+// Panthers, Jets, Kings) returns both, and the city settles it when given.
+const TEAM_SPORT = {
+  football: ['cardinals', 'falcons', 'ravens', 'bills', 'panthers', 'bears', 'bengals', 'browns', 'cowboys', 'broncos', 'lions', 'packers',
+    'texans', 'colts', 'jaguars', 'chiefs', 'raiders', 'chargers', 'rams', 'dolphins', 'vikings', 'patriots', 'saints', 'giants', 'jets',
+    'eagles', 'steelers', '49ers', 'niners', 'seahawks', 'buccaneers', 'bucs', 'titans', 'commanders'],
+  basketball: ['hawks', 'celtics', 'nets', 'hornets', 'bulls', 'cavaliers', 'cavs', 'mavericks', 'mavs', 'nuggets', 'pistons', 'warriors',
+    'rockets', 'pacers', 'clippers', 'lakers', 'grizzlies', 'heat', 'bucks', 'timberwolves', 'wolves', 'pelicans', 'knicks', 'thunder',
+    'magic', '76ers', 'sixers', 'suns', 'trail blazers', 'blazers', 'kings', 'spurs', 'raptors', 'jazz', 'wizards',
+    'aces', 'dream', 'sky', 'sun', 'wings', 'valkyries', 'fever', 'sparks', 'lynx', 'liberty', 'mercury', 'storm', 'mystics'],
+  baseball: ['diamondbacks', 'dbacks', 'braves', 'orioles', 'red sox', 'cubs', 'white sox', 'reds', 'guardians', 'rockies', 'tigers', 'astros',
+    'royals', 'angels', 'dodgers', 'marlins', 'brewers', 'twins', 'mets', 'yankees', 'athletics', "a's", 'phillies', 'pirates', 'padres',
+    'giants', 'mariners', 'cardinals', 'rays', 'rangers', 'blue jays', 'nationals', 'nats'],
+  hockey: ['ducks', 'bruins', 'sabres', 'flames', 'hurricanes', 'blackhawks', 'avalanche', 'blue jackets', 'stars', 'red wings', 'oilers',
+    'panthers', 'kings', 'wild', 'canadiens', 'habs', 'predators', 'devils', 'islanders', 'rangers', 'senators', 'flyers', 'penguins',
+    'sharks', 'kraken', 'blues', 'lightning', 'maple leafs', 'leafs', 'utah hockey club', 'mammoth', 'canucks', 'golden knights', 'capitals', 'jets'],
+  soccer: ['atlanta united', 'austin fc', 'charlotte fc', 'fire', 'fc cincinnati', 'rapids', 'crew', 'fc dallas', 'd.c. united', 'dc united',
+    'dynamo', 'galaxy', 'lafc', 'inter miami', 'minnesota united', 'cf montreal', 'nashville sc', 'revolution', 'nycfc', 'red bulls',
+    'orlando city', 'union', 'timbers', 'real salt lake', 'earthquakes', 'sounders', 'sporting kc', 'st. louis city', 'whitecaps', 'toronto fc',
+    'san diego fc', 'angel city', 'courage', 'current', 'gotham', 'orlando pride', 'thorns', 'reign', 'red stars', 'spirit', 'wave', 'bay fc'],
+};
+// Where a nickname is shared, the city decides: "New York Giants" is football,
+// "San Francisco Giants" baseball.
+const CITY_HINT = {
+  giants: { 'new york': 'football', 'ny': 'football', 'san francisco': 'baseball', 'sf': 'baseball' },
+  cardinals: { arizona: 'football', 'st louis': 'baseball', 'st. louis': 'baseball' },
+  rangers: { texas: 'baseball', 'new york': 'hockey' },
+  panthers: { carolina: 'football', florida: 'hockey' },
+  jets: { 'new york': 'football', winnipeg: 'hockey' },
+  kings: { sacramento: 'basketball', 'los angeles': 'hockey', la: 'hockey' },
+};
+function sportsForTeam(team, city) {
+  const t = String(team || '').toLowerCase().replace(/[^a-z0-9.' ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return [];
+  const hits = Object.entries(TEAM_SPORT).filter(([, names]) => names.some((n) => new RegExp('(^|\\s)' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|\\s)').test(t))).map(([sp]) => sp);
+  if (hits.length > 1) {
+    const where = (String(city || '') + ' ' + t).toLowerCase();
+    for (const [nick, cities] of Object.entries(CITY_HINT)) {
+      if (!new RegExp('(^|\\s)' + nick + '($|\\s)').test(t)) continue;
+      for (const [c, sp] of Object.entries(cities)) if (new RegExp('(^|\\s)' + c.replace('.', '\\.') + '(\\s|$)').test(where)) return [sp];
+    }
+  }
+  return hits;
+}
+
 function leaguesForSport(sport) {
-  const s = String(sport || '').toLowerCase();
+  let s = String(sport || '').toLowerCase();
   const out = [];
   if (!s) return out;
+  for (const [re, sp] of LEAGUE_SPORT) if (re.test(s)) { s = sp; break; }
   if (/football/.test(s)) out.push('NFL', 'UFL', 'CFL');
   if (/basketball/.test(s)) {
     if (/women|wnba/.test(s)) out.push('WNBA');
@@ -373,4 +432,4 @@ async function searchFeeds(q) {
   return { candidates: out, notes, feedsTried: run, feedsSkipped: skipped };
 }
 
-module.exports = { searchFeeds, leaguesForSport, teamMatches, ESPN_LEAGUES, enabledFeeds, feedsFor, DEFAULT_FEEDS, _setFetchForTests, _setEnabledForTests };
+module.exports = { searchFeeds, leaguesForSport, sportsForTeam, teamMatches, ESPN_LEAGUES, enabledFeeds, feedsFor, DEFAULT_FEEDS, _setFetchForTests, _setEnabledForTests };

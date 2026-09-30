@@ -238,6 +238,11 @@ function schoolsMatch(a, b) {
 function levelOf(q) {
   if (q.level && ['college', 'high_school', 'pro'].includes(q.level)) return q.level;
   if (q.athleteType === 'pro') return 'pro';
+  // A TEAM AND NO SCHOOL IS A PRO, unless the caller said college. Jason
+  // Pinnock arrived as a name and a team with no athleteType, was looked up at
+  // the COLLEGE level with no school (cache key "college|jason pinnock|") and
+  // resolved off a 2020 Pitt roster. He plays in the NFL.
+  if (q.athleteType !== 'college' && String(q.team || '').trim() && !String(q.school || '').trim()) return 'pro';
   try { if (require('./athleteCreate').isHighSchool(q.school)) return 'high_school'; } catch (_) {}
   return 'college';
 }
@@ -749,6 +754,18 @@ async function resolveAthlete(ai, q, opts = {}) {
   let normSchool = null, normSport = null;
   if (level === 'pro') {
     const Feeds = require('./proRosterFeeds');
+    // THE SPORT FOR A PRO, from whatever the agent gave: the sport, a league
+    // ("NFL"), or the team ("Giants" -> football and baseball; "New York
+    // Giants" -> football). Every pro used to arrive with none -- the
+    // onboarding chat is told never to ask -- and the feeds gave up on sport
+    // "unknown". Filled on q so the web stage searches the right sport too.
+    if (!String(q.sport || '').trim()) {
+      const bySport = q.league ? [String(q.league)] : Feeds.sportsForTeam(q.team, q.city);
+      if (bySport.length) {
+        q = Object.assign({}, q, { sport: bySport.join(' ') });
+        notes.push(`sport taken from the ${q.league ? 'league' : 'team'}: ${bySport.join(' or ')}`);
+      }
+    }
     const proSport = String(q.sport || '').trim().toLowerCase().replace(/\s+/g, ' ') || null;
     const f = await Feeds.searchFeeds({ name, sport: proSport, team: String(q.team || '').trim() || null });
     notes.push(...f.notes);

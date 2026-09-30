@@ -256,6 +256,35 @@ AL._setSearchLoopForTests(async (o) => {
   ok('  the query never reaches a shell: only whitelisted flags, with the value scrubbed', block.includes("['--only', String(q.only).replace(/[^a-z0-9-]/gi, '')") && block.includes("['--league', String(q.league).replace(/[^a-z]/gi, '')") && !/\bexec\(/.test(block) && !/shell: true/.test(block));
   ok('  it starts in the background and the same URL returns the output, plain with text=1', /Open this URL again in a minute or two for the output/.test(block) && /if \(q\.text\) \{ res\.type\('text\/plain'\)/.test(block) && /timeout: 15 \* 60 \* 1000/.test(block));
 
+  // ── SPORT UNKNOWN, AND A PRO TAKEN FOR A COLLEGE PLAYER ──────────────────
+  // Three pro athletes added through the onboarding chat all logged "no roster
+  // feed for sport unknown" (the chat is told never to ask the sport), and
+  // Jason Pinnock (NFL) was looked up at the COLLEGE level with no school
+  // because the model left athleteType out and the tool defaulted to college.
+  OUT.push('', '-- sport from the team, and a team means pro --');
+  ok('a team and no school is a pro', AL.levelOf({ name: 'Jason Pinnock', team: 'New York Giants' }) === 'pro');
+  ok('  unless the caller says college', AL.levelOf({ name: 'X', team: 'Giants', athleteType: 'college' }) === 'college');
+  ok('  and a school still means college', AL.levelOf({ name: 'X', school: 'Pitt', team: 'Panthers' }) === 'college');
+  ok('Jason Pinnock\'s cache key is now a pro key', AL.cacheKey(AL.levelOf({ name: 'Jason Pinnock', team: 'New York Giants' }), { name: 'Jason Pinnock', team: 'New York Giants' }) === 'pro|jason pinnock|new york giants');
+  const LA = require(REPO + 'server/services/assistantActions.js');
+  const tool = (LA.ACTIONS || LA.actions || {}).lookup_athlete || null;
+  const checked = tool ? tool.check({ name: 'Jason Pinnock', team: 'New York Giants' }) : null;
+  ok('the chat tool no longer turns a missing athleteType into college', checked && checked.args && checked.args.athleteType === undefined
+    && AL.levelOf(checked.args) === 'pro', checked);
+  ok('  and the prompt tells the model to pass pro and the sport or league it heard', /For a professional athlete always pass athleteType "pro" and the team/.test(src('server/services/assistantOnboarding.js'))
+    && /pass it as sport/.test(src('server/services/assistantOnboarding.js')));
+  ok('the team names the sport', JSON.stringify(Feeds.sportsForTeam('New York Giants')) === '["football"]' && JSON.stringify(Feeds.sportsForTeam('Denver Broncos')) === '["football"]'
+    && JSON.stringify(Feeds.sportsForTeam('Lakers')) === '["basketball"]' && JSON.stringify(Feeds.sportsForTeam('New York Yankees')) === '["baseball"]');
+  ok('  a shared nickname gives both sports, and the city settles it', Feeds.sportsForTeam('Giants').length === 2 && JSON.stringify(Feeds.sportsForTeam('Giants', 'San Francisco')) === '["baseball"]'
+    && JSON.stringify(Feeds.sportsForTeam('Texas Rangers')) === '["baseball"]');
+  ok('a league named as the sport is a sport', Feeds.leaguesForSport('NFL').includes('NFL') && Feeds.leaguesForSport('nba').includes('NBA')
+    && Feeds.leaguesForSport('WNBA').includes('WNBA') && Feeds.leaguesForSport('MLB').includes('MLB'));
+  feedCalls.length = 0;
+  const judgeNoSport = await AL.resolveAthlete(null, { name: 'Aaron Judge', athleteType: 'pro', team: 'New York Yankees' }, { force: true });
+  ok('a pro with a team and NO sport now reaches the roster feed (MLB StatsAPI) instead of giving up', feedCalls.some((u) => /statsapi\.mlb\.com/.test(u)) && judgeNoSport.found
+    && (judgeNoSport.notes || []).some((n) => /sport taken from the team: baseball/.test(n)), [feedCalls, judgeNoSport.notes]);
+  ok('  and "sport unknown" is not logged for it', !(judgeNoSport.notes || []).some((n) => /sport "unknown"/.test(n)), judgeNoSport.notes);
+
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));
   process.exit(F ? 1 : 0);

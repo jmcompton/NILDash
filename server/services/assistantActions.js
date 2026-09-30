@@ -391,8 +391,8 @@ const ACTIONS = {
       properties: {
         name: { type: 'string', description: 'Full name (single lookup)' },
         school: { type: 'string', description: 'School, if known (college or high school)' },
-        sport: { type: 'string', description: 'Sport, only if the agent said it' },
-        athleteType: { type: 'string', enum: ['college', 'pro'] },
+        sport: { type: 'string', description: 'Sport or league, whenever the agent said one ("football", "NFL", "WNBA"). Never ask for it; pass it if it was said.' },
+        athleteType: { type: 'string', enum: ['college', 'pro'], description: '"pro" whenever the agent says the athlete plays professionally or names a pro team or league. Always set it; never leave a pro out.' },
         team: { type: 'string', description: 'Pro only: team' },
         city: { type: 'string', description: 'Pro only: city, if known' },
         athletes: { type: 'array', description: 'Several athletes at once, each { name, school, sport, athleteType, team }', items: { type: 'object',
@@ -404,7 +404,12 @@ const ACTIONS = {
         const name = _str(x && x.name, 120);
         if (!name) return null;
         return { name, school: _str(x.school, 120) || '', sport: _str(x.sport, 60) || '',
-          athleteType: x.athleteType === 'pro' ? 'pro' : 'college', team: _str(x.team, 120) || '', city: _str(x.city, 120) || '' };
+          // NOT DEFAULTED TO COLLEGE. A pro whose athleteType the model left out
+          // was silently looked up as a college athlete with no school (Jason
+          // Pinnock, NFL, resolved off a 2020 Pitt roster). Unset stays unset
+          // and the lookup decides: a team and no school is a pro.
+          athleteType: x.athleteType === 'pro' ? 'pro' : x.athleteType === 'college' ? 'college' : undefined,
+          team: _str(x.team, 120) || '', city: _str(x.city, 120) || '' };
       };
       const list = Array.isArray(a.athletes) ? a.athletes.map(one).filter(Boolean).slice(0, 8) : [];
       const single = one(a);
