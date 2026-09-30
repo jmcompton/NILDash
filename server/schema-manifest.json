@@ -769,6 +769,25 @@
       "last_source": "TEXT",
       "market_key": "TEXT"
     },
+    "market_pool_runs": {
+      "finished_at": "TIMESTAMPTZ",
+      "run_date": "DATE",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "summary": "JSONB"
+    },
+    "market_pool_schedule": {
+      "builds": "INT DEFAULT 0",
+      "last_built_at": "TIMESTAMPTZ",
+      "last_ok": "BOOLEAN",
+      "last_reason": "TEXT",
+      "market_key": "TEXT",
+      "places_calls": "INT DEFAULT 0",
+      "pool_size": "INT",
+      "query": "TEXT",
+      "radius_m": "INT",
+      "region": "TEXT",
+      "usable": "INT"
+    },
     "media_kit_views": {
       "agent_id": "TEXT",
       "athlete_id": "TEXT",

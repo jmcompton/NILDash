@@ -632,6 +632,11 @@
       "total": 33,
       "fault": null
     },
+    "marketpools.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
     "mig.js": {
       "failed": 0,
       "total": 75,
