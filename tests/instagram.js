@@ -213,6 +213,15 @@ async function main() {
       && ad2.engagement === undefined && ad2.name === 'Maya Tester', { leftStats, ad2 });
     const stp = await get(`/api/instagram/deletion-status?code=${ddj.confirmation_code}`);
     ok('  the status page shows it completed', stp.status === 200 && /Completed/.test(await stp.text()));
+    // Meta validates both URLs with a GET before the dashboard will save them.
+    const gDel = await get('/api/instagram/data-deletion');
+    const gDelHtml = await gDel.text();
+    ok('GET data-deletion: 200, a page explaining how to request deletion and a form to check a code', gDel.status === 200
+      && /Delete your Instagram data/.test(gDelHtml) && /Apps and websites/.test(gDelHtml) && /action="\/api\/instagram\/deletion-status"/.test(gDelHtml) && /name="code"/.test(gDelHtml));
+    const gDe = await get('/api/instagram/deauthorize');
+    ok('GET deauthorize: 200', gDe.status === 200 && /Instagram access/.test(await gDe.text()));
+    ok('  and the signed POSTs still refuse an unsigned request', (await post('/api/instagram/deauthorize', {}, 'x=1')).status === 400
+      && (await post('/api/instagram/data-deletion', {}, 'x=1')).status === 400);
     ok('the unconfigured app refuses politely rather than sending the athlete to a broken Instagram page', (() => {
       const src = read('server/routes/instagram.js'); return /if \(!IG\.configured\(\)\)/.test(src) && /Not available right now/.test(src);
     })());

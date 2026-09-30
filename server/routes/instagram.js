@@ -108,6 +108,28 @@ function mount(app, { store, requireAuth }) {
     } catch (e) { console.error('[instagram/data-deletion]', e.message); res.status(500).json({ error: 'failed' }); }
   });
 
+  // ── GET on both callback URLs ─────────────────────────────────────────────
+  // Meta validates these URLs with a GET before the dashboard will save them,
+  // and a person following the data-deletion link lands here too. The signed
+  // POSTs above are unchanged.
+  app.get('/api/instagram/deauthorize', (req, res) => {
+    res.send(page('Instagram access removed', `<h1>Instagram access</h1>
+      <p>This address is where Instagram tells NILDash that someone has removed its access.</p>
+      <p class="small">When that happens we disconnect the account and delete its access token. Nothing needs to be done here.</p>`));
+  });
+
+  app.get('/api/instagram/data-deletion', (req, res) => {
+    res.send(page('Delete your Instagram data', `<h1>Delete your Instagram data</h1>
+      <p>NILDash stores your Instagram username, follower and following counts, post count, and the likes and comments on your recent posts, only if you connected your account.</p>
+      <p class="small" style="text-align:left"><b>To delete it:</b> in Instagram, go to Settings, then Apps and websites, find NILDash and remove it, then choose to send a data deletion request. We delete everything we fetched from your account and give you a confirmation code. You can also email <a href="mailto:contact@mynildash.com" style="color:inherit">contact@mynildash.com</a> and we will delete it for you.</p>
+      <p class="small" style="text-align:left"><b>To check a request:</b> enter the confirmation code you were given.</p>
+      <form method="get" action="/api/instagram/deletion-status" style="display:flex;gap:8px;margin-top:6px">
+        <input name="code" placeholder="Confirmation code" required style="flex:1;min-width:0;padding:12px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:15px">
+        <button type="submit" style="padding:12px 16px;border-radius:10px;border:0;background:var(--accent);color:#0b0b0c;font-weight:700;font-size:15px">Check</button>
+      </form>
+      <p class="small" style="margin-top:16px">Compton Group LLC · 3796 Turnberry Court, Duluth, GA 30096</p>`));
+  });
+
   app.get('/api/instagram/deletion-status', async (req, res) => {
     await IG.ensureTables(pool).catch(() => {});
     const r = await pool.query(`SELECT confirmation_code, status, requested_at, completed_at FROM instagram_deletion_requests WHERE confirmation_code = $1`,
