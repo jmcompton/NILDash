@@ -72,8 +72,8 @@ async function main() {
 
   // ── 3. DISCOVERY: A COLLECTIVE NEVER ENTERS A POOL ────────────────────────
   OUT.push('', '-- discovery --');
-  ok('the Places market build drops it', /require\('\.\/collectives'\)\.detect\(r\.name/.test(read('server/services/placesMarket.js')) && /collective=\$\{dropCollective\}/.test(read('server/services/placesMarket.js')));
-  ok('Deal Scan\'s addCandidate drops it (scan results, pool and cards)', /require\('\.\/services\/collectives'\)\.detect\(nm/.test(read('server/ai.js')));
+  ok('the Places market build drops it', /require\('\.\/(collectives|notASponsor)'\)\.detect\(r\.name/.test(read('server/services/placesMarket.js')) && /collective=\$\{dropCollective\}/.test(read('server/services/placesMarket.js')));
+  ok('Deal Scan\'s addCandidate drops it (scan results, pool and cards)', /require\('\.\/services\/(collectives|notASponsor)'\)\.detect\(nm/.test(read('server/ai.js')));
   const MK = 'colltest-town, zz';
   await P.query(`DELETE FROM market_business_seen WHERE market_key = $1`, [MK]);
   const rec = await store.recordMarketPool([{ name: 'Yea Alabama', market: 'school' }, { name: 'Coffee Collective', category: 'coffee', market: 'school' },
@@ -109,7 +109,7 @@ async function main() {
   const dry = execFileSync(process.execPath, [REPO + 'scripts/block-audit.js'], { env, encoding: 'utf8', timeout: 120000 });
   const cardState = async () => Object.fromEntries((await P.query(`SELECT brand_name, state FROM outreach_queue WHERE agent_id = $1`, [AG])).rows.map((r) => [r.brand_name, r.state]));
   ok('report only: names the collective card for each athlete', /Marcus Johnson \(col-agent@x\.test\): Yea Alabama/.test(dry) && /Messiah Mickens \(col-agent@x\.test\): Happy Valley United/.test(dry), dry.split('\n').filter((l) => /collective|Marcus|Messiah/i.test(l)));
-  ok('  counts the pool rows', /2 collective row\(s\) would be removed from the agent market pools/.test(dry));
+  ok('  counts the pool rows', /2 collective( \/ not-a-sponsor)? row\(s\) would be removed from the agent market pools/.test(dry));
   ok('  the COLLECTIVES line gives the totals', /COLLECTIVES: \d+ agent-pool row\(s\), \d+ open agent card\(s\)/.test(dry));
   ok('  and changes nothing', Object.values(await cardState()).every((s) => s === 'queued')
     && (await P.query(`SELECT COUNT(*)::int n FROM market_business_seen WHERE market_key = 'colaudit, zz'`)).rows[0].n === 3);
