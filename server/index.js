@@ -5357,6 +5357,11 @@ const ADMIN_SCRIPTS = {
   // (services/placeholders). Report only; apply removes the lines.
   //   /api/admin/scripts/placeholder-audit?text=1   (&apply=1)
   'placeholder-audit': { file: 'scripts/placeholder-audit.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
+  // Every athlete market's pool: how many distinct markets, how many have zero
+  // usable rows, and (with apply) build the due ones from Places
+  // (services/marketPools).
+  //   /api/admin/scripts/market-pools?text=1   (&apply=1, &all=1 lifts the per-run limits)
+  'market-pools': { file: 'scripts/market-pools.js', args: (q) => [...(q.apply === '1' ? ['--apply'] : []), ...(q.all === '1' ? ['--all'] : [])] },
   // Rebuild the Places pool for markets and print how many businesses each
   // returned (services/placesMarket, the New API). Writes the market cache and
   // market_business_seen for an agent market, university_market_seen for a campus.
@@ -14847,6 +14852,26 @@ try {
   }
 } catch (e) {
   console.warn('[queue] scheduler failed to start:', e.message);
+}
+
+// ── The athlete market pools (services/marketPools) ─────────────────────────
+// Every athlete market gets a Places pool whether or not anyone ran Deal Scan:
+// once a night, 10pm to midnight Central, before the 1am fill. Empty markets
+// first, then thin ones (widening the radius), then stale ones. Claimed per
+// date, so a restart cannot run it twice. Off with MARKET_POOL_SCHEDULE=off or
+// without a Places key.
+try {
+  const MP = require('./services/marketPools');
+  if (!MP.enabled()) {
+    console.log('[market-pools] scheduled pool build is OFF (MARKET_POOL_SCHEDULE=off or no GOOGLE_PLACES_API_KEY)');
+  } else {
+    const mpTick = () => { MP.tick(store.pool).catch((e) => console.error('[market-pools] tick failed:', e.message)); };
+    setTimeout(mpTick, 3 * 60 * 1000);
+    setInterval(mpTick, 15 * 60 * 1000);
+    console.log(`[market-pools] scheduled: once a night ${MP.WINDOW_START_HOUR}:00-midnight Central, target ${MP.TARGET} usable a market`);
+  }
+} catch (e) {
+  console.error('[market-pools] scheduler failed to start:', e.message);
 }
 
 // ── The preflight (services/preflight) ──────────────────────────────────────

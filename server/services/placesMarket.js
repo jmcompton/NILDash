@@ -33,6 +33,7 @@ const { isNoLocalAuthority } = require('./dealScanRanking');
 const SEARCH_TEXT_URL = 'https://places.googleapis.com/v1/places:searchText';
 const SEARCH_NEARBY_URL = 'https://places.googleapis.com/v1/places:searchNearby';
 const RADIUS_M = 8000;
+const RADIUS_M_DEFAULT = RADIUS_M;
 const MAX_PER_CALL = 20;      // searchNearby's ceiling; there is no next page
 // Sub-circles for a type that came back full: centred on the four diagonals at
 // half the radius, each three quarters of the radius, so together they cover the
@@ -189,6 +190,9 @@ function _distance(a, b) {
 // the centre came back full. Returns { type, results, calls, errors, saturated }.
 async function _nearbyType(center, type, apiKey, opts = {}) {
   const errors = [];
+  // opts.radiusM: the scheduled pool build (services/marketPools) widens a
+  // market that came back under its target. Everything else uses RADIUS_M.
+  const RADIUS_M = Number(opts.radiusM) > 0 ? Number(opts.radiusM) : RADIUS_M_DEFAULT;
   const first = await _nearby(center, RADIUS_M, type, apiKey, opts);
   let calls = 1;
   if (!first.ok) { errors.push(first.error); return { type, results: [], calls, errors, saturated: false }; }
