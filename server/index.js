@@ -6996,6 +6996,41 @@ app.get('/api/athlete/stripe-complete', async (req, res) => {
 // data-deletion callbacks, and the agent's invite/status/sync endpoints.
 require('./routes/instagram').mount(app, { store, requireAuth });
 
+// ── A DEPARTMENT'S MARKET: THE DEEP POOL AND THE CONTACTS (admin) ───────────
+// services/campusPool (Places, ring by ring to 1,000) and services/campusContacts
+// (the full contact ladder on every business). Both run in the background in
+// this process -- a thousand businesses outlast the 15-minute script runner --
+// and the report gives the three numbers: hit rate, build cost, nightly cost.
+//   POST /api/admin/campus/:universityId/pool        deepen the pool
+//   POST /api/admin/campus/:universityId/contacts    resolve contacts (resumable)
+//   GET  /api/admin/campus/:universityId/report?text=1
+const _campusPoolRuns = new Map();
+app.post('/api/admin/campus/:universityId/pool', requireAuth, async (req, res) => {
+  const id = req.params.universityId;
+  if (_campusPoolRuns.has(id)) return res.status(409).json({ error: 'a pool build is already running for ' + id });
+  const p = require('./services/campusPool').deepen(store.pool, id, { target: parseInt(req.query.target, 10) || undefined })
+    .then((r) => { console.log('[campus-pool]', JSON.stringify({ id, ...r, university: undefined })); return r; })
+    .catch((e) => { console.error('[campus-pool]', e.message); return { ok: false, error: e.message }; })
+    .finally(() => _campusPoolRuns.delete(id));
+  _campusPoolRuns.set(id, p);
+  res.json({ ok: true, started: true, note: 'running in the background; GET /api/admin/campus/' + id + '/report?text=1 for progress' });
+});
+app.post('/api/admin/campus/:universityId/contacts', requireAuth, async (req, res) => {
+  const CC = require('./services/campusContacts');
+  const r = await CC.run(store.pool, req.params.universityId, { wait: false, limit: parseInt(req.query.limit, 10) || undefined,
+    concurrency: parseInt(req.query.concurrency, 10) || undefined, history: req.query.history !== '0' });
+  res.status(r.ok ? 200 : 409).json(r);
+});
+app.get('/api/admin/campus/:universityId/report', requireAuth, async (req, res) => {
+  try {
+    const CC = require('./services/campusContacts');
+    const r = await CC.report(store.pool, req.params.universityId);
+    r.poolRunning = _campusPoolRuns.has(req.params.universityId);
+    if (req.query.text === '1') return res.type('text/plain').send(CC.formatReport(r) + (r.poolRunning ? '\nPOOL BUILD STILL RUNNING' : ''));
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/agents/athletes/:id/invite-token — agent generates new invite token
 app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) => {
   try {
@@ -14921,6 +14956,31 @@ try {
 } catch (e) {
   console.error('[market-pools] scheduler failed to start:', e.message);
 }
+
+// ── Cypress College: the confirmed teams, and an interrupted contact run ──────
+// The seed is idempotent and applies the athletic director's confirmed team
+// list (scripts/seed-cypress.js: no football, no track, no golf). A contact
+// resolution run (services/campusContacts) stopped by a deploy resumes from
+// its pending rows.
+setTimeout(async () => {
+  try {
+    if (process.env.CYPRESS_SEED_ON_BOOT !== 'off') {
+      const r = await require('../scripts/seed-cypress.js').seed(store.pool);
+      console.log(`[cypress] seed: ${r.teams} team(s) added, ${r.inventory} item(s) added${r.removed && r.removed.length ? `, removed ${r.removed.join(', ')}` : ''}`);
+    }
+  } catch (e) { console.error('[cypress] seed on boot failed:', e.message); }
+  try {
+    await require('./services/campusPool').ensureTables(store.pool);
+    const open = (await store.pool.query(
+      `SELECT DISTINCT r.university_id FROM university_market_runs r
+        WHERE r.kind = 'contacts' AND r.finished_at IS NULL AND r.started_at > NOW() - INTERVAL '3 days'
+          AND EXISTS (SELECT 1 FROM university_contacts c WHERE c.university_id = r.university_id AND c.status = 'pending')`)).rows;
+    for (const o of open) {
+      console.log(`[campus-contacts] resuming the contact run for ${o.university_id}`);
+      require('./services/campusContacts').run(store.pool, o.university_id, { wait: false }).catch((e) => console.error('[campus-contacts] resume:', e.message));
+    }
+  } catch (e) { console.error('[campus-contacts] resume check failed:', e.message); }
+}, 3 * 60 * 1000);
 
 // ── Instagram connect: token refresh and nightly stats (services/instagramConnect)
 // Once per Central date, 5-7am: refresh every long-lived token within

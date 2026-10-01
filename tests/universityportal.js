@@ -262,9 +262,9 @@ async function main() {
         !!(await p.$('#loginForm')) && !(await p.$('.shell')) && p.url().endsWith('/university'));
       await p.fill('#lemail', 'ad@cypress.test'); await p.fill('#lpass', 'x'); await p.click('#lgo'); await p.waitForTimeout(400);
       ok('signed in: My Teams, from the API', (await p.textContent('#crumbNow')) === 'My Teams' && (await p.$$('.tablewrap tbody tr')).length === 14);
-      ok('  the KPIs say 14 teams, 230 athletes, 140 home dates, $35,150',
-        /TEAMS14nofootball/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /ATHLETES230/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, ''))
-        && /HOMEDATES140/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /\$35,150/.test(await p.textContent('.kpi-grid')));
+      ok('  the KPIs say 14 teams, 220 athletes, 138 home dates, $35,150 (golf removed; two new teams have no roster yet)',
+        /TEAMS14nofootball/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /ATHLETES220/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, ''))
+        && /HOMEDATES138/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /\$35,150/.test(await p.textContent('.kpi-grid')), await p.textContent('.kpi-grid'));
       await p.click('[data-goto="inventory"]'); await p.waitForTimeout(150);
       ok('Inventory: 65 items', (await p.textContent('#crumbNow')) === 'Inventory' && (await p.$$('.tablewrap tbody tr')).length === 65);
       await p.click('[data-inv="Department"]'); await p.waitForTimeout(100);

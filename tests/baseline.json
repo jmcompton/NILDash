@@ -177,6 +177,11 @@
       "total": 21,
       "fault": null
     },
+    "campusmarket.js": {
+      "failed": 0,
+      "total": 22,
+      "fault": null
+    },
     "canspam.js": {
       "failed": 0,
       "total": 65,
