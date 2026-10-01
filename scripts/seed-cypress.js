@@ -37,6 +37,32 @@ const UNIVERSITY = {
   location: '9200 Valley View St, Cypress, CA 90630',
 };
 
+// ── THE TEAMS, AS THE ATHLETIC DIRECTOR CONFIRMED THEM ─────────────────────
+// Wes McCurtis, on the call: men's and women's basketball, soccer, water polo
+// and swim & dive; baseball; softball; women's volleyball; beach volleyball;
+// men's and women's tennis. NO FOOTBALL (cut in the 1970s), NO TRACK (no
+// facility). The /athletics demo was a sales artifact: it had Men's Golf, which
+// they do not have, and lacked men's water polo and beach volleyball. Its
+// venue/season details are still used where it had the team; the list itself
+// is this one. Roster sizes for the two the demo lacked are not known yet.
+const CONFIRMED_TEAMS = [
+  { id: 'mbb', name: "Men's Basketball", sport: 'basketball' },
+  { id: 'wbb', name: "Women's Basketball", sport: 'basketball' },
+  { id: 'msoc', name: "Men's Soccer", sport: 'soccer' },
+  { id: 'wsoc', name: "Women's Soccer", sport: 'soccer' },
+  { id: 'mwp', name: "Men's Water Polo", sport: 'water polo', season: 'Fall', venue: 'Cypress College Pool', kind: 'pool' },
+  { id: 'wwp', name: "Women's Water Polo", sport: 'water polo' },
+  { id: 'mswim', name: "Men's Swim & Dive", sport: 'swimming' },
+  { id: 'wswim', name: "Women's Swim & Dive", sport: 'swimming' },
+  { id: 'bsb', name: 'Baseball', sport: 'baseball' },
+  { id: 'sb', name: 'Softball', sport: 'softball' },
+  { id: 'wvb', name: "Women's Volleyball", sport: 'volleyball' },
+  { id: 'bvb', name: 'Beach Volleyball', sport: 'beach volleyball', season: 'Spring', venue: 'Cypress College Beach Volleyball Courts', kind: 'gym' },
+  { id: 'mten', name: "Men's Tennis", sport: 'tennis' },
+  { id: 'wten', name: "Women's Tennis", sport: 'tennis' },
+];
+const NEVER = /football|track|cross country|golf/i;
+
 // Lift one top-level `const NAME = ...;` out of the demo and evaluate it alone.
 function liftConst(src, name) {
   const start = src.indexOf('const ' + name + ' =');
@@ -57,7 +83,13 @@ function liftConst(src, name) {
 // (every team's ASSETS for its kind, then the department-wide items).
 function readDemo(file) {
   const src = fs.readFileSync(file || DEMO, 'utf8');
-  const TEAMS = liftConst(src, 'TEAMS');
+  const DEMO_TEAMS = liftConst(src, 'TEAMS');
+  const byId = new Map(DEMO_TEAMS.map((t) => [t.id, t]));
+  const TEAMS = CONFIRMED_TEAMS.map((c) => {
+    const d = byId.get(c.id) || {};
+    return { ...d, ...c, season: c.season || d.season || null, roster: d.roster || null, venue: c.venue || d.venue || null,
+      dates: d.dates || null, kind: c.kind || d.kind || 'field' };
+  });
   const ASSETS = liftConst(src, 'ASSETS');
   const DEPT_ASSETS = liftConst(src, 'DEPT_ASSETS');
   const marketKey = require(path.join(REPO, 'server', 'services', 'regionKey.js')).marketPoolKey(UNIVERSITY.location);
@@ -74,6 +106,21 @@ function readDemo(file) {
     id: `${UNIVERSITY.id}:dept:${i + 1}`, team_id: null, name, price_cents: Math.round(price * 100),
   }));
   return { teams, inventory, marketKey };
+}
+
+// Teams this university has that are NOT on the confirmed list (Men's Golf,
+// from the demo) are removed, with everything written for them. The removed
+// names are returned so the run can say what it took out.
+async function removeUnconfirmed(pool, uid, keepIds) {
+  const gone = (await pool.query(`SELECT id, name FROM university_teams WHERE university_id = $1 AND NOT (id = ANY($2))`, [uid, keepIds])).rows;
+  if (!gone.length) return [];
+  const ids = gone.map((t) => t.id);
+  for (const t of ['university_drafts', 'university_outreach_queue', 'university_brand_engagement', 'university_research_claims']) {
+    await pool.query(`DELETE FROM ${t} WHERE team_id = ANY($1)`, [ids]).catch(() => {});
+  }
+  await pool.query(`DELETE FROM university_inventory WHERE team_id = ANY($1)`, [ids]);
+  await pool.query(`DELETE FROM university_teams WHERE id = ANY($1)`, [ids]);
+  return gone.map((t) => t.name);
 }
 
 // The migration's statements, so a seed run before the next boot still has its
@@ -102,6 +149,8 @@ async function seed(pool, opts = {}) {
   }
   out.universityId = uid;
   const idFor = (id) => (uid === UNIVERSITY.id ? id : id.replace(UNIVERSITY.id + ':', uid + ':'));
+  if (teams.some((t) => NEVER.test(t.name))) throw new Error('seed-cypress: a team Cypress does not have is on the list');
+  out.removed = await removeUnconfirmed(pool, uid, teams.map((t) => idFor(t.id)));
   for (const t of teams) {
     const r = await pool.query(
       `INSERT INTO university_teams (id, university_id, name, sport, season, roster_size, venue, home_dates, market_key)
@@ -137,10 +186,11 @@ async function main() {
     const r = await seed(pool);
     console.log(`Cypress College (${r.universityId}): university row ${r.university ? 'created' : 'already there'}; `
       + `${r.teams} of ${r.teamCount} teams added, ${r.inventory} of ${r.inventoryCount} inventory items added `
-      + `(the rest already existed); market_key "${r.marketKey}".`);
+      + `(the rest already existed); market_key "${r.marketKey}".`
+      + (r.removed && r.removed.length ? ` Removed (not a Cypress team): ${r.removed.join(', ')}.` : ''));
   } finally { await pool.end(); }
 }
 
 if (require.main === module) main().catch((e) => { console.error('seed-cypress: FAILED', e.message); process.exit(1); });
 
-module.exports = { seed, readDemo, liftConst, UNIVERSITY };
+module.exports = { CONFIRMED_TEAMS, removeUnconfirmed, seed, readDemo, liftConst, UNIVERSITY };

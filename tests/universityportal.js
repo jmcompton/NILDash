@@ -94,7 +94,8 @@ async function main() {
   const athletesBefore = (await P.query(`SELECT COUNT(*)::int n FROM athletes`)).rows[0].n;
   const r1 = await Seed.seed(P);
   const r2 = await Seed.seed(P);
-  ok('the first run writes 13 teams and 59 items', r1.teams === 13 && r1.inventory === 59, r1);
+  // The AD's confirmed list (seed-cypress CONFIRMED_TEAMS): 14 teams, 65 items.
+  ok('the first run writes the 14 confirmed teams and 65 items', r1.teams === 14 && r1.inventory === 65, r1);
   ok('  the second run writes nothing', r2.university === 0 && r2.teams === 0 && r2.inventory === 0, r2);
   ok('  and the agent athletes table is untouched', (await P.query(`SELECT COUNT(*)::int n FROM athletes`)).rows[0].n === athletesBefore);
   const uni = (await P.query(`SELECT name, location FROM universities WHERE id = 'univ-cypress'`)).rows[0];
@@ -102,7 +103,12 @@ async function main() {
 
   // Every value against the demo, read independently of the seed's reader.
   const html = read('public/athletics.html');
-  const T = Seed.liftConst(html, 'TEAMS'), A = Seed.liftConst(html, 'ASSETS'), D = Seed.liftConst(html, 'DEPT_ASSETS');
+  // The TEAM LIST is the AD's (Seed.CONFIRMED_TEAMS); the demo still supplies
+  // season, venue, roster and inventory for the teams it had.
+  const A = Seed.liftConst(html, 'ASSETS'), D = Seed.liftConst(html, 'DEPT_ASSETS');
+  const T = Seed.readDemo().teams.map((t) => ({ id: t.id.replace('univ-cypress:', ''), name: t.name, sport: t.sport, season: t.season,
+    roster: t.roster_size, venue: t.venue, dates: t.home_dates, kind: (Seed.liftConst(html, 'TEAMS').find((x) => 'univ-cypress:' + x.id === t.id) || {}).kind
+      || (Seed.CONFIRMED_TEAMS.find((c) => 'univ-cypress:' + c.id === t.id) || {}).kind }));
   const teams = (await P.query(`SELECT * FROM university_teams WHERE university_id = 'univ-cypress' ORDER BY id`)).rows;
   const byId = new Map(teams.map((t) => [t.id, t]));
   const teamMismatch = T.filter((t) => {
@@ -110,8 +116,16 @@ async function main() {
     return !r || r.name !== t.name || r.sport !== t.sport || r.season !== t.season || r.roster_size !== t.roster
       || r.venue !== t.venue || r.home_dates !== t.dates;
   }).map((t) => t.id);
-  ok('every team matches the TEAMS array in athletics.html', teams.length === T.length && teamMismatch.length === 0, teamMismatch);
-  ok('  no football', !teams.some((t) => /football/i.test(t.sport)));
+  ok('every team matches the confirmed list, with the demo\'s details where it had them', teams.length === T.length && teamMismatch.length === 0, teamMismatch);
+  ok('  no football, no track, no golf; men\'s water polo and beach volleyball are there', !teams.some((t) => /football|track|golf/i.test(t.name + ' ' + t.sport))
+    && teams.some((t) => t.name === "Men's Water Polo") && teams.some((t) => t.name === 'Beach Volleyball'), teams.map((t) => t.name));
+  // A team that is not on the list (Men's Golf, from the demo) is removed with its work.
+  await P.query(`INSERT INTO university_teams (id, university_id, name, sport) VALUES ('univ-cypress:mgolf', 'univ-cypress', 'Men''s Golf', 'golf') ON CONFLICT DO NOTHING`);
+  await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents) VALUES ('univ-cypress:mgolf:1', 'univ-cypress', 'univ-cypress:mgolf', 'Golf banner', 10000) ON CONFLICT DO NOTHING`);
+  const r3 = await Seed.seed(P);
+  ok('  a seeded Men\'s Golf is removed, with its items, and the run says so', JSON.stringify(r3.removed) === JSON.stringify(["Men's Golf"])
+    && !(await P.query(`SELECT 1 FROM university_teams WHERE id = 'univ-cypress:mgolf'`)).rowCount
+    && !(await P.query(`SELECT 1 FROM university_inventory WHERE team_id = 'univ-cypress:mgolf'`)).rowCount, r3);
   ok('  market_key is the agent-side key for the campus', teams.every((t) => t.market_key === require(REPO + 'server/services/regionKey.js').marketPoolKey('Cypress, CA')) && teams[0].market_key === 'cypress, ca', teams[0].market_key);
   const inv = (await P.query(`SELECT * FROM university_inventory WHERE university_id = 'univ-cypress'`)).rows;
   const want = [];
@@ -122,7 +136,7 @@ async function main() {
     want.length === got.length && want.slice().sort().join('\n') === got.slice().sort().join('\n'),
     want.filter((w) => !got.includes(w)).concat(got.filter((g) => !want.includes(g))));
   ok('  department-wide items have no team', inv.filter((i) => i.team_id === null).length === D.length);
-  ok('  all available, $32,050 in all', inv.every((i) => i.status === 'available') && inv.reduce((s, i) => s + i.price_cents, 0) === 3205000);
+  ok('  all available, $35,150 in all', inv.every((i) => i.status === 'available') && inv.reduce((s, i) => s + i.price_cents, 0) === 3515000);
 
   // A second university, to prove nobody sees it but its own.
   await P.query(`INSERT INTO universities (id, name, short_name) VALUES ($1, 'Other Test College', 'Other') ON CONFLICT (id) DO NOTHING`, [OTHER]);
@@ -168,11 +182,11 @@ async function main() {
       ok(`  an admin with no university of their own gets none`, ad.status === 403, ad);
     }
     const t = await call('/api/university/teams', U.cyp);
-    ok('Cypress sees its 13 teams, with each team\'s inventory total', t.status === 200 && t.body.teams.length === 13
+    ok('Cypress sees its 14 teams, with each team\'s inventory total', t.status === 200 && t.body.teams.length === 14
       && t.body.university.name === 'Cypress College'
       && t.body.teams.find((x) => x.id === 'univ-cypress:mbb').inventory_cents === 315000, t.body && t.body.teams && t.body.teams.length);
     const i = await call('/api/university/inventory', U.cyp);
-    ok('  and its 59 items', i.status === 200 && i.body.items.length === 59, i.body && i.body.items && i.body.items.length);
+    ok('  and its 65 items', i.status === 200 && i.body.items.length === 65, i.body && i.body.items && i.body.items.length);
     const leak = (b) => JSON.stringify(b).includes(OTHER) || JSON.stringify(b).includes('ut-other') || JSON.stringify(b).includes('Other Rowing');
     ok('  and nothing of the other university\'s', !leak(t.body) && !leak(i.body));
     // Every way a request could try to name another university.
@@ -247,12 +261,12 @@ async function main() {
       ok('logged out: the sign-in screen, not a blank page and not the agent app',
         !!(await p.$('#loginForm')) && !(await p.$('.shell')) && p.url().endsWith('/university'));
       await p.fill('#lemail', 'ad@cypress.test'); await p.fill('#lpass', 'x'); await p.click('#lgo'); await p.waitForTimeout(400);
-      ok('signed in: My Teams, from the API', (await p.textContent('#crumbNow')) === 'My Teams' && (await p.$$('.tablewrap tbody tr')).length === 13);
-      ok('  the KPIs say 13 teams, 230 athletes, 140 home dates, $32,050',
-        /TEAMS13nofootball/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /ATHLETES230/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, ''))
-        && /HOMEDATES140/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /\$32,050/.test(await p.textContent('.kpi-grid')));
+      ok('signed in: My Teams, from the API', (await p.textContent('#crumbNow')) === 'My Teams' && (await p.$$('.tablewrap tbody tr')).length === 14);
+      ok('  the KPIs say 14 teams, 230 athletes, 140 home dates, $35,150',
+        /TEAMS14nofootball/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /ATHLETES230/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, ''))
+        && /HOMEDATES140/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /\$35,150/.test(await p.textContent('.kpi-grid')));
       await p.click('[data-goto="inventory"]'); await p.waitForTimeout(150);
-      ok('Inventory: 59 items', (await p.textContent('#crumbNow')) === 'Inventory' && (await p.$$('.tablewrap tbody tr')).length === 59);
+      ok('Inventory: 65 items', (await p.textContent('#crumbNow')) === 'Inventory' && (await p.$$('.tablewrap tbody tr')).length === 65);
       await p.click('[data-inv="Department"]'); await p.waitForTimeout(100);
       ok('  the Department filter shows the three department-wide items', (await p.$$('.tablewrap tbody tr')).length === 3);
       await p.click('#nav1 [aria-disabled="true"]', { force: true }); await p.waitForTimeout(100);
