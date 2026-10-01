@@ -89,8 +89,15 @@ async function main() {
   for (const m of page.matchAll(/fetch\("(\/api\/[^"]+)",\s*\{\s*method:\s*"(\w+)"/g)) fetched.add(m[2].toUpperCase() + ' ' + m[1]);
   const every = new Set(page.match(/\/api\/[a-z/_-]+/g));
   ok('every API path in university.html is accounted for', [...every].every((p) => [...fetched].some((f) => f.endsWith(' ' + p))), [...every]);
-  ok('  and the allowlist is exactly those, no more',
-    [...MG.UNIVERSITY_ALLOWED].sort().join('|') === [...fetched].sort().join('|'), { allowed: [...MG.UNIVERSITY_ALLOWED], fetched: [...fetched] });
+  // Beyond the page: a staff member's own mailbox connect (send only), named
+  // here one by one so nothing else slips in. The market tool is a prefix,
+  // pinned below.
+  const MAILBOX = ['GET /api/email/oauth/gmail', 'GET /api/email/oauth/gmail/callback', 'GET /api/email/oauth/outlook',
+    'GET /api/email/oauth/outlook/callback', 'GET /api/email/accounts'];
+  ok('  and the allowlist is exactly those plus the mailbox connect, no more',
+    [...MG.UNIVERSITY_ALLOWED].sort().join('|') === [...fetched, ...MAILBOX].sort().join('|'), { allowed: [...MG.UNIVERSITY_ALLOWED], fetched: [...fetched] });
+  ok('  the only prefix is the department market tool',
+    JSON.stringify(MG.UNIVERSITY_ALLOWED_PREFIXES) === JSON.stringify([['GET', '/api/university/market/'], ['POST', '/api/university/market/']]));
   ok('admin is not a confined role', !MG.UNIVERSITY_ONLY_ROLES.has('admin') && !MG.UNIVERSITY_ONLY_ROLES.has('agent'));
 
   // ── 3. MOUNTED ONCE, BEFORE EVERY SESSION ROUTE; requireAgentMode GONE ─────
