@@ -95,7 +95,30 @@ const UNIVERSITY_ALLOWED = new Set([
   'GET /api/university/inventory',
   'POST /api/auth/login',
   'POST /api/auth/logout',
+  // A staff member's own mailbox, so a pitch goes out signed from it. Connect,
+  // the provider's return, and the list of their own accounts; nothing that
+  // reads an inbox.
+  'GET /api/email/oauth/gmail',
+  'GET /api/email/oauth/gmail/callback',
+  'GET /api/email/oauth/outlook',
+  'GET /api/email/oauth/outlook/callback',
+  'GET /api/email/accounts',
 ]);
+
+// The department's own market tool (routes/campus.js): search, CRM, deals,
+// pitches. Every route under it scopes to the session's own university.
+// Matched on a whole path segment, so "/api/university/marketplace" is not in.
+const UNIVERSITY_ALLOWED_PREFIXES = [
+  ['GET', '/api/university/market/'],
+  ['POST', '/api/university/market/'],
+];
+function allowedForUniversity(key) {
+  if (UNIVERSITY_ALLOWED.has(key)) return true;
+  const sp = key.indexOf(' ');
+  const m = key.slice(0, sp), p = key.slice(sp + 1);
+  if (p.includes('..')) return false;
+  return UNIVERSITY_ALLOWED_PREFIXES.some(([pm, pre]) => pm === m && p.startsWith(pre) && p.length > pre.length);
+}
 
 // "/API/University/Teams/" and "/api/university/teams" are the same route to
 // Express (routing is case-insensitive and ignores one trailing slash), so they
@@ -123,7 +146,7 @@ async function universityWall(req, res, next) {
       req.session.role = role;
     }
     if (!UNIVERSITY_ONLY_ROLES.has(role)) return next();
-    if (UNIVERSITY_ALLOWED.has(wallKey(req))) return next();
+    if (allowedForUniversity(wallKey(req))) return next();
     return res.status(403).json({
       error: 'A university account cannot use this.',
       code: 'UNIVERSITY_ROLE_BLOCKED',
@@ -147,4 +170,4 @@ function assertUniversityMode(userRole) {
   }
 }
 
-module.exports = { requireUniversityMode, universityWall, assertUniversityMode, UNIVERSITY_ALLOWED, UNIVERSITY_ONLY_ROLES, wallKey };
+module.exports = { requireUniversityMode, universityWall, assertUniversityMode, UNIVERSITY_ALLOWED, UNIVERSITY_ALLOWED_PREFIXES, allowedForUniversity, UNIVERSITY_ONLY_ROLES, wallKey };

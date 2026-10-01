@@ -6996,6 +6996,10 @@ app.get('/api/athlete/stripe-complete', async (req, res) => {
 // data-deletion callbacks, and the agent's invite/status/sync endpoints.
 require('./routes/instagram').mount(app, { store, requireAuth });
 
+// ── A DEPARTMENT'S MARKET: SEARCH, CRM, DEALS, PITCHES (routes/campus) ──────
+// Department staff only, scoped to the session's own university.
+require('./routes/campus').mount(app, { store, requireAuth });
+
 // ── A DEPARTMENT'S MARKET: THE DEEP POOL AND THE CONTACTS (admin) ───────────
 // services/campusPool (Places, ring by ring to 1,000) and services/campusContacts
 // (the full contact ladder on every business). Both run in the background in
@@ -7004,8 +7008,17 @@ require('./routes/instagram').mount(app, { store, requireAuth });
 //   POST /api/admin/campus/:universityId/pool        deepen the pool
 //   POST /api/admin/campus/:universityId/contacts    resolve contacts (resumable)
 //   GET  /api/admin/campus/:universityId/report?text=1
+//   POST /api/admin/campus/:universityId/nightly     the five-per-team night, now
+// Admin only: these spend real money on Places and the contact ladder.
 const _campusPoolRuns = new Map();
-app.post('/api/admin/campus/:universityId/pool', requireAuth, async (req, res) => {
+const requireCampusAdmin = async (req, res, next) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    next();
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+app.post('/api/admin/campus/:universityId/pool', requireAuth, requireCampusAdmin, async (req, res) => {
   const id = req.params.universityId;
   if (_campusPoolRuns.has(id)) return res.status(409).json({ error: 'a pool build is already running for ' + id });
   const p = require('./services/campusPool').deepen(store.pool, id, { target: parseInt(req.query.target, 10) || undefined })
@@ -7015,13 +7028,13 @@ app.post('/api/admin/campus/:universityId/pool', requireAuth, async (req, res) =
   _campusPoolRuns.set(id, p);
   res.json({ ok: true, started: true, note: 'running in the background; GET /api/admin/campus/' + id + '/report?text=1 for progress' });
 });
-app.post('/api/admin/campus/:universityId/contacts', requireAuth, async (req, res) => {
+app.post('/api/admin/campus/:universityId/contacts', requireAuth, requireCampusAdmin, async (req, res) => {
   const CC = require('./services/campusContacts');
   const r = await CC.run(store.pool, req.params.universityId, { wait: false, limit: parseInt(req.query.limit, 10) || undefined,
     concurrency: parseInt(req.query.concurrency, 10) || undefined, history: req.query.history !== '0' });
   res.status(r.ok ? 200 : 409).json(r);
 });
-app.get('/api/admin/campus/:universityId/report', requireAuth, async (req, res) => {
+app.get('/api/admin/campus/:universityId/report', requireAuth, requireCampusAdmin, async (req, res) => {
   try {
     const CC = require('./services/campusContacts');
     const r = await CC.report(store.pool, req.params.universityId);
@@ -7029,6 +7042,14 @@ app.get('/api/admin/campus/:universityId/report', requireAuth, async (req, res) 
     if (req.query.text === '1') return res.type('text/plain').send(CC.formatReport(r) + (r.poolRunning ? '\nPOOL BUILD STILL RUNNING' : ''));
     res.json(r);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/campus/:universityId/nightly', requireAuth, requireCampusAdmin, async (req, res) => {
+  const id = req.params.universityId;
+  require('./services/campusNightly').runNight(store.pool, id)
+    .then((r) => console.log('[campus-nightly] manual run', JSON.stringify({ id, cards: r.cards, target: r.target, short: r.short })))
+    .catch((e) => console.error('[campus-nightly] manual run failed:', e.message));
+  res.json({ ok: true, started: true, note: 'running in the background; the cards appear at /api/university/market/cards' });
 });
 
 // POST /api/agents/athletes/:id/invite-token — agent generates new invite token
@@ -14995,6 +15016,20 @@ try {
   console.log(`[instagram] scheduled: token refresh and stats sync once a night 5-7am Central${IGC.configured() ? '' : ' (INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET not set: nothing to refresh until they are)'}`);
 } catch (e) {
   console.error('[instagram] scheduler failed to start:', e.message);
+}
+
+// ── A department's night (services/campusNightly) ───────────────────────────
+// Once per Central date, 1-5am: five cards for every team at every university
+// with staff and a worked contact pool. A team short of five is a
+// 'nightly-floor' fault naming it, read by the morning alert.
+try {
+  const CN = require('./services/campusNightly');
+  const cnTick = () => { CN.tick(store.pool).catch((e) => console.error('[campus-nightly] tick failed:', e.message)); };
+  setTimeout(cnTick, 5 * 60 * 1000);
+  setInterval(cnTick, 15 * 60 * 1000);
+  console.log(`[campus-nightly] scheduled: five cards a team once a night ${CN.WINDOW_START_HOUR}-${CN.WINDOW_END_HOUR}am Central`);
+} catch (e) {
+  console.error('[campus-nightly] scheduler failed to start:', e.message);
 }
 
 // ── The preflight (services/preflight) ──────────────────────────────────────

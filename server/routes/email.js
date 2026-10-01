@@ -214,7 +214,8 @@ router.get('/oauth/outlook', async (req, res) => {
     });
   }
   try {
-    const state = encodeState({ userId: req.session.userId, provider: 'outlook' });
+    const returnTo = safeReturnTo(req.query.returnTo);
+    const state = encodeState({ userId: req.session.userId, provider: 'outlook', returnTo: returnTo || undefined });
     const url = await outlook.getAuthUrl(state);
     res.redirect(url);
   } catch (e) {
@@ -228,7 +229,9 @@ router.get('/oauth/outlook', async (req, res) => {
 router.get('/oauth/outlook/callback', async (req, res) => {
   try {
     const { code, state, error } = req.query;
-    if (error) return res.redirect('/#settings?emailError=' + encodeURIComponent(error));
+    let back = null;
+    try { back = safeReturnTo(decodeState(state).returnTo); } catch (_) { back = null; }
+    if (error) return res.redirect(back ? withMarker(back, 'emailError=' + encodeURIComponent(error)) : '/#settings?emailError=' + encodeURIComponent(error));
 
     const { userId } = decodeState(state);
     if (!userId) return res.status(400).send('Invalid state parameter');
@@ -246,10 +249,12 @@ router.get('/oauth/outlook/callback', async (req, res) => {
     const r = await pool.query('SELECT * FROM email_accounts WHERE id=$1', [accountId]);
     if (r.rows[0]) emailSync.syncAccount(r.rows[0]).catch(() => {});
 
-    res.redirect('/#settings?emailConnected=outlook');
+    res.redirect(back ? withMarker(back, 'emailConnected=outlook') : '/#settings?emailConnected=outlook');
   } catch (e) {
     console.error('[outlook callback]', e.message);
-    res.redirect('/#settings?emailError=' + encodeURIComponent(e.message));
+    let backErr = null;
+    try { backErr = safeReturnTo(decodeState(req.query.state).returnTo); } catch (_) { backErr = null; }
+    res.redirect(backErr ? withMarker(backErr, 'emailError=' + encodeURIComponent(e.message)) : '/#settings?emailError=' + encodeURIComponent(e.message));
   }
 });
 

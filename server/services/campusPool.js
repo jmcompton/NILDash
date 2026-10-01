@@ -18,8 +18,10 @@ const RINGS = String(process.env.CAMPUS_POOL_RINGS_M || '8000,12000,16000,20000,
   .map((x) => parseInt(x, 10)).filter((x) => x > 0);
 
 async function ensureTables(pool) {
-  const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '015_university_market_crm.sql'), 'utf8');
-  for (const s of sql.replace(/--[^\n]*/g, '').split(';').map((x) => x.trim()).filter(Boolean)) await pool.query(s);
+  for (const f of ['015_university_market_crm.sql', '016_university_drafts_pitch.sql']) {
+    const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', f), 'utf8');
+    for (const s of sql.replace(/--[^\n]*/g, '').split(';').map((x) => x.trim()).filter(Boolean)) await pool.query(s);
+  }
 }
 
 async function universityOf(pool, universityId) {

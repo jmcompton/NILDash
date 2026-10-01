@@ -55,6 +55,14 @@ async function syncAllAccounts() {
  */
 async function syncAccount(account) {
   if (syncLocks.has(account.id)) return; // already syncing
+  // A department's staff mailbox is connected only to send from. Its inbox is
+  // never read into the agent tables (migrations/007: university data stays
+  // in university tables).
+  try {
+    const { pool } = require('../store');
+    const u = (await pool.query(`SELECT role FROM users WHERE id = $1`, [account.user_id])).rows[0];
+    if (u && ['university', 'university_admin'].includes(u.role)) return;
+  } catch (_) { return; }
   // Gmail inbox sync is disabled — reading messages needs the RESTRICTED
   // gmail.readonly scope we no longer request. Skip Gmail accounts entirely so
   // nothing throws an insufficient-scope error. (Send still works via gmail.send.)

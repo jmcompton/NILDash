@@ -31,6 +31,13 @@ const SYSTEM = 'You write short sponsorship asks from a college athletics depart
   + 'student athlete, and you never mention NIL. You make exactly one ask: the inventory item you are given, '
   + 'at the price you are given. No filler, no flattery, no sentence that would be true of any other business.';
 
+// The pitches (no item, no price) have their own: the athlete pitch may use
+// NIL, about the one athlete the staff member named, and nobody else.
+const SYSTEM_PITCH = 'You write short, plain emails from a college athletic department to a local business near campus. '
+  + 'You write like a person at the department who knows the town and has looked at this business. '
+  + 'You never name or describe any student athlete except one you are explicitly given, and you never invent a fact. '
+  + 'No prices, no filler, no flattery, no sentence that would be true of any other business.';
+
 function money(cents) {
   const d = Math.round(Number(cents) || 0) / 100;
   return '$' + d.toLocaleString('en-US', { minimumFractionDigits: d % 1 ? 2 : 0, maximumFractionDigits: 2 });
@@ -42,8 +49,19 @@ function milesFrom(m) {
   return mi < 0.95 ? 'under a mile' : `about ${Math.round(mi * 10) / 10} miles`;
 }
 
+// THREE KINDS OF MESSAGE (ctx.item / ctx.athlete):
+//   ask           an inventory item at its price (the original, ctx.item)
+//   team pitch    no item, no price: would they back the team as a local
+//                 partner; ask for a short call. The Cypress product's nightly
+//                 card -- pricing packages are not part of it.
+//   athlete pitch on demand, a staff member pitching ONE athlete they chose
+//                 (ctx.athlete: the name and facts THEY typed). The department
+//                 facilitates NIL for its athletes, so NIL language is allowed
+//                 here and only here; no other person may be named.
+function kindOf(ctx) { return ctx.athlete ? 'athlete' : ctx.item ? 'ask' : 'pitch'; }
+
 // The facts the model sees. Deliberately small, and nothing about any person.
-function facts({ university, team, business, item }) {
+function facts({ university, team, business, item, athlete }) {
   const lines = [
     `DEPARTMENT: ${university.name} Athletics`,
     `TEAM: ${team.name}${team.sport ? ` (${team.sport})` : ''}${team.season ? `, ${team.season} season` : ''}`,
@@ -59,12 +77,15 @@ function facts({ university, team, business, item }) {
     milesFrom(business.distance_m) ? `DISTANCE FROM CAMPUS: ${milesFrom(business.distance_m)}` : null,
     business.rating ? `GOOGLE RATING: ${business.rating} from ${business.user_ratings_total || 'some'} reviews` : null,
     business.evidence ? `WHAT WE KNOW THEY DO LOCALLY: ${business.evidence}` : null,
-    `THE ASK: ${item.name}, ${money(item.price_cents)}`,
+    item ? `THE ASK: ${item.name}, ${money(item.price_cents)}` : null,
+    athlete ? `ATHLETE (the only person you may name): ${athlete.name}${athlete.facts ? ` -- ${athlete.facts}` : ''}` : null,
   ];
   return lines.filter(Boolean).join('\n');
 }
 
 function buildPrompt(ctx, retryBecause) {
+  const kind = kindOf(ctx);
+  if (kind !== 'ask') return buildPitchPrompt(ctx, kind, retryBecause);
   return `${facts(ctx)}
 
 Write the email body and a subject line.
@@ -77,6 +98,27 @@ Write the email body and a subject line.
 - Never use the words NIL, endorsement or influencer.
 - Make exactly one ask, naming the item exactly as "${ctx.item.name}" and the price exactly as "${money(ctx.item.price_cents)}".
 - End with one short line asking for a reply or a call.
+${retryBecause ? `\nYour last draft was rejected: ${retryBecause}. Fix that.\n` : ''}
+Output exactly:
+SUBJECT: <subject line>
+BODY:
+<body>`;
+}
+
+function buildPitchPrompt(ctx, kind, retryBecause) {
+  const common = `- Do NOT write a greeting or a sign-off; they are added for you.
+- Say why this business, from the facts above only. A real reason is one of: they are close to campus; home games bring students and families past them; or what they do serves players and the people who watch them (training, recovery, health, food after games, banking for students).
+- Never build the reason on a coincidence: a shared word, a name, a theme, a mascot, a colour or a pun. If the only true reasons are that they are nearby and games bring people past them, say that plainly and stop.
+- Never invent a fact that is not above. No prices, no dollar amounts.
+- End with one short line asking for a short call or a reply.`;
+  const what = kind === 'athlete'
+    ? `Write a short email from the athletic department introducing ${ctx.athlete.name} for a name, image and likeness (NIL) partnership with this business: for example a few social posts or an appearance at the business. Use only the athlete facts above. Name no other person.`
+    : `Write a short email from the athletic department asking whether this business would like to support the ${ctx.team.name} program as a local partner this season. The support goes to the program (the season, travel, equipment), never to a person. Never name or describe any student athlete, coach or staff member. Never use the words NIL, endorsement or influencer.`;
+  return `${facts(ctx)}
+
+${what}
+- 60 to 130 words. Plain sentences, no bullet points, no headings.
+${common}
 ${retryBecause ? `\nYour last draft was rejected: ${retryBecause}. Fix that.\n` : ''}
 Output exactly:
 SUBJECT: <subject line>
@@ -103,6 +145,8 @@ const COINCIDENCE = /\b(theme[ds]?|mascot|namesake|pun)\b|\b(natural|perfect|fit
 
 // The rules the prompt states, checked in the text. Returns { ok } or { ok:false, why }.
 function checkAsk(parsed, ctx) {
+  const kind = kindOf(ctx);
+  if (kind !== 'ask') return checkPitch(parsed, ctx, kind);
   const body = String(parsed.body || '');
   const text = parsed.subject + '\n' + body;
   const price = money(ctx.item.price_cents);
@@ -120,9 +164,37 @@ function checkAsk(parsed, ctx) {
   return { ok: true };
 }
 
+function checkPitch(parsed, ctx, kind) {
+  const body = String(parsed.body || '');
+  const text = parsed.subject + '\n' + body;
+  if (/\$\s?\d/.test(body)) return { ok: false, why: 'it names a price; this message has none' };
+  if (kind === 'pitch' && /\bNIL\b|\bendorse(ment|s)?\b|\binfluencer/i.test(text)) return { ok: false, why: 'it uses NIL, endorsement or influencer language' };
+  if (kind === 'pitch' && (ROLE_THEN_NAME.test(body) || JERSEY.test(body))) return { ok: false, why: 'it names or identifies a person on the team' };
+  if (kind === 'athlete') {
+    const allowed = String(ctx.athlete.name || '').toLowerCase();
+    const m = body.match(ROLE_THEN_NAME);
+    if (m && !m[0].toLowerCase().includes(allowed.split(' ').pop())) return { ok: false, why: `it names someone other than ${ctx.athlete.name}` };
+    if (!body.includes(String(ctx.athlete.name).split(' ')[0])) return { ok: false, why: `it does not name ${ctx.athlete.name}` };
+  }
+  if (/^\s*(hi|hello|dear|hey)\b/i.test(body)) return { ok: false, why: 'it includes a greeting; the greeting is added separately' };
+  const co = text.match(COINCIDENCE);
+  if (co) return { ok: false, why: `it argues from a coincidence ("${co[0]}"); give a true reason or just say they are nearby` };
+  const words = body.split(/\s+/).filter(Boolean).length;
+  if (words > MAX_WORDS) return { ok: false, why: `it is ${words} words; keep it under 130` };
+  return { ok: true };
+}
+
+// The greeting is the contact's first name when we have a named person, and
+// the business otherwise. The sign-off is the STAFF MEMBER who sends it (name,
+// title, department, the mailbox address), or the team when there is none.
 function compose(parsed, ctx) {
-  const signOff = `${ctx.team.name}\n${ctx.university.name} Athletics`;
-  return `Hi ${ctx.business.brand_name} team,\n\n${parsed.body.trim()}\n\n${signOff}`;
+  const first = String(ctx.contactName || '').trim().split(/\s+/)[0];
+  const hello = first && /^[A-Z][a-z'-]+$/.test(first) ? `Hi ${first},` : `Hi ${ctx.business.brand_name} team,`;
+  const s = ctx.sender;
+  const signOff = s && s.name
+    ? [s.name, s.title, `${ctx.university.name} Athletics`, s.email].filter(Boolean).join('\n')
+    : `${ctx.team.name}\n${ctx.university.name} Athletics`;
+  return `${hello}\n\n${parsed.body.trim()}\n\n${signOff}`;
 }
 
 // Write one ask. `oneShot` is injectable for tests; the default is ai.oneShot
@@ -133,7 +205,7 @@ async function writeAsk(ctx, opts = {}) {
   for (let attempt = 0; attempt < 2; attempt++) {
     let raw;
     try {
-      const call = ai.oneShot(buildPrompt(ctx, lastWhy), SYSTEM, 700, MODEL, { prose: true });
+      const call = ai.oneShot(buildPrompt(ctx, lastWhy), kindOf(ctx) === 'ask' ? SYSTEM : SYSTEM_PITCH, 700, MODEL, { prose: true });
       raw = typeof ai.withDeadline === 'function'
         ? await ai.withDeadline(call, DRAFT_TIMEOUT_MS, `team ask for ${ctx.business.brand_name}`) : await call;
     } catch (e) { return { ok: false, error: 'model: ' + e.message }; }
@@ -146,4 +218,4 @@ async function writeAsk(ctx, opts = {}) {
   return { ok: false, error: 'refused after retry: ' + lastWhy };
 }
 
-module.exports = { writeAsk, buildPrompt, checkAsk, parse, compose, money, facts, MODEL, SYSTEM, COINCIDENCE };
+module.exports = { writeAsk, buildPrompt, checkAsk, parse, compose, money, facts, kindOf, MODEL, SYSTEM, SYSTEM_PITCH, COINCIDENCE };

@@ -256,7 +256,40 @@ async function recheckPool(pool, marketKey, opts = {}) {
 // ── ONE TEAM, ONE NIGHT ─────────────────────────────────────────────────────
 // Returns everything the admin script prints. `deps` injects places and the
 // writer's ai for tests; production passes nothing.
-async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true, discoverPool = true, deps = {} }) {
+// ── PITCH MODE: THE DEPARTMENT'S NIGHTLY CARD ───────────────────────────────
+// The Cypress product has no pricing packages, so a card is a pitch, not an
+// ask for an item: a business, the named human there and how to reach them,
+// the team, why, and a pitch signed by a staff member. Same loop as an ask
+// (five, or a ceiling, never a lower bar); a different pool read: only a
+// business with a reachable contact (services/campusContacts), that fits this
+// team, that no one on staff has touched (the CRM's hard rule), and that was
+// not already a card for any team in the last PITCH_REST_DAYS days.
+const PITCH_REST_DAYS = parseInt(process.env.UNIVERSITY_PITCH_REST_DAYS, 10) || 30;
+const PITCH_FIT_MIN = 10;
+async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [], limit = 10 }) {
+  const rows = (await pool.query(
+    `SELECT * FROM (
+       SELECT m.brand AS brand_name, m.place_id, m.types, m.category, m.primary_type, m.primary_type_label, m.address, m.distance_m,
+              m.rating, m.user_ratings_total, c.contact_name, c.contact_title, c.email, c.phone, c.instagram, c.athlete_history_note,
+              (SELECT (x->>'score')::int FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_score,
+              (SELECT x->>'why' FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_why
+         FROM university_market_seen m
+         JOIN university_contacts c ON c.university_id = $1 AND c.brand = m.brand AND c.reachable IS TRUE
+        WHERE m.market_key = $2 AND m.blocked_reason IS NULL
+          AND NOT EXISTS (SELECT 1 FROM university_crm r WHERE r.university_id = $1 AND r.brand = m.brand AND (r.stage <> 'not_contacted' OR r.notes IS NOT NULL))
+          AND NOT EXISTS (SELECT 1 FROM university_touches t WHERE t.university_id = $1 AND t.brand = m.brand)
+          AND NOT EXISTS (SELECT 1 FROM university_drafts d WHERE d.university_id = $1 AND d.brand_name = m.brand AND d.kind = 'pitch'
+                            AND d.created_at > NOW() - make_interval(days => $4))
+          AND NOT (lower(m.brand) = ANY($5::text[]))) z
+      WHERE COALESCE(fit_score, 0) >= ${PITCH_FIT_MIN}
+      ORDER BY fit_score DESC, distance_m ASC NULLS LAST, brand_name ASC
+      LIMIT $6`,
+    [universityId, marketKey, teamId, PITCH_REST_DAYS, exclude.map((x) => String(x).toLowerCase()), limit])).rows;
+  return { picks: rows };
+}
+
+async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true, discoverPool = true, mode = 'ask', deps = {} }) {
+  const pitchMode = mode === 'pitch';
   const university = (await pool.query(`SELECT id, name, short_name, location FROM universities WHERE id = $1`, [universityId])).rows[0];
   if (!university) return { ok: false, error: `No university with id "${universityId}".` };
   const team = (await pool.query(
@@ -280,17 +313,66 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   if (marketKey) out.poolRecheck = await recheckPool(pool, marketKey);
 
   const subject = Scout.teamSubject({ team, university, marketKey });
-  const slate = await Scout.assembleSlate(pool, { subject, limit });
+  const nextSlate = (exclude, n) => (pitchMode
+    ? pitchSlate(pool, { universityId, teamId, marketKey, exclude, limit: n })
+    : Scout.assembleSlate(pool, { subject, limit: n, exclude }));
+  const slate = pitchMode ? await nextSlate([], limit * 2) : await Scout.assembleSlate(pool, { subject, limit });
+  const sender = pitchMode ? (deps.sender || await require('./campusMarket').defaultSender(pool, universityId)) : null;
   out.slate = { emptyReason: slate.emptyReason, emptyText: slate.emptyText, lanes: slate.lanes, shape: slate.shape };
 
   const used = new Set();
   const night = new Date().toISOString().slice(0, 10);
   let noItem = false;
+  // PITCH MODE: one business, a pitch written to its named human (true), or
+  // the reason it was not (false).
+  const writePitch = async (c, pick, brandKey) => {
+    if (!write) return true;
+    const claim = await pool.query(
+      `INSERT INTO university_research_claims (team_id, brand_key, night) VALUES ($1,$2,$3)
+       ON CONFLICT DO NOTHING RETURNING 1`, [team.id, brandKey, night]);
+    if (!claim.rowCount) { out.skipped.push({ brand: c.brand_name, why: 'already researched for this team tonight' }); return false; }
+    // One card per business per night across the department's teams.
+    const other = (await pool.query(`SELECT 1 FROM university_drafts WHERE university_id = $1 AND brand_name = $2 AND kind = 'pitch' AND night = $3`,
+      [university.id, c.brand_name, night])).rowCount;
+    if (other) { out.skipped.push({ brand: c.brand_name, why: 'already a card for another team tonight' }); return false; }
+    asks++;
+    const w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender }, { ai: deps.ai });
+    if (!w.ok) {
+      await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
+      const fault = /^model:/.test(String(w.error || ''));
+      if (fault) require('./ourFault').record('anthropic', 'team pitch: ' + w.error, 'teamScan ' + team.id);
+      out.skipped.push({ brand: c.brand_name, why: w.error, fault });
+      return false;
+    }
+    {
+      const PH = require('./placeholders');
+      const r = PH.dropLines(w.body);
+      if (r.dropped.length) w.body = r.text;
+      if (PH.has(w.subject)) w.subject = String(w.subject).replace(/\s*(\[[^\]]*\]|\{\{?[^}]*\}\}?)\s*/g, ' ').trim();
+    }
+    await pool.query(
+      `INSERT INTO university_brand_engagement (university_id, team_id, brand_key, brand_name, place_id, lane, state, first_shown_at, last_shown_at)
+       VALUES ($1,$2,$3,$4,$5,'local','shown',NOW(),NOW())
+       ON CONFLICT (team_id, brand_key) DO UPDATE SET last_shown_at = NOW(), updated_at = NOW()`,
+      [university.id, team.id, brandKey, c.brand_name, c.place_id || null]);
+    const id = 'udraft_' + crypto.randomBytes(8).toString('hex');
+    await pool.query(
+      `INSERT INTO university_drafts (id, university_id, team_id, brand_key, brand_name, place_id, subject, body, model, status, kind, why,
+          contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, night)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval','pitch',$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      [id, university.id, team.id, brandKey, c.brand_name, c.place_id || null, w.subject, w.body, w.model, c.fit_why || null,
+        c.contact_name || null, c.contact_title || null, c.email || null, c.phone || null, c.instagram || null,
+        sender ? String(sender.userId) : null, sender ? sender.email : null, night]);
+    out.drafts.push({ id, brand: c.brand_name, contact: c.contact_name, email: c.email || null, phone: c.phone || null, instagram: c.instagram || null,
+      why: c.fit_why || null, subject: w.subject, body: w.body, status: 'awaiting_approval', retried: w.retried });
+    return true;
+  };
+
   // One business: an ask written (true), or the reason it was not (false).
   const handle = async (c) => {
     const identity = BI.identitiesOf(c, { market: marketKey })[0];
     const brandKey = c.place_id ? 'place:' + c.place_id : (identity ? identity.key : Scout.normBrand(c.brand_name));
-    const item = pickItem(c.category || c.businessCategory, items, used);
+    const item = pitchMode ? null : pickItem(c.category || c.businessCategory, items, used);
     // THE LAST CHECK, at the ask. The slate never reads a blocked row, so this
     // should never fire; if it does, the ask is not written and it says so.
     const lateBlock = blockedFor({ name: c.brand_name, types: c.types || [], primary_type: c.primary_type, primary_type_label: c.primary_type_label });
@@ -302,8 +384,10 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     const pick = { brand_name: c.brand_name, brandKey, category: c.category || c.businessCategory,
       kindLabel: c.primary_type_label || null, address: c.address,
       distance_m: c.distance_m, rating: c.rating, user_ratings_total: c.user_ratings_total,
-      fit: Number(c.fitHint) || null, fitReasons: c.fit_reasons || [], slateFit: c.fit, item };
+      fit: Number(c.fitHint) || (pitchMode ? Number(c.fit_score) || null : null), fitReasons: c.fit_reasons || (pitchMode && c.fit_why ? [c.fit_why] : []),
+      slateFit: c.fit, item, evidence: c.athlete_history_note || null };
     out.picks.push(pick);
+    if (pitchMode) return writePitch(c, pick, brandKey);
     if (!item) { out.skipped.push({ brand: c.brand_name, why: 'the team has no available inventory item to ask for' }); noItem = true; return false; }
     used.add(item.id);
     if (!write) return true;
@@ -381,8 +465,9 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   // The ceiling counts the writer calls. A Places build is the campus
   // market's, not this team's night, and is reported separately (placesCalls),
   // as a market refresh is for agents.
-  const cost = () => asks * Qs.USD_PER_AI_CALL;
-  const have = () => (write ? out.drafts.length : out.picks.filter((p) => p.item).length);
+  const cost = () => asks * Qs.USD_PER_AI_CALL + resolveUsd;
+  const have = () => (write ? out.drafts.length : out.picks.filter((p) => p.item || pitchMode).length);
+  let resolveUsd = 0, resolvedRung = false;
   let picks = slate.picks;
   for (;;) {
     for (const c of picks) {
@@ -395,12 +480,23 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       triedNames.add(String(c.brand_name || '').trim().toLowerCase());
       await handle(c);
       if (have() >= limit && toFloor === null) toFloor = candidates;
-      if (noItem && items.every((it) => used.has(it.id))) { stop = 'inventory'; break; }
+      if (!pitchMode && noItem && items.every((it) => used.has(it.id))) { stop = 'inventory'; break; }
     }
     if (stop || have() >= limit) break;
-    const next = await Scout.assembleSlate(pool, { subject, limit: limit * 2, exclude: [...triedNames] });
+    const next = await nextSlate([...triedNames], limit * 2);
     picks = (next.picks || []).filter((c) => !triedKeys.has(Scout.normBrand(c.brand_name)));
     if (picks.length) continue;
+    // PITCH MODE: businesses already in the pool whose contacts are not yet
+    // worked are the next rung, before the pool is widened.
+    if (pitchMode && !resolvedRung && deps.resolveContacts !== false) {
+      resolvedRung = true;
+      rungs.push('contacts');
+      const CC = require('./campusContacts');
+      const r = await CC.run(pool, universityId, { ai: deps.contactsAi, limit: parseInt(process.env.UNIVERSITY_NIGHT_RESOLVE, 10) || 60, history: false })
+        .catch((e) => ({ ok: false, error: e.message }));
+      resolveUsd += Number(r && r.costUsd) || 0;
+      continue;
+    }
     const nextRing = MP.RADII[ringIdx + 1];
     if (discoverPool && nextRing && university.location) {
       ringIdx++;
@@ -409,6 +505,7 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       placesCalls += d.placesCalls || 0;
       if (!d.ok) require('./ourFault').record('google-places', `team pool widen to ${nextRing} m failed: ${d.reason}`, 'teamScan ' + team.id);
       if (marketKey) await recheckPool(pool, marketKey);
+      if (pitchMode) resolvedRung = false;   // the new ring's businesses need contacts
       picks = [];
       continue;
     }
@@ -418,11 +515,11 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   out.loop = { stop: stop || (held >= limit ? 'floor' : null), candidates, candidatesToFloor: toFloor, rungs,
     held, floor: limit, elapsedMs: Date.now() - t0, costUsd: Math.round(cost() * 1000) / 1000, placesCalls };
   if (held < limit && write) {
-    require('./ourFault').record('nightly-floor', `${university.name} ${team.name}: ${held} of ${limit} asks after ${candidates} candidate(s); `
+    require('./ourFault').record('nightly-floor', `${university.name} ${team.name}: ${held} of ${limit} ${pitchMode ? 'cards' : 'asks'} after ${candidates} candidate(s); `
       + `stopped by ${out.loop.stop}; rungs tried: ${rungs.join(', ')}`, 'teamScan ' + team.id).catch(() => {});
   }
   return out;
 }
 
-module.exports = { runTeamScan, discover, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
+module.exports = { runTeamScan, pitchSlate, PITCH_REST_DAYS, discover, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
   BLOCKED_KEYS, PAYDAY_MARKERS, CATEGORY_FIT, MIGRATION };

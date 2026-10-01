@@ -177,6 +177,11 @@
       "total": 21,
       "fault": null
     },
+    "campuscrm.js": {
+      "failed": 0,
+      "total": 54,
+      "fault": null
+    },
     "campusmarket.js": {
       "failed": 0,
       "total": 22,
