@@ -200,6 +200,43 @@ async function seedRows(pool, u) {
   return rows.length;
 }
 
+// ONE BUSINESS: the full ladder, stored on its university_contacts row (made
+// if missing). Used by the bulk run and by the team night, which resolves only
+// the businesses it has already picked as worth pitching.
+// -> { reachable, costUsd, error, out }
+async function resolveAndStore(pool, universityId, row, opts = {}) {
+  const scanMeter = require('../scanMeter');
+  const Q = require('./outreachQueue');
+  // The row exists for a business the bulk run seeded; the team night may
+  // pick one that was never seeded, and makes its row here.
+  if (opts.marketKey) {
+    await pool.query(`INSERT INTO university_contacts (university_id, market_key, brand, place_id, team_fit)
+                      VALUES ($1,$2,$3,$4,COALESCE($5::jsonb,'[]'::jsonb)) ON CONFLICT (university_id, brand) DO NOTHING`,
+      [universityId, opts.marketKey, row.brand, row.place_id || null, opts.teamFit ? JSON.stringify(opts.teamFit) : null]);
+  }
+  let out, meter;
+  try {
+    ({ result: out, meter } = await scanMeter.run(() => scanMeter.label({ site: 'campus.contacts', brand: row.brand },
+      () => resolveOne(row, { city: opts.city, ai: opts.ai, history: opts.history }))));
+  } catch (e) { out = { error: e.message, fault: true }; meter = null; }
+  const c = meter ? Q.priceOf(meter) : 0;
+  if (out.error) {
+    await pool.query(`UPDATE university_contacts SET status = 'error', last_error = $3, attempts = attempts + 1, cost_usd = cost_usd + $4, updated_at = NOW()
+                       WHERE university_id = $1 AND brand = $2`, [universityId, row.brand, String(out.error).slice(0, 400), c]);
+    require('./ourFault').record('campus-contacts', `${row.brand}: ${out.error}`, 'campusContacts ' + universityId).catch(() => {});
+    return { reachable: false, costUsd: c, error: out.error, out };
+  }
+  await pool.query(
+    `UPDATE university_contacts SET contact_name = $3, contact_title = $4, email = $5, email_source = $6, phone = $7, instagram = $8,
+       website = $9, facebook = $10, linkedin = $11, sources = $12::jsonb, athlete_history = $13, athlete_history_note = $14,
+       reachable = $15, status = $16, last_error = NULL, attempts = attempts + 1, cost_usd = cost_usd + $17, resolved_at = NOW(), updated_at = NOW()
+     WHERE university_id = $1 AND brand = $2`,
+    [universityId, row.brand, out.contact_name, out.contact_title, out.email, out.email_source, out.phone, out.instagram, out.website,
+      out.facebook, out.linkedin, JSON.stringify(out.sources || []), out.athlete_history, out.athlete_history_note, out.reachable,
+      out.reachable ? 'reachable' : 'unreachable', c]);
+  return { reachable: !!out.reachable, costUsd: c, error: null, out };
+}
+
 async function run(pool, universityId, opts = {}) {
   if (_running.has(universityId)) return { ok: false, error: 'already running', running: true };
   const p = (async () => {
@@ -226,29 +263,9 @@ async function run(pool, universityId, opts = {}) {
         // on boot). Lookups already in flight (up to `concurrency`) complete.
         if (budgetUsd && cost >= budgetUsd) { stoppedFor = 'budget'; break; }
         const row = todo[i++];
-        let out, meter;
-        try {
-          ({ result: out, meter } = await scanMeter.run(() => scanMeter.label({ site: 'campus.contacts', brand: row.brand },
-            () => resolveOne(row, { city, ai: opts.ai, history: opts.history }))));
-        } catch (e) { out = { error: e.message, fault: true }; meter = null; }
-        const c = meter ? Q.priceOf(meter) : 0;
-        cost += c;
-        if (out.error) {
-          errors++;
-          await pool.query(`UPDATE university_contacts SET status = 'error', last_error = $3, attempts = attempts + 1, cost_usd = cost_usd + $4, updated_at = NOW()
-                             WHERE university_id = $1 AND brand = $2`, [universityId, row.brand, String(out.error).slice(0, 400), c]);
-          require('./ourFault').record('campus-contacts', `${row.brand}: ${out.error}`, 'campusContacts ' + universityId).catch(() => {});
-        } else {
-          if (out.reachable) reachable++;
-          await pool.query(
-            `UPDATE university_contacts SET contact_name = $3, contact_title = $4, email = $5, email_source = $6, phone = $7, instagram = $8,
-               website = $9, facebook = $10, linkedin = $11, sources = $12::jsonb, athlete_history = $13, athlete_history_note = $14,
-               reachable = $15, status = $16, last_error = NULL, attempts = attempts + 1, cost_usd = cost_usd + $17, resolved_at = NOW(), updated_at = NOW()
-             WHERE university_id = $1 AND brand = $2`,
-            [universityId, row.brand, out.contact_name, out.contact_title, out.email, out.email_source, out.phone, out.instagram, out.website,
-              out.facebook, out.linkedin, JSON.stringify(out.sources || []), out.athlete_history, out.athlete_history_note, out.reachable,
-              out.reachable ? 'reachable' : 'unreachable', c]);
-        }
+        const r = await resolveAndStore(pool, universityId, row, { city, ai: opts.ai, history: opts.history, marketKey: u.marketKey });
+        cost += r.costUsd;
+        if (r.error) errors++; else if (r.reachable) reachable++;
         done++;
         if (done % 5 === 0) {
           console.log(`[campus-contacts] ${u.name}: ${done}/${todo.length} resolved, ${reachable} reachable, ${errors} errors, $${cost.toFixed(2)}`);
@@ -319,4 +336,4 @@ function formatReport(r) {
   ].filter(Boolean).join('\n');
 }
 
-module.exports = { estimate, perBusinessUsd, PER_BIZ, run, report, formatReport, resolveOne, teamFit, pickPerson, seedRows, isRunning, MAX_ATTEMPTS };
+module.exports = { resolveAndStore, estimate, perBusinessUsd, PER_BIZ, run, report, formatReport, resolveOne, teamFit, pickPerson, seedRows, isRunning, MAX_ATTEMPTS };

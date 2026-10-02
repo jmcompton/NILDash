@@ -266,26 +266,48 @@ async function recheckPool(pool, marketKey, opts = {}) {
 // not already a card for any team in the last PITCH_REST_DAYS days.
 const PITCH_REST_DAYS = parseInt(process.env.UNIVERSITY_PITCH_REST_DAYS, 10) || 30;
 const PITCH_FIT_MIN = 10;
+// BUSINESSES FIRST, CONTACTS SECOND. The team night used to read only
+// businesses whose contact was already resolved, and when there were none it
+// resolved contacts in alphabetical order until the budget was gone: Cypress
+// spent $1.96 and considered zero businesses. Now every usable business is a
+// candidate, ranked by its fit for this team (computed from the business when
+// no contact row holds it yet); a resolved-unreachable one is out; and the
+// contact is resolved only for the business picked, one at a time
+// (writePitch), so the money goes on the businesses worth pitching.
 async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [], limit = 10 }) {
+  const team = (await pool.query(`SELECT id, name, sport FROM university_teams WHERE id = $1`, [teamId])).rows[0];
   const rows = (await pool.query(
     `SELECT * FROM (
        SELECT m.brand AS brand_name, m.place_id, m.types, m.category, m.primary_type, m.primary_type_label, m.address, m.distance_m,
               m.rating, m.user_ratings_total, c.contact_name, c.contact_title, c.email, c.phone, c.instagram, c.athlete_history_note,
+              COALESCE(c.reachable, FALSE) AS reachable, COALESCE(c.status, 'pending') AS contact_status, c.attempts,
               (SELECT (x->>'score')::int FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_score,
               (SELECT x->>'why' FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_why
          FROM university_market_seen m
-         JOIN university_contacts c ON c.university_id = $1 AND c.brand = m.brand AND c.reachable IS TRUE
+         LEFT JOIN university_contacts c ON c.university_id = $1 AND c.brand = m.brand
         WHERE m.market_key = $2 AND m.blocked_reason IS NULL
+          AND COALESCE(c.status, 'pending') <> 'unreachable'
+          AND NOT (COALESCE(c.status, '') = 'error' AND COALESCE(c.attempts, 0) >= 3)
           AND NOT EXISTS (SELECT 1 FROM university_crm r WHERE r.university_id = $1 AND r.brand = m.brand AND (r.stage <> 'not_contacted' OR r.notes IS NOT NULL))
           AND NOT EXISTS (SELECT 1 FROM university_touches t WHERE t.university_id = $1 AND t.brand = m.brand)
           AND NOT EXISTS (SELECT 1 FROM university_drafts d WHERE d.university_id = $1 AND d.brand_name = m.brand AND d.kind = 'pitch'
                             AND d.created_at > NOW() - make_interval(days => $4))
-          AND NOT (lower(m.brand) = ANY($5::text[]))) z
-      WHERE COALESCE(fit_score, 0) >= ${PITCH_FIT_MIN}
-      ORDER BY fit_score DESC, distance_m ASC NULLS LAST, brand_name ASC
-      LIMIT $6`,
-    [universityId, marketKey, teamId, PITCH_REST_DAYS, exclude.map((x) => String(x).toLowerCase()), limit])).rows;
-  return { picks: rows };
+          AND NOT (lower(m.brand) = ANY($5::text[]))) z`,
+    [universityId, marketKey, teamId, PITCH_REST_DAYS, exclude.map((x) => String(x).toLowerCase())])).rows;
+  const CC = require('./campusContacts');
+  for (const r of rows) {
+    if (r.fit_score === null || r.fit_score === undefined) {
+      const f = team ? CC.teamFit({ brand: r.brand_name, category: r.category, types: r.types || [], primary_type_label: r.primary_type_label,
+        distance_m: r.distance_m }, [team])[0] : null;
+      r.fit_score = f ? f.score : 0; r.fit_why = f ? f.why : null; r.team_fit_row = f;
+    }
+  }
+  const picks = rows.filter((r) => Number(r.fit_score) >= PITCH_FIT_MIN)
+    // Best fit first; at equal fit a business already known reachable, then the nearest.
+    .sort((a, b) => (b.fit_score - a.fit_score) || ((b.reachable ? 1 : 0) - (a.reachable ? 1 : 0))
+      || ((a.distance_m == null ? 1e12 : a.distance_m) - (b.distance_m == null ? 1e12 : b.distance_m)) || String(a.brand_name).localeCompare(String(b.brand_name)))
+    .slice(0, limit);
+  return { picks };
 }
 
 async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true, discoverPool = true, mode = 'ask', deps = {} }) {
@@ -335,6 +357,27 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     const other = (await pool.query(`SELECT 1 FROM university_drafts WHERE university_id = $1 AND brand_name = $2 AND kind = 'pitch' AND night = $3`,
       [university.id, c.brand_name, night])).rowCount;
     if (other) { out.skipped.push({ brand: c.brand_name, why: 'already a card for another team tonight' }); return false; }
+    // THE CONTACT, FOR THIS BUSINESS ONLY, NOW THAT IT IS PICKED.
+    if (!c.reachable) {
+      const est = require('./campusContacts').perBusinessUsd('high', false).metered;
+      if (cost() + est + Qs.USD_PER_AI_CALL > COST_CEILING_USD + 1e-9) {
+        await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
+        out.skipped.push({ brand: c.brand_name, why: 'the cost ceiling leaves nothing to look up its contact', stage: 'owner', ceiling: true });
+        return 'cost';
+      }
+      const CP = require('./campusPool');
+      const u = await CP.universityOf(pool, university.id);
+      const r = await require('./campusContacts').resolveAndStore(pool, university.id, { brand: c.brand_name, place_id: c.place_id },
+        { city: cityOf(university.location) || university.location, ai: deps.contactsAi, history: false, marketKey: u && u.marketKey,
+          teamFit: c.team_fit_row ? [c.team_fit_row] : null });
+      resolveUsd += r.costUsd; contactsResolved++;
+      if (r.error) { out.skipped.push({ brand: c.brand_name, why: 'contact lookup failed on our side: ' + r.error, fault: true, stage: 'owner' }); return false; }
+      if (!r.reachable) { out.skipped.push({ brand: c.brand_name, why: 'no named person and no way to reach them after every source', stage: 'owner' }); return false; }
+      contactsReachable++;
+      const o = r.out;
+      Object.assign(c, { reachable: true, contact_name: o.contact_name, contact_title: o.contact_title, email: o.email, phone: o.phone,
+        instagram: o.instagram, athlete_history_note: o.athlete_history_note || c.athlete_history_note });
+    }
     asks++;
     const w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender }, { ai: deps.ai });
     if (!w.ok) {
@@ -467,7 +510,7 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   // as a market refresh is for agents.
   const cost = () => asks * Qs.USD_PER_AI_CALL + resolveUsd;
   const have = () => (write ? out.drafts.length : out.picks.filter((p) => p.item || pitchMode).length);
-  let resolveUsd = 0, resolvedRung = false;
+  let resolveUsd = 0, contactsResolved = 0, contactsReachable = 0;
   let picks = slate.picks;
   for (;;) {
     for (const c of picks) {
@@ -478,7 +521,8 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       if (triedKeys.has(k)) continue;
       triedKeys.add(k); candidates++;
       triedNames.add(String(c.brand_name || '').trim().toLowerCase());
-      await handle(c);
+      const h = await handle(c);
+      if (h === 'cost') { stop = 'cost'; break; }
       if (have() >= limit && toFloor === null) toFloor = candidates;
       if (!pitchMode && noItem && items.every((it) => used.has(it.id))) { stop = 'inventory'; break; }
     }
@@ -486,22 +530,6 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     const next = await nextSlate([...triedNames], limit * 2);
     picks = (next.picks || []).filter((c) => !triedKeys.has(Scout.normBrand(c.brand_name)));
     if (picks.length) continue;
-    // PITCH MODE: businesses already in the pool whose contacts are not yet
-    // worked are the next rung, before the pool is widened.
-    if (pitchMode && !resolvedRung && deps.resolveContacts !== false) {
-      resolvedRung = true;
-      rungs.push('contacts');
-      const CC = require('./campusContacts');
-      // Bounded by what is left of this team's cost ceiling, so the night's
-      // worst case stays teams x UNIVERSITY_TEAM_COST_CEILING_USD.
-      const left = COST_CEILING_USD - cost();
-      if (left <= 0.05) { stop = 'cost'; break; }
-      const r = await CC.run(pool, universityId, { ai: deps.contactsAi, limit: parseInt(process.env.UNIVERSITY_NIGHT_RESOLVE, 10) || 20,
-        history: false, budgetUsd: left })
-        .catch((e) => ({ ok: false, error: e.message }));
-      resolveUsd += Number(r && r.costUsd) || 0;
-      continue;
-    }
     const nextRing = MP.RADII[ringIdx + 1];
     if (discoverPool && nextRing && university.location) {
       ringIdx++;
@@ -510,7 +538,6 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       placesCalls += d.placesCalls || 0;
       if (!d.ok) require('./ourFault').record('google-places', `team pool widen to ${nextRing} m failed: ${d.reason}`, 'teamScan ' + team.id);
       if (marketKey) await recheckPool(pool, marketKey);
-      if (pitchMode) resolvedRung = false;   // the new ring's businesses need contacts
       picks = [];
       continue;
     }
@@ -518,7 +545,10 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   }
   const held = have();
   out.loop = { stop: stop || (held >= limit ? 'floor' : null), candidates, candidatesToFloor: toFloor, rungs,
-    held, floor: limit, elapsedMs: Date.now() - t0, costUsd: Math.round(cost() * 1000) / 1000, placesCalls };
+    held, floor: limit, elapsedMs: Date.now() - t0, costUsd: Math.round(cost() * 1000) / 1000, placesCalls,
+    // Pitch mode: contacts looked up for the businesses picked, and how many
+    // of those had a named, reachable person.
+    contactsResolved, contactsReachable };
   if (held < limit && write) {
     require('./ourFault').record('nightly-floor', `${university.name} ${team.name}: ${held} of ${limit} ${pitchMode ? 'cards' : 'asks'} after ${candidates} candidate(s); `
       + `stopped by ${out.loop.stop}; rungs tried: ${rungs.join(', ')}`, 'teamScan ' + team.id).catch(() => {});

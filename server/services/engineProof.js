@@ -152,17 +152,22 @@ async function runTeam(pool, teamId, opts = {}) {
                                       COUNT(*) FILTER (WHERE reachable IS TRUE)::int reachable FROM university_contacts WHERE university_id = $1`, [team.university_id])).rows[0];
   const drafts = r.drafts || [];
   const considered = (r.loop && r.loop.candidates) || 0;
+  const skipped = r.skipped || [];
+  const ownerOut = skipped.filter((x) => x.stage === 'owner' && !x.fault && !x.ceiling).length;
+  const judgeOut = skipped.filter((x) => /blocked/.test(x.why)).length;
+  const resolvedNow = (r.loop && r.loop.contactsResolved) || 0, reachableNow = (r.loop && r.loop.contactsReachable) || 0;
   return {
     ok: r.ok !== false, error: r.error || null, kind: 'team', id: team.id, name: team.name, market: team.market_key,
     placed: drafts.length, held: drafts.length, reachedFive: drafts.length >= 5,
     funnel: {
-      considered, clearedResearcher: considered, clearedJudge: considered - (r.skipped || []).filter((s) => /blocked/.test(s.why)).length,
-      // A team's candidates are drawn only from businesses whose contact is
-      // already resolved and reachable, so the owner finder's rate is the
-      // department's contact pool, not this run.
-      clearedOwner: considered, clearedWriter: drafts.length,
-      rejected: { writer: (r.skipped || []).filter((s) => !s.fault && !/blocked|already/.test(s.why)).length, ourFaults: (r.skipped || []).filter((s) => s.fault).length },
-      contactHitRate: c.resolved ? c.reachable / c.resolved : null, contactPool: { resolved: c.resolved, reachable: c.reachable, reachableBefore: before },
+      // Businesses first: the contact is looked up only for a business picked,
+      // so the hit rate is this run's lookups (reachable of resolved).
+      considered, clearedResearcher: considered, clearedJudge: considered - judgeOut, clearedOwner: considered - judgeOut - ownerOut,
+      clearedWriter: drafts.length,
+      rejected: { judge: judgeOut, ownerFinder: ownerOut, writer: skipped.filter((x) => !x.fault && !x.stage && !/blocked|already/.test(x.why)).length,
+        ourFaults: skipped.filter((x) => x.fault).length },
+      contactHitRate: resolvedNow ? reachableNow / resolvedNow : null,
+      contactPool: { resolved: c.resolved, reachable: c.reachable, reachableBefore: before, lookedUpThisRun: resolvedNow, reachableThisRun: reachableNow },
     },
     costUsd: r.loop ? r.loop.costUsd : 0, seconds: Math.round(ms / 1000), rungs: (r.loop && r.loop.rungs) || [], stop: r.loop && r.loop.stop,
     split: { local: drafts.length }, cards: drafts.map((d) => ({ business: d.brand, contact: d.contact, why: d.why, lane: 'local' })),

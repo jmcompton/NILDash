@@ -191,11 +191,43 @@ async function main() {
   ok('the run is recorded, and a restart in the window does not run it twice', await CN.ranTonight(P, A, night));
 
   // A team with nothing left that fits: short, and the alert names it.
-  await P.query(`UPDATE university_contacts SET team_fit = '[]'::jsonb WHERE university_id = $1`, [A]);
+  // Every business's contact resolved and nobody reachable: nothing left to pitch.
+  await P.query(`UPDATE university_contacts SET status = 'unreachable', reachable = FALSE WHERE university_id = $1`, [A]);
   const r2 = await CN.runNight(P, A, { ai, discoverPool: false, resolveContacts: false, night: '2026-10-06' });
   ok('short of five: the night says so, by team, with where it stopped', r2.cards === 0 && r2.short.length === 2 && r2.short.every((x) => x.stop === 'ladder' && x.rungs.includes('local')), r2.short);
   const faults = (await P.query(`SELECT reason FROM service_faults WHERE service = 'nightly-floor' AND context LIKE 'teamScan crm:%' ORDER BY at DESC LIMIT 5`).catch(() => ({ rows: [] }))).rows;
   ok('  and an ourFault nightly-floor alert names the team and the rungs', faults.some((f) => /Crm Test College Women's Basketball: 0 of 5 cards/.test(f.reason) && /rungs tried: local/.test(f.reason)), faults);
+  // Put the contacts back for the sections that follow.
+  await P.query(`UPDATE university_contacts SET status = 'reachable', reachable = TRUE WHERE university_id = $1 AND contact_name IS NOT NULL`, [A]);
+
+  // ── 4b. BUSINESSES FIRST, CONTACTS ONLY FOR THE ONES PICKED ─────────────
+  OUT.push('', '-- businesses first, contacts second --');
+  // Other College: 10 gyms (the better fit for basketball) and 10 restaurants,
+  // and not one contact resolved. Even-numbered gyms have a reachable owner.
+  for (let i = 0; i < 10; i++) {
+    await P.query(`INSERT INTO university_market_seen (market_key, brand, place_id, category, types, distance_m) VALUES ($1,$2,$3,'gym','["gym"]',$4),
+                   ($1,$5,$6,'restaurant','["restaurant"]',$4)`, [MKB, `Ob Gym ${i}`, 'obg-' + i, 1000 + i * 100, `Ob Cafe ${i}`, 'obc-' + i]);
+  }
+  const looked = [];
+  const contactsAi = {
+    deepContactCtx: (o) => ({ ...o }),
+    getBrandContacts: async (brand) => {
+      looked.push(brand);
+      const n = Number(String(brand).split(' ').pop());
+      return /Gym/.test(brand) && n % 2 === 0
+        ? { contacts: [{ name: 'Ruth Gale', title: 'Owner', email: `ruth${n}@gym.test`, source: 'site' }], businessPhone: '(714) 555-0110', addressLadder: {} }
+        : { contacts: [], businessPhone: null, instagram: null, addressLadder: {} };
+    },
+    webSearchJson: async () => ({ text: '{"name": null}', citations: [] }),
+  };
+  const ob = await TS.runTeamScan(P, { universityId: B, teamId: 'crmb:wbb', mode: 'pitch', discoverPool: false, deps: { ai, contactsAi } });
+  const obCards = ob.drafts || [];
+  ok('a team with no contacts resolved reaches five', obCards.length === 5, { cards: obCards.length, loop: ob.loop, skipped: ob.skipped });
+  ok('  contacts were looked up only for the businesses it picked, best fit first: gyms, never a restaurant', looked.length > 0 && !looked.some((b) => /Cafe/.test(b)), looked);
+  ok('  and only as many as it took: one at a time until five were held', ob.loop.contactsResolved === looked.length && ob.loop.contactsResolved <= 10
+    && ob.loop.contactsReachable === 5, ob.loop);
+  ok('  every card is a reachable gym with its owner', obCards.every((c) => /Gym/.test(c.brand) && c.contact === 'Ruth Gale'), obCards.map((c) => c.brand));
+  await P.query(`DELETE FROM university_market_seen WHERE market_key = $1 AND (brand LIKE 'Ob Gym%' OR brand LIKE 'Ob Cafe%')`, [MKB]);
 
   // ── 5. THE WRITER'S THREE KINDS ───────────────────────────────────────────
   OUT.push('', '-- the writer --');
