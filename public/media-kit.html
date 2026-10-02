@@ -383,14 +383,6 @@ function adjustColor(hex, amount){
   }catch(e){ return hex; }
 }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-// An agency or agent name typed in lowercase ("jordan smith sports") reads as
-// a typo on a page a business sees: title cased. A name with any capital
-// letter is left exactly as the agency wrote it ("NILDash", "McKay & Co").
-function titleCase(s){
-  var v = String(s||'').trim();
-  if (!v || /[A-Z]/.test(v)) return v;
-  return v.replace(/(^|[\s\-\/&(])([a-z])/g, function(m, p, c){ return p + c.toUpperCase(); });
-}
 // "3" -> "3% engagement"; "4.2%" stays a percent.
 function engagementLabel(v){
   var s = String(v == null ? '' : v).trim();
@@ -403,7 +395,7 @@ function engagementLabel(v){
 function renderAgency(a){
   a = a || {};
   var nameEl = document.getElementById('mk-agency-name');
-  if (nameEl) nameEl.textContent = titleCase(a.name);
+  if (nameEl) nameEl.textContent = (a.name || '');
   var logo = document.getElementById('mk-agency-logo');
   if (logo && a.logo && /^data:image\/(png|jpeg|webp);base64,/.test(a.logo)) {
     logo.src = a.logo; logo.style.display = '';
@@ -414,10 +406,10 @@ function renderAgency(a){
   var hasLogo = a.logo && /^data:image\/(png|jpeg|webp);base64,/.test(a.logo);
   if (lh && (hasLogo || (a.hasBrand && a.name))) {
     var lhImg = document.getElementById('mk-lh-logo');
-    if (hasLogo) { lhImg.src = a.logo; lhImg.alt = titleCase(a.name); } else { lhImg.style.display = 'none'; }
+    if (hasLogo) { lhImg.src = a.logo; lhImg.alt = (a.name || ''); } else { lhImg.style.display = 'none'; }
     // With a logo the name sits small beside it; without one the name IS the mark.
     var lhName = document.getElementById('mk-lh-name');
-    lhName.textContent = titleCase(a.name);
+    lhName.textContent = (a.name || '');
     if (!hasLogo) { lhName.style.fontSize = '22px'; lhName.style.textAlign = 'left'; lhName.style.letterSpacing = '0'; }
     lh.style.display = '';
   }
@@ -425,7 +417,7 @@ function renderAgency(a){
   var cbtn = document.getElementById('mk-contact-btn');
   if (cbtn && a.hasBrand && a.name) {
     var svg = cbtn.querySelector('svg');
-    cbtn.textContent = 'Contact ' + titleCase(a.name) + ' ';
+    cbtn.textContent = 'Contact ' + (a.name || '') + ' ';
     if (svg) cbtn.appendChild(svg);
   }
   // The footer: a counted link (/go/kit-footer), or none when the account's
@@ -443,8 +435,8 @@ function renderAgency(a){
   var foot = document.getElementById('mk-agency-foot');
   if (foot) {
     var bits = [];
-    if (a.name) bits.push('<b>' + esc(titleCase(a.name)) + '</b>');
-    if (a.contactName && a.contactName !== a.name) bits.push(esc(titleCase(a.contactName)));
+    if (a.name) bits.push('<b>' + esc((a.name || '')) + '</b>');
+    if (a.contactName && a.contactName !== a.name) bits.push(esc(a.contactName));
     if (a.contactEmail) bits.push('<a href="mailto:' + esc(a.contactEmail) + '">' + esc(a.contactEmail) + '</a>');
     if (a.contactPhone) bits.push(esc(a.contactPhone));
     if (a.contactLine) bits.push(esc(a.contactLine));

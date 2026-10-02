@@ -298,6 +298,37 @@ async function main() {
   ok('  and with only two candidates, both refused alike and zero cards, it fires too', rf2.r.filled === 0 && alarm2 && /\(2\)/.test(alarm2.reason), { tried: (rf2.r.tried || []).map((t) => t.result), alarm2 });
   await P.query(`DELETE FROM market_business_seen WHERE brand LIKE 'EN Refuse%'`);
 
+  // ── 9b. THE PRODUCTION CASES (position-audit, section 1) ────────────────
+  // The stored positions the audit found refused, against the full name a
+  // writer uses. Each must pass both directions: the stored abbreviation
+  // against the word, and the word stored against the abbreviation.
+  const PROD = [
+    ['Messiah Mickens', 'RB', 'Football', 'running back'], ['Legend Lyons', 'RB', 'Football', 'running back'],
+    ['Jamal Hailey', 'RB', 'Football', 'running back'], ['Brayden Latham', 'RB', 'Football', 'running back'],
+    ['Xavier Ford', 'RB', 'Football', 'running back'],
+    ['A Receiver', 'WR', 'Football', 'wide receiver'], ['A Corner', 'CB', 'Football', 'cornerback'],
+    ['A Safety', 'DB', 'Football', 'defensive back'], ['A First Baseman', '1B', 'Baseball', 'first baseman'],
+    ['A Righty', 'RHP', 'Baseball', 'right-handed pitcher'], ['A Righty Two', 'RHP', 'Baseball', 'pitcher'],
+    ['A Linebacker', 'linebacker', 'Football', 'linebacker'], ['A Guard', 'Guard', 'Basketball', 'guard'],
+    ['Amber Bretton', 'Pitcher', 'Softball', 'pitcher'], ['A Tackle', 'Offensive Line (Left Tackle)', 'Football', 'left tackle'],
+    ['A Lineman', 'Offensive Line (Left Tackle)', 'Football', 'offensive lineman'], ['An OL', 'OL', 'Football', 'offensive lineman'],
+    ['An Edge', 'EDGE', 'Football', 'edge rusher'], ["J'Kai'a Graves", 'Infielder / Shortstop', 'Softball', 'shortstop'],
+  ];
+  const prodFails = [];
+  for (const [who, stored, sport, word] of PROD) {
+    const first = who.split(' ')[0];
+    const fwd = realPW.verifyAthleteFacts(`${first}, a ${word} at the school, would love to work with you this season.`, { name: who, position: stored, sport }).problems;
+    if (fwd.length) prodFails.push([who, stored, word, fwd[0]]);
+  }
+  ok(`every production case passes: ${PROD.length} stored positions against the word the writer used`, prodFails.length === 0, prodFails);
+  const BACK = [['running back', 'RB'], ['cornerback', 'CB'], ['first baseman', '1B'], ['right-handed pitcher', 'RHP'], ['defensive back', 'DB'],
+    ['wide receiver', 'WR'], ['offensive lineman', 'OL'], ['edge rusher', 'EDGE']];
+  const backFails = BACK.filter(([stored, word]) => realPW.verifyAthleteFacts(`Sam, a ${word} at the school, would love to work with you.`,
+    { name: 'Sam Lee', position: stored, sport: /baseman|pitcher/.test(stored) ? 'Baseball' : 'Football' }).problems.length);
+  ok('  and the other direction: a stored full name against the abbreviation', backFails.length === 0, backFails);
+  ok('  a claim MORE specific than the record is still refused: "point guard" for a stored "Guard"',
+    realPW.verifyAthleteFacts('Sam, a point guard at the school, would love to work with you.', { name: 'Sam Lee', position: 'Guard', sport: 'Basketball' }).problems.length === 1);
+
   // ── 10. THE POSITION AUDIT ───────────────────────────────────────────────
   OUT.push('', '-- position-audit --');
   const PA = require(REPO + 'scripts/position-audit.js');
@@ -310,6 +341,9 @@ async function main() {
     JSON.stringify([{ athleteId: 'en-pa', athleteName: 'En Audit', tried: [
       { brand: 'D', result: 'no_angle', reason: 'could not write it in voice: says "shortstop" but the stored position is "Infielder / Shortstop"' }] }])]);
   const ms = (await PA.measured(P)).find((a) => a.athleteId === 'en-pa');
+  const pair = ms && [...ms.pairs.values()][0];
+  ok('section 1 prints the real strings: the word the writer used and what was stored, with counts and dates',
+    pair && pair.said === 'shortstop' && pair.stored === 'Infielder / Shortstop' && pair.refused === 3 && pair.rewritten === 1 && pair.first === '2026-09-20' && pair.last === '2026-09-21', pair);
   ok('section 1 counts every business refused for the position, by athlete, with nights and the stored position',
     ms && ms.refused === 3 && ms.retried === 1 && ms.nights.size === 2 && ms.stored === 'Infielder / Shortstop', ms && { ...ms, nights: [...ms.nights] });
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('en-pa', $1, '{"name":"En Audit","sport":"Softball","position":"Infielder / Shortstop"}'::jsonb),

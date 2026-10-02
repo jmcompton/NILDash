@@ -14,8 +14,8 @@ const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 // ── THE MEDIA KIT: THE AGENCY'S LETTERHEAD, THE ATHLETE'S PHOTO, A COUNTED FOOTER
 // A real server, real pages, real database. An account that never set a brand
 // renders the kit exactly as before (checked against the committed page); a
-// branded one carries its logo as letterhead, its name title cased, a
-// readable accent and the inquiry button; one account's brand never reaches
+// branded one carries its logo as letterhead, its name exactly as typed, a
+// readable accent and the inquiry button, its name exactly as typed; one account's brand never reaches
 // another's kit; a footer click is logged once; the photo falls back cleanly;
 // Total Reach shows only when it adds two platforms up.
 const fs = require('fs');
@@ -147,10 +147,10 @@ async function main() {
       OUT.push('', '-- a branded account --');
       const a = await render('kb-a');
       ok('the logo is the letterhead: the primary mark at the top, letterhead size, not a badge', a.letterhead && a.lhLogoVisible && a.lhLogo === PNG && a.lhLogoHeight >= 40, { lh: a.letterhead, h: a.lhLogoHeight });
-      ok('  the agency name, title cased ("apex sports group" -> "Apex Sports Group")', a.lhName === 'Apex Sports Group' && /Apex Sports Group/.test(a.text) && !/apex sports group/.test(a.text), a.lhName);
+      ok('  the agency name exactly as the agent typed it ("apex sports group"), never rewritten', a.lhName === 'apex sports group' && !/Apex Sports Group/.test(a.text), a.lhName);
       ok('  the accent is the agency\'s, clamped readable (#FFFF00 -> ' + AB.clampAccent('#FFFF00') + ')', a.accent === AB.clampAccent('#FFFF00'), a.accent);
       ok('  "Powered by NILDash" stays in the footer, a counted link', /Powered by NILDash/.test(a.powered) && a.footerHref === '/go/kit-footer/kb-a', a.footerHref);
-      ok('  the inquiry button names the agency', /Contact Apex Sports Group/.test(a.contact), a.contact);
+      ok('  the inquiry button names the agency, as typed', /Contact apex sports group/.test(a.contact), a.contact);
       ok('the headshot is the hero\'s main visual, not a small circle', /url\("?data:image/.test(a.heroBg) && !a.avatar && !a.mono, { bg: a.heroBg.slice(0, 40), avatar: a.avatar });
       ok('engagement reads "3% engagement", not "3 engagement"', /3% engagement/.test(a.text) && !/\b3 engagement/.test(a.text), a.text.match(/.{0,10}engagement.{0,10}/));
       ok('one platform: Total Reach is hidden; two: it shows', !a.reach && bNew.reach);

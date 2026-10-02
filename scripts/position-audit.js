@@ -49,7 +49,7 @@ async function measured(P) {
   const by = new Map();
   for (const r of rows) {
     const k = r.athlete_id || r.athlete;
-    const a = by.get(k) || { athlete: r.athlete, athleteId: r.athlete_id, agentId: r.agent_id, refused: 0, retried: 0, nights: new Set(), first: null, last: null, stored: null };
+    const a = by.get(k) || { athlete: r.athlete, athleteId: r.athlete_id, agentId: r.agent_id, refused: 0, retried: 0, nights: new Set(), first: null, last: null, stored: null, pairs: new Map() };
     const refused = r.result !== 'queued' && String(r.reason || '').includes(REFUSAL);
     if (refused) a.refused++; else a.retried++;
     const day = r.run_date instanceof Date ? r.run_date.toISOString().slice(0, 10) : String(r.run_date).slice(0, 10);
@@ -58,6 +58,18 @@ async function measured(P) {
     a.last = !a.last || day > a.last ? day : a.last;
     const m = String(r.reason || r.first_problems || '').match(/stored position is \\?"([^"\\]*)\\?"/);
     if (m && !a.stored) a.stored = m[1];
+    // THE REAL STRINGS: every "says X but the stored position is Y" in the
+    // refusal, with how often and when.
+    const re = /says \\?"([^"\\]*)\\?" but the stored position is \\?"([^"\\]*)\\?"/g;
+    let pm;
+    while ((pm = re.exec(String(r.reason || '') + ' ' + String(r.first_problems || '')))) {
+      const key = pm[1] + '\u0000' + pm[2];
+      const pr = a.pairs.get(key) || { said: pm[1], stored: pm[2], refused: 0, rewritten: 0, first: null, last: null };
+      if (refused) pr.refused++; else pr.rewritten++;
+      pr.first = !pr.first || day < pr.first ? day : pr.first;
+      pr.last = !pr.last || day > pr.last ? day : pr.last;
+      a.pairs.set(key, pr);
+    }
     by.set(k, a);
   }
   return [...by.values()].sort((a, b) => b.refused - a.refused || b.retried - a.retried);
@@ -88,6 +100,9 @@ async function main() {
   for (const a of m) {
     say(`   ${String(a.refused).padStart(4)} refused  ${String(a.retried).padStart(3)} rewritten  ${String(a.nights.size).padStart(3)} night(s)  `
       + `${a.first || '?'} .. ${a.last || '?'}  ${a.athlete || a.athleteId}  [${a.stored || 'position not in the reason'}]`);
+    for (const pr of a.pairs.values()) {
+      say(`          writer said "${pr.said}"  stored "${pr.stored}"  x${pr.refused} refused, x${pr.rewritten} rewritten  ${pr.first} .. ${pr.last}`);
+    }
   }
   if (!m.length) say('   none recorded');
 
@@ -101,6 +116,30 @@ async function main() {
   }
   for (const r of x.filter((y) => !y.couldFail)) say(`   safe        ${r.athlete}  (${r.agent || r.agent_email || 'no agent'})  ${r.sport || '?'}  "${r.position}"`);
 
+  // ── 3. THE REAL PAIRS AGAINST TODAY'S CHECK ──────────────────────────────
+  // Every (word the writer used, stored position) pair from section 1, run
+  // through the shipped check with the athlete's stored sport, in the
+  // sentence shape the writer uses ("<name>, a <word> at ..."). The full pitch
+  // is not kept for a refused business, so a pair that passes here but was
+  // refused in production was refused by something else in that pitch.
+  const sports = new Map((await P.query(`SELECT id, data->>'sport' AS sport, data->>'position' AS position FROM athletes WHERE id = ANY($1)`,
+    [m.map((a) => a.athleteId).filter(Boolean)])).rows.map((r) => [r.id, r]));
+  let still = 0, fixed = 0;
+  const stillLines = [];
+  for (const a of m) {
+    const rec = sports.get(a.athleteId) || {};
+    for (const pr of a.pairs.values()) {
+      const first = String(a.athlete || 'The athlete').split(' ')[0];
+      const res = PW.verifyAthleteFacts(`${first}, a ${pr.said} at the school, would love to work with you this season.`,
+        { name: a.athlete, position: pr.stored, sport: rec.sport || null });
+      const posProblems = (res.problems || []).filter((x) => x.includes(REFUSAL));
+      if (posProblems.length) { still++; stillLines.push(`   STILL REFUSED  ${a.athlete}: "${pr.said}" vs stored "${pr.stored}" (sport ${rec.sport || 'none'}) -- ${posProblems[0]}`); }
+      else fixed++;
+    }
+  }
+  say('', `3. RE-CHECK: ${fixed + still} distinct pair(s) from section 1 through today's check: ${fixed} pass now, ${still} STILL REFUSED`);
+  for (const l of stillLines) say(l);
+
   say('', `SUMMARY: ${lost.length} athlete(s) lost ${refusedTotal} business(es) to the position check; `
     + `${could.length} athlete(s) hold a position the old check could refuse. Fixed: every part of a position now counts.`);
   console.log(out.join('\n'));
@@ -110,3 +149,4 @@ async function main() {
 
 if (require.main === module) main().catch((e) => { console.error('position-audit: FAILED', e.message); process.exit(1); });
 module.exports = { exposure, measured, exposed, REFUSAL };
+module.exports.main = main;
