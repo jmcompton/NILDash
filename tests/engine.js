@@ -252,6 +252,32 @@ async function main() {
   ok('admin can pick, start and read a proof', /app\.get\('\/api\/admin\/engine\/prove\/pick', requireAuth, requireCampusAdmin/.test(IDX)
     && /app\.post\('\/api\/admin\/engine\/prove', requireAuth, requireCampusAdmin/.test(IDX) && /app\.get\('\/api\/admin\/engine\/prove\/:id', requireAuth, requireCampusAdmin/.test(IDX));
 
+  // ── 9. THE WRITER'S POSITION CHECK, AND THE ALARM ────────────────────────
+  OUT.push('', '-- a compound position, and one refusal on every business --');
+  const realPW = require(REPO + 'server/services/pitchWriter');
+  const jk = { name: "J'Kai'a Graves", position: 'Infielder / Shortstop', sport: 'Softball' };
+  ok('"shortstop" for a stored "Infielder / Shortstop" is true, not a false claim',
+    realPW.verifyAthleteFacts("J'Kai'a, a shortstop at the school, would love to work with you.", jk).problems.length === 0);
+  ok('  so is "infielder"', realPW.verifyAthleteFacts("J'Kai'a, an infielder, would love to work with you.", jk).problems.length === 0);
+  ok('  "pitcher" is still refused', realPW.verifyAthleteFacts("J'Kai'a, a pitcher, would love to work with you.", jk).problems.length === 1);
+  ok('  every part counts: WR/KR, "Guard, Forward", "Pitcher and Outfielder"',
+    realPW.verifyAthleteFacts('Sam, a kick returner, would love to.', { position: 'WR/KR', sport: 'Football' }).problems.length === 0
+    && realPW.verifyAthleteFacts('Sam, a forward, would love to.', { position: 'Guard, Forward', sport: 'Basketball' }).problems.length === 0
+    && realPW.verifyAthleteFacts('Sam, an outfielder, would love to.', { position: 'Pitcher and Outfielder', sport: 'Baseball' }).problems.length === 0);
+  // Every business refused for one identical reason: an alarm, not a quiet zero.
+  await P.query(`DELETE FROM market_business_seen WHERE market_key = 'auburn, al' AND brand LIKE 'EN Refuse%'`);
+  await P.query(`INSERT INTO market_business_seen (market_key, brand, category) SELECT 'auburn, al', 'EN Refuse ' || g, 'gym' FROM generate_series(0, 5) g ON CONFLICT DO NOTHING`);
+  const savedWrite = PW.writePitch;
+  PW.writePitch = async () => ({ skipped: true, reason: 'could not write it in voice: says "shortstop" but the stored position is "Infielder / Shortstop"' });
+  await P.query(`DELETE FROM service_faults WHERE service = 'writer-refusal' AND reason LIKE 'En Refused%'`).catch(() => {});
+  const rf = await fill('en-r1', { name: 'En Refused', school: 'Auburn University', sport: 'Softball', position: 'Infielder / Shortstop', instagram: 800 });
+  PW.writePitch = savedWrite;
+  await new Promise((r) => setTimeout(r, 300));
+  const alarm = (await P.query(`SELECT reason FROM service_faults WHERE service = 'writer-refusal' AND reason LIKE 'En Refused%' ORDER BY at DESC LIMIT 1`).catch(() => ({ rows: [] }))).rows[0];
+  ok('the writer refusing every business for one reason raises an alarm naming the athlete and the reason',
+    rf.r.filled === 0 && (rf.r.loop || {}).writerRefusedAll && alarm && /refused every business/.test(alarm.reason) && /stored position is/.test(alarm.reason), { loop: rf.r.loop, alarm });
+  await P.query(`DELETE FROM market_business_seen WHERE brand LIKE 'EN Refuse%'`);
+
   await clean();
 }
 

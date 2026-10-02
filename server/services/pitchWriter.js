@@ -635,6 +635,25 @@ function positionKey(s, sport) {
   return null;
 }
 
+// EVERY POSITION THE ATHLETE IS LISTED AT. A stored "Infielder / Shortstop"
+// is two positions; positionKey returns only the first it recognises
+// (infielder), so a pitch that said "shortstop" was refused as a false claim
+// -- on every business, for every athlete with a compound position. The parts
+// are split on / , & + | "and" "or", and each part's key counts.
+function positionKeys(s, sport) {
+  const keys = new Set();
+  const whole = positionKey(s, sport);
+  if (whole) keys.add(whole);
+  for (const part of String(s || '').split(/\s*(?:\/|,|&|\+|\||\band\b|\bor\b)\s*/i)) {
+    const k = positionKey(part, sport);
+    if (k) keys.add(k);
+  }
+  return keys;
+}
+function positionParts(s) {
+  return String(s || '').split(/\s*(?:\/|,|&|\+|\||\band\b|\bor\b)\s*/i).map((x) => _words(x).trim()).filter(Boolean);
+}
+
 // What the athlete block SAYS the position is: the word, never the letters.
 // A stored "CB" on a football player reads "cornerback"; "WR/KR" reads "wide
 // receiver"; a value we cannot resolve is handed over exactly as stored, and
@@ -791,14 +810,19 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
   // "wide receiver" and a stored "WR" are the same position. Falls back to the
   // string comparison when we do not recognise the stored value, so an unusual
   // one still matches itself.
+  // Every part of a compound position counts ("Infielder / Shortstop" is both).
   const storedPos = _words(a.position);
-  const storedPosKey = positionKey(a.position, a.sport);
+  const storedPosKeys = positionKeys(a.position, a.sport);
+  const storedParts = positionParts(a.position);
   for (const hit of _findVocab(t, POSITION_WORDS, a)) {
     if (!storedPos) { problems.push(`claims a position ("${hit}") and we hold none`); break; }
     const hitKey = positionKey(hit, a.sport);
-    const same = storedPosKey && hitKey
-      ? storedPosKey === hitKey
-      : (storedPos.includes(hit) || hit.includes(storedPos));
+    // By position group when both sides resolve to one; by whole words only
+    // when they do not, so a stored "C" is never "center" by a stray letter.
+    const wordIn = (hay, needle) => new RegExp('(^|[^a-z])' + needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z])').test(hay);
+    const same = hitKey && storedPosKeys.size
+      ? storedPosKeys.has(hitKey)
+      : storedParts.some((p) => wordIn(p, hit) || wordIn(hit, p)) || wordIn(storedPos, hit);
     if (!same) {
       problems.push(`says "${hit}" but the stored position is "${a.position}"`); break;
     }
@@ -1532,5 +1556,5 @@ module.exports = {
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
   DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, SYSTEM_PRO, systemFor, MIN_SAMPLE,
   POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
-  positionKey, sportKey, sportLabel, alignSport, SPORT_ABBR, positionLabel, sportFamily, POSITION_GROUPS, POSITION_ABBR, SOFT_WORDS,
+  positionKey, positionKeys, positionParts, sportKey, sportLabel, alignSport, SPORT_ABBR, positionLabel, sportFamily, POSITION_GROUPS, POSITION_ABBR, SOFT_WORDS,
 };

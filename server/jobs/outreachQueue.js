@@ -2048,6 +2048,25 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // shortfall is an alert (services/ourFault -> service_faults -> the morning
   // alert and the status page) naming the athlete, the count and the rungs.
   // Not a nightFault: it must not change how the pause counts the night.
+  // ── ONE REFUSAL ON EVERY BUSINESS IS OUR BUG, NOT THE MARKET ─────────────
+  // J'Kai'a Graves: eight businesses with confirmed owners, all eight refused
+  // by the writer for the same sentence ("says 'shortstop' but the stored
+  // position is 'Infielder / Shortstop'"), zero cards, and nothing said so.
+  // When every business that reached the writer was refused for one identical
+  // reason, that reason is about the athlete or our check, never the
+  // businesses: an alarm (services/ourFault 'writer-refusal'), read by the
+  // morning alert, naming the athlete and the reason.
+  {
+    const atWriter = tried.filter((t) => t && (t.result === 'no_angle' || t.result === 'queued'));
+    const refused = atWriter.filter((t) => t.result === 'no_angle');
+    const reasons = new Set(refused.map((t) => String(t.reason || '')));
+    if (!dry && refused.length >= 3 && refused.length === atWriter.length && reasons.size === 1) {
+      loop.writerRefusedAll = { count: refused.length, reason: [...reasons][0] };
+      say(`${athleteName}: ALARM -- the writer refused all ${refused.length} businesses for one reason: ${[...reasons][0]}`);
+      OF.record('writer-refusal', `${athleteName}: the writer refused every business that reached it (${refused.length}) for one identical reason: `
+        + `${[...reasons][0]}`.slice(0, 600), 'fill athlete=' + athleteId).catch(() => {});
+    }
+  }
   if (loop.held < loop.floor && !dry) {
     OF.record('nightly-floor', `${loop.held === 0 ? 'EMERGENCY, ZERO CARDS. ' : ''}${athleteName}: ${loop.held} of ${loop.floor} cards after ${loop.candidates} candidate(s); `
       + `stopped by ${stop ? STOP_TEXT[stop] || stop : 'unknown'}; rungs tried: ${loop.rungs.join(', ')}`, 'fill athlete=' + athleteId)
