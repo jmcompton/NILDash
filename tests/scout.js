@@ -271,7 +271,10 @@ async function main() {
       // nothing; asking again would re-spend for the same answer.
       getBrandEvidence: async (key) => (/plainnopage/.test(key) ? { evidence: { found: false } } : null),
     };
-    const capped = await S.assembleSlate(P, { agentId: AG, athlete: BARE, store: capStore, limit: 5,
+    // National brands reach only a high-tier athlete (services/athleteTier), so
+    // this block's athlete has the following a national brand pitches.
+    const BIG = { ...BARE, instagram: 120000 };
+    const capped = await S.assembleSlate(P, { agentId: AG, athlete: BIG, store: capStore, limit: 5,
       heldPrograms: 1, programCap: 1 });
     const names = (sl) => sl.picks.map((p) => p.brand_name);
     ok('with the program slot held, a program-only brand never enters the slate',
@@ -283,14 +286,14 @@ async function main() {
     ok('  and the drops are counted on the slate',
       capped.dropped && capped.dropped.programCapped === 2 && capped.dropped.noHandleCached === 1, capped.dropped);
 
-    const open = await S.assembleSlate(P, { agentId: AG, athlete: BARE, store: capStore, limit: 5,
+    const open = await S.assembleSlate(P, { agentId: AG, athlete: BIG, store: capStore, limit: 5,
       heldPrograms: 0, programCap: 1 });
     ok('with the program slot open, program brands enter as before',
       names(open).includes('Program Only Co') && names(open).includes('National With Page'), names(open));
     ok('  and only the cached no-handle brand is dropped',
       open.dropped && open.dropped.programCapped === 0 && open.dropped.noHandleCached === 1, open.dropped);
 
-    const legacy = await S.assembleSlate(P, { agentId: AG, athlete: BARE, store: capStore, limit: 5 });
+    const legacy = await S.assembleSlate(P, { agentId: AG, athlete: BIG, store: capStore, limit: 5 });
     ok('a caller that passes no cap gets the old behaviour', names(legacy).includes('Program Only Co'), names(legacy));
     await P.query(`DELETE FROM social_brands WHERE brand='National With Page'`).catch(() => {});
 
