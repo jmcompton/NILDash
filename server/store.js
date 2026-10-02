@@ -653,6 +653,19 @@ async function init() {
   `).then(() => console.log('[init] media_kit_views table ready'))
     .catch(e => console.error('[init] media_kit_views:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_mkv_slug ON media_kit_views(kit_slug, viewed_at)`).catch(() => {});
+  // EVERY CLICK ON A KIT'S "POWERED BY NILDASH" FOOTER: which agency's kit,
+  // which athlete's, when. How many brand-side visits the kits send us.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_kit_footer_clicks (
+      id SERIAL PRIMARY KEY,
+      kit_slug TEXT NOT NULL,
+      athlete_id TEXT,
+      agent_id TEXT,
+      variant TEXT,
+      session_hash TEXT,
+      clicked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`).catch((e) => console.error('[init] media_kit_footer_clicks:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_mkfc_agent ON media_kit_footer_clicks(agent_id, clicked_at)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_mkv_agent ON media_kit_views(agent_id, viewed_at)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_mkv_hash ON media_kit_views(session_hash, kit_slug, viewed_at)`).catch(() => {});
 
@@ -1792,6 +1805,11 @@ async function init() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${c} TEXT`)
       .catch((e) => console.error('[init] users.' + c + ':', e.message));
   }
+  // The "Powered by NILDash" footer on the media kit is on for every account at
+  // every plan tier. This one flag can turn it off later; there is no UI for it
+  // and nothing sets it.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS hide_powered_by BOOLEAN NOT NULL DEFAULT FALSE`)
+    .catch((e) => console.error('[init] users.hide_powered_by:', e.message));
   console.log('[init] users signature columns ready');
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_enabled BOOLEAN DEFAULT TRUE`).catch(() => {});
   // One row per agent per local day. The double-send guard: recurring work runs

@@ -17210,6 +17210,32 @@ function normalizeRateCardsPayload(body) {
 }
 
 // GET /api/media-kit/:slug — public data endpoint (no auth)
+// ── THE KIT'S "POWERED BY NILDASH" FOOTER, COUNTED ──────────────────────────
+// GET /go/kit-footer/:slug[?for=<brandSlug>] -> logs the click
+// (media_kit_footer_clicks: which agency's kit, which athlete's, when) and
+// redirects to mynildash.com. The agent's own clicks are not brand-side visits
+// and are not counted; one click is one row (a double-click within 10
+// seconds from the same browser is the same click). Never fails the redirect.
+app.get('/go/kit-footer/:slug', async (req, res) => {
+  const dest = 'https://mynildash.com/?utm_source=media-kit&utm_medium=footer&utm_campaign=powered-by';
+  try {
+    const slug = String(req.params.slug || '').slice(0, 200);
+    const mk = (await store.pool.query(
+      `SELECT mk.slug, mk.athlete_id, a.agent_id FROM media_kits mk LEFT JOIN athletes a ON a.id = mk.athlete_id WHERE mk.slug = $1`, [slug])).rows[0];
+    const own = mk && req.session && req.session.userId && req.session.userId === mk.agent_id;
+    if (mk && !own) {
+      const hash = mkSessionHash(req);
+      const dup = await store.pool.query(`SELECT 1 FROM media_kit_footer_clicks WHERE kit_slug = $1 AND session_hash = $2
+                                            AND clicked_at > NOW() - INTERVAL '10 seconds' LIMIT 1`, [mk.slug, hash]);
+      if (!dup.rows.length) {
+        await store.pool.query(`INSERT INTO media_kit_footer_clicks (kit_slug, athlete_id, agent_id, variant, session_hash) VALUES ($1,$2,$3,$4,$5)`,
+          [mk.slug, mk.athlete_id, mk.agent_id || null, String(req.query.for || '').trim().toLowerCase().slice(0, 120) || null, hash]);
+      }
+    }
+  } catch (e) { console.warn('[kit-footer] click not logged:', e.message); }
+  res.redirect(302, dest);
+});
+
 app.get('/api/media-kit/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
@@ -17737,7 +17763,17 @@ app.post('/api/media-kit/contact', async (req, res) => {
       [mk.athlete_id]
     );
     const ath = athR.rows[0] || {};
-    const toEmail = ath.agent_email || ath.email || process.env.ADMIN_EMAIL || 'hello@mynildash.com';
+    // AN ATHLETE ON AN AGENCY ROSTER IS CONTACTED THROUGH THE AGENCY: the
+    // agency's contact address (agencyBrand: its contact email, then its
+    // sending mailbox, then its login), never the athlete's own.
+    let agencyContact = null;
+    if (mk.agent_id) {
+      try { agencyContact = (await require('./services/agencyBrand').brandForUser((await store.getUser(mk.agent_id)) || {})).contactEmail || null; }
+      catch (e) { console.warn('[media-kit contact] agency contact lookup failed:', e.message); }
+    }
+    const toEmail = mk.agent_id
+      ? (agencyContact || ath.agent_email || process.env.ADMIN_EMAIL || 'hello@mynildash.com')
+      : (ath.email || process.env.ADMIN_EMAIL || 'hello@mynildash.com');
 
     // ── Create the Inbound deal in the agent's Pipeline ──────────────────────
     if (mk.agent_id) {

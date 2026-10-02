@@ -592,6 +592,11 @@
       "total": 13,
       "fault": null
     },
+    "kitbranding.js": {
+      "failed": 0,
+      "total": 26,
+      "fault": null
+    },
     "laddersample.js": {
       "failed": null,
       "total": null,

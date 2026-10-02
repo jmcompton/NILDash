@@ -96,6 +96,11 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
 .mk-foot-rule{height:3px;background:var(--accent)}
 .mk-footer{padding:15px 28px;display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
 .mk-powered{font-size:12px;color:var(--muted);font-weight:500}
+/* THE AGENCY'S LETTERHEAD: its logo is the primary mark, at the top of the
+   kit like letterhead, framing the athlete below. Only when a logo is set. */
+.mk-letterhead{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 28px;background:#fff;border-bottom:3px solid var(--accent)}
+.mk-letterhead img{display:block;height:56px;max-width:260px;width:auto;object-fit:contain;object-position:left center}
+.mk-letterhead .mk-lh-name{font-size:13px;font-weight:700;color:#1E293B;letter-spacing:.02em;text-align:right}
 .mk-agency-foot{font-size:12px;color:var(--body);font-weight:500;line-height:1.5}
 .mk-agency-foot a{color:inherit}
 .mk-footer{flex-wrap:wrap;gap:6px 16px}
@@ -196,6 +201,12 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
 <div class="page-wrap" id="mk-content" style="display:none">
   <div class="mk-card" id="mk-card">
 
+    <!-- The agency's letterhead (shown only when the account has a logo) -->
+    <div class="mk-letterhead" id="mk-letterhead" style="display:none">
+      <img id="mk-lh-logo" alt="">
+      <div class="mk-lh-name" id="mk-lh-name"></div>
+    </div>
+
     <!-- Hero -->
     <div class="mk-hero" id="mk-hero">
       <div class="mk-hero-mono" id="mk-hero-mono" style="display:none"></div>
@@ -244,7 +255,7 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
       <div class="mk-agency-foot" id="mk-agency-foot"></div>
       <div class="mk-year" id="mk-year"></div>
       <!-- NILDash appears here, and only here. -->
-      <div class="mk-powered">Powered by <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a></div>
+      <div class="mk-powered" id="mk-powered">Powered by <a id="mk-powered-link" href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a></div>
     </div>
 
   </div>
@@ -372,23 +383,68 @@ function adjustColor(hex, amount){
   }catch(e){ return hex; }
 }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// An agency or agent name typed in lowercase ("jordan smith sports") reads as
+// a typo on a page a business sees: title cased. A name with any capital
+// letter is left exactly as the agency wrote it ("NILDash", "McKay & Co").
+function titleCase(s){
+  var v = String(s||'').trim();
+  if (!v || /[A-Z]/.test(v)) return v;
+  return v.replace(/(^|[\s\-\/&(])([a-z])/g, function(m, p, c){ return p + c.toUpperCase(); });
+}
+// "3" -> "3% engagement"; "4.2%" stays a percent.
+function engagementLabel(v){
+  var s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  if (/%/.test(s)) return s.replace(/\s*%/, '%') + ' engagement';
+  var n = Number(s);
+  return Number.isFinite(n) ? (Math.round(n * 10) / 10) + '% engagement' : s + ' engagement';
+}
 
 function renderAgency(a){
   a = a || {};
   var nameEl = document.getElementById('mk-agency-name');
-  if (nameEl) nameEl.textContent = a.name || '';
+  if (nameEl) nameEl.textContent = titleCase(a.name);
   var logo = document.getElementById('mk-agency-logo');
   if (logo && a.logo && /^data:image\/(png|jpeg|webp);base64,/.test(a.logo)) {
     logo.src = a.logo; logo.style.display = '';
     var fav = document.getElementById('mk-favicon'); if (fav) fav.href = a.logo;
+  }
+  // The letterhead: the agency's logo as the primary mark, only when one is set.
+  var lh = document.getElementById('mk-letterhead');
+  var hasLogo = a.logo && /^data:image\/(png|jpeg|webp);base64,/.test(a.logo);
+  if (lh && (hasLogo || (a.hasBrand && a.name))) {
+    var lhImg = document.getElementById('mk-lh-logo');
+    if (hasLogo) { lhImg.src = a.logo; lhImg.alt = titleCase(a.name); } else { lhImg.style.display = 'none'; }
+    // With a logo the name sits small beside it; without one the name IS the mark.
+    var lhName = document.getElementById('mk-lh-name');
+    lhName.textContent = titleCase(a.name);
+    if (!hasLogo) { lhName.style.fontSize = '22px'; lhName.style.textAlign = 'left'; lhName.style.letterSpacing = '0'; }
+    lh.style.display = '';
+  }
+  // The inquiry goes to the agency: the button says so.
+  var cbtn = document.getElementById('mk-contact-btn');
+  if (cbtn && a.hasBrand && a.name) {
+    var svg = cbtn.querySelector('svg');
+    cbtn.textContent = 'Contact ' + titleCase(a.name) + ' ';
+    if (svg) cbtn.appendChild(svg);
+  }
+  // The footer: a counted link (/go/kit-footer), or none when the account's
+  // one switch is off.
+  var pw = document.getElementById('mk-powered');
+  if (pw && a.showPoweredBy === false) pw.style.display = 'none';
+  var pl = document.getElementById('mk-powered-link');
+  var slug = (location.pathname.match(/\/media-kit\/([^\/?#]+)/) || [])[1];
+  if (pl && slug) {
+    var forSlug = new URLSearchParams(location.search).get('for');
+    pl.href = '/go/kit-footer/' + encodeURIComponent(slug) + (forSlug ? '?for=' + encodeURIComponent(forSlug) : '');
   }
   var link = document.getElementById('mk-agency-link');
   if (link && a.website && /^https?:\/\//.test(a.website)) { link.href = a.website; link.target = '_blank'; link.rel = 'noopener'; }
   var foot = document.getElementById('mk-agency-foot');
   if (foot) {
     var bits = [];
-    if (a.name) bits.push('<b>' + esc(a.name) + '</b>');
-    if (a.contactName && a.contactName !== a.name) bits.push(esc(a.contactName));
+    if (a.name) bits.push('<b>' + esc(titleCase(a.name)) + '</b>');
+    if (a.contactName && a.contactName !== a.name) bits.push(esc(titleCase(a.contactName)));
     if (a.contactEmail) bits.push('<a href="mailto:' + esc(a.contactEmail) + '">' + esc(a.contactEmail) + '</a>');
     if (a.contactPhone) bits.push(esc(a.contactPhone));
     if (a.contactLine) bits.push(esc(a.contactLine));
@@ -419,7 +475,10 @@ function render(data){
   } else {
     // "My brand" uses the agency's colors; otherwise the kit's own (school)
     // colors. With neither, a neutral slate, never NILDash lime.
-    accent = (isAgencyTheme && agency.primaryColor) || data.primary_color || agency.primaryColor || '#334155';
+    // The agency's accent arrives clamped (agencyBrand.clampAccent: readable
+    // on white); the raw colour is never used for text.
+    var agencyAccent = agency.accent || '';
+    accent = (isAgencyTheme && agencyAccent) || data.primary_color || agencyAccent || '#334155';
     document.body.style.background = '#EEF1F6';
     card.style.setProperty('--accent', accent);
     card.style.setProperty('--accent-soft', hexToRgba(accent, 0.12));
@@ -430,8 +489,13 @@ function render(data){
   // ── Hero ──────────────────────────────────────────────────────────────────
   var hero = document.getElementById('mk-hero');
   var hasAction = data.action_shot_data && String(data.action_shot_data).startsWith('data:');
-  if (hasAction){
-    hero.style.backgroundImage = 'url(' + data.action_shot_data + ')';
+  var hasHeadshot = data.headshot_url && String(data.headshot_url).startsWith('data:');
+  // THE ATHLETE IS THE MAIN VISUAL: an action shot, else the headshot, fills
+  // the hero. Neither: the gradient and initials, as before.
+  var heroPhoto = hasAction ? data.action_shot_data : (hasHeadshot ? data.headshot_url : null);
+  if (heroPhoto){
+    hero.style.backgroundImage = 'url(' + heroPhoto + ')';
+    if (!hasAction) { hero.style.backgroundPosition = 'center 22%'; hero.classList.add('mk-hero-headshot'); }
   } else {
     // Tasteful branded gradient with a faint monogram, never empty black
     hero.style.background = isNilTheme
@@ -444,7 +508,11 @@ function render(data){
 
   // Avatar: headshot photo, initials fallback
   var avatarWrap = document.getElementById('mk-avatar-wrap');
-  if (data.headshot_url && String(data.headshot_url).startsWith('data:')){
+  if (hasHeadshot && !hasAction){
+    // The headshot is already the hero: no second copy in a circle.
+    avatarWrap.innerHTML = '';
+    avatarWrap.style.display = 'none';
+  } else if (hasHeadshot){
     avatarWrap.innerHTML = '<img class="mk-avatar" src="' + data.headshot_url + '" alt="' + esc(name) + '">';
   } else {
     avatarWrap.innerHTML = '<div class="mk-avatar mk-avatar-fallback" style="background:' + (isNilTheme ? '#16233A' : adjustColor(accent,-20)) + '">' + esc(initials) + '</div>';
@@ -472,13 +540,15 @@ function render(data){
       '<div class="mk-stat-net"><span class="mk-stat-dot" style="background:' + n.dot + '"></span>' + esc(n.label) + '</div>' +
       '<div class="mk-stat-num">' + esc(count) + '</div>' +
       (n.handle ? '<div class="mk-stat-sub">@' + esc(n.handle) + '</div>' : '') +
-      (n.eng ? '<div class="mk-stat-eng">' + esc(n.eng) + ' engagement</div>' : '') +
+      (n.eng ? '<div class="mk-stat-eng">' + esc(engagementLabel(n.eng)) + '</div>' : '') +
       // Numbers from the athlete's connected Instagram carry where and when.
       (n.key === 'instagram' && data.instagram_live && data.instagram_live.fetchedAt
         ? '<div class="mk-stat-sub" style="opacity:.7">From Instagram, ' + esc(new Date(data.instagram_live.fetchedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })) + '</div>' : '') +
     '</div>';
   });
-  if (reach > 0){
+  // Total Reach only adds something when it adds two or more platforms up;
+  // with one it repeats that platform's number.
+  if (reach > 0 && shown.length >= 2){
     tiles.push('<div class="mk-stat reach">' +
       '<div class="mk-stat-net">Total Reach</div>' +
       '<div class="mk-stat-num">' + esc(fmtFollowers(reach)) + '</div>' +

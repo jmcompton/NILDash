@@ -90,6 +90,31 @@ function validate(body) {
 // only when neither exists. It was agency_contact_email || users.email, so a
 // deck could tell a brand to write to an address the agent's outreach never
 // came from.
+// ── AN ACCENT THAT CANNOT MAKE THE KIT UNREADABLE ───────────────────────────
+// The accent colours text on the kit's white card (the reach figure, rate
+// prices, the footer link). A pale or neon agency colour is darkened, hue
+// kept, until it reaches CONTRAST_MIN (4.5:1, WCAG AA for text) against white.
+// Text ON the accent is chosen black or white by the page as before. Never
+// changes a background or body text colour.
+const CONTRAST_MIN = 4.5;
+function _rgb(hex) {
+  let c = String(hex || '').replace('#', '').trim();
+  if (c.length === 3) c = c.split('').map((x) => x + x).join('');
+  if (!/^[0-9a-f]{6}$/i.test(c)) return null;
+  return [0, 2, 4].map((i) => parseInt(c.slice(i, i + 2), 16));
+}
+function _lum([r, g, b]) {
+  const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+function contrastOnWhite(hex) { const c = _rgb(hex); return c ? 1.05 / (_lum(c) + 0.05) : null; }
+function clampAccent(hex) {
+  let c = _rgb(hex);
+  if (!c) return '';
+  for (let i = 0; i < 40 && 1.05 / (_lum(c) + 0.05) < CONTRAST_MIN; i++) c = c.map((v) => Math.round(v * 0.92));
+  return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
 function brandFor(user, opts = {}) {
   const u = user || {};
   const set = !!(u.agency_name || u.agency_logo);
@@ -106,6 +131,10 @@ function brandFor(user, opts = {}) {
     website: u.agency_website || '',
     contactLine: u.agency_contact_line || '',
     poweredBy: POWERED_BY,
+    // The accent the media kit uses, darkened if needed to stay readable.
+    accent: clampAccent(u.agency_primary_color),
+    // On for every account; users.hide_powered_by is the one switch, unset.
+    showPoweredBy: u.hide_powered_by !== true,
   };
 }
 
@@ -124,4 +153,4 @@ async function brandForUser(user) {
 const COLUMNS = ['agency_name', 'agency_logo', 'agency_primary_color', 'agency_secondary_color',
   'agency_contact_email', 'agency_contact_phone', 'agency_website', 'agency_contact_line'];
 
-module.exports = { brandForUser, brandFor, validate, COLUMNS, POWERED_BY, MAX_LOGO_CHARS };
+module.exports = { clampAccent, contrastOnWhite, CONTRAST_MIN, brandForUser, brandFor, validate, COLUMNS, POWERED_BY, MAX_LOGO_CHARS };

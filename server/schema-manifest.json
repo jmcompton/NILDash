@@ -848,6 +848,15 @@
       "region": "TEXT",
       "usable": "INT"
     },
+    "media_kit_footer_clicks": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "clicked_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "id": "SERIAL",
+      "kit_slug": "TEXT",
+      "session_hash": "TEXT",
+      "variant": "TEXT"
+    },
     "media_kit_views": {
       "agent_id": "TEXT",
       "athlete_id": "TEXT",
