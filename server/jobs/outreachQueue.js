@@ -2060,7 +2060,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     const atWriter = tried.filter((t) => t && (t.result === 'no_angle' || t.result === 'queued'));
     const refused = atWriter.filter((t) => t.result === 'no_angle');
     const reasons = new Set(refused.map((t) => String(t.reason || '')));
-    if (!dry && refused.length >= 3 && refused.length === atWriter.length && reasons.size === 1) {
+    // Three or more refused alike; OR any number refused alike and the
+    // athlete got no card -- a two-candidate night that refuses both for the
+    // same reason is the same bug.
+    const identical = refused.length >= 1 && refused.length === atWriter.length && reasons.size === 1;
+    if (!dry && identical && (refused.length >= 3 || filled === 0)) {
       loop.writerRefusedAll = { count: refused.length, reason: [...reasons][0] };
       say(`${athleteName}: ALARM -- the writer refused all ${refused.length} businesses for one reason: ${[...reasons][0]}`);
       OF.record('writer-refusal', `${athleteName}: the writer refused every business that reached it (${refused.length}) for one identical reason: `

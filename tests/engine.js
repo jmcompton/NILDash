@@ -277,6 +277,44 @@ async function main() {
   ok('the writer refusing every business for one reason raises an alarm naming the athlete and the reason',
     rf.r.filled === 0 && (rf.r.loop || {}).writerRefusedAll && alarm && /refused every business/.test(alarm.reason) && /stored position is/.test(alarm.reason), { loop: rf.r.loop, alarm });
   await P.query(`DELETE FROM market_business_seen WHERE brand LIKE 'EN Refuse%'`);
+  // Two candidates, both refused alike, zero cards: the same alarm, no minimum.
+  await P.query(`INSERT INTO market_business_seen (market_key, brand, category) SELECT 'auburn, al', 'EN Refuse Two ' || g, 'gym' FROM generate_series(0, 1) g ON CONFLICT DO NOTHING`);
+  PW.writePitch = async () => ({ skipped: true, reason: 'could not write it in voice: says "guard" but the stored position is "Guard / Point Guard"' });
+  ai.getDealRecommendations = async () => [];
+  const savedBuild = PM.buildMarketPoolFromPlaces;
+  PM.buildMarketPoolFromPlaces = async () => ({ ok: true, candidates: [], placesCalls: 1 });
+  await P.query(`DELETE FROM market_business_seen WHERE market_key = 'auburn, al' AND brand NOT LIKE 'EN Refuse Two%'`);
+  const rf2 = await fill('en-r2', { name: 'En Refused Two', school: 'Auburn University', sport: 'Basketball', position: 'Guard / Point Guard', instagram: 800 });
+  PW.writePitch = savedWrite; PM.buildMarketPoolFromPlaces = savedBuild;
+  await new Promise((r) => setTimeout(r, 300));
+  const alarm2 = (await P.query(`SELECT reason FROM service_faults WHERE service = 'writer-refusal' AND reason LIKE 'En Refused Two%' ORDER BY at DESC LIMIT 1`).catch(() => ({ rows: [] }))).rows[0];
+  ok('  and with only two candidates, both refused alike and zero cards, it fires too', rf2.r.filled === 0 && alarm2 && /\(2\)/.test(alarm2.reason), { tried: (rf2.r.tried || []).map((t) => t.result), alarm2 });
+  await P.query(`DELETE FROM market_business_seen WHERE brand LIKE 'EN Refuse%'`);
+
+  // ── 10. THE POSITION AUDIT ───────────────────────────────────────────────
+  OUT.push('', '-- position-audit --');
+  const PA = require(REPO + 'scripts/position-audit.js');
+  await P.query(`INSERT INTO outreach_queue_runs (agent_id, run_date, details) VALUES ($1, '2026-09-20', $2::jsonb), ($1, '2026-09-21', $3::jsonb)
+                 ON CONFLICT (agent_id, run_date) DO UPDATE SET details = EXCLUDED.details`, [AG,
+    JSON.stringify([{ athleteId: 'en-pa', athleteName: 'En Audit', tried: [
+      { brand: 'A', result: 'no_angle', reason: 'could not write it in voice: says "shortstop" but the stored position is "Infielder / Shortstop"' },
+      { brand: 'B', result: 'no_angle', reason: 'could not write it in voice: says "shortstop" but the stored position is "Infielder / Shortstop"' },
+      { brand: 'C', result: 'queued', reason: null, writerFirstProblems: ['says "shortstop" but the stored position is "Infielder / Shortstop"'] }] }]),
+    JSON.stringify([{ athleteId: 'en-pa', athleteName: 'En Audit', tried: [
+      { brand: 'D', result: 'no_angle', reason: 'could not write it in voice: says "shortstop" but the stored position is "Infielder / Shortstop"' }] }])]);
+  const ms = (await PA.measured(P)).find((a) => a.athleteId === 'en-pa');
+  ok('section 1 counts every business refused for the position, by athlete, with nights and the stored position',
+    ms && ms.refused === 3 && ms.retried === 1 && ms.nights.size === 2 && ms.stored === 'Infielder / Shortstop', ms && { ...ms, nights: [...ms.nights] });
+  await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('en-pa', $1, '{"name":"En Audit","sport":"Softball","position":"Infielder / Shortstop"}'::jsonb),
+                 ('en-pb', $1, '{"name":"En Same","sport":"Football","position":"QB / Quarterback"}'::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [AG]);
+  const ex = await PA.exposed(P);
+  const exA = ex.find((r) => r.id === 'en-pa'), exB = ex.find((r) => r.id === 'en-pb');
+  ok('section 2: a position with parts in different groups COULD FAIL, naming the word that was refused; one group is safe',
+    exA && exA.couldFail && exA.refusedWords.join() === 'Shortstop' && exB && !exB.couldFail, { exA, exB });
+  const IDXp = require('fs').readFileSync(REPO + 'server/index.js', 'utf8');
+  ok('it runs at /api/admin/scripts/position-audit, read-only (no apply)', /'position-audit': \{ file: 'scripts\/position-audit\.js', args: \(\) => \[\] \}/.test(IDXp)
+    && !/--apply/.test(require('fs').readFileSync(REPO + 'scripts/position-audit.js', 'utf8').replace(/there is no --apply/g, '')));
+  await P.query(`DELETE FROM outreach_queue_runs WHERE agent_id = $1`, [AG]);
 
   await clean();
 }

@@ -5363,6 +5363,10 @@ const ADMIN_SCRIPTS = {
   // waiting team asks to a blocked business.
   //   /api/admin/scripts/block-audit?text=1   (&apply=1)
   'block-audit': { file: 'scripts/block-audit.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
+  // How many athletes the writer's position check refused, and who still holds
+  // a position the old check could refuse. Read-only; there is no apply.
+  //   /api/admin/scripts/position-audit?text=1
+  'position-audit': { file: 'scripts/position-audit.js', args: () => [] },
   // The floor of five: how many candidates each athlete took to reach five,
   // who stopped short and why, pass rate by lane, rungs fired
   // (jobs/outreachQueue loop metrics on the run row).
