@@ -7,7 +7,7 @@
 //
 // A ONE-OFF, NOT A MIGRATION: migrations run on every boot for every tenant,
 // and this is one tenant's data. Creates the Cypress College university row if
-// it is absent, then its 13 teams and their sponsorship inventory.
+// it is absent, then its 15 teams and their sponsorship inventory.
 //
 // EVERY VALUE COMES FROM public/athletics.html, the signed-off demo. The TEAMS
 // array and the ASSETS and DEPT_ASSETS price tables are read out of that file
@@ -37,31 +37,38 @@ const UNIVERSITY = {
   location: '9200 Valley View St, Cypress, CA 90630',
 };
 
-// ── THE TEAMS, AS THE ATHLETIC DIRECTOR CONFIRMED THEM ─────────────────────
-// Wes McCurtis, on the call: men's and women's basketball, soccer, water polo
-// and swim & dive; baseball; softball; women's volleyball; beach volleyball;
-// men's and women's tennis. NO FOOTBALL (cut in the 1970s), NO TRACK (no
-// facility). The /athletics demo was a sales artifact: it had Men's Golf, which
-// they do not have, and lacked men's water polo and beach volleyball. Its
-// venue/season details are still used where it had the team; the list itself
-// is this one. Roster sizes for the two the demo lacked are not known yet.
+// ── THE TEAMS, AS CYPRESSCHARGERS.COM LISTS THEM ───────────────────────────
+// Fifteen, verified against the athletics site (not the call transcript, which
+// had men's tennis and no flag football):
+//   Baseball, Beach Volleyball, Flag Football, Men's Basketball, Men's Golf,
+//   Men's Soccer, Men's Swim & Dive, Men's Water Polo, Softball, Women's
+//   Basketball, Women's Soccer, Women's Swim & Dive, Women's Tennis, Women's
+//   Volleyball, Women's Water Polo.
+// NO MEN'S TENNIS. NO (MEN'S) FOOTBALL; women's flag football is live. NO
+// TRACK. Venue/season details come from the /athletics demo where it had the
+// team. Rosters for the three it lacked are the department's own numbers.
+// Flag football's season and venue are not known yet, so they are left empty
+// rather than guessed.
 const CONFIRMED_TEAMS = [
-  { id: 'mbb', name: "Men's Basketball", sport: 'basketball' },
-  { id: 'wbb', name: "Women's Basketball", sport: 'basketball' },
-  { id: 'msoc', name: "Men's Soccer", sport: 'soccer' },
-  { id: 'wsoc', name: "Women's Soccer", sport: 'soccer' },
-  { id: 'mwp', name: "Men's Water Polo", sport: 'water polo', season: 'Fall', venue: 'Cypress College Pool', kind: 'pool' },
-  { id: 'wwp', name: "Women's Water Polo", sport: 'water polo' },
-  { id: 'mswim', name: "Men's Swim & Dive", sport: 'swimming' },
-  { id: 'wswim', name: "Women's Swim & Dive", sport: 'swimming' },
   { id: 'bsb', name: 'Baseball', sport: 'baseball' },
+  { id: 'bvb', name: 'Beach Volleyball', sport: 'beach volleyball', season: 'Spring', venue: 'Cypress College Beach Volleyball Courts', kind: 'gym', roster: 13 },
+  { id: 'wff', name: 'Flag Football', sport: 'flag football', kind: 'field', roster: 18 },
+  { id: 'mbb', name: "Men's Basketball", sport: 'basketball' },
+  { id: 'mgolf', name: "Men's Golf", sport: 'golf' },
+  { id: 'msoc', name: "Men's Soccer", sport: 'soccer' },
+  { id: 'mswim', name: "Men's Swim & Dive", sport: 'swimming' },
+  { id: 'mwp', name: "Men's Water Polo", sport: 'water polo', season: 'Fall', venue: 'Cypress College Pool', kind: 'pool', roster: 23 },
   { id: 'sb', name: 'Softball', sport: 'softball' },
-  { id: 'wvb', name: "Women's Volleyball", sport: 'volleyball' },
-  { id: 'bvb', name: 'Beach Volleyball', sport: 'beach volleyball', season: 'Spring', venue: 'Cypress College Beach Volleyball Courts', kind: 'gym' },
-  { id: 'mten', name: "Men's Tennis", sport: 'tennis' },
+  { id: 'wbb', name: "Women's Basketball", sport: 'basketball' },
+  { id: 'wsoc', name: "Women's Soccer", sport: 'soccer' },
+  { id: 'wswim', name: "Women's Swim & Dive", sport: 'swimming' },
   { id: 'wten', name: "Women's Tennis", sport: 'tennis' },
+  { id: 'wvb', name: "Women's Volleyball", sport: 'volleyball' },
+  { id: 'wwp', name: "Women's Water Polo", sport: 'water polo' },
 ];
-const NEVER = /football|track|cross country|golf/i;
+// Tackle football, track and cross country: Cypress has none. "Flag Football"
+// is not tackle football and passes.
+const NEVER = /^(?!.*\bflag\b).*\bfootball\b|\btrack\b|cross country|\bmen's tennis/i;
 
 // Lift one top-level `const NAME = ...;` out of the demo and evaluate it alone.
 function liftConst(src, name) {
@@ -87,7 +94,7 @@ function readDemo(file) {
   const byId = new Map(DEMO_TEAMS.map((t) => [t.id, t]));
   const TEAMS = CONFIRMED_TEAMS.map((c) => {
     const d = byId.get(c.id) || {};
-    return { ...d, ...c, season: c.season || d.season || null, roster: d.roster || null, venue: c.venue || d.venue || null,
+    return { ...d, ...c, season: c.season || d.season || null, roster: c.roster || d.roster || null, venue: c.venue || d.venue || null,
       dates: d.dates || null, kind: c.kind || d.kind || 'field' };
   });
   const ASSETS = liftConst(src, 'ASSETS');
@@ -108,8 +115,8 @@ function readDemo(file) {
   return { teams, inventory, marketKey };
 }
 
-// Teams this university has that are NOT on the confirmed list (Men's Golf,
-// from the demo) are removed, with everything written for them. The removed
+// Teams this university has that are NOT on the confirmed list (Men's Tennis)
+// are removed, with everything written for them. The removed
 // names are returned so the run can say what it took out.
 async function removeUnconfirmed(pool, uid, keepIds) {
   const gone = (await pool.query(`SELECT id, name FROM university_teams WHERE university_id = $1 AND NOT (id = ANY($2))`, [uid, keepIds])).rows;
@@ -157,6 +164,12 @@ async function seed(pool, opts = {}) {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING`,
       [idFor(t.id), uid, t.name, t.sport, t.season, t.roster_size, t.venue, t.home_dates, t.market_key]);
     out.teams += r.rowCount;
+    // A roster that was unknown when the team was first written is filled in;
+    // a number someone has since set is never overwritten.
+    if (!r.rowCount && t.roster_size) {
+      const f = await pool.query(`UPDATE university_teams SET roster_size = $2 WHERE id = $1 AND roster_size IS NULL`, [idFor(t.id), t.roster_size]);
+      out.rostersFilled = (out.rostersFilled || 0) + f.rowCount;
+    }
   }
   for (const it of inventory) {
     const r = await pool.query(
@@ -172,7 +185,7 @@ async function main() {
   if (process.argv.includes('--dry-run')) {
     const { teams, inventory, marketKey } = readDemo();
     console.log(`Cypress College (${UNIVERSITY.id}), market_key "${marketKey}"`);
-    console.log(`${teams.length} teams, ${inventory.length} inventory items, `
+    console.log(`${teams.length} teams, ${teams.reduce((n, t) => n + (t.roster_size || 0), 0)} athletes, ${inventory.length} inventory items, `
       + `$${inventory.reduce((s, i) => s + i.price_cents, 0) / 100} total`);
     for (const t of teams) console.log(`  ${t.id}  ${t.name}  ${t.season}  roster ${t.roster_size}  ${t.home_dates} home dates  ${t.venue}`);
     for (const i of inventory) console.log(`  ${i.id}  ${i.name}  $${i.price_cents / 100}  ${i.team_id || 'department wide'}`);

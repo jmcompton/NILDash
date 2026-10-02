@@ -167,7 +167,7 @@ async function main() {
     ok('  and so is the agent pipeline', pipe.status === 403, pipe.status);
     const t = await call(cu, 'GET', '/api/university/teams');
     const i = await call(cu, 'GET', '/api/university/inventory');
-    ok('  its own portal still works: teams and inventory', t.status === 200 && t.body.teams.length === 14 && i.status === 200 && i.body.items.length === 65, [t.status, i.status]);
+    ok('  its own portal still works: teams and inventory', t.status === 200 && t.body.teams.length === 15 && i.status === 200 && i.body.items.length === 70, [t.status, i.status]);
     const out = await call(cu, 'POST', '/api/auth/logout');
     ok('  and it can sign out', out.status === 200, out.status);
 
@@ -183,7 +183,7 @@ async function main() {
     const dList = await call(cd, 'GET', '/api/athletes');
     const dTeams = await call(cd, 'GET', '/api/university/teams');
     ok('ADMIN: reaches the agent side', dList.status === 200, dList.status);
-    ok('  and the university side', dTeams.status === 200 && dTeams.body.teams.length === 14, dTeams.status);
+    ok('  and the university side', dTeams.status === 200 && dTeams.body.teams.length === 15, dTeams.status);
 
     // THE LEGACY PORTAL IS GONE: nothing answers where it used to.
     const reg = await call('', 'POST', '/api/university/register', { email: 'x@x.test', password: 'x', universityId: 'univ-cypress', name: 'x' });
@@ -199,8 +199,8 @@ async function main() {
     const sTeams = await call(cs, 'GET', '/api/university/teams');
     const sInv = await call(cs, 'GET', '/api/university/inventory');
     const sAgent = await call(cs, 'POST', '/api/athletes', athlete);
-    ok('SCRIPT-MADE ACCOUNT: signs in and sees Cypress: 14 teams, 65 items',
-      madeU.ok && sTeams.status === 200 && sTeams.body.teams.length === 14 && sInv.status === 200 && sInv.body.items.length === 65, [madeU, sTeams.status]);
+    ok('SCRIPT-MADE ACCOUNT: signs in and sees Cypress: 15 teams, 70 items',
+      madeU.ok && sTeams.status === 200 && sTeams.body.teams.length === 15 && sInv.status === 200 && sInv.body.items.length === 70, [madeU, sTeams.status]);
     ok('  and is walled off from the agent side like any university account', sAgent.status === 403, sAgent.status);
   } finally {
     srv.kill('SIGTERM');

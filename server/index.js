@@ -7009,6 +7009,9 @@ require('./routes/campus').mount(app, { store, requireAuth });
 //   POST /api/admin/campus/:universityId/contacts    resolve contacts (resumable)
 //   GET  /api/admin/campus/:universityId/report?text=1
 //   POST /api/admin/campus/:universityId/nightly     the five-per-team night, now
+//   GET  /api/admin/campus/:universityId/estimate?text=1   what both cost, spending nothing
+// Both paid POSTs take ?dryRun=1 (the estimate, nothing spent) and ?budget=<usd>
+// (a hard cap: the run stops there).
 // Admin only: these spend real money on Places and the contact ladder.
 const _campusPoolRuns = new Map();
 const requireCampusAdmin = async (req, res, next) => {
@@ -7021,7 +7024,9 @@ const requireCampusAdmin = async (req, res, next) => {
 app.post('/api/admin/campus/:universityId/pool', requireAuth, requireCampusAdmin, async (req, res) => {
   const id = req.params.universityId;
   if (_campusPoolRuns.has(id)) return res.status(409).json({ error: 'a pool build is already running for ' + id });
-  const p = require('./services/campusPool').deepen(store.pool, id, { target: parseInt(req.query.target, 10) || undefined })
+  if (req.query.dryRun === '1') return res.json(await require('./services/campusPool').estimate(store.pool, id, { target: parseInt(req.query.target, 10) || undefined }));
+  const p = require('./services/campusPool').deepen(store.pool, id, { target: parseInt(req.query.target, 10) || undefined,
+    budgetUsd: parseFloat(req.query.budget) > 0 ? parseFloat(req.query.budget) : undefined })
     .then((r) => { console.log('[campus-pool]', JSON.stringify({ id, ...r, university: undefined })); return r; })
     .catch((e) => { console.error('[campus-pool]', e.message); return { ok: false, error: e.message }; })
     .finally(() => _campusPoolRuns.delete(id));
@@ -7030,8 +7035,10 @@ app.post('/api/admin/campus/:universityId/pool', requireAuth, requireCampusAdmin
 });
 app.post('/api/admin/campus/:universityId/contacts', requireAuth, requireCampusAdmin, async (req, res) => {
   const CC = require('./services/campusContacts');
-  const r = await CC.run(store.pool, req.params.universityId, { wait: false, limit: parseInt(req.query.limit, 10) || undefined,
-    concurrency: parseInt(req.query.concurrency, 10) || undefined, history: req.query.history !== '0' });
+  const o = { limit: parseInt(req.query.limit, 10) || undefined, history: req.query.history !== '0' };
+  if (req.query.dryRun === '1') return res.json(await CC.estimate(store.pool, req.params.universityId, o));
+  const r = await CC.run(store.pool, req.params.universityId, { ...o, wait: false, concurrency: parseInt(req.query.concurrency, 10) || undefined,
+    budgetUsd: parseFloat(req.query.budget) > 0 ? parseFloat(req.query.budget) : undefined });
   res.status(r.ok ? 200 : 409).json(r);
 });
 app.get('/api/admin/campus/:universityId/report', requireAuth, requireCampusAdmin, async (req, res) => {
@@ -7041,6 +7048,33 @@ app.get('/api/admin/campus/:universityId/report', requireAuth, requireCampusAdmi
     r.poolRunning = _campusPoolRuns.has(req.params.universityId);
     if (req.query.text === '1') return res.type('text/plain').send(CC.formatReport(r) + (r.poolRunning ? '\nPOOL BUILD STILL RUNNING' : ''));
     res.json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/campus/:universityId/estimate', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const id = req.params.universityId;
+    const o = { limit: parseInt(req.query.limit, 10) || undefined, history: req.query.history !== '0' };
+    const poolEst = await require('./services/campusPool').estimate(store.pool, id, { target: parseInt(req.query.target, 10) || undefined });
+    const contacts = await require('./services/campusContacts').estimate(store.pool, id, o);
+    if (req.query.text !== '1') return res.json({ pool: poolEst, contacts });
+    if (!poolEst.ok) return res.status(404).type('text/plain').send(poolEst.error);
+    const usd = (a) => `$${a[0].toFixed(2)} to $${a[1].toFixed(2)}`;
+    const lines = [
+      `${poolEst.university}: WHAT THE BUILD WILL COST (nothing has been spent)`, '',
+      `POOL: ${poolEst.usableNow} usable now, target ${poolEst.target}, built out to ${poolEst.coveredKm} km.`,
+      poolEst.alreadyThere ? '  Already at the target: the pool build will do nothing.'
+        : `  Rings still to try: ${poolEst.ringsKm.join(', ')} km, stopping at the first that reaches the target.`,
+      `  Each ring: ${poolEst.perRing.minCalls}-${poolEst.perRing.maxCalls} Places calls, $${poolEst.perRing.minUsd}-$${poolEst.perRing.maxUsd}. Worst case, every ring: $${poolEst.worstCaseUsd}.`, '',
+      `CONTACTS: ${contacts.businesses} businesses in the pool now to resolve${contacts.history ? ' (with the athlete/NIL history search)' : ''}.`,
+      `  Per business: ${usd(contacts.perBusiness.meteredUsd)} metered (${contacts.perBusiness.webSearches.join('-')} web searches), ${usd(contacts.perBusiness.withInputTokensUsd)} with search input tokens.`,
+      `  For these ${contacts.businesses}: ${usd(contacts.totalUsd.metered)} metered, ${usd(contacts.totalUsd.withInputTokens)} with input tokens.`,
+      `  Per 1,000 businesses: $${(contacts.perBusiness.meteredUsd[0] * 1000).toFixed(0)}-$${(contacts.perBusiness.withInputTokensUsd[1] * 1000).toFixed(0)}.`,
+      contacts.hunter ? `  Hunter: ${contacts.hunter.creditsUsedThisMonth} of ${contacts.hunter.monthlyBudget} credits used this month, ${contacts.hunter.remaining} left (shared with the agents' nightly).` : '  Hunter: budget not readable.',
+      contacts.routing ? `  Model routing: ${contacts.routing}` : '', '',
+      'Run with a cap: POST .../pool?budget=<usd>, POST .../contacts?budget=<usd>. A capped run stops at the cap; the rest stay pending.',
+    ];
+    res.type('text/plain').send(lines.filter((l) => l !== null).join('\n'));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14980,7 +15014,7 @@ try {
 
 // ── Cypress College: the confirmed teams, and an interrupted contact run ──────
 // The seed is idempotent and applies the athletic director's confirmed team
-// list (scripts/seed-cypress.js: no football, no track, no golf). A contact
+// list (scripts/seed-cypress.js: 15 teams; no tackle football, no track). A contact
 // resolution run (services/campusContacts) stopped by a deploy resumes from
 // its pending rows.
 setTimeout(async () => {
@@ -14992,13 +15026,20 @@ setTimeout(async () => {
   } catch (e) { console.error('[cypress] seed on boot failed:', e.message); }
   try {
     await require('./services/campusPool').ensureTables(store.pool);
+    // The newest unfinished run per university, resumed with what is left of
+    // its cap (a run with a cap never resumes past it) and its history setting.
     const open = (await store.pool.query(
-      `SELECT DISTINCT r.university_id FROM university_market_runs r
+      `SELECT DISTINCT ON (r.university_id) r.university_id, r.summary FROM university_market_runs r
         WHERE r.kind = 'contacts' AND r.finished_at IS NULL AND r.started_at > NOW() - INTERVAL '3 days'
-          AND EXISTS (SELECT 1 FROM university_contacts c WHERE c.university_id = r.university_id AND c.status = 'pending')`)).rows;
+          AND EXISTS (SELECT 1 FROM university_contacts c WHERE c.university_id = r.university_id AND c.status = 'pending')
+        ORDER BY r.university_id, r.started_at DESC`)).rows;
     for (const o of open) {
-      console.log(`[campus-contacts] resuming the contact run for ${o.university_id}`);
-      require('./services/campusContacts').run(store.pool, o.university_id, { wait: false }).catch((e) => console.error('[campus-contacts] resume:', e.message));
+      const sm = o.summary || {};
+      const cap = Number(sm.budgetUsd) > 0 ? Number(sm.budgetUsd) - (Number(sm.costUsd) || 0) : null;
+      if (cap !== null && cap <= 0) { console.log(`[campus-contacts] ${o.university_id}: interrupted run had spent its cap; not resuming`); continue; }
+      console.log(`[campus-contacts] resuming the contact run for ${o.university_id}${cap !== null ? ` with $${cap.toFixed(2)} of its cap left` : ''}`);
+      require('./services/campusContacts').run(store.pool, o.university_id, { wait: false, budgetUsd: cap || undefined, history: sm.history !== false })
+        .catch((e) => console.error('[campus-contacts] resume:', e.message));
     }
   } catch (e) { console.error('[campus-contacts] resume check failed:', e.message); }
 }, 3 * 60 * 1000);

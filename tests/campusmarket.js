@@ -129,6 +129,36 @@ async function main() {
   ok('the admin can start both and read the report; an interrupted run resumes on boot',
     /app\.post\('\/api\/admin\/campus\/:universityId\/pool'/.test(IDX) && /app\.post\('\/api\/admin\/campus\/:universityId\/contacts'/.test(IDX)
     && /app\.get\('\/api\/admin\/campus\/:universityId\/report'/.test(IDX) && /resuming the contact run/.test(IDX));
+
+  // ── 4. THE PRICE BEFORE THE RUN, AND A CAP THAT HOLDS ─────────────────────
+  OUT.push('', '-- the price before the run, and a cap that holds --');
+  const pe = await CP.estimate(P, UNI, { target: 1000 });
+  ok('the pool estimate spends nothing and says what each ring costs', pe.ok && pe.dryRun && pe.usableNow === 140 && pe.perRing.minCalls === 31
+    && pe.perRing.maxCalls === 151 && pe.perRing.maxUsd === 4.83 && pe.worstCaseUsd === Math.round(pe.ringsKm.length * 4.83 * 100) / 100, pe);
+  ok('  a ring the pool already covers is never bought again', JSON.stringify(CP.ringsToRun([8000, 12000, 16000], 8000)) === '[12000,16000]'
+    && JSON.stringify(CP.ringsToRun([8000, 12000], 0)) === '[8000,12000]');
+  rings.length = 0;
+  const capped = await CP.deepen(P, UNI, { places: fakePlaces, target: 100000, rings: [8000, 12000, 16000], budgetUsd: 5 });
+  ok('  a pool cap stops before a ring that could cross it', capped.stoppedFor === 'budget' && rings.length === 1 && capped.costUsd <= 5, { rings, capped: capped.costUsd });
+  const ce = await CC.estimate(P, UNI);
+  ok('the contacts estimate counts only what is left to resolve, and prices it', ce.ok && ce.dryRun && ce.businesses === 5
+    && ce.perBusiness.meteredUsd[0] === 0.124 && ce.perBusiness.meteredUsd[1] === 0.262
+    && ce.totalUsd.metered[0] === 0.62 && ce.totalUsd.metered[1] === 1.31 && ce.perBusiness.withInputTokensUsd[1] > ce.perBusiness.meteredUsd[1], ce);
+  ok('  without the history search it is cheaper', (await CC.estimate(P, UNI, { history: false })).perBusiness.meteredUsd[1] < 0.262);
+  // Ten pending, each lookup metering $0.10: a $0.30 cap stops at about three.
+  await P.query(`UPDATE university_contacts SET status = 'pending', attempts = 0 WHERE university_id = $1 AND brand IN (SELECT brand FROM university_contacts
+                   WHERE university_id = $1 AND status = 'reachable' ORDER BY brand LIMIT 10)`, [UNI]);
+  const scanMeter = require(REPO + 'server/scanMeter.js');
+  const paid = { ...ai, getBrandContacts: async (brand, w, c, x) => { scanMeter.bumpWeb(10); return ai.getBrandContacts(brand, w, c, x); } };
+  const cr = await CC.run(P, UNI, { ai: paid, concurrency: 1, budgetUsd: 0.3, history: false });
+  const left = (await P.query(`SELECT COUNT(*)::int n FROM university_contacts WHERE university_id = $1 AND status = 'pending'`, [UNI])).rows[0].n;
+  ok('a contacts cap stops the run there; the rest stay pending', cr.stoppedFor === 'budget' && cr.done === 3 && left === 7 && cr.costUsd >= 0.3, { cr, left });
+  const runRow2 = (await P.query(`SELECT finished_at, summary FROM university_market_runs WHERE university_id = $1 AND kind = 'contacts' ORDER BY id DESC LIMIT 1`, [UNI])).rows[0];
+  ok('  a capped run is finished, so boot never resumes it past the cap', runRow2.finished_at && runRow2.summary.stoppedFor === 'budget' && runRow2.summary.budgetUsd === 0.3);
+  ok('  and an interrupted run resumes with only what is left of its cap', /Number\(sm\.budgetUsd\) - \(Number\(sm\.costUsd\) \|\| 0\)/.test(IDX)
+    && /budgetUsd: cap \|\| undefined/.test(IDX));
+  ok('the admin can read both estimates without spending, and pass dryRun and budget',
+    /app\.get\('\/api\/admin\/campus\/:universityId\/estimate'/.test(IDX) && /req\.query\.dryRun === '1'/.test(IDX) && /parseFloat\(req\.query\.budget\)/.test(IDX));
   await clean();
 }
 

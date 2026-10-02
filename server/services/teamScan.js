@@ -492,7 +492,12 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       resolvedRung = true;
       rungs.push('contacts');
       const CC = require('./campusContacts');
-      const r = await CC.run(pool, universityId, { ai: deps.contactsAi, limit: parseInt(process.env.UNIVERSITY_NIGHT_RESOLVE, 10) || 60, history: false })
+      // Bounded by what is left of this team's cost ceiling, so the night's
+      // worst case stays teams x UNIVERSITY_TEAM_COST_CEILING_USD.
+      const left = COST_CEILING_USD - cost();
+      if (left <= 0.05) { stop = 'cost'; break; }
+      const r = await CC.run(pool, universityId, { ai: deps.contactsAi, limit: parseInt(process.env.UNIVERSITY_NIGHT_RESOLVE, 10) || 20,
+        history: false, budgetUsd: left })
         .catch((e) => ({ ok: false, error: e.message }));
       resolveUsd += Number(r && r.costUsd) || 0;
       continue;

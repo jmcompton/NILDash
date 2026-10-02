@@ -40,6 +40,8 @@ const SPORT_WORDS = {
   volleyball: /volleyball|\bcourt\b|athletic/i,
   'beach volleyball': /beach|volleyball|surf|sand|sunscreen|smoothie|juice/i,
   tennis: /tennis|racquet|racket|pickleball|country club/i,
+  'flag football': /football|flag football|\bnfl\b|cleats|turf/i,
+  golf: /golf|country club|driving range|putt|caddie|pro shop/i,
 };
 const EVERY_TEAM = /gym|fitness|training|sports|athletic|physical therapy|chiropract|orthopedic|nutrition|smoothie|juice|sporting goods|dick'?s|big 5|uniform|screen print|embroider|trophy/i;
 const CATEGORY_ALL = { gym: 18, health: 16, wellness: 14, restaurant: 10, food: 10, coffee: 8, bank: 10, dealership: 10, insurance: 8,
@@ -127,6 +129,60 @@ async function resolveOne(row, ctx) {
   };
 }
 
+// ── WHAT A RUN WILL COST, BEFORE IT RUNS ────────────────────────────────────
+// Modelled from the calls resolveOne makes, priced the way the run's own meter
+// prices them (outreachQueue.priceOf), so the estimate and the report's actual
+// are in the same units:
+//   Places details  1 call (lookupPlace, cached a month)
+//   the ladder      3 to 8 source calls (deepContactCtx: 8 sources, waves of
+//                   3, stops at a decision maker), about 2 web searches each
+//   owner search    only when the ladder named no one: 1 call, up to 2 searches
+//   history search  1 call, about 2 searches (history=0 skips it)
+// The meter does not price search-result input tokens. On the Anthropic path
+// that is about 6,000 Haiku input tokens a search ($0.006), reported apart.
+const PER_BIZ = {
+  low: { places: 1, calls: 3, searches: 6, owner: 0 },
+  high: { places: 1, calls: 8, searches: 16, owner: 1 },
+};
+const INPUT_TOKENS_USD_PER_SEARCH = 0.006;
+function perBusinessUsd(which, history) {
+  const Q = require('./outreachQueue');
+  const m = PER_BIZ[which];
+  const calls = m.calls + m.owner + (history ? 1 : 0);
+  const searches = m.searches + m.owner * 2 + (history ? 2 : 0);
+  return { metered: Q.priceOf({ placesCalls: m.places, aiCalls: calls, webSearches: searches }),
+    tokens: Math.round(searches * INPUT_TOKENS_USD_PER_SEARCH * 10000) / 10000, searches };
+}
+
+async function estimate(pool, universityId, opts = {}) {
+  const CP = require('./campusPool');
+  await CP.ensureTables(pool);
+  const u = await CP.universityOf(pool, universityId);
+  if (!u) return { ok: false, error: `no university "${universityId}"` };
+  const history = opts.history !== false;
+  const n = (await pool.query(
+    `SELECT COUNT(*)::int n FROM university_market_seen m
+      WHERE m.market_key = $2 AND m.blocked_reason IS NULL
+        AND NOT EXISTS (SELECT 1 FROM university_contacts c WHERE c.university_id = $1 AND c.brand = m.brand
+                          AND (c.status IN ('reachable','unreachable') OR (c.status = 'error' AND c.attempts >= $3)))`,
+    [universityId, u.marketKey, MAX_ATTEMPTS])).rows[0].n;
+  const businesses = opts.limit ? Math.min(n, Number(opts.limit)) : n;
+  const lo = perBusinessUsd('low', history), hi = perBusinessUsd('high', history);
+  const r2 = (x) => Math.round(x * 100) / 100;
+  let hunter = null;
+  try { hunter = await require('./hunterLookup').budgetStatus(); } catch (_) { hunter = null; }
+  let routing = null;
+  try { routing = require('./deepseek').describeRouting(); } catch (_) { routing = null; }
+  return { ok: true, dryRun: true, university: u.name, businesses, history,
+    perBusiness: { meteredUsd: [lo.metered, hi.metered], withInputTokensUsd: [r2(lo.metered + lo.tokens), r2(hi.metered + hi.tokens)], webSearches: [lo.searches, hi.searches] },
+    totalUsd: { metered: [r2(businesses * lo.metered), r2(businesses * hi.metered)],
+      withInputTokens: [r2(businesses * (lo.metered + lo.tokens)), r2(businesses * (hi.metered + hi.tokens))] },
+    hunter: hunter && { creditsUsedThisMonth: hunter.used, monthlyBudget: hunter.budget, remaining: hunter.remaining,
+      note: "Hunter runs last, only where the site and the ladder found no address: up to 1 credit a business, from the same monthly budget the agents' nightly uses" },
+    routing,
+    note: 'pass budget=<usd> on the real run to cap it; it stops there and the rest stay pending' };
+}
+
 // ── THE RUN ─────────────────────────────────────────────────────────────────
 const _running = new Map();   // universityId -> promise, one run per university per process
 
@@ -153,16 +209,22 @@ async function run(pool, universityId, opts = {}) {
     if (!u) return { ok: false, error: `no university "${universityId}"` };
     const city = require('./teamScan').cityOf(u.location) || u.location;
     const seeded = await seedRows(pool, u);
-    const runId = (await pool.query(`INSERT INTO university_market_runs (university_id, kind) VALUES ($1,'contacts') RETURNING id`, [universityId])).rows[0].id;
+    const budgetUsd = Number(opts.budgetUsd) > 0 ? Number(opts.budgetUsd) : null;
+    const runId = (await pool.query(`INSERT INTO university_market_runs (university_id, kind, summary) VALUES ($1,'contacts',$2) RETURNING id`,
+      [universityId, { budgetUsd, history: opts.history !== false }])).rows[0].id;
     const todo = (await pool.query(
       `SELECT brand, place_id FROM university_contacts WHERE university_id = $1
          AND (status = 'pending' OR (status = 'error' AND attempts < $2)) ORDER BY brand ${opts.limit ? 'LIMIT ' + Number(opts.limit) : ''}`,
       [universityId, MAX_ATTEMPTS])).rows;
     const scanMeter = require('../scanMeter');
     const Q = require('./outreachQueue');
-    let done = 0, reachable = 0, errors = 0, cost = 0, i = 0;
+    let done = 0, reachable = 0, errors = 0, cost = 0, i = 0, stoppedFor = null;
     const worker = async () => {
       while (i < todo.length) {
+        // THE CAP. Workers stop taking businesses once the spend reaches it;
+        // the rest stay pending, and a capped run is finished (never resumed
+        // on boot). Lookups already in flight (up to `concurrency`) complete.
+        if (budgetUsd && cost >= budgetUsd) { stoppedFor = 'budget'; break; }
         const row = todo[i++];
         let out, meter;
         try {
@@ -188,14 +250,15 @@ async function run(pool, universityId, opts = {}) {
               out.reachable ? 'reachable' : 'unreachable', c]);
         }
         done++;
-        if (done % 25 === 0) {
+        if (done % 5 === 0) {
           console.log(`[campus-contacts] ${u.name}: ${done}/${todo.length} resolved, ${reachable} reachable, ${errors} errors, $${cost.toFixed(2)}`);
-          await pool.query(`UPDATE university_market_runs SET summary = $2 WHERE id = $1`, [runId, { seeded, todo: todo.length, done, reachable, errors, costUsd: cost }]).catch(() => {});
+          await pool.query(`UPDATE university_market_runs SET summary = $2 WHERE id = $1`, [runId, { seeded, todo: todo.length, done, reachable, errors, costUsd: cost, budgetUsd, history: opts.history !== false }]).catch(() => {});
         }
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, opts.concurrency || CAMPUS_CONCURRENCY) }, worker));
-    const summary = { seeded, todo: todo.length, done, reachable, errors, costUsd: Math.round(cost * 100) / 100 };
+    const summary = { seeded, todo: todo.length, done, reachable, errors, costUsd: Math.round(cost * 100) / 100, budgetUsd, stoppedFor,
+      history: opts.history !== false };
     await pool.query(`UPDATE university_market_runs SET finished_at = NOW(), summary = $2 WHERE id = $1`, [runId, summary]);
     console.log(`[campus-contacts] ${u.name}: run complete ${JSON.stringify(summary)}`);
     return { ok: true, ...summary };
@@ -256,4 +319,4 @@ function formatReport(r) {
   ].filter(Boolean).join('\n');
 }
 
-module.exports = { run, report, formatReport, resolveOne, teamFit, pickPerson, seedRows, isRunning, MAX_ATTEMPTS };
+module.exports = { estimate, perBusinessUsd, PER_BIZ, run, report, formatReport, resolveOne, teamFit, pickPerson, seedRows, isRunning, MAX_ATTEMPTS };

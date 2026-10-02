@@ -602,7 +602,10 @@ function paintNav(){
 
 /* ===================== MY TEAMS ===================== */
 function vTeams(){
-  const bySeason = s => TEAMS.filter(t => t.season === s);
+  // A team whose season is not set yet is listed under "Season not set",
+  // never left off the page.
+  const NO_SEASON = "Season not set";
+  const bySeason = s => TEAMS.filter(t => s === NO_SEASON ? !SEASONS.includes(t.season) : t.season === s);
   const roster = list => list.reduce((a,t)=>a+(t.roster_size||0),0);
   const dates = list => list.reduce((a,t)=>a+(t.home_dates||0),0);
   const invTotal = ITEMS.reduce((s,r)=>s+r.price_cents,0);
@@ -648,7 +651,7 @@ function vTeams(){
       <div class="kpi"><span class="kpi-label">HOME DATES</span><span class="kpi-val">${dates(TEAMS)}</span><span class="kpi-note">a year to sell against</span></div>
       <div class="kpi"><span class="kpi-label">INVENTORY VALUE</span><span class="kpi-val lime">${money(invTotal)}</span><span class="kpi-note">${ITEMS.some(r => r.status === "sold") ? money(ITEMS.filter(r => r.status === "sold").reduce((s,r)=>s+r.price_cents,0)) + " sold" : "none of it sold"}</span></div>
     </div>
-    ${SEASONS.map(block).join("")}
+    ${SEASONS.concat([NO_SEASON]).map(block).join("")}
   </div>`;
 }
 

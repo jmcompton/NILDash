@@ -184,7 +184,7 @@
     },
     "campusmarket.js": {
       "failed": 0,
-      "total": 22,
+      "total": 31,
       "fault": null
     },
     "canspam.js": {
@@ -1199,7 +1199,7 @@
     },
     "universityportal.js": {
       "failed": 0,
-      "total": 49,
+      "total": 52,
       "fault": null
     },
     "universitywall.js": {
