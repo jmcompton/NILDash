@@ -123,6 +123,9 @@ function resolveAthlete(row, opts = {}) {
     // undated follower count forever, including athletes who had just entered
     // their own numbers minutes earlier, and quietly stops citing reach for
     // everyone. See services/reachProvenance.
+    // The school's level as the agent confirmed it (D1, D2, D3, NAIA, JUCO);
+    // services/athleteTier treats an unconfirmed school as low tier.
+    division: _str(d.division),
     // The connected Instagram's engagement rate, a percent (instagramConnect).
     engagement: Number.isFinite(Number(d.engagement)) && d.engagement !== null && d.engagement !== '' ? Number(d.engagement) : null,
     reachSource: _str(d.reachSource),

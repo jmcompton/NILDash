@@ -34,7 +34,11 @@ function extract(name) {
 const CENTRAL_TZ = 'America/Chicago';
 const WINDOW_START_HOUR = 1, WINDOW_END_HOUR = 5;
 const code = extract('centralParts') + '\n' + extract('today') + '\n' + extract('nightlyWindowOpen');
-eval(code);
+// In strict mode a function declared inside eval() is scoped to that eval and
+// never reaches this file, so every call threw a ReferenceError and the window
+// was never actually tested. Built with Function and handed back instead.
+const { centralParts, today, nightlyWindowOpen } = new Function('CENTRAL_TZ', 'WINDOW_START_HOUR', 'WINDOW_END_HOUR',
+  code + '\nreturn { centralParts, today, nightlyWindowOpen };')(CENTRAL_TZ, WINDOW_START_HOUR, WINDOW_END_HOUR);
 
 let OUT = [], FAIL = 0;
 function ok(n, c, got) { if (c) OUT.push('PASS ' + n); else { FAIL++; OUT.push('FAIL ' + n + (got !== undefined ? '  got=' + JSON.stringify(got) : '')); } }

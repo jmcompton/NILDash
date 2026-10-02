@@ -7095,7 +7095,7 @@ app.post('/api/admin/engine/prove', requireAuth, requireCampusAdmin, async (req,
     const b = { ...(req.query || {}), ...(req.body || {}) };
     const athletes = Array.isArray(b.athletes) ? b.athletes : (b.athletes ? String(b.athletes).split(',').map((x) => x.trim()).filter(Boolean) : undefined);
     const r = await require('./services/engineProof').start(store.pool, { athletes, team: b.team === undefined ? undefined : (b.team || null),
-      fresh: b.fresh === true || b.fresh === '1' });
+      fresh: b.fresh === true || b.fresh === '1', allowFreshOnRealQueues: b.allowFreshOnRealQueues === true || b.allowFreshOnRealQueues === '1' });
     res.json({ ok: true, ...r, read: `/api/admin/engine/prove/${r.id}?text=1` });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

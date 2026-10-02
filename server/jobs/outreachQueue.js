@@ -1235,7 +1235,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // athlete never climbs to the social or national lane; mid and high go to
   // the social lane straight after their own pool.
   const tierInfo = require('../services/athleteTier').tierOf(profile || {});
-  const ladder_ = require('../services/athleteTier').ladderFor(tierInfo.tier);
+  const ladder_ = require('../services/athleteTier').ladderFor(tierInfo);
   async function refillSlate(why) {
     const { fresh: f, added } = await redraw();
     slate = f;

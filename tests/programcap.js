@@ -216,10 +216,11 @@ async function main() {
     }
   }
   const A2 = 'pcap-a2';
-  // A national-lane brand reaches only a high-tier athlete (services/athleteTier:
-  // a mid-tier athlete is local plus social), so this athlete has the following
-  // a national brand pitches.
-  const d2 = { name: 'Rescue Case', hometown: 'Knoxville, TN', sport: 'Football', instagram: 120000 };
+  // TEST FIXTURE, NOT A REALISTIC ATHLETE. A national-lane brand reaches only
+  // a high-tier athlete at a confirmed level (services/athleteTier), so this
+  // one is set to 120,000 followers with a confirmed Division I level purely
+  // to open the national lane this section tests.
+  const d2 = { name: 'Rescue Case', hometown: 'Knoxville, TN', sport: 'Football', instagram: 120000, division: 'D1' };
   await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ($1,$2,$3::jsonb)`,
     [A2, AG, JSON.stringify(d2)]);
   stub.handles = { 'PCAP Social': 'pcapsocial' };   // one has an account, one does not

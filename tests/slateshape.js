@@ -80,7 +80,7 @@ async function main() {
          SET category = EXCLUDED.category, has_evidence = EXCLUDED.has_evidence`,
       [MK, brand, cat, ev]);
   }
-  const A = (over) => Object.assign({ id: ATH, school: 'Shapetown University',
+  const A = (over) => Object.assign({ id: ATH, school: 'Shapetown University', division: 'D1',
     hasLocalMarket: true, marketKey: MK, market: 'Shapetown, AL' }, over || {});
 
   // ── 1. THE CATEGORY IS READ FROM THE POOL, NOT GUESSED ──────────────────
@@ -340,7 +340,9 @@ async function main() {
   const hq = fs2.readFileSync(ROOT + 'server/services/homeQueue.js', 'utf8');
   const html = fs2.readFileSync(ROOT + 'public/index.html', 'utf8');
   const job = fs2.readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8');
-  ok('the job writes it to the row', /business_category, thin, thin_note\)/.test(job)
+  // The column list has grown past thin_note (email tier, market), so the
+  // check is that the three are written together, not that thin_note is last.
+  ok('the job writes it to the row', /business_category, thin, thin_note[,)]/.test(job)
     && /card\.thin === true/.test(job), null);
   ok('the card query selects it', /q\.business_category, q\.thin, q\.thin_note/.test(act));
   ok('  the card shape carries it', /thin: r\.thin === true/.test(act));

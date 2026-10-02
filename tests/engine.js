@@ -101,7 +101,7 @@ async function main() {
   const d2 = T.tierOf({ school: 'Western New Mexico University', instagram: 9000 });
   ok('  a Division II athlete with 9,000 followers is still low (small school)', d2.level === 'small' && d2.tier === 'low', d2);
   ok('  strong engagement lifts a small following one band', T.tierOf({ school: 'Western New Mexico University', instagram: 1500, engagement: 8 }).tier === 'mid');
-  const mid = T.tierOf({ school: 'Montana State University', instagram: 12000 });
+  const mid = T.tierOf({ school: 'Boise State University', instagram: 12000 });
   ok('a Division I athlete with 12,000: mid, local plus social, no national', mid.tier === 'mid' && mid.lanes.social && !mid.lanes.national && mid.socialSeats === 2, mid);
   ok('a pro, or a large following: high, local plus social plus national', T.tierOf({ athleteType: 'pro' }).tier === 'high'
     && T.tierOf({ school: 'University of Alabama', instagram: 120000 }).lanes.national);
@@ -110,6 +110,18 @@ async function main() {
   ok('the ladder follows the tier: low never climbs to social or national; mid and high go social straight after their own pool',
     T.ladderFor('low').join() === 'local,local-wide,places-refresh,hometown' && T.ladderFor('mid').join() === 'local,social,local-wide,places-refresh,hometown'
     && T.ladderFor('high').join() === 'local,social,national,local-wide,places-refresh,hometown');
+  // ── A JUNIOR COLLEGE IS NEVER READ AS DIVISION I ──
+  const cy = T.tierOf({ school: 'Cypress College', instagram: 800 });
+  ok('Cypress College is a junior college by the list, though its name does not say so: low, local only', cy.level === 'juco' && cy.tier === 'low' && !cy.lanes.national, cy);
+  const cyBig = T.tierOf({ school: 'Cypress College', instagram: 250000 });
+  ok('  a junior-college athlete never reaches the national lane, whatever the following', cyBig.tier === 'mid' && !cyBig.lanes.national, cyBig);
+  const unk = T.tierOf({ school: 'University of Montana', instagram: 150000 });
+  ok('a school on no list is unconfirmed and LOW, whatever the following, and says so', unk.level === 'unconfirmed' && unk.tier === 'low' && /not confirmed/.test(unk.why), unk);
+  ok('  an agent confirms it with the athlete\'s division field', T.tierOf({ school: 'University of Montana', instagram: 12000, division: 'D1' }).tier === 'mid'
+    && T.tierOf({ school: 'University of Montana', instagram: 12000, division: 'JUCO' }).level === 'juco');
+  ok('  FBS schools are confirmed Division I however they are written', T.levelOf({ school: 'Louisville' }) === 'd1' && T.levelOf({ school: 'University of Louisville' }) === 'd1'
+    && T.levelOf({ school: 'Boise State University' }) === 'd1');
+  ok('  the record carries the division', AR.resolveAthlete({ id: 'x', data: { school: 'University of Montana', division: 'D1' } }, { schoolLocation: SR.resolveSchool }).division === 'D1');
   const subj = Scout.athleteSubject({ school: 'Orange Coast Community College', instagram: 800 }, AG);
   ok('the subject carries the tier and closes the lanes it does not allow', subj.tier === 'low' && subj.lanes.social === false && subj.lanes.national === false);
 
@@ -119,7 +131,7 @@ async function main() {
   const socialStore = { ...store, getSocialBrandPool: async () => Array.from({ length: 6 }, (_, i) => ({ brand: `EN Social ${i}`, brandKey: `en-social-${i}`, fitScore: 40 })),
     getTopNilComps: async () => [] };
   const slateFor = async (a) => Scout.assembleSlate(P, { agentId: AG, athlete: { id: 'en-s', marketKey: 'enslate, ga', market: 'Enslate, GA', hasLocalMarket: true, ...a }, store: socialStore, limit: 5 });
-  const sMid = await slateFor({ school: 'Montana State University', instagram: 12000 });
+  const sMid = await slateFor({ school: 'Boise State University', instagram: 12000 });
   const nSocMid = (sMid.picks || []).filter((c) => c.lane === 'social').length;
   ok('a mid-tier athlete: two of the five seats are social, even though local outranks them', nSocMid === 2, (sMid.picks || []).map((c) => [c.brand_name, c.lane, c.fit]));
   const sLow = await slateFor({ school: 'Orange Coast Community College', instagram: 800 });
@@ -194,7 +206,7 @@ async function main() {
   await P.query(`DELETE FROM market_business_seen WHERE market_key = $1`, [probe.marketKey]);
   const zeroBefore = (await P.query(`SELECT COUNT(*)::int n FROM market_business_seen WHERE market_key = $1`, [probe.marketKey])).rows[0].n;
   ok(`the market (${probe.marketKey}) starts with zero rows`, zeroBefore === 0 && !!probe.marketKey, probe.marketKey);
-  const z = await fill('en-z1', { name: 'En Zero', school: 'Montana State University', sport: 'Football', instagram: 800 });
+  const z = await fill('en-z1', { name: 'En Zero', school: 'Montana State University', division: 'D1', sport: 'Football', instagram: 800 });
   const ZL = z.r.loop || {};
   ok('a low-tier athlete starting from nothing reaches five', z.r.filled === 5 && ZL.held === 5, { filled: z.r.filled, loop: ZL, note: z.r.note });
   ok('  by going to look: Google was searched and the record now holds the market', calls.places > 0
@@ -211,7 +223,7 @@ async function main() {
   await P.query(`DELETE FROM market_pool_schedule WHERE market_key = $1`, [probe.marketKey]).catch(() => {});
   const realSocial = store.getSocialBrandPool;
   store.getSocialBrandPool = async () => Array.from({ length: 6 }, (_, i) => ({ brand: `EN Social Brand ${i}`, brandKey: `en-sb-${i}`, fitScore: 40 }));
-  const z2 = await fill('en-z2', { name: 'En Zero Two', school: 'Montana State University', sport: 'Football', instagram: 12000 });
+  const z2 = await fill('en-z2', { name: 'En Zero Two', school: 'Montana State University', division: 'D1', sport: 'Football', instagram: 12000 });
   store.getSocialBrandPool = realSocial;
   const lanes2 = (await P.query(`SELECT lane, COUNT(*)::int n FROM outreach_queue WHERE athlete_id = 'en-z2' AND state = 'queued' GROUP BY 1`)).rows;
   const soc2 = (lanes2.find((x) => x.lane === 'social') || {}).n || 0;
@@ -227,6 +239,15 @@ async function main() {
   ok('the report says, per subject: five or short, candidates by role, hit rate, cost, time, split',
     /FIVE: holds 5 of 5/.test(text) && /considered \d+ > judge \d+ > owner finder \d+ > writer 5/.test(text) && /contact hit rate/.test(text)
     && /cost \$0\.40, 30s/.test(text) && /split: local 5/.test(text) && /record rows for the market: 0 before, 12 after/.test(text), text);
+  // The zero test refuses a market that is not empty, before spending.
+  const heldBeforeRefusal = (await P.query(`SELECT COUNT(*)::int n FROM outreach_queue WHERE athlete_id = 'en-z1'`)).rows[0].n;
+  const notZero = await EP.runAthlete(P, 'en-z1', { expectZero: true });
+  ok('the zero-row subject is refused, unrun, when its market (by the run\'s own key) is not empty', notZero.ok === false && notZero.notZero === true
+    && /NOT A ZERO-ROW TEST/.test(notZero.error) && notZero.recordRowsBefore > 0
+    && (await P.query(`SELECT COUNT(*)::int n FROM outreach_queue WHERE athlete_id = 'en-z1'`)).rows[0].n === heldBeforeRefusal, notZero);
+  const kept = (await P.query(`SELECT COUNT(*)::int n FROM outreach_queue WHERE athlete_id = 'en-z1' AND state = 'queued'`)).rows[0].n;
+  await EP.runAthlete(P, 'en-z1', { fresh: true });
+  ok('fresh=1 alone never expires an agent\'s queued cards', (await P.query(`SELECT COUNT(*)::int n FROM outreach_queue WHERE athlete_id = 'en-z1' AND state = 'expired'`)).rows[0].n === 0 && kept === 5);
   const IDX = require('fs').readFileSync(REPO + 'server/index.js', 'utf8');
   ok('admin can pick, start and read a proof', /app\.get\('\/api\/admin\/engine\/prove\/pick', requireAuth, requireCampusAdmin/.test(IDX)
     && /app\.post\('\/api\/admin\/engine\/prove', requireAuth, requireCampusAdmin/.test(IDX) && /app\.get\('\/api\/admin\/engine\/prove\/:id', requireAuth, requireCampusAdmin/.test(IDX));

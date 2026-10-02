@@ -271,8 +271,9 @@ async function main() {
       // nothing; asking again would re-spend for the same answer.
       getBrandEvidence: async (key) => (/plainnopage/.test(key) ? { evidence: { found: false } } : null),
     };
-    // National brands reach only a high-tier athlete (services/athleteTier), so
-    // this block's athlete has the following a national brand pitches.
+    // TEST FIXTURE, NOT A REALISTIC ATHLETE. National brands reach only a
+    // high-tier athlete (services/athleteTier), so this block's athlete is set
+    // to 120,000 followers purely to open the national lane it tests.
     const BIG = { ...BARE, instagram: 120000 };
     const capped = await S.assembleSlate(P, { agentId: AG, athlete: BIG, store: capStore, limit: 5,
       heldPrograms: 1, programCap: 1 });

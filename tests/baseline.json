@@ -208,9 +208,9 @@
       "fault": null
     },
     "centraltime.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 8,
+      "fault": null
     },
     "chan.js": {
       "failed": null,
@@ -409,7 +409,7 @@
     },
     "engine.js": {
       "failed": 0,
-      "total": 34,
+      "total": 42,
       "fault": null
     },
     "engrate.js": {
@@ -1143,7 +1143,7 @@
       "fault": null
     },
     "slateshape.js": {
-      "failed": 1,
+      "failed": 0,
       "total": 59,
       "fault": null
     },

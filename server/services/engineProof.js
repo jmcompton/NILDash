@@ -16,8 +16,10 @@
 // raw row); the team run is teamScan.runTeamScan in pitch mode. It writes real
 // cards, awaiting approval, exactly as the night would.
 //
-// fresh: the athlete's queued cards are expired first so the run starts from
-// zero. Off by default: those cards may be on an agent's screen this morning.
+// fresh: the athlete's queued cards would be expired first so the run starts
+// from zero. REFUSED unless allowFreshOnRealQueues is also passed: those cards
+// are on customers' screens. Without it, cards already held are reported as
+// held from before and the run tops up to five like the night does.
 //
 //   POST /api/admin/engine/prove            { athletes?, team?, fresh? }
 //   GET  /api/admin/engine/prove/:id?text=1
@@ -96,7 +98,7 @@ async function runAthlete(pool, athleteId, opts = {}) {
   const agentFirstName = AgentName.agentFirstName({ name: ath.agent_name, email: ath.agent_email });
   if (!agentFirstName) return { ok: false, error: AgentName.NO_AGENT_NAME_REASON };
   let expired = 0;
-  if (opts.fresh) {
+  if (opts.fresh && opts.allowFreshOnRealQueues === true) {
     expired = (await pool.query(`UPDATE outreach_queue SET state = 'expired', expired_at = NOW(), updated_at = NOW()
                                   WHERE athlete_id = $1 AND state = 'queued'`, [athleteId])).rowCount;
   }
@@ -104,6 +106,15 @@ async function runAthlete(pool, athleteId, opts = {}) {
   const counts = new Map((await pool.query(`SELECT market_key, COUNT(*)::int n FROM market_business_seen GROUP BY 1`)).rows.map((r) => [r.market_key, r.n]));
   const ctx = await job.localContextFor(ath);
   const rowsBefore = counts.get(ctx.profile.marketKey) || 0;
+  // THE ZERO TEST IS ONLY A ZERO TEST IF THE RECORD IS EMPTY FOR THE MARKET
+  // THE RUN WILL ACTUALLY USE. The pick counted rows under the school map's
+  // key; the run may geocode to another. Checked here, with the run's key,
+  // before anything is spent: a non-empty market is refused, not run.
+  if (opts.expectZero && rowsBefore !== 0) {
+    return { ok: false, kind: 'athlete', id: ath.id, name: ath.name, market: ctx.profile.market, marketKey: ctx.profile.marketKey,
+      notZero: true, recordRowsBefore: rowsBefore,
+      error: `NOT A ZERO-ROW TEST: the record holds ${rowsBefore} row(s) for ${ctx.profile.marketKey}, the market this run would use. Nothing was run.` };
+  }
   const budget = Q.newBudget(job.CAP_USD);
   const t0 = Date.now();
   const lines = [];
@@ -186,7 +197,7 @@ async function start(pool, opts = {}) {
     // All four at once: the afternoon, not the night.
     state.results = await Promise.all(subjects.map(async (s) => {
       try {
-        const res = s.kind === 'team' ? await runTeam(pool, s.id, opts) : await runAthlete(pool, s.id, opts);
+        const res = s.kind === 'team' ? await runTeam(pool, s.id, opts) : await runAthlete(pool, s.id, { ...opts, expectZero: s.role === 'ZERO rows in the record' });
         return { role: s.role, ...res };
       } catch (e) { return { role: s.role, kind: s.kind, id: s.id, ok: false, error: e.message }; }
     }));
@@ -212,6 +223,7 @@ function formatReport(s) {
   if (!s.done) { out.push(`Running: ${(s.subjects || []).map((x) => `${x.role} (${x.id})`).join('; ')}`); return out.join('\n'); }
   for (const r of s.results || []) {
     out.push(`== ${r.role}: ${r.name || r.id}${r.market ? ` -- ${r.market}` : ''}${r.tier ? ` -- tier ${r.tier} (${r.tierWhy})` : ''}`);
+    if (r.role === 'ZERO rows in the record' && r.ok) out.push(`   ZERO CONFIRMED: ${r.recordRowsBefore} rows for ${r.marketKey} when the run started, checked with the run's own market key`);
     if (!r.ok) { out.push(`   FAILED: ${r.error}`, ''); continue; }
     out.push(`   ${r.reachedFive ? 'FIVE' : 'SHORT'}: holds ${r.held} of 5 (${r.placed} placed by this run${r.expiredFirst ? `; ${r.expiredFirst} expired first` : ''})`);
     if (r.recordRowsBefore !== undefined) out.push(`   record rows for the market: ${r.recordRowsBefore} before, ${r.recordRowsAfter} after`);
