@@ -75,7 +75,7 @@ ok('for a college athlete the ranking is untouched: the owner first', base('Owne
   ok('  with no order (a college athlete) the owner search still runs first, unchanged', asked.length === 1 && /owner/.test(asked[0]) && c.query === 'owner', asked);
   const job = src('server/jobs/outreachQueue.js');
   ok('the job reads the lane from the record and passes it to the ladder and both last-door searches', /const proLane = PL\.isPro\(profile\) \|\| PL\.isPro\(ctx\.athleteRow \|\| \{\}\);/.test(job) && /rankOf: proLane \? PL\.proRankOf\(ai\.contactAuthorityRank\) : ai\.contactAuthorityRank/.test(job) && (job.match(/order: proLane \? PL\.PRO_QUERY_ORDER : null/g) || []).length === 2);
-  ok('  finalNameFor keys its cache by the order too, so a pro and a college athlete in one town do not share an answer', /\|\$\{Array\.isArray\(order\) \? order\.join\(','\) : ''\}`;/.test(job));
+  ok('  finalNameFor keys its cache by the order too, so a pro and a college athlete in one town do not share an answer', /\|\$\{Array\.isArray\(order\) \? order\.join\(','\) : ''\}\|\$\{large \? 'L' : ''\}`;/.test(job));
 
   OUT.push('', '-- 3. the pitch: appearances, signings, ambassador deals, shoots, hospitality; team and market first; never NIL --');
   const sysPro = PW.systemFor(PRO), sysCol = PW.systemFor(COL);

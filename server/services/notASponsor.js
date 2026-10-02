@@ -15,6 +15,11 @@
 // enforce it, and the discovery writers (placesMarket, Deal Scan, the market
 // pool, the national lane) drop it before it can be a candidate.
 //
+// NEVER TARGETS, whatever lane they arrive by: universities and colleges
+// (by name: "Texas Tech" as much as "Texas Tech University"), athletic
+// departments, conferences and governing bodies, collectives, NIL
+// marketplaces, and media, rights or event companies (Players Era, Learfield).
+//
 // THREE KINDS OF RULE, from certain to contextual
 //   1. A NAMED organisation (server/data/notSponsors.json): On3, 247Sports,
 //      Opendorse, ESPN, the NCAA. The exact name always; a longer name that
@@ -103,6 +108,16 @@ function detect(name, evidence) {
   if (media) return out('media', `the name says "${media}" and it is not a consumer business: media covers athletes, it does not sponsor them`);
   if (has(n, 'recruiting')) return out('recruiting', 'a recruiting service, not a business that buys endorsements');
   if (SCHOOL.test(n)) return out('school', 'a school or athletic program, not a business that buys endorsements');
+  // A SCHOOL BY ITS BARE NAME. "Texas Tech" reached a card with its
+  // president as the contact: the school rule above needed "University" in
+  // the name. Any name that IS a school we know (Division I, D2/D3/NAIA,
+  // junior college) is a school, not a sponsor.
+  try { if (require('./athleteTier').isKnownSchoolName(name)) return out('school', `"${name}" is a school, not a business that buys endorsements`); }
+  catch (_) { /* the other rules stand */ }
+  if (has(n, 'conference') || has(n, 'athletic conference')) return out('conference', 'an athletic conference, not a business that buys endorsements');
+  const EVENT = ['invitational', 'showcase', 'all star game', 'bowl game', 'tip off', 'tipoff classic', 'festival'];
+  const ev = EVENT.find((w) => has(n, w));
+  if (ev) return out('event', `the name says "${ev}": an event company, not a business that buys endorsements`);
   const last = words[words.length - 1], last2 = words.slice(-2).join(' ');
   if (words.length >= 2 && words.length <= 5 && (MASCOTS.has(last) || MASCOTS.has(last2))) {
     return out('team', `reads as a team ("${name}"), not a business that buys endorsements`);

@@ -71,12 +71,16 @@ const NAME_REQUIRED = true;
 // throws (services/ourFault) and is never cached: it is not a miss.
 const _finalNames = new Map();
 const FINAL_NAME_TTL_MS = 24 * 3600000;
-async function finalNameFor(brand, city, { agentId, athleteId, say, order }) {
-  const key = `${String(brand || '').trim().toLowerCase()}|${String(city || '').trim().toLowerCase()}|${Array.isArray(order) ? order.join(',') : ''}`;
+// large: a national-lane brand or a social brand sized national -- only its
+// partnerships or marketing lead is accepted (ownerNameSearch.titleProblem),
+// and that is who is searched for.
+async function finalNameFor(brand, city, { agentId, athleteId, say, order, large }) {
+  if (large) order = ONS.LARGE_ORDER;
+  const key = `${String(brand || '').trim().toLowerCase()}|${String(city || '').trim().toLowerCase()}|${Array.isArray(order) ? order.join(',') : ''}|${large ? 'L' : ''}`;
   const hit = _finalNames.get(key);
   if (hit && Date.now() - hit.at < FINAL_NAME_TTL_MS) return hit.found;
   const found = await scanMeter.label({ site: 'contacts.finalname', agentId, athleteId, brand },
-    () => ONS.findOwnerName({ brand, city, search: ai.webSearchJson, say, order }));
+    () => ONS.findOwnerName({ brand, city, search: ai.webSearchJson, say, order, large: !!large }));
   _finalNames.set(key, { found: found || null, at: Date.now() });
   return found || null;
 }
@@ -1470,7 +1474,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         }
         if (NAME_REQUIRED) {
           try {
-            pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null });
+            pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null,
+              large: cand.lane === 'national' || cand.brandSize === 'national' });
           } catch (e) {
             say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
             tried.push({ brand: cand.brand_name, result: 'error', reason: 'owner search failed: ' + e.message, fault: true,
@@ -1709,6 +1714,18 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         rankOf: proLane ? PL.proRankOf(ai.contactAuthorityRank) : ai.contactAuthorityRank, rootDomain: ai.rootDomain,
         category: null, brand: cand.brand_name, instagramScope: out.instagramScope || null,
       });
+      // ── NOBODY WHO WOULD NEVER SIGN ─────────────────────────────────────
+      // An emeritus, a retired founder, a board chair, a school's president:
+      // off the ladder before the bar, the greeting or the writer see them
+      // (ownerNameSearch.titleProblem).
+      for (const t of (ladder.tiers || [])) {
+        if (!Array.isArray(t.rows)) continue;
+        t.rows = t.rows.filter((r) => {
+          const tp = r && r.name && r.title ? ONS.titleProblem(r.title) : null;
+          if (tp) say(`${cand.brand_name}: ${r.name} dropped from the contacts: ${tp}`);
+          return !tp;
+        });
+      }
       // ── DOES THE ADDRESS TAKE MAIL? ─────────────────────────────────────
       // Syntax, then an MX lookup, on every address the ladder holds
       // (services/emailValidation). An undeliverable address is marked on

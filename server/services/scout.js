@@ -608,6 +608,9 @@ function programFacts(b) {
     category: b.category || null,
     offerSummary: b.offer_summary || b.offerSummary || null,
     dealStructure: b.deal_structure || b.dealStructure || null,
+    // 'national' or 'small' (services/socialProof): a national-size brand's
+    // contact must be its partnerships or marketing lead.
+    brandSize: b.brand_size || b.brandSize || null,
   };
 }
 

@@ -74,6 +74,14 @@ function levelOf(a) {
   return 'unconfirmed';
 }
 
+// The exact name of a school on any list (not a fuzzy match: a business is
+// never turned into a school by resemblance). Used by services/notASponsor.
+function isKnownSchoolName(name) {
+  const f = fold(name);
+  if (!f) return false;
+  return TWO_YEAR.has(f) || SMALL.has(f) || D1.has(d1Key(name));
+}
+
 const LEVEL_WORDS = { juco: 'a junior college', small: 'a small school', unconfirmed: 'a school whose level is not confirmed' };
 
 // a: the athlete record (services/athleteRecord). -> { tier, why, level, reach, lanes, socialSeats }
@@ -129,4 +137,4 @@ function ladderFor(tier) {
   return ['local', 'social', 'national', 'local-wide', 'places-refresh', 'hometown'];
 }
 
-module.exports = { tierOf, levelOf, lanesFor, ladderFor, HIGH_REACH, HIGH_REACH_D1, LOW_REACH, LOW_REACH_SMALL };
+module.exports = { tierOf, levelOf, isKnownSchoolName, lanesFor, ladderFor, HIGH_REACH, HIGH_REACH_D1, LOW_REACH, LOW_REACH_SMALL };

@@ -34,6 +34,8 @@ const QUERIES = [
   // lists who runs a small business more often than its own site does, and
   // an owner usually signs the Instagram bio or answers Google reviews by name.
   { key: 'linkedin', q: (b, c) => ['site:linkedin.com', b, c, 'owner OR founder OR president'].filter(Boolean).join(' '), ask: 'the owner, founder or president, as their LinkedIn profile or the company page states it' },
+  // A large brand: the person who runs athlete and influencer partnerships.
+  { key: 'partnerships', q: (b, c) => [b, c, 'head of partnerships OR "athlete marketing" OR "influencer marketing" OR sponsorships'].filter(Boolean).join(' '), ask: 'the head of partnerships, athlete marketing, influencer marketing or sponsorships' },
   { key: 'social', q: (b, c) => [b, c, 'instagram OR "response from the owner"'].filter(Boolean).join(' '), ask: 'the owner, as the business Instagram bio or the owner replies on its Google reviews name them' },
 ];
 
@@ -62,6 +64,35 @@ function looksLikePerson(name, brand) {
   return true;
 }
 
+// ── THE MARKETING OR PARTNERSHIPS DECISION MAKER, OR NOBODY ─────────────────
+//
+// Jasper Johnson's cards went to Phil Knight ("Chairman Emeritus and
+// co-founder" of Nike) and Lawrence Schovanec ("17th President of Texas Tech
+// University"). The owner finder printed the disqualifying title and nothing
+// read it. titleProblem() does, for every lane:
+//   never     emeritus, retired or former; chairman or chair of the board, a
+//             trustee or regent; a school's president, chancellor, provost,
+//             dean, athletic director or coach
+//   large     (the national lane, or a social brand sized national): the CEO,
+//             president, chairman, founder or owner of a company that size is
+//             someone we would never reach. Only a marketing, partnerships,
+//             brand, influencer, sponsorship, athlete, creator or community
+//             title is accepted.
+// -> null when the person may be pitched, or the reason they may not.
+const NEVER_TITLE = /\b(emerit(us|a)|retired|former|ex-|chair(man|woman|person)? of the board|board (chair|member)|board of (directors|trustees|regents)|trustee|regent|vice chancellor|chancellor|provost|dean|athletic director|athletics director|director of athletics|head coach|assistant coach|coach)\b|\bpresident of (the )?[\w .&'-]*\b(university|college|school|institute)\b|\b(university|college) president\b|^\s*\d+(st|nd|rd|th) president\b/i;
+const DECIDES = /\b(marketing|partnerships?|brand|influencer|sponsorships?|athletes?|creators?|community|social media|nil|ambassador|talent|communications|public relations|events?|growth|affiliate|activation)\b/i;
+const TOP_EXEC = /\b(ceo|chief executive|president|chair(man|woman|person)?|co-?founder|founder|owner|proprietor|managing director|general partner)\b/i;
+function titleProblem(title, opts = {}) {
+  const t = String(title || '').trim();
+  if (NEVER_TITLE.test(t)) return `"${t}" is not someone who signs an athlete deal (emeritus, retired, a board seat or a school's leadership)`;
+  if (opts.large) {
+    if (DECIDES.test(t)) return null;
+    if (TOP_EXEC.test(t)) return `"${t}" at a company this size is someone we would never reach; we want the marketing or partnerships decision maker`;
+    return `"${t}" is not the marketing or partnerships decision maker`;
+  }
+  return null;
+}
+
 // A title the greeting guard would accept: a decision maker or a manager,
 // not a placeholder. A missing title becomes the role we searched for.
 function acceptableTitle(title, fallback) {
@@ -77,11 +108,14 @@ function acceptableTitle(title, fallback) {
 // order: the query keys to run, in order. The default asks for the owner
 // first; a pro athlete's job passes ['marketing', 'owner'] so the marketing
 // director is found first and the owner is the fallback (services/proLane).
-async function findOwnerName({ brand, city, search, say, order }) {
+async function findOwnerName({ brand, city, search, say, order, large }) {
   const b = String(brand || '').trim();
   const c = String(city || '').trim();
   if (!b) return null;
-  const queries = Array.isArray(order) && order.length ? order.map((k) => QUERIES.find((q) => q.key === k)).filter(Boolean) : QUERIES;
+  // The default (a local business): owner, marketing, LinkedIn, the social /
+  // review owner. 'partnerships' is asked for only when named (LARGE_ORDER).
+  const queries = Array.isArray(order) && order.length ? order.map((k) => QUERIES.find((q) => q.key === k)).filter(Boolean)
+    : QUERIES.filter((q) => q.key !== 'partnerships');
   // How many searches actually answered. If NONE did, "no name" is not an
   // answer about the business, it is our outage (services/ourFault): thrown,
   // so it is never cached and never recorded as "no name found".
@@ -101,9 +135,11 @@ async function findOwnerName({ brand, city, search, say, order }) {
     const j = parseJson(text);
     if (!j || !j.name) continue;
     if (!looksLikePerson(j.name, b)) { if (say) say(`${b}: owner search (${q.key}) returned "${j.name}", not a person's name; refused`); continue; }
-    const fallback = q.key === 'marketing' ? 'Marketing Director' : 'Owner';
+    const fallback = q.key === 'marketing' ? 'Marketing Director' : q.key === 'partnerships' ? 'Head of Partnerships' : 'Owner';
     const title = acceptableTitle(j.title, fallback);
     if (!title) { if (say) say(`${b}: owner search (${q.key}) named ${j.name} as "${j.title}", not a decision maker; refused`); continue; }
+    const tp = titleProblem(j.title || title, { large });
+    if (tp) { if (say) say(`${b}: owner search (${q.key}) named ${j.name}: ${tp}; refused`); continue; }
     return { name: String(j.name).trim().replace(/\s+/g, ' '), title, sourceUrl: j.sourceUrl || cited || null, query: q.key, confidence: String(j.confidence || 'low') };
   }
   if (!answered && lastErr) {
@@ -150,4 +186,8 @@ function attachToLadder(ladder, found) {
 
 const NO_NAME_REASON = 'no contact name found after all sources, including the final owner and marketing-director search';
 
-module.exports = { findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };
+// What a large brand is searched for: its partnerships lead, then marketing.
+// Never its owner or founder.
+const LARGE_ORDER = ['partnerships', 'marketing'];
+
+module.exports = { titleProblem, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };
