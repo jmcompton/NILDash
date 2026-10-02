@@ -30,6 +30,11 @@ const SYS = 'You find the named person who runs or markets a specific local busi
 const QUERIES = [
   { key: 'owner', q: (b, c) => [b, c, 'owner'].filter(Boolean).join(' '), ask: 'the owner, founder or proprietor' },
   { key: 'marketing', q: (b, c) => [b, c, 'marketing director'].filter(Boolean).join(' '), ask: 'the marketing director, marketing manager or partnerships lead' },
+  // TWO MORE DOORS BEFORE A BUSINESS IS DROPPED. The LinkedIn company page
+  // lists who runs a small business more often than its own site does, and
+  // an owner usually signs the Instagram bio or answers Google reviews by name.
+  { key: 'linkedin', q: (b, c) => ['site:linkedin.com', b, c, 'owner OR founder OR president'].filter(Boolean).join(' '), ask: 'the owner, founder or president, as their LinkedIn profile or the company page states it' },
+  { key: 'social', q: (b, c) => [b, c, 'instagram OR "response from the owner"'].filter(Boolean).join(' '), ask: 'the owner, as the business Instagram bio or the owner replies on its Google reviews name them' },
 ];
 
 // Any of these words anywhere in the "name" means it is not a person: "The
@@ -96,7 +101,7 @@ async function findOwnerName({ brand, city, search, say, order }) {
     const j = parseJson(text);
     if (!j || !j.name) continue;
     if (!looksLikePerson(j.name, b)) { if (say) say(`${b}: owner search (${q.key}) returned "${j.name}", not a person's name; refused`); continue; }
-    const fallback = q.key === 'owner' ? 'Owner' : 'Marketing Director';
+    const fallback = q.key === 'marketing' ? 'Marketing Director' : 'Owner';
     const title = acceptableTitle(j.title, fallback);
     if (!title) { if (say) say(`${b}: owner search (${q.key}) named ${j.name} as "${j.title}", not a decision maker; refused`); continue; }
     return { name: String(j.name).trim().replace(/\s+/g, ' '), title, sourceUrl: j.sourceUrl || cited || null, query: q.key, confidence: String(j.confidence || 'low') };
@@ -121,7 +126,7 @@ function ladderRowFor(found) {
       source: 'owner-search', sources: ['owner-search'], sourceUrl: found.sourceUrl || null,
       confidence: found.confidence === 'high' ? 'Confident' : 'Likely',
       unconfirmed: false, affiliationScope: 'search',
-      sourceNote: `Named by a web search for "${found.query === 'owner' ? 'owner' : 'marketing director'}"${found.sourceUrl ? ' at ' + found.sourceUrl : ''}`,
+      sourceNote: `Named by a web search for "${({ owner: 'owner', marketing: 'marketing director', linkedin: 'LinkedIn owner', social: 'Instagram or Google-review owner' })[found.query] || 'owner'}"${found.sourceUrl ? ' at ' + found.sourceUrl : ''}`,
       channel: 'mainline', reachVia: null, askAs: found.name.split(' ')[0],
     },
   };

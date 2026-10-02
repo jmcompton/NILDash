@@ -4336,6 +4336,10 @@ async function ensureMarketSightings() {
   // evidence as though it were the same find as one with it.
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS thin BOOLEAN NOT NULL DEFAULT FALSE`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS thin_note TEXT`).catch(() => {});
+  // The market a card was found in (services/engineSignals: the silent stagger
+  // and outcome learning), and the index the stagger reads by.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS market_key TEXT`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_queue_sent_at ON outreach_queue (sent_at) WHERE sent_at IS NOT NULL`).catch(() => {});
   await pool.query(`ALTER TABLE brand_contacts ADD COLUMN IF NOT EXISTS email_check TEXT`).catch(() => {});
 
   // ── WHERE VERIFICATION CREDITS ACTUALLY WENT ──────────────────────────────

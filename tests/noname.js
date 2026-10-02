@@ -35,8 +35,11 @@ async function main() {
   const f2 = await ONS.findOwnerName({ brand: 'Maxie Pizza', city: 'Auburn, AL', search: stub([{ name: null }, { name: 'Lee Park', title: 'Director of Marketing', confidence: 'medium' }]) });
   ok('the marketing search runs when the owner search finds nobody', f2 && f2.name === 'Lee Park' && f2.query === 'marketing' && calls.length === 2 && /marketing director/.test(calls[1].prompt), f2);
   calls.length = 0;
-  const f3 = await ONS.findOwnerName({ brand: 'Maxie Pizza', city: 'Auburn, AL', search: stub([{ name: null }, { name: null }]) });
-  ok('nothing from either search is null, after exactly two searches', f3 === null && calls.length === 2);
+  const f3 = await ONS.findOwnerName({ brand: 'Maxie Pizza', city: 'Auburn, AL', search: stub([{ name: null }, { name: null }, { name: null }, { name: null }]) });
+  // Owner, marketing director, then two more doors before a business is
+  // dropped: the LinkedIn company page and the Instagram bio / Google-review owner.
+  ok('nothing from any search is null, after exactly four searches (owner, marketing, LinkedIn, Instagram/reviews)', f3 === null && calls.length === 4
+    && /site:linkedin\.com/.test(calls[2].prompt) && /instagram/i.test(calls[3].prompt), calls.map((c) => c.prompt.split('\n')[0]));
   for (const [bad, why] of [['Owner', 'a role word'], ['Maxie Pizza', 'the business itself'], ['Dana', 'one word'], ['The Team', 'a role phrase'], ['Dana Roberts Smith Jones Lee', 'too many words'], ['dana@maxie.com', 'an address']]) {
     const r = await ONS.findOwnerName({ brand: 'Maxie Pizza', city: 'Auburn, AL', search: stub([{ name: bad, title: 'Owner' }, { name: null }]) });
     ok(`"${bad}" is refused (${why})`, r === null, r);

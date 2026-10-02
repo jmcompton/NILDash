@@ -7078,6 +7078,35 @@ app.get('/api/admin/campus/:universityId/estimate', requireAuth, requireCampusAd
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── PROVE THE ENGINE NOW (services/engineProof) ─────────────────────────────
+// The nightly loop by hand on four subjects (a rich market, a thin one, a
+// market with zero rows in the record, a Cypress team), all at once, with
+// the per-role funnel, hit rate, cost, time and local/social split. Admin
+// only; it spends what the night would and writes real cards awaiting approval.
+//   GET  /api/admin/engine/prove/pick                which subjects it would run
+//   POST /api/admin/engine/prove?athletes=a,b&team=univ-cypress:wbb&fresh=1
+//   GET  /api/admin/engine/prove/:id?text=1
+app.get('/api/admin/engine/prove/pick', requireAuth, requireCampusAdmin, async (req, res) => {
+  try { res.json(await require('./services/engineProof').pick(store.pool)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/engine/prove', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const b = { ...(req.query || {}), ...(req.body || {}) };
+    const athletes = Array.isArray(b.athletes) ? b.athletes : (b.athletes ? String(b.athletes).split(',').map((x) => x.trim()).filter(Boolean) : undefined);
+    const r = await require('./services/engineProof').start(store.pool, { athletes, team: b.team === undefined ? undefined : (b.team || null),
+      fresh: b.fresh === true || b.fresh === '1' });
+    res.json({ ok: true, ...r, read: `/api/admin/engine/prove/${r.id}?text=1` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/admin/engine/prove/:id', requireAuth, requireCampusAdmin, async (req, res) => {
+  const EP = require('./services/engineProof');
+  const s = await EP.get(store.pool, req.params.id);
+  if (!s) return res.status(404).json({ error: 'no such run' });
+  if (req.query.text === '1') return res.type('text/plain').send(EP.formatReport(s));
+  res.json(s);
+});
+
 app.post('/api/admin/campus/:universityId/nightly', requireAuth, requireCampusAdmin, async (req, res) => {
   const id = req.params.universityId;
   require('./services/campusNightly').runNight(store.pool, id)

@@ -123,6 +123,8 @@ function resolveAthlete(row, opts = {}) {
     // undated follower count forever, including athletes who had just entered
     // their own numbers minutes earlier, and quietly stops citing reach for
     // everyone. See services/reachProvenance.
+    // The connected Instagram's engagement rate, a percent (instagramConnect).
+    engagement: Number.isFinite(Number(d.engagement)) && d.engagement !== null && d.engagement !== '' ? Number(d.engagement) : null,
     reachSource: _str(d.reachSource),
     reachAsOf: _str(d.reachAsOf),
     stats: _str(d.stats),

@@ -114,7 +114,11 @@ async function main() {
   const L2 = r2.loop || {};
   ok('three cards shipped, the bar did not move', r2.filled === 3 && L2.held === 3, { filled: r2.filled, loop: L2 });
   ok('  it stopped because the ladder was exhausted, and says so', L2.stop === 'ladder' && r2.stop === 'ladder', L2.stop);
-  ok('  every rung was tried in order', JSON.stringify(L2.rungs) === JSON.stringify(Q.LADDER.filter((x) => x !== 'places-refresh' || true)) || (L2.rungs || []).join() === 'local,local-wide,places-refresh,social,national,hometown', L2.rungs);
+  // The ladder is the athlete's tier's (services/athleteTier): this athlete has
+  // no follower count, so a Division I athlete reads as mid -- the social lane
+  // straight after their own pool, and never the national lane.
+  ok('  every rung of this athlete\'s ladder was tried, in order', (L2.rungs || []).join() === require(REPO + 'server/services/athleteTier').ladderFor(L2.tier).join()
+    && L2.tier === 'mid', [L2.tier, L2.rungs]);
   await new Promise((r) => setTimeout(r, 300));
   const alert = (await P.query(`SELECT reason FROM service_faults WHERE service = 'nightly-floor' AND reason LIKE 'Fl Messiah:%' ORDER BY at DESC LIMIT 1`)).rows[0];
   ok('  an alert names the athlete, the count and the rungs', alert && /Fl Messiah: 3 of 5 cards after \d+ candidate/.test(alert.reason) && /rungs tried: local, /.test(alert.reason), alert);

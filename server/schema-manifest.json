@@ -659,6 +659,13 @@
       "to_addresses": "TEXT[]",
       "user_id": "TEXT"
     },
+    "engine_proof_runs": {
+      "finished_at": "TIMESTAMPTZ",
+      "id": "TEXT",
+      "options": "JSONB",
+      "report": "JSONB",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "growth_outreach_log": {
       "id": "SERIAL",
       "prospect_id": "INTEGER REFERENCES growth_prospects(id) ON DELETE CASCADE",

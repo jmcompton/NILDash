@@ -244,11 +244,15 @@ function tablesOf(subject) {
 }
 
 // An agent's athlete: every behaviour this file had before subjects existed.
+// THE JUDGE READS THE ATHLETE FIRST (services/athleteTier): the athlete's
+// tier decides which lanes are open, and how many seats the social lane holds.
 function athleteSubject(athlete, agentId) {
+  const t = require('./athleteTier').tierOf(athlete || {});
   return Object.freeze({
     ...(athlete || {}), subjectKind: 'athlete', agentId: agentId == null ? null : agentId,
-    sponsorSignals: true, brandFlags: true, skipSignals: true,
-    lanes: Object.freeze({ local: true, social: true, national: true }),
+    sponsorSignals: true, brandFlags: true, skipSignals: true, crossSignals: true,
+    tier: t.tier, tierWhy: t.why, socialSeats: t.socialSeats,
+    lanes: Object.freeze({ ...t.lanes }),
   });
 }
 
@@ -793,8 +797,21 @@ async function assembleSlate(pool, ctx) {
     catch (e) { console.error('[slate] skip signals:', e.message); }
   }
 
+  // ── WHAT THE PLATFORM KNOWS, WITHOUT SAYING WHO (services/engineSignals) ──
+  // Another agent's recent contact ranks a business lower (the silent
+  // stagger); replies, silence and skips across all agents move a kind of
+  // business up or down. Numbers only: nothing here reaches the card.
+  const ES = require('./engineSignals');
+  let cross = { stagger: null, learned: null };
+  if (subject.crossSignals) {
+    try { cross.stagger = await ES.staggered(pool, { agentId, marketKey: athlete.marketKey || null, candidates: all }); }
+    catch (e) { console.error('[slate] stagger:', e.message); }
+    try { cross.learned = await ES.outcomes(pool, { marketKey: athlete.marketKey || null, candidates: all }); }
+    catch (e) { console.error('[slate] outcomes:', e.message); }
+  }
+
   const BC = require('./businessCategory');
-  const ranked = all.map((c) => {
+  const ranked = all.map((c, ci) => {
     let sig = signals.get(normBrand(c.brand_name)) || null;
     // A publicly reported deal does not boost the LOCAL lane. It is national
     // press evidence about a collective or a national brand, and letting it
@@ -822,6 +839,7 @@ async function assembleSlate(pool, ctx) {
       if (across > 0) pen.agent = Math.min(across * SKIP_AGENT_PER, SKIP_AGENT_MAX);
       fit -= pen.athlete + pen.agent;
     }
+    if (subject.crossSignals) fit += ES.adjustmentFor({ ...c, businessCategory: cat.category }, ci, cross);
 
     // Evidence of marketing activity: TRUE, FALSE or unknown. A sponsorship
     // signal or a logged NIL deal IS evidence of marketing activity -- stronger
@@ -987,12 +1005,17 @@ async function assembleSlate(pool, ctx) {
   // 1. The social seat. `reach` is the same figure store._socialBaseMatch bands
   //    against each brand's stated tier, so "enough following" means the same
   //    thing here as it does where the pool is built.
+  // HALF THE SUPPLY, NOT A FALLBACK. An athlete whose tier opens the social
+  // lane holds subject.socialSeats of the five for it (2), taken first; the
+  // rest go to fit order. A subject without a tier keeps the old rule: one
+  // seat above SOCIAL_MIN_REACH.
   const reach = (Number(athlete.instagram) || 0) + (Number(athlete.tiktok) || 0);
-  const socialEligible = reach >= SOCIAL_MIN_REACH;
-  if (socialEligible && limit > 0) {
-    const best = fresh.find((c) => c.lane === 'social');
-    if (best) { take(best, 'social'); shape.socialSeat = best.brand_name; }
+  const seats = subject.socialSeats !== undefined ? (subject.lanes.social ? subject.socialSeats : 0) : (reach >= SOCIAL_MIN_REACH ? 1 : 0);
+  const socialEligible = seats > 0;
+  for (const best of fresh.filter((c) => c.lane === 'social').slice(0, Math.min(seats, limit))) {
+    if (take(best, 'social') && !shape.socialSeat) shape.socialSeat = best.brand_name;
   }
+  shape.socialSeats = seats;
   shape.socialEligible = socialEligible;
   shape.reach = reach;
 

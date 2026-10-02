@@ -501,7 +501,7 @@ async function matchFor(pool, agentId, athleteId, brandName) {
 // lose it on the other. Returns true only when a row was actually written; the
 // partial unique index on (athlete_id, slot) WHERE state='queued' is what makes
 // a double-fill a no-op rather than a duplicate.
-async function insertCard(pool, { agentId, athleteId, slot, card }) {
+async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
   // ── A MISSING VALUE DROPS THE LINE (services/placeholders) ────────────────
   // Every path that saves a card comes through here, so this is the backstop
   // for any writer: a line holding "[athlete_handle]" or "{{first_name}}" is
@@ -642,9 +642,9 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
         source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
         dm_text, channel, state, angle, angle_key, category_key, ask, lane, program_url,
         sponsor_signal, sponsor_note, identity_key, email, email_kind, outreach_log_id, email_note,
-        business_category, thin, thin_note, email_tier, email_source_url)
+        business_category, thin, thin_note, email_tier, email_source_url, market_key)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20,
-             $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
+             $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
      ON CONFLICT DO NOTHING RETURNING id`,
     [agentId, athleteId, slot, card.brandKey || identity, card.brandName, card.why, card.contactName,
      card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
@@ -669,7 +669,10 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
      card.businessCategory || null, card.thin === true,
      card.thin === true ? (card.thinNote || null) : null,
      // The address tier and the page it was stated on (services/emailTier).
-     card.emailTier || null, card.emailSourceUrl || null]);
+     card.emailTier || null, card.emailSourceUrl || null,
+     // The market the card was found in: the stagger matches a name within a
+     // market, and learning reads replies by kind of business and market.
+     card.marketKey || marketKey || null]);
   const wrote = (ins.rowCount || 0) > 0;
   if (!wrote) {
     console.log(`[queue] athlete=${athleteId} slot=${slot} "${card.brandName}" not written `
@@ -985,7 +988,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // THE LADDER (Q.LADDER): which rungs fired tonight, in order. The first is
   // always the athlete's own market at the normal radius.
   const rungsFired = ['local'];
-  const fire = (r) => { if (!rungsFired.includes(r)) { rungsFired.push(r); say(`${athleteName}: ladder rung ${Q.LADDER.indexOf(r) + 1} (${r})`); } };
+  const fire = (r) => { if (!rungsFired.includes(r)) { rungsFired.push(r); say(`${athleteName}: ladder rung (${r})`); } };
   const slateLimit = Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT;
   const bk = (name) => String(name || '').trim().toLowerCase();
 
@@ -1228,13 +1231,18 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // The free re-draw of the athlete's own pool (which skips everything handed
   // out tonight) always comes first; a rung is climbed only when that is
   // empty. A rung that has run is not run again tonight.
+  // THE LADDER FOR THIS ATHLETE'S TIER (services/athleteTier): a low-tier
+  // athlete never climbs to the social or national lane; mid and high go to
+  // the social lane straight after their own pool.
+  const tierInfo = require('../services/athleteTier').tierOf(profile || {});
+  const ladder_ = require('../services/athleteTier').ladderFor(tierInfo.tier);
   async function refillSlate(why) {
     const { fresh: f, added } = await redraw();
     slate = f;
     if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) from the pool (${why})`); return added; }
     for (;;) {
       if (rung === 0) rung = 1;             // rung 1 is the re-draw above
-      const name = Q.LADDER[rung];
+      const name = ladder_[rung];
       if (!name) break;
       let got = [];
       if (name === 'local-wide') got = await localRefill(why, { skipRedraw: true });
@@ -1441,7 +1449,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         const pbar = Q.passesProgramBar(cand, pig);
         if (!pbar.ok) {
           say(`${cand.brand_name}: skipped, ${pbar.reason}`);
-          tried.push({ brand: cand.brand_name, result: 'rejected', reason: pbar.reason,
+          tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'owner', reason: pbar.reason,
             lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
@@ -1556,7 +1564,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           loseSlot(cand.brand_name, slot, cand.lane, ppitch);
           slotLost = true; break;
         }
-        const pins = await insertCard(pool, { agentId, athleteId, slot, card: pcard });
+        const pins = await insertCard(pool, { agentId, athleteId, slot, card: pcard, marketKey: profile && profile.marketKey });
         if (!pins && pcard._insertFault) faultOf('database', 'card not saved: ' + pcard._insertFault, 'insertCard');
         if (pins) {
           // Counted only when the row actually landed, so a card lost to the
@@ -1785,7 +1793,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           continue;
         }
         say(`${cand.brand_name}: skipped, ${bar.reason}`);
-        tried.push({ brand: cand.brand_name, result: 'rejected', reason: bar.reason,
+        tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'owner', reason: bar.reason,
           places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
         continue;
       }
@@ -1845,8 +1853,16 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           continue;
         }
       }
-      tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
+      tried.push({ brand: cand.brand_name, result: 'queued', reason: null, lane: cand.lane,
         places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
+      // ONE BUSINESS, ONE ENTRY. The writer's verdict below replaces this
+      // entry's result rather than adding a second one, so candidates and the
+      // per-lane pass counts are not inflated by every refusal.
+      const _settle = (fields) => {
+        const _te = tried[tried.length - 1];
+        if (_te && _te.brand === cand.brand_name && _te.result === 'queued') Object.assign(_te, fields);
+        else tried.push({ brand: cand.brand_name, lane: cand.lane, places: facts, risk: pre.risk, ...fields });
+      };
 
       // ── THE WRITER ──────────────────────────────────────────────────────
       // Reads the business and the athlete, decides the angle, then writes. It
@@ -1927,8 +1943,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         // A REFUSAL IS A RESULT. Recorded with its reason so "wrote two, both
         // strong" is a claim the log can back up.
         say(`${cand.brand_name}: nothing worth pitching — ${pitch.reason}`);
-        tried.push({ brand: cand.brand_name, result: 'no_angle', reason: pitch.reason, places: facts, risk: pre.risk,
-          writerRetried: !!pitch.retried, writerFirstProblems: pitch.firstProblems || null });
+        _settle({ result: 'no_angle', reason: pitch.reason, writerRetried: !!pitch.retried, writerFirstProblems: pitch.firstProblems || null });
         continue;
       }
 
@@ -1942,7 +1957,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         const greet = Q.greetNameOf(ladder);
         if (!greet) {
           say(`${cand.brand_name}: no greeting name after the writer; not offered`);
-          tried.push({ brand: cand.brand_name, result: 'no_name', reason: ONS.NO_NAME_REASON, places: facts, risk: pre.risk, why: _why });
+          _settle({ result: 'no_name', reason: ONS.NO_NAME_REASON, why: _why });
           continue;
         }
         if (pitch && pitch.message) {
@@ -1989,7 +2004,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         loseSlot(cand.brand_name, slot, card.lane, pitch);
         slotLost = true; break;
       }
-      if (await insertCard(pool, { agentId, athleteId, slot, card })) {
+      if (await insertCard(pool, { agentId, athleteId, slot, card, marketKey: cand.hometown ? null : (profile && profile.marketKey) })) {
         placed = true; filled++; channels.push(card.channel);
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
           + (card.contactName ? `, ${card.contactName}` : ''));
@@ -2016,6 +2031,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     candidates: tried.length, candidatesToFloor, rungs: rungsFired.slice(),
     elapsedMs: Date.now() - _t0, costUsd: Math.round(athleteCost() * 1000) / 1000,
     held: Q.SLOTS_PER_ATHLETE - open.length + filled, floor: Q.SLOTS_PER_ATHLETE,
+    tier: tierInfo.tier, tierWhy: tierInfo.why, ladder: ladder_.slice(),
     channels: channels.reduce((m, c) => { const k = c || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {}),
     byLane: tried.reduce((m, t) => {
       const k = (t && t.lane) || 'local';
@@ -2577,7 +2593,7 @@ module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor, applyFaultRule,
   athleteState, recordAttempt, releasePause, expireStaleCards,
   insertCard, slotStillOpen, SLOT_TAKEN_REASON, NAME_REQUIRED, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
-  loadAthletesForQueue, resumeAgent, localContextFor,
+  loadAthletesForQueue, resumeAgent, localContextFor, athleteProfile,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
 };
