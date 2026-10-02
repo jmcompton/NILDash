@@ -42,19 +42,27 @@ async function pick(pool) {
        FROM athletes a JOIN users u ON u.id = a.agent_id
       WHERE COALESCE(u.role, 'agent') NOT IN ('university', 'university_admin')`)).rows;
   const counts = new Map((await pool.query(`SELECT market_key, COUNT(*)::int n FROM market_business_seen GROUP BY 1`)).rows.map((r) => [r.market_key, r.n]));
+  // A SUBJECT THAT ALREADY HOLDS FIVE TESTS NOTHING. Only athletes with open
+  // slots are picked, the emptiest first.
+  const heldBy = new Map((await pool.query(`SELECT athlete_id, COUNT(*)::int n FROM outreach_queue WHERE state = 'queued' GROUP BY 1`)).rows.map((r) => [r.athlete_id, r.n]));
   const cands = [];
   for (const r of rows) {
     if (!AgentName.agentFirstName({ name: r.agent_name, email: r.agent_email })) continue;
     let p;
     try { p = job.athleteProfile(r); } catch (_) { continue; }
     if (!p || !p.hasLocalMarket || !p.marketKey) continue;
-    cands.push({ id: r.id, name: r.name, agentId: r.agent_id, marketKey: p.marketKey, market: p.market, rows: counts.get(p.marketKey) || 0 });
+    const held = heldBy.get(r.id) || 0;
+    if (held >= 5) continue;
+    cands.push({ id: r.id, name: r.name, agentId: r.agent_id, marketKey: p.marketKey, market: p.market, rows: counts.get(p.marketKey) || 0, held });
   }
-  const withRows = cands.filter((c) => c.rows > 0).sort((a, b) => b.rows - a.rows);
-  const zero = cands.filter((c) => c.rows === 0);
+  // Richest market first / thinnest first, and within a market the athlete
+  // holding the fewest cards.
+  const withRows = cands.filter((c) => c.rows > 0).sort((a, b) => (b.rows - a.rows) || (a.held - b.held));
+  const thinFirst = cands.filter((c) => c.rows > 0).sort((a, b) => (a.rows - b.rows) || (a.held - b.held));
+  const zero = cands.filter((c) => c.rows === 0).sort((a, b) => a.held - b.held);
   return {
     rich: withRows[0] || null,
-    thin: withRows.length > 1 ? withRows[withRows.length - 1] : null,
+    thin: thinFirst.find((c) => !withRows[0] || c.marketKey !== withRows[0].marketKey) || null,
     zero: zero[0] || null,
     eligible: cands.length, zeroMarkets: new Set(zero.map((c) => c.marketKey)).size,
   };
@@ -69,6 +77,24 @@ async function pick(pool) {
 //   no_angle         the writer found nothing worth sending       -> writer
 //   error            our failure (a lookup or model call failed)
 //   queued           a card
+// WHERE THE TIME WENT: each stage's seconds summed over the candidates, the
+// average a candidate, and the share of the run (jobs/outreachQueue stopwatch).
+function timing(tried) {
+  const t = (tried || []).filter((x) => x && x.ms && x.result !== 'skipped');
+  const stages = {};
+  let total = 0;
+  for (const x of t) {
+    for (const [k, v] of Object.entries(x.ms)) if (k !== 'total') stages[k] = (stages[k] || 0) + (Number(v) || 0);
+    total += Number(x.ms.total) || 0;
+  }
+  const accounted = Object.values(stages).reduce((a, b) => a + b, 0);
+  if (total > accounted) stages.other = total - accounted;
+  const n = t.length || 1;
+  return { candidates: t.length, totalSeconds: Math.round(total / 1000), perCandidateSeconds: Math.round(total / n / 100) / 10,
+    byStage: Object.entries(stages).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ stage: k, seconds: Math.round(v / 1000),
+      perCandidate: Math.round(v / n / 100) / 10, share: total ? Math.round((v / total) * 100) : 0 })) };
+}
+
 function funnel(tried) {
   const t = (tried || []).filter((x) => x && x.result !== 'skipped');
   const judgeOut = t.filter((x) => x.result === 'prescreen_skip' || (x.result === 'rejected' && x.stage !== 'owner')).length;
@@ -133,7 +159,7 @@ async function runAthlete(pool, athleteId, opts = {}) {
     ok: true, kind: 'athlete', id: ath.id, name: ath.name, market: ctx.profile.market, marketKey: ctx.profile.marketKey,
     tier: r.loop && r.loop.tier, tierWhy: r.loop && r.loop.tierWhy, recordRowsBefore: rowsBefore, recordRowsAfter: rowsAfter,
     expiredFirst: expired, heldBefore, placed: r.filled, held: held.length, reachedFive: held.length >= Q.SLOTS_PER_ATHLETE,
-    funnel: funnel(r.tried), costUsd: Math.round(budget.spent() * 100) / 100, seconds: Math.round(ms / 1000),
+    funnel: funnel(r.tried), timing: timing(r.tried), costUsd: Math.round(budget.spent() * 100) / 100, seconds: Math.round(ms / 1000),
     rungs: (r.loop && r.loop.rungs) || [], stop: (r.loop && r.loop.stop) || r.stop || null,
     split, cards: held.map((c) => ({ business: c.brand_name, lane: c.lane, channel: c.channel, contact: c.contact_name,
       new: new Date(c.created_at).getTime() >= t0 })), log: lines.slice(-60),
@@ -236,6 +262,10 @@ function formatReport(s) {
     out.push(`   considered ${f.considered} > judge ${f.clearedJudge} > owner finder ${f.clearedOwner} > writer ${f.clearedWriter}`);
     if (f.rejected) out.push(`   dropped: judge ${f.rejected.judge || 0}, owner finder ${f.rejected.ownerFinder || 0}, writer ${f.rejected.writer || 0}, our faults ${f.rejected.ourFaults || 0}`);
     out.push(`   contact hit rate ${pct(f.contactHitRate)}${f.contactPool ? ` (department pool: ${f.contactPool.reachable} reachable of ${f.contactPool.resolved} resolved)` : ''}`);
+    if (r.timing && r.timing.candidates) {
+      out.push(`   time: ${r.timing.perCandidateSeconds}s a candidate over ${r.timing.candidates}; by stage: `
+        + r.timing.byStage.map((x) => `${x.stage} ${x.perCandidate}s (${x.share}%)`).join(', '));
+    }
     out.push(`   cost $${Number(r.costUsd || 0).toFixed(2)}, ${r.seconds}s; rungs ${(r.rungs || []).join(' > ') || 'none'}; stopped by ${r.stop || 'n/a'}`);
     out.push(`   split: ${Object.entries(r.split || {}).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
     for (const c of r.cards || []) out.push(`     - ${c.business} [${c.lane || '?'}${c.channel ? ', ' + c.channel : ''}]${c.contact ? ' -> ' + c.contact : ''}${c.new === false ? ' (held from before)' : ''}`);
@@ -244,4 +274,4 @@ function formatReport(s) {
   return out.join('\n');
 }
 
-module.exports = { start, get, pick, funnel, runAthlete, runTeam, formatReport, ensureTable };
+module.exports = { start, get, pick, funnel, timing, runAthlete, runTeam, formatReport, ensureTable };

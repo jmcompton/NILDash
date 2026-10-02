@@ -1235,6 +1235,33 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // The free re-draw of the athlete's own pool (which skips everything handed
   // out tonight) always comes first; a rung is climbed only when that is
   // empty. A rung that has run is not run again tonight.
+  // ── WHERE A CANDIDATE'S TIME GOES ─────────────────────────────────────────
+  // A per-candidate stopwatch: each stage's seconds (places, contacts, email
+  // check, instagram, owner search, writer) on that candidate's entry in
+  // `tried` (entry.ms), so "44 seconds a candidate" can be read by stage from
+  // the run row. The entry holds the stopwatch's own object, so a stage that
+  // finishes after the entry is written still lands on it.
+  const _sw = {
+    cur: null,
+    start(c) {
+      const now = Date.now();
+      if (this.cur) this.cur.ms.total = now - this.cur.t;
+      this.cur = c ? { brand: c.brand_name, t: now, last: now, ms: {} } : null;
+    },
+    lap(stage) {
+      if (!this.cur) return;
+      const now = Date.now();
+      this.cur.ms[stage] = (this.cur.ms[stage] || 0) + (now - this.cur.last);
+      this.cur.last = now;
+    },
+  };
+  {
+    const _push = tried.push.bind(tried);
+    tried.push = (...xs) => {
+      for (const x of xs) if (x && _sw.cur && x.brand === _sw.cur.brand && !x.ms) x.ms = _sw.cur.ms;
+      return _push(...xs);
+    };
+  }
   // THE LADDER FOR THIS ATHLETE'S TIER (services/athleteTier): a low-tier
   // athlete never climbs to the social or national lane; mid and high go to
   // the social lane straight after their own pool.
@@ -1327,6 +1354,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         cands.push(...added);
       }
       const cand = cands[ci++];
+      _sw.start(cand);
       // BEFORE the money, priced at the CEILING. A lookup that would breach the
       // cap is never started, so the cap cannot be overshot by one business.
       if (!budget.canSpend(LOOKUP_CEILING_USD)) {
@@ -1424,6 +1452,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
               brand: cand.brand_name, loc: null, webSearch: ai.webSearchJson, reportFault: true,
             })));
           pig = m.result; pmeter = m.meter;
+          _sw.lap('instagram');
         } catch (e) {
           pig = { fault: e.message }; pmeter = null;
         }
@@ -1476,6 +1505,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           try {
             pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null,
               large: cand.lane === 'national' || cand.brandSize === 'national' });
+            _sw.lap('ownerSearch');
           } catch (e) {
             say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
             tried.push({ brand: cand.brand_name, result: 'error', reason: 'owner search failed: ' + e.message, fault: true,
@@ -1523,6 +1553,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           OF.record(e.service || 'anthropic', 'writer failed: ' + e.message, cand.brand_name);
           ppitch = null;
         }
+        _sw.lap('writer');
         if (ppitch && ppitch.skipped && ppitch.error) {
           // The writer returned nothing usable: ours, not "nothing worth pitching".
           say(`${cand.brand_name}: the writer failed on our side (${ppitch.reason})`);
@@ -1602,6 +1633,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       let place = null;
       try {
         const _pr = await lookupPlaceResult(cand.brand_name || cand.brand_key, cand.region || region || '');
+        _sw.lap('places');
         place = _pr.place;
         // COULD NOT ASK is not "not on Places" (services/ourFault).
         if (!_pr.ok && _pr.reason !== 'no-query') faultOf('google-places', `lookup unavailable (${_pr.reason})`, 'places lookup');
@@ -1650,7 +1682,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             cand.region || region || '', ai.deepContactCtx({ market: null, lean: true }))));
         out = m.result;
         meter = m.meter;
+        _sw.lap('contacts');
       } catch (e) {
+        _sw.lap('contacts');
         say(`${cand.brand_name}: lookup failed (${e.message})`);
         // fault: OUR failure, not this market's. Counted separately so a night of
         // outages cannot pause an athlete whose businesses we never reached.
@@ -1735,6 +1769,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // why. Cached per address; a resolver blip is "unverified", not a no.
       try {
         const ev = await EVAL.validateLadder(pool, ladder);
+        _sw.lap('emailCheck');
         for (const u of ev.undeliverable) say(`${cand.brand_name}: ${u.email} is undeliverable (${u.reason}); not offered as an email`);
         for (const u of ev.unverified) say(`${cand.brand_name}: ${u.email} could not be checked (${u.reason}); offered, marked unverified`);
       } catch (e) { say(`${cand.brand_name}: email check failed (${e.message}); addresses left unverified`); }
@@ -1828,6 +1863,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         let found = null;
         try {
           found = await finalNameFor(cand.brand_name, cand.region || region || (facts && facts.city) || '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null });
+          _sw.lap('ownerSearch');
         } catch (e) {
           // Could not search is not "no name found" (services/ourFault).
           say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
@@ -1946,6 +1982,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           _te.writerFirstProblems = (pitch && pitch.firstProblems) || null;
         }
       }
+      _sw.lap('writer');
       if (pitch && pitch.skipped && pitch.error) {
         // The writer returned nothing usable: ours, not "nothing worth pitching".
         say(`${cand.brand_name}: the writer failed on our side (${pitch.reason})`);
@@ -2037,6 +2074,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     if (stop) break;
     if (!placed && !slotLost) say(`slot ${slot}: nothing passed the bar`);
   }
+  _sw.start(null);   // closes the last candidate's total
   const STOP_TEXT = {
     time: `the time ceiling (${(TIME_CEILING_MS / 60000).toFixed(1)} min) for this athlete`,
     cost: `the cost ceiling ($${COST_CEILING_USD.toFixed(2)}) for this athlete`,

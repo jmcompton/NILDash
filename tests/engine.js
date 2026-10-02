@@ -215,6 +215,11 @@ async function main() {
   ok('  the run reports its tier and ladder', ZL.tier === 'low' && (ZL.ladder || []).join() === T.ladderFor('low').join(), [ZL.tier, ZL.ladder]);
   const zf = EP.funnel(z.r.tried);
   ok('  the funnel from its own record: five cleared the writer, none were our faults', zf.clearedWriter === 5 && zf.rejected.ourFaults === 0, zf);
+  const tm = EP.timing(z.r.tried);
+  const placed = (z.r.tried || []).filter((t) => t.result === 'queued');
+  ok('  every candidate carries where its time went, by stage, and the proof adds it up',
+    placed.length === 5 && placed.every((t) => t.ms && typeof t.ms.total === 'number' && 'contacts' in t.ms && 'writer' in t.ms)
+    && tm.candidates >= 5 && tm.byStage.some((x) => x.stage === 'contacts') && tm.byStage.some((x) => x.stage === 'writer'), { tm, ms: placed[0] && placed[0].ms });
   const mk = (await P.query(`SELECT COUNT(*)::int n FROM outreach_queue WHERE athlete_id = 'en-z1' AND state = 'queued' AND market_key = $1`, [probe.marketKey])).rows[0].n;
   ok('  every card carries the market it was found in', mk === 5, mk);
 
@@ -233,6 +238,8 @@ async function main() {
   OUT.push('', '-- the proof harness --');
   const pk = await EP.pick(P);
   ok('it picks a rich market, a thin one and a zero-row one when they exist', pk && typeof pk.eligible === 'number' && 'zero' in pk && 'rich' in pk && 'thin' in pk);
+  ok('  and never a subject that already holds five: it would test nothing', [pk.rich, pk.thin, pk.zero].filter(Boolean).every((c) => c.held < 5)
+    && ![pk.rich, pk.thin, pk.zero].filter(Boolean).some((c) => c.id === 'en-z1'), pk);
   const text = EP.formatReport({ id: 'proof_x', done: true, missing: [], results: [{ role: 'ZERO rows in the record', ok: true, name: 'En Zero', market: 'Bozeman, MT',
     tier: 'low', tierWhy: '800 followers', held: 5, placed: 5, reachedFive: true, recordRowsBefore: 0, recordRowsAfter: 12, funnel: zf, costUsd: 0.4, seconds: 30,
     rungs: ZL.rungs, stop: 'floor', split: { local: 5 }, cards: [] }] });

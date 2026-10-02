@@ -179,7 +179,7 @@
     },
     "campuscrm.js": {
       "failed": 0,
-      "total": 54,
+      "total": 58,
       "fault": null
     },
     "campusmarket.js": {
@@ -409,7 +409,7 @@
     },
     "engine.js": {
       "failed": 0,
-      "total": 59,
+      "total": 61,
       "fault": null
     },
     "engrate.js": {
