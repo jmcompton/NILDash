@@ -27,7 +27,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..') + path.sep;
 const store = require(ROOT + 'server/store.js');
 const Job = require(ROOT + 'server/jobs/outreachQueue.js');
-const SC = require(ROOT + 'server/services/schoolCheck.js');
+const SC = require(ROOT + 'server/services/localLaneCheck.js');
 const INIT_WAIT_MS = parseInt(process.env.INIT_WAIT_MS, 10) || 8000;
 
 const arg = (k) => { const i = process.argv.indexOf(k); return i >= 0 ? process.argv[i + 1] : null; };

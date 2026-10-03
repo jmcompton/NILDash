@@ -1,6 +1,6 @@
 'use strict';
 // ── ATHLETES THE LOCAL LANE CANNOT PLACE, EVERY AGENT ───────────────────────
-// services/schoolCheck over every roster: no school, a pro team in the school
+// services/localLaneCheck over every roster: no school, a pro team in the school
 // field, a pro with no city, a school last night's run could not find. Each
 // agent sees their own on Home with the fix.
 //
@@ -13,7 +13,7 @@
 const path = require('path');
 const ROOT = path.join(__dirname, '..') + path.sep;
 const store = require(ROOT + 'server/store.js');
-const SC = require(ROOT + 'server/services/schoolCheck.js');
+const SC = require(ROOT + 'server/services/localLaneCheck.js');
 const INIT_WAIT_MS = parseInt(process.env.INIT_WAIT_MS, 10) || 8000;
 
 async function main() {

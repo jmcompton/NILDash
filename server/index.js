@@ -5356,7 +5356,7 @@ const ADMIN_SCRIPTS = {
     ...(q.days ? ['--days', String(parseInt(q.days, 10) || 7)] : []),
     ...(q.athlete ? ['--athlete', String(q.athlete).slice(0, 80)] : []) ] },
   // Athletes the local lane cannot place, across every agent (services/
-  // schoolCheck). &apply=1 applies the fixes the record itself determines (a
+  // localLaneCheck). &apply=1 applies the fixes the record itself determines (a
   // pro team typed as the school -> pro with that team's city); everything
   // else is listed for the agent, who sees it on Home.
   //   /api/admin/scripts/school-problems?text=1
@@ -17386,20 +17386,20 @@ app.get('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res)
   }
 });
 
-// ── ATHLETES THE LOCAL LANE CANNOT PLACE (services/schoolCheck) ─────────────
+// ── ATHLETES THE LOCAL LANE CANNOT PLACE (services/localLaneCheck) ─────────────
 // No school, a pro team typed as the school, a pro with no city, or a school
 // last night's run could not find. Home lists them with what fixes each; the
 // nightly run still works social and national for them, but the local lane is
 // silent until the record is right, and the agent should know that.
 app.get('/api/agent/athletes/needs-fix', requireAuth, async (req, res) => {
-  try { res.json({ athletes: await require('./services/schoolCheck').forAgent(store.pool, req.session.userId) }); }
+  try { res.json({ athletes: await require('./services/localLaneCheck').forAgent(store.pool, req.session.userId) }); }
   catch (e) { console.error('[needs-fix]', e.message); res.status(500).json({ error: e.message }); }
 });
 // The one-click fix, only where the record itself says what it is (a pro team
 // in the school field, or a pro whose team names the city).
 app.post('/api/agent/athletes/:id/apply-fix', requireAuth, async (req, res) => {
   try {
-    const r = await require('./services/schoolCheck').applyFix(store.pool, req.session.userId, req.params.id);
+    const r = await require('./services/localLaneCheck').applyFix(store.pool, req.session.userId, req.params.id);
     if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
     res.json(r);
   } catch (e) { console.error('[apply-fix]', e.message); res.status(500).json({ error: e.message }); }

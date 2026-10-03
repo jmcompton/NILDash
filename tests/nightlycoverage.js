@@ -15,7 +15,7 @@ const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 //   1. scripts/nightly-coverage: every athlete-night is classified by the rule
 //      that decided it (ran, slots full, paused, not reached, unfinished,
 //      skipped, no row, error), read from outreach_queue_runs.
-//   2. services/schoolCheck: no school, a pro team typed as the school, a pro
+//   2. services/localLaneCheck: no school, a pro team typed as the school, a pro
 //      with no city, a school the run could not find; the one-click fix only
 //      where the record determines it; the agent's list; Home shows it.
 const fs = require('fs');
@@ -29,7 +29,7 @@ const AG = 'nc-agent', AG2 = 'nc-agent-dormant';
 async function main() {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));
   const P = store.pool;
-  const SC = require(REPO + 'server/services/schoolCheck.js');
+  const SC = require(REPO + 'server/services/localLaneCheck.js');
   const NC = require(REPO + 'scripts/nightly-coverage.js');
   const Job = require(REPO + 'server/jobs/outreachQueue.js');
 
@@ -110,7 +110,7 @@ async function main() {
   ok('routes: the agent\'s list and the one-click fix, both behind the agent\'s session',
     /app\.get\('\/api\/agent\/athletes\/needs-fix', requireAuth/.test(idx) && /app\.post\('\/api\/agent\/athletes\/:id\/apply-fix', requireAuth/.test(idx));
   ok('Home loads it, with the fix button and Edit', /loadPinnedDeliverables\(\); loadNeedsFix\(\);/.test(html) && /id="home-needs-fix"/.test(html) && /applyNeedsFix\(/.test(html));
-  ok('the nightly detail names the school problem', /schoolProblem: \(require\('\.\.\/services\/schoolCheck'\)\.problemFor\(ath/.test(job));
+  ok('the nightly detail names the school problem', /schoolProblem: \(require\('..\/services\/localLaneCheck'\)\.problemFor\(ath/.test(job));
   ok('both scripts are on the admin script list', /'nightly-coverage': \{ file: 'scripts\/nightly-coverage\.js'/.test(idx) && /'school-problems': \{ file: 'scripts\/school-problems\.js'/.test(idx));
 
   await clean();

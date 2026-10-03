@@ -2335,10 +2335,10 @@ async function fillAgent(pool, agent, opts) {
       // one-card athlete could not be classified from the database at all.
       emptyReason: r.emptyReason || null,
       noMarket: !!r.noMarket,
-      // WHY THE LOCAL LANE HAD NO TOWN, as a code (services/schoolCheck):
+      // WHY THE LOCAL LANE HAD NO TOWN, as a code (services/localLaneCheck):
       // no-school, team-in-school, pro-no-city, unresolved. Home shows the
       // agent the same thing with the fix.
-      schoolProblem: (require('../services/schoolCheck').problemFor(ath, { noMarketLastNight: !!r.noMarket }) || {}).code || null,
+      schoolProblem: (require('../services/localLaneCheck').problemFor(ath, { noMarketLastNight: !!r.noMarket }) || {}).code || null,
       // Per-lane row counts and pre-ranking drops. See assembleSlate.
       lanes: r.lanes || null,
       dropped: r.dropped || null,
