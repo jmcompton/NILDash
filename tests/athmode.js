@@ -59,6 +59,12 @@ const CASES = [
 for (const [label, from, to] of CASES) {
   ok(label + ': ' + from, mapAthletePath(from) === to, mapAthletePath(from));
 }
+// The media kit: loading is a GET to the athlete's kit, saving a POST to /save,
+// and the builder's preview a POST to /preview. Before the method mattered the
+// load went to /save, which only takes a POST, and the builder opened empty.
+ok('media kit load (GET) -> /api/athlete/media-kit', mapAthletePath('/api/agent/athlete-media-kit/a1', 'GET') === '/api/athlete/media-kit', mapAthletePath('/api/agent/athlete-media-kit/a1', 'GET'));
+ok('media kit save (POST) -> /api/athlete/media-kit/save', mapAthletePath('/api/agent/athlete-media-kit/a1', 'POST') === '/api/athlete/media-kit/save', mapAthletePath('/api/agent/athlete-media-kit/a1', 'POST'));
+ok('media kit preview (POST) -> /api/athlete/media-kit/preview', mapAthletePath('/api/agent/athlete-media-kit/a1/preview', 'POST') === '/api/athlete/media-kit/preview');
 
 console.log('\n  · order matters, and is right');
 ok('"schools" is not captured by the :school pattern',

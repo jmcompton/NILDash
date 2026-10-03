@@ -70,6 +70,33 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
 .mk-stat.reach{background:var(--accent-soft);border-color:transparent;box-shadow:inset 0 0 0 1px var(--accent)}
 .mk-stat.reach .mk-stat-num{color:var(--accent)}
 .mk-stat.reach .mk-stat-net{color:var(--accent)}
+/* THREE STATES. Verified: pulled by NILDash from a connected account, with the
+   date. Self-reported: typed in; shown, labelled, quieter. Empty: no tile. */
+.mk-stat-badge{display:inline-flex;align-items:center;gap:5px;margin-top:9px;font-size:10.5px;font-weight:700;color:#15803D;letter-spacing:.01em}
+.theme-nildash .mk-stat-badge{color:#86EFAC}
+.mk-stat-badge svg{flex-shrink:0}
+.mk-stat.self{background:transparent;border-style:dashed}
+.mk-stat.self .mk-stat-num{color:var(--body);font-weight:700;font-size:24px}
+.mk-stat-self{margin-top:9px;font-size:10.5px;font-weight:600;color:var(--muted);letter-spacing:.01em}
+.mk-stat.reach.mixed{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+.mk-stat.reach.mixed .mk-stat-num,.mk-stat.reach.mixed .mk-stat-net{color:var(--body)}
+
+/* ── What you get ── */
+.mk-get-list{list-style:none;display:grid;gap:9px}
+.mk-get-list li{display:flex;gap:11px;align-items:baseline;font-size:15px;font-weight:600;color:var(--text);line-height:1.45}
+.mk-get-list li::before{content:'';width:7px;height:7px;border-radius:2px;background:var(--accent);flex-shrink:0;transform:translateY(-2px)}
+.mk-get-price{margin-top:16px;font-size:13px;color:var(--muted);font-weight:600}
+.mk-get-price b{font-size:20px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums;margin-left:4px;letter-spacing:-.01em}
+.mk-get-list + .mk-get-ask,.mk-get-price + .mk-get-ask{margin-top:16px}
+.mk-get-ask{font-size:15px;line-height:1.55;color:var(--body)}
+
+/* ── The athlete as a person ── */
+.mk-facts{margin-top:9px;font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);text-shadow:0 1px 3px rgba(0,0,0,0.5)}
+.mk-quote{font-size:19px;font-weight:600;line-height:1.5;color:var(--text);padding-left:16px;border-left:3px solid var(--accent)}
+.mk-quote-by{display:block;margin-top:6px;font-size:12px;font-weight:600;color:var(--muted)}
+.mk-quote + .mk-lead,.mk-quote + .mk-body-text{margin-top:18px}
+.mk-worked{margin-top:18px;font-size:12.5px;color:var(--muted);font-weight:600;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.mk-worked span{background:var(--raised);border:1px solid var(--line);border-radius:20px;padding:3px 11px;color:var(--text);font-weight:700}
 
 /* ── About ── */
 .mk-lead{font-size:16.5px;font-weight:600;line-height:1.55;color:var(--text)}
@@ -217,8 +244,15 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
         <div class="mk-hero-text">
           <div class="mk-eyebrow-hero" id="mk-eyebrow"></div>
           <div class="mk-name" id="mk-name"></div>
+          <div class="mk-facts" id="mk-facts" style="display:none"></div>
         </div>
       </div>
+    </div>
+
+    <!-- What you get (absent when nothing is filled in) -->
+    <div class="mk-section" id="mk-get-section" style="display:none">
+      <div class="mk-eyebrow">What You Get</div>
+      <div id="mk-get-body"></div>
     </div>
 
     <!-- Stats -->
@@ -392,6 +426,20 @@ function engagementLabel(v){
   return Number.isFinite(n) ? (Math.round(n * 10) / 10) + '% engagement' : s + ' engagement';
 }
 
+function fmtDate(d){
+  try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; }
+}
+// The price in "What you get": 'exact' $1,500 / 'range' $1,000-$2,500 /
+// 'from' Packages from $500. None set: ''.
+function priceLabel(d){
+  var lo = Number(d.price_low), hi = Number(d.price_high);
+  if (!(lo > 0)) return '';
+  if (d.price_mode === 'range' && hi > 0) return 'Investment<b>' + esc(fmtCurrency(lo)) + '&ndash;' + esc(fmtCurrency(hi)) + '</b>';
+  if (d.price_mode === 'from') return 'Packages from<b>' + esc(fmtCurrency(lo)) + '</b>';
+  if (d.price_mode === 'exact') return 'Investment<b>' + esc(fmtCurrency(lo)) + '</b>';
+  return '';
+}
+
 function renderAgency(a){
   a = a || {};
   var nameEl = document.getElementById('mk-agency-name');
@@ -512,39 +560,55 @@ function render(data){
 
   document.getElementById('mk-eyebrow').textContent = metaParts.join('  ·  ');
   document.getElementById('mk-name').textContent = name;
+  // Who they are beyond the roster line: class year, major, hometown. Each
+  // only when filled in.
+  var facts = [data.class_year, data.major ? data.major + ' major' : '', data.hometown ? 'From ' + data.hometown : ''].filter(Boolean);
+  if (facts.length) { var fe = document.getElementById('mk-facts'); fe.textContent = facts.join('  \u00b7  '); fe.style.display = ''; }
 
-  // ── Stats: only networks with data, plus a combined-reach anchor ──────────
-  var nets = [
-    { key:'instagram', label:'Instagram', dot:DOTS.instagram, followers:Number(data.instagram_followers)||0, handle:realHandle(data.instagram_handle), eng:data.instagram_engagement },
-    { key:'tiktok',    label:'TikTok',    dot:DOTS.tiktok,    followers:Number(data.tiktok_followers)||0,    handle:realHandle(data.tiktok_handle) },
-    { key:'twitter',   label:'Twitter / X', dot:DOTS.twitter, followers:Number(data.twitter_followers)||0,  handle:realHandle(data.twitter_handle) }
-  ];
-  // THIN MEANS SHORTER, NOT PADDED. A network with a handle but no follower
-  // count used to render a tile reading "--", which is worse than showing
-  // nothing: a business owner reads a dash as a number we are hiding. Only
-  // networks with a real count get a tile.
-  var shown = nets.filter(function(n){ return n.followers > 0; });
-  var reach = nets.reduce(function(s,n){ return s + n.followers; }, 0);
+  // ── What you get: deliverables, an optional price, a one-line ask ──────────
+  // Whatever the agent filled in, and nothing else. No price set: the
+  // deliverables with no price. Nothing set: no section.
+  var getHtml = '';
+  var dl = Array.isArray(data.deliverables) ? data.deliverables.filter(Boolean) : [];
+  if (dl.length) getHtml += '<ul class="mk-get-list">' + dl.map(function(d){ return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>';
+  var price = priceLabel(data);
+  if (price) getHtml += '<div class="mk-get-price">' + price + '</div>';
+  if (data.ask_line) getHtml += '<div class="mk-get-ask">' + esc(data.ask_line) + '</div>';
+  if (getHtml) {
+    document.getElementById('mk-get-body').innerHTML = getHtml;
+    document.getElementById('mk-get-section').style.display = '';
+  }
 
-  var tiles = shown.map(function(n){
-    var count = fmtFollowers(n.followers);
-    return '<div class="mk-stat">' +
-      '<div class="mk-stat-net"><span class="mk-stat-dot" style="background:' + n.dot + '"></span>' + esc(n.label) + '</div>' +
-      '<div class="mk-stat-num">' + esc(count) + '</div>' +
+  // ── The audience, in three states (services/mediaKitPayload.audienceOf) ────
+  // VERIFIED: pulled by NILDash from an account the athlete connected; says so,
+  // with the date. SELF-REPORTED: typed in; shown, labelled, quieter. A
+  // platform with no number is not in the list, and no list means no section.
+  // We never present an unverified number as if we measured it.
+  var LABELS = { instagram:'Instagram', tiktok:'TikTok', twitter:'X' };
+  var aud = Array.isArray(data.audience) ? data.audience.filter(function(a){ return a && Number(a.followers) > 0; }) : [];
+  var tick = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  var tiles = aud.map(function(n){
+    var verified = n.state === 'verified';
+    return '<div class="mk-stat' + (verified ? ' verified' : ' self') + '" data-state="' + (verified ? 'verified' : 'self-reported') + '">' +
+      '<div class="mk-stat-net"><span class="mk-stat-dot" style="background:' + (DOTS[n.platform] || '#94A3B8') + '"></span>' + esc(LABELS[n.platform] || n.platform) + '</div>' +
+      '<div class="mk-stat-num">' + esc(fmtFollowers(n.followers)) + '</div>' +
       (n.handle ? '<div class="mk-stat-sub">@' + esc(n.handle) + '</div>' : '') +
-      (n.eng ? '<div class="mk-stat-eng">' + esc(engagementLabel(n.eng)) + '</div>' : '') +
-      // Numbers from the athlete's connected Instagram carry where and when.
-      (n.key === 'instagram' && data.instagram_live && data.instagram_live.fetchedAt
-        ? '<div class="mk-stat-sub" style="opacity:.7">From Instagram, ' + esc(new Date(data.instagram_live.fetchedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })) + '</div>' : '') +
+      (n.engagement ? '<div class="mk-stat-eng">' + esc(engagementLabel(n.engagement)) + '</div>' : '') +
+      (verified
+        ? '<div class="mk-stat-badge">' + tick + 'Verified by NILDash' + (n.fetchedAt ? ' &middot; ' + esc(fmtDate(n.fetchedAt)) : '') + '</div>'
+        : '<div class="mk-stat-self">Self-reported</div>') +
     '</div>';
   });
-  // Total Reach only adds something when it adds two or more platforms up;
-  // with one it repeats that platform's number.
-  if (reach > 0 && shown.length >= 2){
-    tiles.push('<div class="mk-stat reach">' +
+  // Total Reach only adds something when it adds two or more platforms up.
+  // A total that includes a typed number says so and drops the accent.
+  if (aud.length >= 2){
+    var reach = aud.reduce(function(s,n){ return s + Number(n.followers); }, 0);
+    var selfCount = aud.filter(function(n){ return n.state !== 'verified'; }).length;
+    tiles.push('<div class="mk-stat reach' + (selfCount ? ' mixed' : '') + '">' +
       '<div class="mk-stat-net">Total Reach</div>' +
       '<div class="mk-stat-num">' + esc(fmtFollowers(reach)) + '</div>' +
-      '<div class="mk-stat-sub" style="color:var(--accent);opacity:.85">Followers across platforms</div>' +
+      '<div class="mk-stat-sub" style="' + (selfCount ? '' : 'color:var(--accent);opacity:.85') + '">' +
+        (selfCount === aud.length ? 'Self-reported, across platforms' : selfCount ? 'Includes self-reported counts' : 'Verified across platforms') + '</div>' +
     '</div>');
   }
   if (tiles.length){
@@ -557,6 +621,9 @@ function render(data){
   var variant = data.variant || null;
   var aboutBody = document.getElementById('mk-about-body');
   var aboutHtml = '';
+  // The athlete's own words first, attributed to them.
+  if (data.bio_line) aboutHtml += '<div class="mk-quote">&ldquo;' + esc(String(data.bio_line).replace(/^["\u201c]+|["\u201d]+$/g, '')) + '&rdquo;' +
+    '<span class="mk-quote-by">&mdash; ' + esc(name.split(/\s+/)[0] || name) + '</span></div>';
   if (variant && variant.opener) aboutHtml += '<div class="mk-lead">' + esc(variant.opener) + '</div>';
   if (data.bio) aboutHtml += '<div class="mk-body-text">' + esc(data.bio) + '</div>';
   if (variant && variant.matchedTags && variant.matchedTags.length){
@@ -564,13 +631,17 @@ function render(data){
     aboutHtml += '<div class="mk-fit">Why ' + esc(who) + ' fits ' + esc(variant.brand) + ': ' +
       variant.matchedTags.map(function(t){ return '<span class="mk-fit-chip">' + esc(t) + '</span>'; }).join('') + '</div>';
   }
+  var ww = Array.isArray(data.worked_with) ? data.worked_with.filter(Boolean).slice(0, 3) : [];
+  if (ww.length) aboutHtml += '<div class="mk-worked">Previously worked with ' + ww.map(function(w){ return '<span>' + esc(w) + '</span>'; }).join('') + '</div>';
   if (aboutHtml){
     aboutBody.innerHTML = aboutHtml;
   } else {
     document.getElementById('mk-about-section').style.display = 'none';
   }
 
-  // ── NO RATE CARD. THE KIT DOES NOT NAME A PRICE. ──────────────────
+  // ── NO RATE CARD. ────────────────────────────────────────────────────────
+  // The only price a kit ever shows is the one the agent chose to put in
+  // "What you get" above (a number, a range or "packages from"), or none.
   // What gets done and for how much is the agent's negotiation. A kit that opens
   // with a rate card has made the first offer before the agent has said hello,
   // and it anchors every conversation that follows to a number nobody picked for
@@ -600,7 +671,7 @@ function render(data){
   document.getElementById('state-loading').style.display = 'none';
   document.getElementById('mk-content').style.display = 'block';
 
-  if (window.location.search.indexOf('print=1') !== -1){
+  if (!PREVIEW && window.location.search.indexOf('print=1') !== -1){
     setTimeout(function(){ window.print(); }, 1000);
   }
 }
@@ -666,6 +737,41 @@ function showToast(msg){
   clearTimeout(t._t); t._t = setTimeout(function(){ t.classList.remove('show'); }, 2600);
 }
 
+// ── PREVIEW MODE (/media-kit/_preview?preview=1) ───────────────────────────
+// The builders frame this page and hand it the kit their preview endpoint
+// returned (services/mediaKitPayload, the same function as the public API).
+// It renders with the same render() as a brand's visit and nothing else:
+// no fetch, no view recorded, no footer click counted, and the buttons and
+// links do nothing. The parent hears the page's height so it can size the frame.
+var PREVIEW = new URLSearchParams(window.location.search).get('preview') === '1';
+if (PREVIEW) {
+  // render() hides sections and rewrites nodes; each update starts from the
+  // page as it was served.
+  var _pristine = { content: document.getElementById('mk-content').innerHTML,
+                    topbar: document.querySelector('.topbar').innerHTML };
+  document.addEventListener('click', function(e){
+    var t = e.target && e.target.closest && e.target.closest('a,button');
+    if (t) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+  window.openContactModal = function(){};
+  window.copyLink = function(){};
+  var _postHeight = function(){
+    try { parent.postMessage({ type: 'mk-preview-height', height: document.documentElement.scrollHeight }, location.origin); } catch (e) {}
+  };
+  if (window.ResizeObserver) new ResizeObserver(_postHeight).observe(document.body);
+  window.addEventListener('message', function(e){
+    if (e.origin !== location.origin || e.source !== parent) return;
+    var m = e.data || {};
+    if (m.type !== 'mk-preview' || !m.kit) return;
+    document.getElementById('mk-content').innerHTML = _pristine.content;
+    document.querySelector('.topbar').innerHTML = _pristine.topbar;
+    var fav = document.getElementById('mk-favicon'); if (fav) fav.href = 'data:,';
+    render(m.kit);
+    _postHeight();
+    Array.prototype.forEach.call(document.images, function(img){ if (!img.complete) img.addEventListener('load', _postHeight, { once: true }); });
+  });
+  try { parent.postMessage({ type: 'mk-preview-ready' }, location.origin); } catch (e) {}
+} else {
 // ── Fetch + render. Forward ?for=<brandSlug> so the API returns the variant
 // personalization and records the brand on the view row. ──────────────────────
 var _forParam = new URLSearchParams(window.location.search).get('for');
@@ -677,6 +783,7 @@ fetch('/api/media-kit/' + slug + (_forParam ? '?for=' + encodeURIComponent(_forP
     document.getElementById('state-error').style.display = 'flex';
     console.error('[media-kit]', e);
   });
+}
 </script>
 </body>
 </html>

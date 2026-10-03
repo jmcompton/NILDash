@@ -310,6 +310,7 @@ app.use('/api/agent/athlete-media-kit', mkImageJson);
 // The agency logo is a downscaled data URL (services/agencyBrand caps it at 400 KB).
 app.use('/api/agent/brand', express.json({ limit: '600kb' }));
 app.use('/api/athlete/media-kit/save', mkImageJson);
+app.use('/api/athlete/media-kit/preview', mkImageJson);
 
 // ── Resend inbound reply webhook — raw body MUST come before express.json() ──
 // Same reason as the Stripe webhook above: signature verification needs the
@@ -16971,6 +16972,18 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
        baseSlug, themeUpdate]
     );
     const mk = mkR.rows[0];
+    // What you get + the athlete as a person (services/mediaKitPayload): only
+    // the keys the body carries; everything optional.
+    {
+      const MKP = require('./services/mediaKitPayload');
+      await MKP.ensureColumns(store.pool);
+      const st = MKP.storyFromBody(req.body);
+      const keys = Object.keys(st);
+      if (keys.length) {
+        await store.pool.query(`UPDATE media_kits SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`,
+          [mk.id, ...keys.map((k) => (k === 'deliverables' || k === 'worked_with') && st[k] ? JSON.stringify(st[k]) : st[k])]);
+      }
+    }
 
     // Replace rate cards (accept rateCards | rates | rate_cards, normalized)
     const cleanRates = normalizeRateCardsPayload(req.body);
@@ -17239,76 +17252,58 @@ app.get('/go/kit-footer/:slug', async (req, res) => {
 app.get('/api/media-kit/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
-    const mkR = await store.pool.query(
-      `SELECT mk.*, a.agent_id FROM media_kits mk
-        LEFT JOIN athletes a ON a.id = mk.athlete_id
-       WHERE mk.slug = $1`, [slug]);
+    const mkR = await store.pool.query(`SELECT * FROM media_kits WHERE slug = $1`, [slug]);
     if (!mkR.rows.length) return res.status(404).json({ error: 'Media kit not found' });
     const mk = mkR.rows[0];
-
-    // Get athlete name/sport/school/position + agent first name (for the
-    // inquiry confirmation copy)
-    const athR = await store.pool.query(
-      `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
-              a.data->>'school' as school, a.data->>'position' as position,
-              u.name as agent_name, a.agent_id
-       FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
-       WHERE a.id = $1`,
-      [mk.athlete_id]
-    );
-    const ath = athR.rows[0] || {};
-    // THE AGENCY ON THE KIT, never NILDash (services/agencyBrand): the athlete's
-    // agent's brand, or their own name and email when none is set.
-    const _owner = ath.agent_id ? await store.getUser(ath.agent_id).catch(() => null) : null;
-    const agency = await require('./services/agencyBrand').brandForUser(_owner || {});
-
-    const rcR = await store.pool.query(
-      'SELECT * FROM media_kit_rate_cards WHERE media_kit_id = $1 ORDER BY id',
-      [mk.id]
-    );
-
-    // Per-brand variant (?for=<brandSlug>): personalization only, the base kit
-    // record is never modified. Unknown slugs fall back to the base kit.
     const forSlug = String(req.query.for || '').trim().toLowerCase();
-    const variants = (mk.variants && typeof mk.variants === 'object') ? mk.variants : {};
-    const variant = forSlug && variants[forSlug] ? { ...variants[forSlug], slug: forSlug } : null;
+    // THE KIT AS A BRAND SEES IT (services/mediaKitPayload): the same function
+    // the builders' previews call, so the preview is this page.
+    const payload = await require('./services/mediaKitPayload').payloadFor(store.pool, mk, { forSlug });
 
     // Record the view; failures never break the page.
     // Brand attribution comes from the ?for= slug, NOT from whether a generated
-    // variant exists. Previously an agent could send a ?for=barclay-gmc link,
-    // and if no AI variant had been built for that brand the open was recorded
-    // as anonymous. That is why "who opened it" never worked outside the few
-    // brands with variants. Any ?for= link now attributes.
-    const brandLabel = variant ? variant.brand : _deslugBrand(forSlug);
-    recordKitView(req, mk, forSlug || null, brandLabel || null);
-
-    const { variants: _v, ...mkPublic } = mk;
-    // ── CONNECTED INSTAGRAM WINS (services/instagramConnect) ───────────────
-    // The kit's own Instagram fields are hand-typed. When the athlete has
-    // connected, the stored numbers from Instagram replace them, with the date
-    // they were fetched; when not, the kit is unchanged.
-    try {
-      const ig = await require('./services/instagramConnect').latestFor(store.pool, mk.athlete_id);
-      if (ig) {
-        if (ig.followers_count !== null) mkPublic.instagram_followers = Number(ig.followers_count);
-        if (ig.username) mkPublic.instagram_handle = ig.username;
-        mkPublic.instagram_engagement = ig.engagement_rate !== null ? (Math.round(Number(ig.engagement_rate) * 1000) / 10) + '%' : null;
-        mkPublic.instagram_live = { source: 'instagram', fetchedAt: ig.fetched_at };
-      }
-    } catch (e) { console.warn('[api/media-kit] instagram stats unavailable:', e.message); }
-    res.json({
-      ...mkPublic,
-      athlete_name: ath.name || '',
-      sport: ath.sport || '',
-      school: ath.school || '',
-      position: ath.position || '',
-      agent_first_name: require('./services/agentName').firstNameOrNull(ath.agent_name) || '',
-      agency,
-      rateCards: rcR.rows,
-      variant,
-    });
+    // variant exists. Any ?for= link attributes.
+    const ownerId = (await store.pool.query('SELECT agent_id FROM athletes WHERE id = $1', [mk.athlete_id])).rows[0];
+    const brandLabel = payload.variant ? payload.variant.brand : _deslugBrand(forSlug);
+    recordKitView(req, { ...mk, agent_id: ownerId ? ownerId.agent_id : null }, forSlug || null, brandLabel || null);
+    res.json(payload);
   } catch (e) {
     console.error('[api/media-kit/:slug]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── THE BUILDERS' PREVIEWS: THE PUBLIC KIT, UNSAVED ─────────────────────────
+// POST the builder's form (the same body as a save). Returns exactly what
+// GET /api/media-kit/:slug would return if it were saved, and writes nothing:
+// no kit row, no view. The builder frames /media-kit/_preview?preview=1 and
+// hands it this. ?photos=0: the photo fields are left out of the response
+// (the builder already holds them and adds them back), so a keystroke does not
+// round-trip two images.
+async function _mkPreview(res, athleteId, body, photos) {
+  const MKP = require('./services/mediaKitPayload');
+  await MKP.ensureColumns(store.pool);
+  const saved = (await store.pool.query('SELECT * FROM media_kits WHERE athlete_id = $1', [athleteId])).rows[0] || null;
+  const b = { ...(body || {}) };
+  if (!photos) { delete b.headshot_data; delete b.action_shot_data; }
+  const payload = await MKP.payloadFor(store.pool, MKP.draftKit(saved, b, athleteId), {});
+  if (!photos) { delete payload.headshot_url; delete payload.action_shot_data; }
+  res.json(payload);
+}
+app.post('/api/agent/athlete-media-kit/:athleteId/preview', requireAuth, async (req, res) => {
+  try {
+    const own = await store.pool.query('SELECT 1 FROM athletes WHERE id = $1 AND agent_id = $2', [req.params.athleteId, req.session.userId]);
+    if (!own.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    await _mkPreview(res, req.params.athleteId, req.body, req.query.photos !== '0');
+  } catch (e) {
+    console.error('[agent/athlete-media-kit preview]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post('/api/athlete/media-kit/preview', verifyAthleteToken, async (req, res) => {
+  try { await _mkPreview(res, req.athlete.id, req.body, req.query.photos !== '0'); }
+  catch (e) {
+    console.error('[athlete/media-kit preview]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -17478,6 +17473,18 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, requireAgentSub
        baseSlug, themeUpdate]
     );
     const mk = mkR.rows[0];
+    // What you get + the athlete as a person (services/mediaKitPayload): only
+    // the keys the body carries; everything optional.
+    {
+      const MKP = require('./services/mediaKitPayload');
+      await MKP.ensureColumns(store.pool);
+      const st = MKP.storyFromBody(req.body);
+      const keys = Object.keys(st);
+      if (keys.length) {
+        await store.pool.query(`UPDATE media_kits SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`,
+          [mk.id, ...keys.map((k) => (k === 'deliverables' || k === 'worked_with') && st[k] ? JSON.stringify(st[k]) : st[k])]);
+      }
+    }
 
     // Replace rate cards (accept rateCards | rates | rate_cards, normalized)
     const cleanRates = normalizeRateCardsPayload(req.body);

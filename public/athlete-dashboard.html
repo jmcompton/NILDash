@@ -6093,182 +6093,54 @@ function mkClearPhoto(type, evt) {
   mkUpdatePreview();
 }
 
+// THE PREVIEW IS THE PUBLIC PAGE (public/kit-builder.js): the builder frames
+// /media-kit/_preview and hands it what the server's preview endpoint returns,
+// the same payload GET /api/media-kit/:slug serves a brand. There is no second
+// renderer here to drift.
+var _mkMounted = false;
 function mkUpdatePreview() {
-  var name = (document.getElementById('mk-prof-name').textContent || '').trim();
-  var sport = (document.getElementById('mk-prof-sport').textContent || '').trim();
-  var school = (document.getElementById('mk-prof-school').textContent || '').trim();
-  var position = (document.getElementById('mk-prof-position').textContent || '').trim();
+  if (!window.KitBuilder) return;
+  if (!_mkMounted) {
+    _mkMounted = true;
+    KitBuilder.mount({
+      endpoint: function () { return '/api/athlete/media-kit/preview'; },
+      fetchOpts: function () { return { headers: { 'Authorization': 'Bearer ' + athleteToken } }; },
+      body: mkFormBody,
+      photos: function () { return { headshot: mkState.headshotData || null, action: mkState.actionShotData || null }; },
+      ready: function () { return !!athleteToken; },
+    });
+  }
+  KitBuilder.update();
+}
 
+// The builder's form as a save body. The preview posts the same thing.
+function mkFormBody() {
   var colors = mkGetColors();
-  var primary = colors.primary;
-  var secondary = colors.secondary;
-  var priText = mkIsLight(primary) ? '#1a1a2e' : '#ffffff';
-  var secText = mkIsLight(secondary) ? '#333333' : '#ffffff';
-
-  var initials = (name || 'N A').split(' ').slice(0,2).map(function(w){ return (w[0]||'').toUpperCase(); }).join('') || 'NA';
-  var displayName = (name && name !== '—') ? name : 'Your Name';
-  var metaParts = [position, sport, school].filter(function(v){ return v && v !== '—'; });
-  var metaLine = metaParts.join(' · ') || 'Athlete';
-
-  var ig = {
-    handle: document.getElementById('mk-ig-handle').value.trim(),
-    followers: parseInt(document.getElementById('mk-ig-followers').value) || 0,
-    engagement: document.getElementById('mk-ig-engagement').value.trim()
-  };
-  var tt = {
-    handle: document.getElementById('mk-tt-handle').value.trim(),
-    followers: parseInt(document.getElementById('mk-tt-followers').value) || 0
-  };
-  var tw = {
-    handle: document.getElementById('mk-tw-handle').value.trim(),
-    followers: parseInt(document.getElementById('mk-tw-followers').value) || 0
-  };
-  var bio = document.getElementById('mk-bio').value.trim();
-  var headshot = mkState.headshotData || null;
-  var actionShot = mkState.actionShotData || null;
-
-  // ── Stats boxes ──────────────────────────────────────────────────────────
-  var statsBoxes = [];
-  var igSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#E1306C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.2" fill="#E1306C" stroke="none"/></svg>';
-  var ttSvg  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>';
-  var twSvg  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
-
-  // Engagement as a percent, as the public kit shows it: "3" -> "3% engagement".
-  function mkEngagementLabel(v) {
-    var s = String(v == null ? '' : v).trim();
-    if (!s) return '';
-    if (/%/.test(s)) return s.replace(/\s*%/, '%') + ' engagement';
-    var n = Number(s);
-    return isFinite(n) ? (Math.round(n * 10) / 10) + '% engagement' : s + ' engagement';
-  }
-  function mkPlatformBox(icon, platform, followers, handle, color, engagement) {
-    return '<div style="flex:1;padding:14px 10px;border-right:1px solid #f0f4f8;text-align:center;min-width:0">' +
-      '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:5px">' + icon +
-        '<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:' + color + '">' + platform + '</span>' +
-      '</div>' +
-      '<div style="font-size:20px;font-weight:800;color:#0f172a;line-height:1;font-variant-numeric:tabular-nums">' + (followers > 0 ? mkFmtFollowers(followers) : '<span style="color:#cbd5e1">—</span>') + '</div>' +
-      (handle ? '<div style="font-size:10px;color:#94a3b8;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@' + esc(handle.replace(/^@/,'')) + '</div>' : '<div style="font-size:10px;color:#e2e8f0;margin-top:3px">—</div>') +
-      (engagement ? '<div style="font-size:9px;font-weight:700;color:#84CC16;margin-top:3px">' + esc(mkEngagementLabel(engagement)) + '</div>' : '') +
-    '</div>';
-  }
-
-  if (ig.followers > 0 || ig.handle) statsBoxes.push(mkPlatformBox(igSvg, 'Instagram', ig.followers, ig.handle, '#E1306C', ig.engagement));
-  if (tt.followers > 0 || tt.handle) statsBoxes.push(mkPlatformBox(ttSvg, 'TikTok', tt.followers, tt.handle, '#333', ''));
-  if (tw.followers > 0 || tw.handle) statsBoxes.push(mkPlatformBox(twSvg, 'Twitter/X', tw.followers, tw.handle, '#1DA1F2', ''));
-
-  // Show placeholders if no stats entered yet
-  if (statsBoxes.length === 0) {
-    statsBoxes = [
-      mkPlatformBox(igSvg, 'Instagram', 0, '', '#E1306C', ''),
-      mkPlatformBox(ttSvg, 'TikTok', 0, '', '#333', ''),
-      mkPlatformBox(twSvg, 'Twitter/X', 0, '', '#1DA1F2', '')
-    ];
-  }
-
-  // ── Rate card rows ─────────────────────────────────────────────────────
-  var visibleRates = mkState.rates.filter(function(r){ return r.service_type && r.price; });
-  var rateRowsHtml = '';
-  if (visibleRates.length > 0) {
-    rateRowsHtml =
-      '<table style="width:100%;border-collapse:collapse">' +
-        visibleRates.map(function(r, i) {
-          return '<tr style="background:' + (i%2===0 ? '#fff' : '#f8fafc') + '">' +
-            '<td style="padding:10px 16px;font-size:13px;color:#1e293b;border-bottom:1px solid #f1f5f9">' +
-              '<div style="font-weight:600">' + esc(r.service_type) + '</div>' +
-              (r.notes ? '<div style="font-size:11px;color:#94a3b8;margin-top:2px">' + esc(r.notes) + '</div>' : '') +
-            '</td>' +
-            '<td style="padding:10px 16px;font-size:14px;font-weight:700;text-align:right;border-bottom:1px solid #f1f5f9;color:' + primary + ';font-variant-numeric:tabular-nums">$' + parseInt(r.price||0).toLocaleString() + '</td>' +
-          '</tr>';
-        }).join('') +
-      '</table>';
-  }
-
-  // ── Build HTML ────────────────────────────────────────────────────────────
-  var html = '<div style="font-family:\'DM Sans\',sans-serif;background:#fff">';
-
-  // HEADER — Action Shot banner + Headshot overlay
-  var bannerBg = actionShot
-    ? 'url(' + actionShot + ') center/cover'
-    : 'linear-gradient(135deg,' + primary + ' 0%,#0f172a 100%)';
-
-  html += '<div style="position:relative;height:180px;background:' + bannerBg + ';overflow:visible">';
-  // Gradient overlay for text readability when action shot present
-  if (actionShot) html += '<div style="position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.1) 100%)"></div>';
-
-  // Headshot circle — overlaid at bottom-left, half outside banner
-  html += '<div style="position:absolute;bottom:-36px;left:20px;z-index:2">';
-  if (headshot) {
-    html += '<img src="' + headshot + '" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid #fff;display:block;box-shadow:0 2px 12px rgba(0,0,0,0.25)">';
-  } else {
-    html += '<div style="width:72px;height:72px;border-radius:50%;background:' + primary + ';border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:' + priText + ';box-shadow:0 2px 12px rgba(0,0,0,0.25)">' + esc(initials) + '</div>';
-  }
-  html += '</div>';
-
-  // Name + meta — to the right of headshot zone
-  html += '<div style="position:absolute;bottom:-20px;left:108px;right:16px;">';
-  html += '<div style="font-size:22px;font-weight:800;color:#0f172a;line-height:1.1;letter-spacing:-0.01em">' + esc(displayName) + '</div>';
-  html += '<div style="font-size:12px;color:#64748b;margin-top:3px;font-weight:500">' + esc(metaLine) + '</div>';
-  html += '</div>';
-
-  html += '</div>'; // /banner
-
-  // School color bar + spacing for headshot
-  html += '<div style="height:4px;background:' + primary + ';margin-top:0"></div>';
-  html += '<div style="height:30px;background:#fff"></div>'; // space for headshot overflow
-
-  // ── Stats Row ────────────────────────────────────────────────────────────
-  html += '<div style="display:flex;border-top:1px solid #f0f4f8;border-bottom:1px solid #f0f4f8;background:#fafbfc">' + statsBoxes.join('') + '</div>';
-
-  // ── About / Bio ───────────────────────────────────────────────────────────
-  if (bio) {
-    html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
-    html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
-    html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>ABOUT</div>';
-    html += '<div style="font-size:13px;color:#334155;line-height:1.7">' + esc(bio) + '</div>';
-    html += '</div>';
-  } else {
-    html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
-    html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
-    html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>ABOUT</div>';
-    html += '<div style="font-size:13px;color:#cbd5e1;font-style:italic;line-height:1.6">Your bio will appear here — write it yourself or click "AI Generate Bio" ✨</div>';
-    html += '</div>';
-  }
-
-  // ── Rate Card ─────────────────────────────────────────────────────────────
-  // No rates, no section: the public kit hides it, so the preview does too.
-  if (visibleRates.length > 0) {
-    html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
-    html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
-    html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
-    html += rateRowsHtml;
-    html += '</div>';
-  }
-
-  // ── Work With Me ─────────────────────────────────────────────────────────
-  var athleteEmail = (athleteProfile && athleteProfile.email) ? athleteProfile.email : '';
-  html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
-  html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
-  html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>WORK WITH ME</div>';
-  if (athleteEmail) html += '<div style="font-size:12px;color:#64748b;margin-bottom:10px">' + esc(athleteEmail) + '</div>';
-  html += '<div style="display:inline-block;background:' + primary + ';color:' + priText + ';padding:10px 20px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Contact This Athlete</div>';
-  html += '</div>';
-
-  // ── Footer ───────────────────────────────────────────────────────────────
-  html += '<div style="height:4px;background:' + secondary + '"></div>';
-  html += '<div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between;background:#fff">';
-  html += '<div style="font-size:10px;color:#94a3b8">Powered by <strong style="color:#64748b">NILDash</strong></div>';
-  html += '<div style="font-size:10px;color:#cbd5e1">© ' + new Date().getFullYear() + '</div>';
-  html += '</div>';
-
-  html += '</div>'; // /outer
-
-  document.getElementById('mk-preview').innerHTML = html;
+  var cleanRates = mkState.rates
+    .filter(function(r){ return r.service_type && String(r.price).trim() !== ''; })
+    .map(function(r){ return { service_type: r.service_type, price: parseInt(r.price)||0, notes: r.notes||'' }; });
+  return Object.assign({
+    instagram_handle: document.getElementById('mk-ig-handle').value.trim(),
+    instagram_followers: parseInt(document.getElementById('mk-ig-followers').value) || null,
+    instagram_engagement: document.getElementById('mk-ig-engagement').value.trim(),
+    tiktok_handle: document.getElementById('mk-tt-handle').value.trim(),
+    tiktok_followers: parseInt(document.getElementById('mk-tt-followers').value) || null,
+    twitter_handle: document.getElementById('mk-tw-handle').value.trim(),
+    twitter_followers: parseInt(document.getElementById('mk-tw-followers').value) || null,
+    bio: document.getElementById('mk-bio').value.trim(),
+    primary_color: colors.primary,
+    secondary_color: colors.secondary,
+    rateCards: cleanRates,
+    headshot_data: mkState.headshotData !== null ? (mkState.headshotData || '') : undefined,
+    action_shot_data: mkState.actionShotData !== null ? (mkState.actionShotData || '') : undefined
+  }, window.KitBuilder ? KitBuilder.storyBody() : {});
 }
 
 function loadMediaKit() {
   if (mkLoaded) return;
   mkLoaded = true;
   mkPreFillFromProfile();
+  mkUpdatePreview();   // mounts the framed preview and the new fields
   fetch('/api/athlete/media-kit', {
     headers: { 'Authorization': 'Bearer ' + athleteToken }
   })
@@ -6314,6 +6186,7 @@ function mkPreFillFromProfile() {
 
 function mkPopulateForm(mk, rates) {
   mkState.slug = mk.slug || null;
+  if (window.KitBuilder) KitBuilder.fill(mk);
   if (mk.instagram_handle) document.getElementById('mk-ig-handle').value = mk.instagram_handle;
   if (mk.instagram_followers) document.getElementById('mk-ig-followers').value = mk.instagram_followers;
   if (mk.instagram_engagement) document.getElementById('mk-ig-engagement').value = mk.instagram_engagement;
@@ -6449,25 +6322,7 @@ async function mkSave() {
   var btn = document.getElementById('mk-save-btn');
   btn.disabled = true; btn.textContent = '⏳ Saving…';
   try {
-    var colors = mkGetColors();
-    var cleanRates = mkState.rates
-      .filter(function(r){ return r.service_type && String(r.price).trim() !== ''; })
-      .map(function(r){ return { service_type: r.service_type, price: parseInt(r.price)||0, notes: r.notes||'' }; });
-    var payload = {
-      instagram_handle: document.getElementById('mk-ig-handle').value.trim(),
-      instagram_followers: parseInt(document.getElementById('mk-ig-followers').value) || null,
-      instagram_engagement: document.getElementById('mk-ig-engagement').value.trim(),
-      tiktok_handle: document.getElementById('mk-tt-handle').value.trim(),
-      tiktok_followers: parseInt(document.getElementById('mk-tt-followers').value) || null,
-      twitter_handle: document.getElementById('mk-tw-handle').value.trim(),
-      twitter_followers: parseInt(document.getElementById('mk-tw-followers').value) || null,
-      bio: document.getElementById('mk-bio').value.trim(),
-      primary_color: colors.primary,
-      secondary_color: colors.secondary,
-      rateCards: cleanRates,
-      headshot_data: mkState.headshotData !== null ? (mkState.headshotData || '') : undefined,
-      action_shot_data: mkState.actionShotData !== null ? (mkState.actionShotData || '') : undefined
-    };
+    var payload = mkFormBody();
     var r = await fetch('/api/athlete/media-kit/save', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + athleteToken, 'Content-Type': 'application/json' },
@@ -6613,5 +6468,6 @@ init();
   <div id="adp-body"></div>
 </aside>
 
+<script src="/kit-builder.js"></script>
 </body>
 </html>

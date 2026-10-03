@@ -13,7 +13,7 @@ const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 
 // ── THE MEDIA KIT: THE AGENCY'S LETTERHEAD, THE ATHLETE'S PHOTO, A COUNTED FOOTER
 // A real server, real pages, real database. An account that never set a brand
-// renders the kit exactly as before (checked against the committed page); a
+// renders with no agency mark; a
 // branded one carries its logo as letterhead, its name exactly as typed, a
 // readable accent and the inquiry button, its name exactly as typed; one account's brand never reaches
 // another's kit; a footer click is logged once; the photo falls back cleanly;
@@ -101,14 +101,12 @@ async function main() {
     if (!chromium) ok('playwright is available to render the kit', false);
     else {
       browser = await chromium.launch();
-      const OLD_PAGE = execSync('git show HEAD:public/media-kit.html', { cwd: REPO }).toString();
       const render = async (slug, opts = {}) => {
         const page = await browser.newPage({ viewport: { width: 1100, height: 1400 } });
         const errors = []; page.on('pageerror', (e) => errors.push(e.message));
         await page.route('**/*', (route) => {
           const u = new URL(route.request().url());
           if (u.host !== `127.0.0.1:${port}`) return route.fulfill({ status: 204, body: '' });
-          if (opts.oldPage && u.pathname === '/media-kit/' + slug) return route.fulfill({ contentType: 'text/html', body: OLD_PAGE });
           return route.continue();
         });
         await page.goto(`${base}/media-kit/${slug}`);
@@ -137,10 +135,13 @@ async function main() {
       };
 
       OUT.push('', '-- an account that never set a brand: the kit as it is today --');
-      const bNew = await render('kb-b'), bOld = await render('kb-b', { oldPage: true });
+      const bNew = await render('kb-b');
       const norm = (t) => t.replace(/\s+/g, ' ').trim();
-      ok('the unbranded kit reads exactly as the committed page renders it, word for word', norm(bNew.text) === norm(bOld.text) && !bNew.errors.length,
-        { new: norm(bNew.text).slice(0, 300), old: norm(bOld.text).slice(0, 300), errors: bNew.errors });
+      // (This compared the unbranded kit word for word against the committed
+      // page while branding landed. The page has since changed on purpose:
+      // labelled audience numbers, What you get, the athlete's own details;
+      // tests/kitpreview.js covers those.)
+      ok('the unbranded kit renders with no error and no agency mark', !bNew.errors.length && !bNew.letterhead, { errors: bNew.errors });
       ok('  no letterhead, no logo; the hero is the gradient and initials, as today', !bNew.letterhead && !/url\(/.test(bNew.heroBg) && bNew.mono, bNew);
       ok('  "Powered by NILDash" in the footer, now a counted link to mynildash.com', /Powered by NILDash/.test(bNew.powered) && bNew.footerHref === '/go/kit-footer/kb-b', bNew.footerHref);
 
@@ -183,13 +184,8 @@ async function main() {
     const pages = ['public/media-kit.html', 'public/index.html', 'public/athlete-dashboard.html'].map((f) => [f, fs.readFileSync(REPO + f, 'utf8')]);
     ok('no renderer of the kit prints a unitless "eng." or a "Rate card coming soon" placeholder',
       pages.every(([, src]) => !/' eng\.<\/div>'/.test(src) && !/Rate card coming soon/.test(src)), pages.filter(([, src]) => /' eng\.<\/div>'|Rate card coming soon/.test(src)).map(([f]) => f));
-    const vm = require('vm');
-    const fnSrc = (src) => { const i = src.indexOf('function mkEngagementLabel'); return src.slice(i, src.indexOf('\n  }\n', i) + 4); };
-    ok('  both builders\' previews label engagement as a percent ("3" -> "3% engagement", "4.2%" stays 4.2%)',
-      ['public/index.html', 'public/athlete-dashboard.html'].every((f) => {
-        const ctx = {}; vm.runInNewContext(fnSrc(fs.readFileSync(REPO + f, 'utf8')) + '; this.f = mkEngagementLabel;', ctx);
-        return ctx.f('3') === '3% engagement' && ctx.f('4.2%') === '4.2% engagement' && ctx.f('') === '';
-      }));
+    ok('  the builders have no renderer of their own: they frame the public page (public/kit-builder.js, tests/kitpreview.js)',
+      ['public/index.html', 'public/athlete-dashboard.html'].every((f) => !/function mkPlatformBox|function mkEngagementLabel/.test(fs.readFileSync(REPO + f, 'utf8'))));
 
     // ── 5. THE INQUIRY GOES TO THE AGENCY ─────────────────────────────────────
     const IDX = fs.readFileSync(REPO + 'server/index.js', 'utf8');
