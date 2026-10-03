@@ -574,7 +574,7 @@
     },
     "inactiveskip.js": {
       "failed": 0,
-      "total": 29,
+      "total": 35,
       "fault": null
     },
     "inbox.js": {
@@ -1275,6 +1275,11 @@
     "kitpreview.js": {
       "failed": 0,
       "total": 41,
+      "fault": null
+    },
+    "nightlycoverage.js": {
+      "failed": 0,
+      "total": 27,
       "fault": null
     }
   }
