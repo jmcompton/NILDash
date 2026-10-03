@@ -1001,15 +1001,18 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
   req.session.userId = user.id;
   // ── A DORMANT AGENT IS BACK ─────────────────────────────────────────────
-  // The nightly run skips an agent whose last login is over 14 days old and
-  // leaves their cards alone. Their sign-in is the signal: last_login moves
-  // (which lifts the nightly skip tonight), and every athlete with an open
+  // The nightly run fills an agent whose last login is over 14 days old once a
+  // week and leaves their cards alone. Their sign-in is the signal: last_login
+  // moves (nightly again from tonight), the waiting cards' seven days restart
+  // from now (restartCardClock), and every athlete with an open
   // slot is filled on demand right now, in the background, so the page they
   // are about to open says "finding businesses" and then fills.
   const _wasDormant = (() => {
     try { return ['agent', 'admin'].includes(user.role) && !!require('./jobs/outreachQueue').inactiveSkip(user); } catch (_) { return false; }
   })();
   store.pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]).catch(() => {});
+  // The cards that waited for them start their seven days now.
+  if (_wasDormant) require('./jobs/outreachQueue').restartCardClock(store.pool, user.id).catch((e) => console.error('[queue/resume] clock:', e.message));
   if (_wasDormant && OQfillOnDemandEnabled()) {
     console.log(`[queue/resume] agent=${user.id} signed in after ${user.last_login ? Math.floor((Date.now() - new Date(user.last_login).getTime()) / 86400000) + ' days' : 'never having signed in'}; filling open slots now`);
     setImmediate(() => { require('./jobs/outreachQueue').resumeAgent(store.pool, user.id).catch((e) =>
@@ -4265,8 +4268,9 @@ app.post('/api/athletes/import/commit', requireAuth, importJson, async (req, res
       }
     }
     checkOff(user.id, 'add_athlete');
-    // An import is the agent at work: the dormant clock resets so tonight's
-    // run does not skip them.
+    // An import is the agent at work: nightly again from tonight, and if they
+    // were dormant the cards that waited for them start their seven days now.
+    if (require('./jobs/outreachQueue').inactiveSkip(user)) require('./jobs/outreachQueue').restartCardClock(store.pool, user.id).catch(() => {});
     store.pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]).catch(() => {});
     // Then the same fill a single Add Client starts, one athlete at a time in
     // the background. Home shows "finding businesses" for each until it lands.
@@ -5343,6 +5347,20 @@ const ADMIN_SCRIPTS = {
   // sent. ?send=1 sends it now, whatever the hour, if nothing has gone today.
   //   /api/admin/scripts/morning-alert?text=1
   'morning-alert': { file: 'scripts/morning-alert.js', args: (q) => (q.send === '1' ? ['--send'] : []) },
+  // Every athlete, every night of the last week (?days=N): ran the loop, or
+  // exactly which rule kept them out (agent dormant/skipped, no run row, run
+  // unfinished, not reached, paused, slots full, no school ...). ?athlete=
+  // narrows to names containing it. Read-only.
+  //   /api/admin/scripts/nightly-coverage?text=1
+  'nightly-coverage': { file: 'scripts/nightly-coverage.js', args: (q) => [
+    ...(q.days ? ['--days', String(parseInt(q.days, 10) || 7)] : []),
+    ...(q.athlete ? ['--athlete', String(q.athlete).slice(0, 80)] : []) ] },
+  // Athletes the local lane cannot place, across every agent (services/
+  // schoolCheck). &apply=1 applies the fixes the record itself determines (a
+  // pro team typed as the school -> pro with that team's city); everything
+  // else is listed for the agent, who sees it on Home.
+  //   /api/admin/scripts/school-problems?text=1
+  'school-problems': { file: 'scripts/school-problems.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
   // Every external service the night depends on, called once now; results
   // written to service_checks. &alert=1 also emails the failures.
   //   /api/admin/scripts/preflight?text=1
@@ -17366,6 +17384,25 @@ app.get('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res)
     console.error('[agent/athlete-media-kit GET]', e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── ATHLETES THE LOCAL LANE CANNOT PLACE (services/schoolCheck) ─────────────
+// No school, a pro team typed as the school, a pro with no city, or a school
+// last night's run could not find. Home lists them with what fixes each; the
+// nightly run still works social and national for them, but the local lane is
+// silent until the record is right, and the agent should know that.
+app.get('/api/agent/athletes/needs-fix', requireAuth, async (req, res) => {
+  try { res.json({ athletes: await require('./services/schoolCheck').forAgent(store.pool, req.session.userId) }); }
+  catch (e) { console.error('[needs-fix]', e.message); res.status(500).json({ error: e.message }); }
+});
+// The one-click fix, only where the record itself says what it is (a pro team
+// in the school field, or a pro whose team names the city).
+app.post('/api/agent/athletes/:id/apply-fix', requireAuth, async (req, res) => {
+  try {
+    const r = await require('./services/schoolCheck').applyFix(store.pool, req.session.userId, req.params.id);
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    res.json(r);
+  } catch (e) { console.error('[apply-fix]', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // GET /api/agent/home-notices — read-time home feed: kits first viewed today

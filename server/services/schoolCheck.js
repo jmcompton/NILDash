@@ -1,135 +1,81 @@
 'use strict';
-// ── CATCH THE SCHOOL AT THE MOMENT IT IS TYPED ───────────────────────────────
+// ── AN ATHLETE THE LOCAL LANE CANNOT PLACE ──────────────────────────────────
 //
-// An athlete whose school does not resolve has no local market, and the local
-// lane is most of the product. Before this, that failure was INVISIBLE at entry:
-// the form accepted anything, and the consequence showed up days later as an
-// athlete who quietly got nothing every night. We spent a day debugging exactly
-// that, and then built an admin page to find the 21 athletes it had already
-// happened to.
+// The local lane works in the town the athlete lives in: their school's town,
+// or for a pro the city they play in (services/athleteRecord). When that
+// cannot be worked out, the night still runs social and national, but the
+// local lane is silent -- and that silence used to be invisible to the agent.
+// This names the problem, says what fixes it, and Home shows it.
 //
-// The fix is to fail at the keyboard, where the agent still has the answer in
-// their head. This is that check: resolve what they typed, and when it does not
-// match, say so immediately and offer the near misses so correcting it is one
-// click rather than a research task.
-//
-// IT NEVER BLOCKS. An agent who insists on a school we cannot match is allowed
-// to proceed -- some schools are real and simply not in our list, and refusing
-// their client would be worse than a thin local lane. What they are not allowed
-// to do is finish WITHOUT KNOWING, so the warning is explicit and names the
-// consequence.
-const { resolveSchool, SHIPPED_NAMES, EXTRA_SCHOOLS, normalize, core, similarity, levenshtein } = require('./schoolResolver');
+//   problemFor(athleteRow, { noMarketLastNight }) -> null | { code, text, fix? }
+//     no-school       a college athlete with nothing in the school field
+//     team-in-school  the school field holds a pro team ("New York Mets"):
+//                     the athlete is a pro; fix = { athleteType: 'pro', team, city }
+//     pro-no-city     a pro with no city (and no team that names one)
+//     unresolved      a school we could not find on the map (last night's run
+//                     had no market for them)
+//   applyFix(pool, agentId, athleteId) -> the one-click fix for team-in-school
+//     and a pro whose team names the city. Nothing else is guessed: a missing
+//     school is the agent's to type.
+const PT = require('./proTeams');
 
-// Near misses worth offering. Below this a suggestion is noise -- offering
-// "Auburn University" to someone who typed "Zzz" helps nobody.
-const SUGGEST_MIN = 0.55;
-const MAX_SUGGESTIONS = 4;
+const fold = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
-function allNames() {
-  const out = new Set();
-  for (const k of Object.keys(EXTRA_SCHOOLS || {})) out.add(k);
-  for (const k of (SHIPPED_NAMES || [])) out.add(k);
-  return [...out];
+// A FULL team name only. A nickname that a school could carry is not enough to
+// call someone a pro.
+function teamNamedIn(text) {
+  const t = PT.findTeam(text);
+  return t && fold(text).includes(fold(t.name)) ? t : null;
 }
 
-// What did they probably mean? Scored on the WORDS of the name, so a
-// suggestion shares something the agent actually typed. "Western New Mexico
-// University" used to be offered Western Kentucky and West Virginia: the old
-// character similarity saw "western" and "university" and nothing else. Now:
-//   - direction words (western, eastern, north, state, tech...) and
-//     institution words count for nothing on their own
-//   - a distinctive word shared with the name counts (new, mexico)
-//   - the name's STATE counts when the agent typed it, in either form
-//     ("New Mexico", "NM")
-//   - the old character similarity only breaks ties among names that share
-//     a word, and a near-typo of the whole name still ranks first
-// A name that shares no distinctive word and no state is never offered.
-const GENERIC_WORDS = new Set(['university', 'univ', 'college', 'of', 'the', 'at', 'state', 'tech', 'technology', 'institute', 'academy',
-  'western', 'eastern', 'northern', 'southern', 'central', 'north', 'south', 'east', 'west', 'saint', 'st', 'and', 'a', 'm', 'community', 'polytechnic', 'in', 'for']);
-const STATE_WORDS = (() => {
-  const { US_STATES } = require('./schoolResolver');
-  const m = new Map();
-  for (const [name, abbr] of Object.entries(US_STATES || {})) { m.set(name, abbr); m.set(abbr.toLowerCase(), abbr); }
-  return m;
-})();
-function _words(s) { return normalize(String(s || '')).split(/[^a-z0-9]+/).filter(Boolean); }
-// The distinctive words of a name, and the state it names (a state name may be
-// two words: "new mexico", "north carolina").
-function _nameParts(s) {
-  const words = _words(s);
-  const joined = words.join(' ');
-  let state = null;
-  for (const [k, abbr] of STATE_WORDS) { if (k.length > 2 && new RegExp('(^| )' + k + '( |$)').test(joined)) { state = abbr; break; } }
-  if (!state) for (const w of words) if (w.length === 2 && STATE_WORDS.has(w) && words.length > 1) { state = STATE_WORDS.get(w); break; }
-  const stateWords = new Set(state ? [...STATE_WORDS.keys()].filter((k) => STATE_WORDS.get(k) === state).flatMap((k) => k.split(' ')) : []);
-  const distinctive = words.filter((w) => !GENERIC_WORDS.has(w) && !stateWords.has(w));
-  return { words, distinctive, state };
-}
-function suggestionsFor(raw, limit = MAX_SUGGESTIONS) {
-  const q = String(raw || '').trim();
-  if (q.length < 3) return [];
-  const c = core(q);
-  const qp = _nameParts(q);
-  const scored = [];
-  for (const name of allNames()) {
-    const np = _nameParts(name);
-    const shared = np.distinctive.filter((w) => qp.distinctive.includes(w));
-    const stateMatch = !!(qp.state && np.state && qp.state === np.state);
-    const sim = Math.max(similarity(core(name), c), similarity(normalize(name), normalize(q)));
-    // A misspelling of the whole name: within two edits, and only when the
-    // agent typed a distinctive word at all ("Western University" is two edits
-    // from "Eastern University" and means neither).
-    const typo = qp.distinctive.length > 0 && sim >= 0.86 && levenshtein(core(name), c) <= 2;
-    if (!shared.length && !stateMatch && !typo) continue;
-    // Shared words first, the state next, the character similarity last.
-    // A whole-name typo outranks a shared word: it IS the name, misspelt.
-    const score = Math.min(1, (shared.length / Math.max(1, qp.distinctive.length)) * 0.6 + (stateMatch ? 0.25 : 0) + sim * 0.15 + (typo ? 0.6 : 0));
-    if (score >= SUGGEST_MIN * 0.5) scored.push({ name, score: Math.round(score * 100) / 100 });
+function problemFor(row, opts = {}) {
+  const d = (row && row.data) || row || {};
+  const name = str(d.name) || 'This athlete';
+  const isPro = str(d.athleteType) === 'pro' || str(row && row.athlete_type) === 'pro';
+  if (isPro) {
+    if (str(d.city)) return null;
+    const t = str(d.team) ? teamNamedIn(d.team) : null;
+    if (t) return { code: 'pro-no-city', text: `${name} plays for the ${t.name} but has no city on file, so no local businesses can be found.`,
+      fix: { athleteType: 'pro', team: t.name, city: `${t.city}, ${t.state}` }, fixLabel: `Set city to ${t.city}, ${t.state}` };
+    return { code: 'pro-no-city', text: `${name} is a pro with no city on file, so no local businesses can be found. Add the city they play in.` };
   }
-  scored.sort((a, b) => b.score - a.score);
-  // Verified before offering: a suggestion that does not itself resolve would
-  // send the agent round the same loop again.
-  return scored.slice(0, limit * 2)
-    .map((x) => ({ ...x, loc: resolveSchool(x.name) }))
-    .filter((x) => x.loc && x.loc.city)
-    .slice(0, limit)
-    .map((x) => ({ name: x.name, city: x.loc.city, state: x.loc.state, score: x.score }));
+  const school = str(d.school);
+  if (!school) return { code: 'no-school', text: `${name} has no school on file, so no local businesses can be found. Add their school (or mark them a pro with a city).` };
+  const t = teamNamedIn(school);
+  if (t) return { code: 'team-in-school', text: `${name} has "${school}" as their school. That is a pro team, so the local lane has no school to work from.`,
+    fix: { athleteType: 'pro', team: t.name, city: `${t.city}, ${t.state}` }, fixLabel: `Make pro: ${t.name}, ${t.city}, ${t.state}` };
+  if (opts.noMarketLastNight) return { code: 'unresolved', text: `We could not find where "${school}" is, so ${name} got no local businesses last night. Check the school name.` };
+  return null;
 }
 
-function checkSchool(raw) {
-  const input = String(raw || '').trim();
-  if (!input) {
-    return { ok: false, status: 'empty', matched: null, market: null,
-      message: 'Add a school so the local lane has a town to work in.',
-      suggestions: [] };
+// The agent's roster with what is wrong, worst first. noMarket comes from the
+// last finished night's details (the run is what actually tried the school).
+async function forAgent(pool, agentId) {
+  const aths = (await pool.query(`SELECT id, data FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`, [agentId])).rows;
+  const last = (await pool.query(
+    `SELECT details FROM outreach_queue_runs WHERE agent_id = $1 AND finished_at IS NOT NULL
+        AND jsonb_typeof(details) = 'array' AND jsonb_array_length(details) > 0
+      ORDER BY run_date DESC LIMIT 1`, [agentId]).catch(() => ({ rows: [] }))).rows[0];
+  const noMarket = new Set(((last && last.details) || []).filter((x) => x && x.noMarket).map((x) => x.athleteId));
+  const out = [];
+  for (const a of aths) {
+    const p = problemFor(a, { noMarketLastNight: noMarket.has(a.id) });
+    if (p) out.push({ athleteId: a.id, name: (a.data && a.data.name) || '', ...p });
   }
-  const hit = resolveSchool(input);
-  if (hit && hit.city) {
-    return {
-      ok: true,
-      status: 'matched',
-      matched: hit.matched,
-      market: hit.state ? `${hit.city}, ${hit.state}` : hit.city,
-      city: hit.city, state: hit.state,
-      method: hit.method, confidence: hit.confidence,
-      // Says what it will DO, not that a lookup succeeded. "Matched with
-      // confidence 0.91" is a developer's sentence.
-      message: `Local businesses will be found around ${hit.city}${hit.state ? ', ' + hit.state : ''}.`,
-      suggestions: [],
-    };
-  }
-  const suggestions = suggestionsFor(input);
-  return {
-    ok: false,
-    status: 'unmatched',
-    matched: null, market: null,
-    // THE CONSEQUENCE, NAMED. Not "invalid school" -- the agent needs to know
-    // what it costs them, or they will click past it.
-    message: suggestions.length
-      ? `We could not match "${input}" to a town. Pick the right one below, or keep it and this athlete will only get national and social brands.`
-      : `We could not match "${input}" to a town. You can keep it, but this athlete will only get national and social brands, not local businesses.`,
-    suggestions,
-  };
+  return out;
 }
 
-module.exports = { checkSchool, suggestionsFor, SUGGEST_MIN, MAX_SUGGESTIONS };
+async function applyFix(pool, agentId, athleteId) {
+  const a = (await pool.query(`SELECT id, data FROM athletes WHERE id = $1 AND agent_id = $2`, [athleteId, agentId])).rows[0];
+  if (!a) return { ok: false, status: 404, error: 'Athlete not found' };
+  const p = problemFor(a);
+  if (!p || !p.fix) return { ok: false, status: 409, error: 'Nothing to fix automatically for this athlete; edit their profile.' };
+  const patch = { ...p.fix };
+  if (p.code === 'team-in-school') patch.school = null;
+  await pool.query(`UPDATE athletes SET data = data || $3::jsonb, updated_at = NOW() WHERE id = $1 AND agent_id = $2`,
+    [athleteId, agentId, JSON.stringify(patch)]);
+  return { ok: true, applied: patch, was: p.code };
+}
+
+module.exports = { problemFor, forAgent, applyFix, teamNamedIn };

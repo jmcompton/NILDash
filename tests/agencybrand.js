@@ -83,7 +83,7 @@ async function main() {
   ok('  header and "Represented by" are the agency', /\$\{agName \? agName \+ ' · ' : ''\}Rate Sheet/.test(rate) && /Represented by ' \+ agName/.test(rate));
   ok('  the window opens before the brand is fetched (pop-up blockers)', rate.indexOf("window.open(") < rate.indexOf('await loadAgencyBrand()'));
   ok('report API returns the agency', /_agency = await agencyBrand\.brandForUser\(agent\)/.test(routeSrc("app.get('/api/reports/:token'")) && /agency: _agency/.test(routeSrc("app.get('/api/reports/:token'")));
-  ok('pitch-data and media-kit APIs return the agency', /agency: await require\('\.\/services\/agencyBrand'\)\.brandForUser\(/.test(IDX) && /const agency = await require\('\.\/services\/agencyBrand'\)\.brandForUser\(_owner/.test(IDX));
+  ok('pitch-data and media-kit APIs return the agency', /agency: await require\('\.\/services\/agencyBrand'\)\.brandForUser\(/.test(IDX) && /const agency = await require\('\.\/agencyBrand'\)\.brandForUser\(owner/.test(read('server/services/mediaKitPayload.js')));   // the kit's one payload builder
 
   // ── 3. THE ONE-PAGE DECK PDF, RENDERED ────────────────────────────────────
   OUT.push('', '-- deck PDF --');

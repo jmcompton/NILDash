@@ -187,7 +187,7 @@ async function expireStaleCards(pool, opts = {}) {
     `UPDATE outreach_queue
         SET state = 'expired', expired_at = NOW(), updated_at = NOW()
       WHERE state = 'queued'
-        AND created_at < NOW() - ($1 || ' days')::interval
+        AND COALESCE(expire_from, created_at) < NOW() - ($1 || ' days')::interval
         ${scope}
       RETURNING athlete_id, brand_name`, params
   ).catch((e) => {
@@ -2280,6 +2280,9 @@ async function fillAgent(pool, agent, opts) {
         athleteRow: ath.data || null,
         // Resolved per athlete. Passing opts.region here meant passing undefined.
         budget, region: _ctx.region, dryRun: dry, regionFault: _ctx.fault || null,
+        // A DORMANT ACCOUNT'S CARDS DO NOT AGE. The weekly fill only tops up
+        // open slots; what is already queued is kept for the agent's return.
+        keepStale: !!opts.dormant,
         // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
         // Scout is asked for, so raising it is what lets the night evaluate
         // dozens of businesses rather than three.
@@ -2332,6 +2335,10 @@ async function fillAgent(pool, agent, opts) {
       // one-card athlete could not be classified from the database at all.
       emptyReason: r.emptyReason || null,
       noMarket: !!r.noMarket,
+      // WHY THE LOCAL LANE HAD NO TOWN, as a code (services/schoolCheck):
+      // no-school, team-in-school, pro-no-city, unresolved. Home shows the
+      // agent the same thing with the fix.
+      schoolProblem: (require('../services/schoolCheck').problemFor(ath, { noMarketLastNight: !!r.noMarket }) || {}).code || null,
       // Per-lane row counts and pre-ranking drops. See assembleSlate.
       lanes: r.lanes || null,
       dropped: r.dropped || null,
@@ -2453,26 +2460,59 @@ async function fillAgent(pool, agent, opts) {
   return { filled, spent: budget.spent(), claimed: true, details };
 }
 
-// ── AN AGENT WHO HAS NOT SIGNED IN FOR A FORTNIGHT IS NOT FILLED ─────────────
-// Their cards would expire unworked and the night's spend would buy nothing.
-// The skip is a run row with the reason in its note, so the shift report and
-// Home say "skipped, last login 21 days ago" rather than showing an empty
-// night. Their queued cards are NOT expired while they are skipped: the expiry
-// runs inside the fill, and a skipped agent is not filled. It lifts on its
-// own: users.last_login moves on their next sign-in, the login route runs an
-// on-demand fill for every athlete with an open slot right then (see
-// resumeAgent), and the next nightly run sees a fresh date. Only the scheduled
-// run skips; a run for one named agent (--agent, the admin fill) always fills.
+// ── ACTIVE AGENTS NIGHTLY, DORMANT AGENTS WEEKLY ──────────────────────────────
+// ACTIVE: signed in within INACTIVE_AFTER_DAYS (14). Sessions last seven days
+// and do not roll, so anyone using the app signs in at least weekly. Filled
+// every night.
+//
+// DORMANT: no sign-in for longer, or never. Filled ONCE A WEEK, not never: the
+// product is waking up to deals, and an agent who drifts away has to come back
+// to five of them, not an empty screen. Switching them off was cheap and
+// guaranteed they never returned.
+//   - Due when this agent's last real fill (any run row whose note is not a
+//     "skipped: ..." decision) is DORMANT_EVERY_DAYS (7) or more ago, or there
+//     is none. So each dormant account settles on its own weekday.
+//   - The other six nights are a run row whose note starts "skipped: " (the
+//     morning alert and status page read that prefix as by design) and says
+//     when the next fill is.
+//   - Their cards DO NOT AGE while they are dormant (keepStale): the weekly
+//     fill only fills open slots, so after the first week it spends little or
+//     nothing, and what it found is still there when they sign in.
+//   - On the sign-in that ends the dormancy, every queued card's seven days
+//     restart from that moment (restartCardClock), so the deals that waited
+//     get a full week of the agent's attention before they expire.
+// Zero athletes: fillAgent has nothing to fill and spends nothing, as before.
+// A run for one named agent (--agent, the admin fill) or --force always fills.
 const INACTIVE_AFTER_DAYS = parseInt(process.env.OUTREACH_QUEUE_INACTIVE_DAYS, 10) || 14;
+const DORMANT_EVERY_DAYS = parseInt(process.env.OUTREACH_QUEUE_DORMANT_EVERY_DAYS, 10) || 7;
+// The reason an agent is DORMANT, or null when active. (Was the skip itself.)
 function inactiveSkip(agent, now) {
   const ref = now ? new Date(now) : new Date();
   const last = agent && agent.last_login ? new Date(agent.last_login) : null;
   if (last && !isNaN(last.getTime())) {
     const days = Math.floor((ref.getTime() - last.getTime()) / 86400000);
     if (days <= INACTIVE_AFTER_DAYS) return null;
-    return `skipped: last login ${days} days ago (${last.toISOString().slice(0, 10)}); the fill resumes the night after they next sign in`;
+    return `last login ${days} days ago (${last.toISOString().slice(0, 10)})`;
   }
-  return 'skipped: this agent has never signed in; the fill starts the night after their first sign-in';
+  return 'this agent has never signed in';
+}
+const _addDays = (ymd, n) => { const d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const _daysBetween = (a, b) => Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 86400000);
+// Is tonight a dormant agent's weekly fill? -> { due, lastFill, nextFill }
+async function dormantCadence(pool, agentId, runDate) {
+  const r = await pool.query(
+    `SELECT MAX(run_date)::text AS d FROM outreach_queue_runs
+      WHERE agent_id = $1 AND run_date < $2::date AND COALESCE(note, '') NOT LIKE 'skipped:%'`, [agentId, runDate]);
+  const lastFill = r.rows[0] && r.rows[0].d ? String(r.rows[0].d).slice(0, 10) : null;
+  const due = !lastFill || _daysBetween(lastFill, runDate) >= DORMANT_EVERY_DAYS;
+  return { due, lastFill, nextFill: due ? runDate : _addDays(lastFill, DORMANT_EVERY_DAYS) };
+}
+// The agent is back: every queued card's seven days start now.
+async function restartCardClock(pool, agentId) {
+  const r = await pool.query(
+    `UPDATE outreach_queue SET expire_from = NOW(), updated_at = NOW() WHERE agent_id = $1 AND state = 'queued'`, [agentId]);
+  if (r.rowCount) console.log(`[queue/resume] agent=${agentId}: ${r.rowCount} waiting card(s) get a fresh ${Q.EXPIRE_AFTER_DAYS} days from today`);
+  return r.rowCount || 0;
 }
 
 async function run(opts = {}) {
@@ -2502,24 +2542,36 @@ async function run(opts = {}) {
     // tonight would be signed by nobody. Recorded as the night's note, so Home
     // says why the queue is empty rather than showing a blank page.
     const nameless = AgentName.agentFirstName(a) ? null : AgentName.NO_AGENT_NAME_REASON;
-    if (nameless || (!opts.agentId && !opts.force)) {
-      const why = nameless || inactiveSkip(a, opts.now);
+    const runDate = opts.runDate || today();
+    const skipRow = async (why) => {
+      skipped++;
+      console.log(`[queue] agent=${a.id} ${why}`);
+      if (opts.dryRun) return;
+      // The night is claimed with the reason on it, so nothing else fills
+      // this agent tonight and the row reads as a decision, not a gap.
+      await pool.query(
+        `INSERT INTO outreach_queue_runs (agent_id, run_date, filled, spent_usd, note, details, finished_at)
+         VALUES ($1, $2, 0, 0, $3, '[]'::jsonb, NOW())
+         ON CONFLICT (agent_id, run_date) DO NOTHING`, [a.id, runDate, why]).catch((e) =>
+        console.error('[queue] could not record the skip for ' + a.id + ': ' + e.message));
+    };
+    if (nameless) return skipRow(nameless);
+    let dormant = null;
+    if (!opts.agentId && !opts.force) {
+      const why = inactiveSkip(a, opts.now);
       if (why) {
-        skipped++;
-        console.log(`[queue] agent=${a.id} ${why}`);
-        if (!opts.dryRun) {
-          // The night is claimed with the reason on it, so nothing else fills
-          // this agent tonight and the row reads as a decision, not a gap.
-          await pool.query(
-            `INSERT INTO outreach_queue_runs (agent_id, run_date, filled, spent_usd, note, details, finished_at)
-             VALUES ($1, $2, 0, 0, $3, '[]'::jsonb, NOW())
-             ON CONFLICT (agent_id, run_date) DO NOTHING`, [a.id, opts.runDate || today(), why]).catch((e) =>
-            console.error('[queue] could not record the skip for ' + a.id + ': ' + e.message));
+        const cad = await dormantCadence(pool, a.id, runDate).catch((e) => {
+          console.error(`[queue] agent=${a.id} cadence read failed (${e.message}); filling tonight rather than going dark`);
+          return { due: true };
+        });
+        if (!cad.due) {
+          return skipRow(`skipped: dormant, ${why}; dormant accounts are filled once a week, last ${cad.lastFill}, next ${cad.nextFill}`);
         }
-        return;
+        dormant = `weekly fill for a dormant account: ${why}`;
       }
     }
-    const r = await fillAgent(pool, a, opts).catch(async (e) => {
+    const fillOpts = dormant ? { ...opts, dormant: true } : opts;
+    const r = await fillAgent(pool, a, fillOpts).catch(async (e) => {
       console.error(`[queue] agent=${a.id} failed: ${e.message}`);
       // A run that THREW is still a run that ended. Without this stamp the row
       // stays finished_at NULL forever and every reader has to treat a crashed
@@ -2532,6 +2584,11 @@ async function run(opts = {}) {
       return { filled: 0, spent: 0 };
     });
     filled += r.filled; spent += r.spent;
+    if (dormant && !opts.dryRun) {
+      await pool.query(
+        `UPDATE outreach_queue_runs SET note = CASE WHEN note IS NULL THEN $3 ELSE note || ' -- ' || $3 END
+          WHERE agent_id = $1 AND run_date = $2`, [a.id, runDate, dormant]).catch(() => {});
+    }
   };
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(CONC, agents.length) }, async () => {
@@ -2633,7 +2690,7 @@ async function loadAthletesForQueue(pool, agentId, athleteId) {
 }
 
 // ── A DORMANT AGENT SIGNS BACK IN ────────────────────────────────────────────
-// The nightly run skipped them (inactiveSkip) and left their cards alone. Now
+// The nightly run filled them weekly and left their cards alone. Now
 // they are here, so every athlete with an open slot gets an on-demand fill at
 // once, under ONE shared budget the size of a night, with keepStale so the
 // cards that waited for them are not expired in the same second. The nightly
@@ -2671,6 +2728,7 @@ module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor, applyFaultRule,
   athleteState, recordAttempt, releasePause, expireStaleCards,
   insertCard, slotStillOpen, SLOT_TAKEN_REASON, NAME_REQUIRED, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
+  DORMANT_EVERY_DAYS, dormantCadence, restartCardClock,
   loadAthletesForQueue, resumeAgent, localContextFor, athleteProfile,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,

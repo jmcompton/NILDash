@@ -162,8 +162,11 @@ async function main() {
     const IDX = read('server/index.js');
     ok('a profile save cannot overwrite the connected numbers', /isConnected\(store\.pool, req\.params\.id\)\) \{\s*for \(const k of \['instagram', 'engagement'/.test(IDX));
     ok('  nor can the old third-party stats fetch', /const _igLive = !isNew && athlete && await require\('\.\/services\/instagramConnect'\)\.isConnected/.test(IDX));
-    ok('the media kit uses the connected numbers when present, labelled as from Instagram', /latestFor\(store\.pool, mk\.athlete_id\)/.test(IDX)
-      && /mkPublic\.instagram_live = \{ source: 'instagram'/.test(IDX) && /From Instagram, /.test(read('public/media-kit.html')));
+    // The kit's payload is built in one place (services/mediaKitPayload); a
+    // connected account is VERIFIED there and the page labels it so.
+    const MKP = read('server/services/mediaKitPayload.js');
+    ok('the media kit uses the connected numbers when present, labelled verified, with the date pulled', /latestFor\(pool, mk\.athlete_id\)/.test(MKP)
+      && /state: 'verified', source: 'instagram', fetchedAt: ig\.fetched_at/.test(MKP) && /Verified by NILDash/.test(read('public/media-kit.html')));
     const latest = await IG.latestFor(P, ATH);
     ok('  latestFor returns the stored numbers for a connected athlete', latest && latest.followers_count === 24000);
 

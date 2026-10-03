@@ -6,8 +6,9 @@
 // marketing, no feature copy. One line at the top, one row per athlete who
 // received cards THAT NIGHT, one line at the bottom.
 //
-// WHO DOES NOT GET IT. An agent the fill skipped as dormant (inactiveSkip)
-// never reaches fillAgent's end, so never reaches this. An agent whose fill
+// WHO DOES NOT GET IT. A dormant agent on one of the six nights between
+// their weekly fills never reaches fillAgent's end, so never reaches this (the
+// weekly fill itself does, and sends). An agent whose fill
 // placed nothing is skipped here. An agent who unsubscribed
 // (users.digest_unsubscribed, the same flag and link the weekly digest uses)
 // is skipped here. And nightly_digest_sends is UNIQUE on (agent, night): the

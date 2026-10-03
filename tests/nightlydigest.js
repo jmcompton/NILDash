@@ -162,7 +162,11 @@ async function main() {
   ok('  a night with cards sends the new-pitches digest', /filled > 0\s*\n?\s*\? await ND\.sendForRun\(pool, \{ agentId: agent\.id, runDate, details \}\)/.test(hook));
   ok('  a night with none sends the waiting one instead', /: await ND\.sendWaiting\(pool, \{ agentId: agent\.id, runDate \}\)/.test(hook));
   ok('  a digest failure cannot fail the fill', /catch \(e\) \{ console\.error\(`\[nightly-digest\] agent=/.test(hook));
-  ok('a dormant agent is skipped before fillAgent, so never digested', /const why = nameless \|\| inactiveSkip\(a, opts\.now\);[\s\S]*?(continue|return);[\s\S]*?const r = await fillAgent\(pool, a, opts\)/.test(job));
+  // A dormant account is filled once a week (jobs/outreachQueue run): its
+  // off-week nights return before fillAgent, so no digest; its weekly fill goes
+  // through fillAgent like any night, so the email that brings them back goes.
+  ok('a dormant agent\'s off-week night returns before fillAgent (no digest); its weekly fill goes through it',
+    /if \(!cad\.due\) \{\s*return skipRow\(/.test(job) && /const r = await fillAgent\(pool, a, fillOpts\)/.test(job));
   ok('the on-demand path (fillAthlete) does not send it', !/sendForRun/.test(job.slice(job.indexOf('async function fillOnDemand('), job.indexOf('async function loadAthletesForQueue'))));
   ok('the table is created once with the once-per-night constraint', /CREATE TABLE IF NOT EXISTS nightly_digest_sends \([\s\S]*?UNIQUE \(agent_id, run_date\)/.test(fs.readFileSync(REPO + 'server/store.js', 'utf8')));
 

@@ -847,6 +847,12 @@ async function init() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `).then(async () => {
+    // WHEN A CARD'S SEVEN DAYS START. NULL means created_at. A dormant
+    // account's cards do not age (they are kept for the agent's return), and
+    // when the agent signs back in every queued card restarts here, so the
+    // deals that waited for them get a full week (jobs/outreachQueue
+    // expireStaleCards, restartCardClock).
+    await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS expire_from TIMESTAMPTZ`).catch(() => {});
     // THE DOUBLE-FILL GUARD, at the database rather than in application logic.
     // Two job runs, or two Railway instances, racing the same athlete get a
     // rejection instead of six cards in three slots.

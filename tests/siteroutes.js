@@ -124,7 +124,10 @@ const exists = (p) => fs.existsSync(REPO + p);
     const c = tags.filter((t) => t === `/${n}.js`).length;
     ok(`${n}.js is loaded exactly once`, c === 1, c);
   }
-  ok('  and nothing else is loaded from a tag we did not count', tags.length === NINE.length, tags);
+  // kit-builder.js is a library the media kit builder calls (no init of its
+  // own), loaded once like the rest.
+  ok('kit-builder.js is loaded exactly once', tags.filter((t) => t === '/kit-builder.js').length === 1);
+  ok('  and nothing else is loaded from a tag we did not count', tags.length === NINE.length + 1, tags);
   // A second <script src> is one way to run an init twice; injecting one at
   // runtime is the other. Neither happens.
   ok('NO SCRIPT IS INJECTED AT RUNTIME, so the rendered DOM cannot grow a second copy',
