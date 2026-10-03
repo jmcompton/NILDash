@@ -19803,13 +19803,21 @@ function mkUpdatePreview() {
   var ttSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="' + pal.ttIcon + '" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>';
   var twSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
 
+  // Engagement as a percent, as the public kit shows it: "3" -> "3% engagement".
+  function mkEngagementLabel(v) {
+    var s = String(v == null ? '' : v).trim();
+    if (!s) return '';
+    if (/%/.test(s)) return s.replace(/\s*%/, '%') + ' engagement';
+    var n = Number(s);
+    return isFinite(n) ? (Math.round(n * 10) / 10) + '% engagement' : s + ' engagement';
+  }
   function mkPlatformBox(icon, platform, followers, handle, color, engagement) {
     var esc2 = function(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
     return '<div style="flex:1;padding:14px 10px;border-right:1px solid ' + pal.border + ';text-align:center;min-width:0">' +
       '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:5px">' + icon + '<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:' + color + '">' + platform + '</span></div>' +
       '<div style="font-size:20px;font-weight:800;color:' + pal.heading + ';line-height:1">' + (followers > 0 ? mkFmtFollowers(followers) : '<span style="color:' + pal.faint + '">—</span>') + '</div>' +
       (handle ? '<div style="font-size:10px;color:' + pal.muted + ';margin-top:3px">@' + esc2(handle.replace(/^@/,'')) + '</div>' : '<div style="font-size:10px;color:' + pal.faint + ';margin-top:3px">—</div>') +
-      (engagement ? '<div style="font-size:9px;font-weight:700;color:#84CC16;margin-top:3px">' + esc2(engagement) + ' eng.</div>' : '') +
+      (engagement ? '<div style="font-size:9px;font-weight:700;color:#84CC16;margin-top:3px">' + esc2(mkEngagementLabel(engagement)) + '</div>' : '') +
     '</div>';
   }
 
@@ -19858,9 +19866,12 @@ function mkUpdatePreview() {
   if (bio) {
     html += '<div style="padding:18px 20px;border-bottom:1px solid ' + pal.border + '"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:' + pal.muted + ';margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>ABOUT</div><div style="font-size:13px;color:' + pal.body + ';line-height:1.7">' + esc3(bio) + '</div></div>';
   }
-  html += '<div style="padding:18px 20px;border-bottom:1px solid ' + pal.border + '"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:' + pal.muted + ';margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
-  if (visibleRates.length > 0) { html += rateRowsHtml; } else { html += '<div style="font-size:13px;color:' + pal.faint + ';font-style:italic">Rate card coming soon</div>'; }
-  html += '</div>';
+  // No rates, no section: the public kit hides it, so the preview does too.
+  if (visibleRates.length > 0) {
+    html += '<div style="padding:18px 20px;border-bottom:1px solid ' + pal.border + '"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:' + pal.muted + ';margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
+    html += rateRowsHtml;
+    html += '</div>';
+  }
   html += '<div style="padding:18px 20px;border-bottom:1px solid ' + pal.border + '"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:' + pal.muted + ';margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>WORK WITH ME</div>';
   if (amkCurrentAthleteEmail) html += '<div style="font-size:12px;color:' + pal.muted + ';margin-bottom:10px">' + esc3(amkCurrentAthleteEmail) + '</div>';
   html += '<div style="display:inline-block;background:' + primary + ';color:' + priText + ';padding:10px 20px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Contact This Athlete</div></div>';

@@ -179,6 +179,18 @@ async function main() {
     const r404 = await fetch(base + '/go/kit-footer/kb-nope', { redirect: 'manual' });
     ok('  an unknown kit still redirects, and logs nothing', r404.status === 302 && (await P.query(`SELECT COUNT(*)::int n FROM media_kit_footer_clicks WHERE kit_slug = 'kb-nope'`)).rows[0].n === 0);
 
+    // ── 4b. THE BUILDERS' PREVIEWS SHOW WHAT THE PUBLIC KIT SHOWS ────────────
+    const pages = ['public/media-kit.html', 'public/index.html', 'public/athlete-dashboard.html'].map((f) => [f, fs.readFileSync(REPO + f, 'utf8')]);
+    ok('no renderer of the kit prints a unitless "eng." or a "Rate card coming soon" placeholder',
+      pages.every(([, src]) => !/' eng\.<\/div>'/.test(src) && !/Rate card coming soon/.test(src)), pages.filter(([, src]) => /' eng\.<\/div>'|Rate card coming soon/.test(src)).map(([f]) => f));
+    const vm = require('vm');
+    const fnSrc = (src) => { const i = src.indexOf('function mkEngagementLabel'); return src.slice(i, src.indexOf('\n  }\n', i) + 4); };
+    ok('  both builders\' previews label engagement as a percent ("3" -> "3% engagement", "4.2%" stays 4.2%)',
+      ['public/index.html', 'public/athlete-dashboard.html'].every((f) => {
+        const ctx = {}; vm.runInNewContext(fnSrc(fs.readFileSync(REPO + f, 'utf8')) + '; this.f = mkEngagementLabel;', ctx);
+        return ctx.f('3') === '3% engagement' && ctx.f('4.2%') === '4.2% engagement' && ctx.f('') === '';
+      }));
+
     // ── 5. THE INQUIRY GOES TO THE AGENCY ─────────────────────────────────────
     const IDX = fs.readFileSync(REPO + 'server/index.js', 'utf8');
     ok('an athlete on an agency roster is contacted through the agency\'s contact, never the athlete\'s own email',

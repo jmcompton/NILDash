@@ -6133,6 +6133,14 @@ function mkUpdatePreview() {
   var ttSvg  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>';
   var twSvg  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
 
+  // Engagement as a percent, as the public kit shows it: "3" -> "3% engagement".
+  function mkEngagementLabel(v) {
+    var s = String(v == null ? '' : v).trim();
+    if (!s) return '';
+    if (/%/.test(s)) return s.replace(/\s*%/, '%') + ' engagement';
+    var n = Number(s);
+    return isFinite(n) ? (Math.round(n * 10) / 10) + '% engagement' : s + ' engagement';
+  }
   function mkPlatformBox(icon, platform, followers, handle, color, engagement) {
     return '<div style="flex:1;padding:14px 10px;border-right:1px solid #f0f4f8;text-align:center;min-width:0">' +
       '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:5px">' + icon +
@@ -6140,7 +6148,7 @@ function mkUpdatePreview() {
       '</div>' +
       '<div style="font-size:20px;font-weight:800;color:#0f172a;line-height:1;font-variant-numeric:tabular-nums">' + (followers > 0 ? mkFmtFollowers(followers) : '<span style="color:#cbd5e1">—</span>') + '</div>' +
       (handle ? '<div style="font-size:10px;color:#94a3b8;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@' + esc(handle.replace(/^@/,'')) + '</div>' : '<div style="font-size:10px;color:#e2e8f0;margin-top:3px">—</div>') +
-      (engagement ? '<div style="font-size:9px;font-weight:700;color:#84CC16;margin-top:3px">' + esc(engagement) + ' eng.</div>' : '') +
+      (engagement ? '<div style="font-size:9px;font-weight:700;color:#84CC16;margin-top:3px">' + esc(mkEngagementLabel(engagement)) + '</div>' : '') +
     '</div>';
   }
 
@@ -6227,15 +6235,14 @@ function mkUpdatePreview() {
   }
 
   // ── Rate Card ─────────────────────────────────────────────────────────────
-  html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
-  html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
-  html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
+  // No rates, no section: the public kit hides it, so the preview does too.
   if (visibleRates.length > 0) {
+    html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
+    html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
+    html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
     html += rateRowsHtml;
-  } else {
-    html += '<div style="font-size:13px;color:#cbd5e1;font-style:italic">Rate card coming soon</div>';
+    html += '</div>';
   }
-  html += '</div>';
 
   // ── Work With Me ─────────────────────────────────────────────────────────
   var athleteEmail = (athleteProfile && athleteProfile.email) ? athleteProfile.email : '';
