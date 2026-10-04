@@ -197,6 +197,28 @@ async function main() {
   ok('short of five: the night says so, by team, with where it stopped', r2.cards === 0 && r2.short.length === 2 && r2.short.every((x) => x.stop === 'ladder' && x.rungs.includes('local')), r2.short);
   const faults = (await P.query(`SELECT reason FROM service_faults WHERE service = 'nightly-floor' AND context LIKE 'teamScan crm:%' ORDER BY at DESC LIMIT 5`).catch(() => ({ rows: [] }))).rows;
   ok('  and an ourFault nightly-floor alert names the team and the rungs', faults.some((f) => /Crm Test College Women's Basketball: 0 of 5 cards/.test(f.reason) && /rungs tried: local/.test(f.reason)), faults);
+  // ── 4a. ONE PLACES BUILD A NIGHT, AND ONE CAP FOR THE WHOLE NIGHT ────────
+  OUT.push('', '-- one Places build a night, one cap for the night --');
+  // Nothing reachable, so both teams climb every ring. Before: each team
+  // rebuilt the campus and each ring for itself.
+  const builds = [];
+  const places = { buildMarketPoolFromPlaces: async (loc, o) => { builds.push(o.radiusM || 0); return { ok: true, candidates: [], placesCalls: 3, geocoded: null }; } };
+  const MPm = require(REPO + 'server/services/marketPools.js');
+  const rn = await CN.runNight(P, A, { ai, places, resolveContacts: false, night: '2026-10-07' });
+  ok('the campus is built once for every team, and each wider ring once', builds.filter((x) => x === 0).length === 1
+    && new Set(builds).size === builds.length && builds.length === MPm.RADII.length, builds);
+  ok('  and the night reports its Places spend inside its total', rn.placesCalls === builds.length * 3 && rn.costUsd >= rn.placesUsd && rn.nightCapUsd === CN.NIGHT_CAP_USD, rn);
+  builds.length = 0;
+  const rc = await CN.runNight(P, A, { ai, places, resolveContacts: false, night: '2026-10-08', nightCapUsd: 0.3 });
+  ok('a night cap holds across teams: the first team cannot afford a ring, the second does not start',
+    rc.costUsd <= 0.3 && builds.length === 1 && rc.perTeam.every((t) => t.stop === 'night-cap') && rc.perTeam[1].costUsd === 0, { builds, rc: rc.perTeam });
+  ok('  the team that goes first turns over night by night', rn.perTeam[0].teamId !== rc.perTeam[0].teamId, [rn.perTeam[0].teamId, rc.perTeam[0].teamId]);
+  const due = await CN.universitiesDue(P);
+  ok('the scheduler runs a department with staff and teams, contacts on file or not', due.includes(A) && due.includes(B), due);
+  const est = await CN.estimate(P, A);
+  ok('the estimate spends nothing and never exceeds the night cap', est.ok && est.teams === 2 && est.totalUsd[1] <= est.nightCapUsd
+    && est.places.lastBuild === null && est.places.calls[0] === 30, est);
+
   // Put the contacts back for the sections that follow.
   await P.query(`UPDATE university_contacts SET status = 'reachable', reachable = TRUE WHERE university_id = $1 AND contact_name IS NOT NULL`, [A]);
 

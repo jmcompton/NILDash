@@ -325,10 +325,16 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   const marketKey = team.market_key || marketPoolKey(cityOf(university.location)) || null;
   const out = { ok: true, university, team, marketKey, discovery: null, picks: [], drafts: [], skipped: [] };
 
-  if (discoverPool) {
+  // deps.nightShare (campusNightly): the department's night shares ONE Places build
+  // of the campus across all its teams, and builds each wider ring at most
+  // once. Without it every team rebuilt the same pool: fifteen identical
+  // builds a night, $1-5 each.
+  const shared = deps.nightShare || null;
+  if (discoverPool && !(shared && shared.built)) {
     if (!university.location) return { ...out, ok: false, error: `${university.name} has no campus address (universities.location).` };
     out.discovery = await discover(pool, { university, marketKey, places: deps.places });
     if (!out.discovery.ok) return { ...out, ok: false, error: `Places discovery failed: ${out.discovery.reason}` };
+    if (shared) { shared.built = true; shared.placesCalls += out.discovery.placesCalls || 0; }
   }
 
   // Every row re-decided before the slate is built (see recheckPool).
@@ -534,9 +540,17 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     if (discoverPool && nextRing && university.location) {
       ringIdx++;
       rungs.push(`places-${Math.round(nextRing / 1000)}km`);
-      const d = await discover(pool, { university, marketKey, places: deps.places, radiusM: nextRing });
-      placesCalls += d.placesCalls || 0;
-      if (!d.ok) require('./ourFault').record('google-places', `team pool widen to ${nextRing} m failed: ${d.reason}`, 'teamScan ' + team.id);
+      if (shared && shared.rings.has(nextRing)) {
+        // Another team already widened to this ring tonight: its businesses
+        // are in the pool; read them, do not pay for them again.
+      } else if (shared && !shared.canWiden()) {
+        stop = 'night-cap'; break;
+      } else {
+        const d = await discover(pool, { university, marketKey, places: deps.places, radiusM: nextRing });
+        placesCalls += d.placesCalls || 0;
+        if (shared) { shared.rings.add(nextRing); shared.placesCalls += d.placesCalls || 0; }
+        if (!d.ok) require('./ourFault').record('google-places', `team pool widen to ${nextRing} m failed: ${d.reason}`, 'teamScan ' + team.id);
+      }
       if (marketKey) await recheckPool(pool, marketKey);
       picks = [];
       continue;

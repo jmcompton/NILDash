@@ -126,9 +126,9 @@ async function main() {
   ok('the text report says the three numbers', /1\. CONTACT HIT RATE: 130 of 135/.test(text) && /2\. COST OF THE DEEP BUILD/.test(text) && /3\. NIGHTLY ESTIMATE: 15 cards/.test(text), text);
   ok('  and says to stop when the rate is under 60%', /UNDER 60%/.test(CC.formatReport({ ...rep, hitRate: 0.4 })));
   const IDX = require('fs').readFileSync(REPO + 'server/index.js', 'utf8');
-  ok('the admin can start both and read the report; an interrupted run resumes on boot',
-    /app\.post\('\/api\/admin\/campus\/:universityId\/pool'/.test(IDX) && /app\.post\('\/api\/admin\/campus\/:universityId\/contacts'/.test(IDX)
-    && /app\.get\('\/api\/admin\/campus\/:universityId\/report'/.test(IDX) && /resuming the contact run/.test(IDX));
+  ok('the admin can deepen the pool and read the report; there is no bulk contact route and nothing resumes one on boot',
+    /app\.post\('\/api\/admin\/campus\/:universityId\/pool'/.test(IDX) && !/\/api\/admin\/campus\/:universityId\/contacts'/.test(IDX)
+    && /app\.get\('\/api\/admin\/campus\/:universityId\/report'/.test(IDX) && !/resuming the contact run/.test(IDX) && !/campusContacts'\)\.run\(/.test(IDX));
 
   // ── 4. THE PRICE BEFORE THE RUN, AND A CAP THAT HOLDS ─────────────────────
   OUT.push('', '-- the price before the run, and a cap that holds --');
@@ -155,8 +155,6 @@ async function main() {
   ok('a contacts cap stops the run there; the rest stay pending', cr.stoppedFor === 'budget' && cr.done === 3 && left === 7 && cr.costUsd >= 0.3, { cr, left });
   const runRow2 = (await P.query(`SELECT finished_at, summary FROM university_market_runs WHERE university_id = $1 AND kind = 'contacts' ORDER BY id DESC LIMIT 1`, [UNI])).rows[0];
   ok('  a capped run is finished, so boot never resumes it past the cap', runRow2.finished_at && runRow2.summary.stoppedFor === 'budget' && runRow2.summary.budgetUsd === 0.3);
-  ok('  and an interrupted run resumes with only what is left of its cap', /Number\(sm\.budgetUsd\) - \(Number\(sm\.costUsd\) \|\| 0\)/.test(IDX)
-    && /budgetUsd: cap \|\| undefined/.test(IDX));
   ok('the admin can read both estimates without spending, and pass dryRun and budget',
     /app\.get\('\/api\/admin\/campus\/:universityId\/estimate'/.test(IDX) && /req\.query\.dryRun === '1'/.test(IDX) && /parseFloat\(req\.query\.budget\)/.test(IDX));
   await clean();

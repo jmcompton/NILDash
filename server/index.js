@@ -7044,9 +7044,13 @@ require('./routes/campus').mount(app, { store, requireAuth });
 // this process -- a thousand businesses outlast the 15-minute script runner --
 // and the report gives the three numbers: hit rate, build cost, nightly cost.
 //   POST /api/admin/campus/:universityId/pool        deepen the pool
-//   POST /api/admin/campus/:universityId/contacts    resolve contacts (resumable)
 //   GET  /api/admin/campus/:universityId/report?text=1
 //   POST /api/admin/campus/:universityId/nightly     the five-per-team night, now
+//   GET  /api/admin/campus/:universityId/nightly-estimate?text=1   what that night costs
+//   POST /api/admin/university-users  {email, name, universityId}  a staff login
+// There is no bulk contact build. The night finds the businesses and resolves
+// the contacts only for the ones it picks, like the agents' night; the bulk
+// route (POST .../contacts) and its resume-on-boot are gone on purpose.
 //   GET  /api/admin/campus/:universityId/estimate?text=1   what both cost, spending nothing
 // Both paid POSTs take ?dryRun=1 (the estimate, nothing spent) and ?budget=<usd>
 // (a hard cap: the run stops there).
@@ -7070,14 +7074,6 @@ app.post('/api/admin/campus/:universityId/pool', requireAuth, requireCampusAdmin
     .finally(() => _campusPoolRuns.delete(id));
   _campusPoolRuns.set(id, p);
   res.json({ ok: true, started: true, note: 'running in the background; GET /api/admin/campus/' + id + '/report?text=1 for progress' });
-});
-app.post('/api/admin/campus/:universityId/contacts', requireAuth, requireCampusAdmin, async (req, res) => {
-  const CC = require('./services/campusContacts');
-  const o = { limit: parseInt(req.query.limit, 10) || undefined, history: req.query.history !== '0' };
-  if (req.query.dryRun === '1') return res.json(await CC.estimate(store.pool, req.params.universityId, o));
-  const r = await CC.run(store.pool, req.params.universityId, { ...o, wait: false, concurrency: parseInt(req.query.concurrency, 10) || undefined,
-    budgetUsd: parseFloat(req.query.budget) > 0 ? parseFloat(req.query.budget) : undefined });
-  res.status(r.ok ? 200 : 409).json(r);
 });
 app.get('/api/admin/campus/:universityId/report', requireAuth, requireCampusAdmin, async (req, res) => {
   try {
@@ -7143,6 +7139,42 @@ app.get('/api/admin/engine/prove/:id', requireAuth, requireCampusAdmin, async (r
   if (!s) return res.status(404).json({ error: 'no such run' });
   if (req.query.text === '1') return res.type('text/plain').send(EP.formatReport(s));
   res.json(s);
+});
+
+// What one night costs, before it is fired. Spends nothing.
+app.get('/api/admin/campus/:universityId/nightly-estimate', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const e = await require('./services/campusNightly').estimate(store.pool, req.params.universityId);
+    if (!e.ok) return res.status(404).json(e);
+    if (req.query.text !== '1') return res.json(e);
+    const usd = (a) => `$${a[0].toFixed(2)} to $${a[1].toFixed(2)}`;
+    res.type('text/plain').send([
+      `ONE NIGHT FOR ${e.university}: ${e.teams} teams x ${e.perTeamTarget} cards`,
+      `  Places, one build shared by every team: ${e.places.calls[0] === e.places.calls[1] ? e.places.calls[0] : e.places.calls.join(' to ')} calls, ${usd(e.places.usd)}`
+        + (e.places.lastBuild ? ` (the last build of this campus)` : ` (never built: the range of a build)`),
+      `  Each team: ${usd(e.teamUsd)} (contact lookup ${usd(e.perContactLookupUsd)} a business, only for the ones picked; capped at $${e.teamCapUsd.toFixed(2)})`,
+      `  Contacts already on file: ${e.contactsOnFile.reachable} reachable of ${e.contactsOnFile.n}`,
+      `TOTAL: ${usd(e.totalUsd)}`,
+      `CAP FOR THE WHOLE NIGHT, PLACES INCLUDED: $${e.nightCapUsd.toFixed(2)}. Every team's ceiling is the smaller of $${e.teamCapUsd.toFixed(2)} and what the night has left; the night cannot spend more.`,
+    ].join('\n'));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// A department staff login, without a terminal. Generates the password and
+// returns it once, in this response; it is stored only as a hash. An existing
+// user keeps their password (nothing is returned for it).
+app.post('/api/admin/university-users', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const { email, name, universityId } = req.body || {};
+    if (!email || !universityId) return res.status(400).json({ error: 'email and universityId are required' });
+    const password = require('crypto').randomBytes(12).toString('base64url');
+    const r = await require('../scripts/create-university-user.js').createUniversityUser(store.pool, { email, name, universityId, password });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    res.json({ ok: true, created: !!r.created, email: r.user && r.user.email, university: r.university && (r.university.name || r.university.id),
+      password: r.created ? password : undefined,
+      note: r.created ? 'Give them this password; it is not shown again. They sign in at /login and land on /university.'
+        : 'This user already existed: their password is unchanged and is not shown.' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/admin/campus/:universityId/nightly', requireAuth, requireCampusAdmin, async (req, res) => {
@@ -15092,11 +15124,9 @@ try {
   console.error('[market-pools] scheduler failed to start:', e.message);
 }
 
-// ── Cypress College: the confirmed teams, and an interrupted contact run ──────
+// ── Cypress College: the confirmed teams ────────────────────────────────────
 // The seed is idempotent and applies the athletic director's confirmed team
-// list (scripts/seed-cypress.js: 15 teams; no tackle football, no track). A contact
-// resolution run (services/campusContacts) stopped by a deploy resumes from
-// its pending rows.
+// list (scripts/seed-cypress.js: 15 teams; no tackle football, no track).
 setTimeout(async () => {
   try {
     if (process.env.CYPRESS_SEED_ON_BOOT !== 'off') {
@@ -15104,24 +15134,6 @@ setTimeout(async () => {
       console.log(`[cypress] seed: ${r.teams} team(s) added, ${r.inventory} item(s) added${r.removed && r.removed.length ? `, removed ${r.removed.join(', ')}` : ''}`);
     }
   } catch (e) { console.error('[cypress] seed on boot failed:', e.message); }
-  try {
-    await require('./services/campusPool').ensureTables(store.pool);
-    // The newest unfinished run per university, resumed with what is left of
-    // its cap (a run with a cap never resumes past it) and its history setting.
-    const open = (await store.pool.query(
-      `SELECT DISTINCT ON (r.university_id) r.university_id, r.summary FROM university_market_runs r
-        WHERE r.kind = 'contacts' AND r.finished_at IS NULL AND r.started_at > NOW() - INTERVAL '3 days'
-          AND EXISTS (SELECT 1 FROM university_contacts c WHERE c.university_id = r.university_id AND c.status = 'pending')
-        ORDER BY r.university_id, r.started_at DESC`)).rows;
-    for (const o of open) {
-      const sm = o.summary || {};
-      const cap = Number(sm.budgetUsd) > 0 ? Number(sm.budgetUsd) - (Number(sm.costUsd) || 0) : null;
-      if (cap !== null && cap <= 0) { console.log(`[campus-contacts] ${o.university_id}: interrupted run had spent its cap; not resuming`); continue; }
-      console.log(`[campus-contacts] resuming the contact run for ${o.university_id}${cap !== null ? ` with $${cap.toFixed(2)} of its cap left` : ''}`);
-      require('./services/campusContacts').run(store.pool, o.university_id, { wait: false, budgetUsd: cap || undefined, history: sm.history !== false })
-        .catch((e) => console.error('[campus-contacts] resume:', e.message));
-    }
-  } catch (e) { console.error('[campus-contacts] resume check failed:', e.message); }
 }, 3 * 60 * 1000);
 
 // ── Instagram connect: token refresh and nightly stats (services/instagramConnect)
