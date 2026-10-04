@@ -194,6 +194,9 @@ async function main() {
     /router\.get\('\/providers'/.test(R) && /fetch\('\/api\/email\/providers'/.test(E) && /let OUTLOOK_ENABLED = false;/.test(E));
   ok('the callback saves the granted scopes and refuses to claim sending without Mail.Send',
     /tokens\.grantedScopes, tokens\.canSend\s*\)/.test(R) && /emailScopeMissing=outlook/.test(R));
+  ok('mynildash.com serves the publisher domain file from OUTLOOK_CLIENT_ID (Azure\'s domain verification)',
+    /app\.get\('\/\.well-known\/microsoft-identity-association\.json'/.test(fs.readFileSync(REPO + 'server/index.js', 'utf8'))
+    && /associatedApplications: \[\{ applicationId: id \}\]/.test(fs.readFileSync(REPO + 'server/index.js', 'utf8')));
   ok('the old library is no longer used for tokens (it hid the refresh token)', !/require\('@azure\/msal-node'\)/.test(fs.readFileSync(REPO + 'server/services/providers/outlook.js', 'utf8')));
 
   global.fetch = realFetch;

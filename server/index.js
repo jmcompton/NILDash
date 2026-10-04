@@ -11624,6 +11624,16 @@ app.get('/reset', (req, res) => {
 });
 
 // ── Privacy policy ───────────────────────────────────────────
+// ── MICROSOFT PUBLISHER DOMAIN VERIFICATION ─────────────────────────────────
+// Azure's "Publisher domain" check fetches this file from mynildash.com and
+// looks for our app's client id in it. Served from OUTLOOK_CLIENT_ID, so it is
+// right the moment the env var is set and there is nothing to edit by hand.
+app.get('/.well-known/microsoft-identity-association.json', (req, res) => {
+  const id = String(process.env.OUTLOOK_CLIENT_ID || '').trim();
+  if (!id) return res.status(404).json({ error: 'not configured' });
+  res.type('application/json').send(JSON.stringify({ associatedApplications: [{ applicationId: id }] }));
+});
+
 app.get('/privacy', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'));
 });
