@@ -1281,6 +1281,11 @@
       "failed": 0,
       "total": 27,
       "fault": null
+    },
+    "providerfaults.js": {
+      "failed": 0,
+      "total": 45,
+      "fault": null
     }
   }
 }

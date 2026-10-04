@@ -159,7 +159,11 @@ AL._setSearchLoopForTests(async (o) => {
   OUT.push('', '-- 4. no team, no candidate; nothing, the trace --');
   const made = await AL.resolveAthlete(null, { name: 'Made Upson', sport: 'football', athleteType: 'pro' }, { force: true });
   ok('a web candidate with no team is dropped (the team is a pro\'s anchor, as the school is a college athlete\'s), and the trace says so', made.found === false && made.trace.some((t) => /web candidate "Made Upson" dropped: no team$/.test(t)), made.trace);
-  ok('  and the message carries the trace', /No verified athlete found/.test(made.message) && /Checked: roster feeds/.test(made.message) && /web candidate "Made Upson" dropped/.test(made.message), made.message);
+  // The trace is ours: it is on result.trace (logged, and dropped by the
+  // route) and no longer glued onto the customer's message, which is how
+  // model output reached the Add Client screen on 2026-10-04.
+  ok('  and the trace stays on result.trace, not in the customer\'s message', /No verified athlete found/.test(made.message) && !/Checked:/.test(made.message)
+    && made.trace.some((t) => /roster feeds|web candidate "Made Upson" dropped/.test(t)), made.message);
   const nobody = await AL.resolveAthlete(null, { name: 'Nobody Real', sport: 'football', athleteType: 'pro' }, { force: true });
   ok('nobody anywhere: the trace says the feeds were not run and the web returned nothing', nobody.found === false && nobody.trace.some((t) => /roster feed not run/.test(t)) && nobody.trace.some((t) => /model returned 0 athlete\(s\)/.test(t)), nobody.trace);
   ok('  every trace line is logged', /for \(const line of trace\) console\.log\(`\[lookup\] \$\{level\} "\$\{name\}": \$\{line\}`\)/.test(src('server/services/athleteLookup.js')));

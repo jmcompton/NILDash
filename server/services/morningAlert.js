@@ -139,7 +139,8 @@ async function collect(pool, { now } = {}) {
   // Every one of our failures in the last day, by service (services/ourFault).
   out.faults24h = await q(`SELECT service, SUM(1 + COALESCE(suppressed, 0))::int AS n, MAX(at) AS last,
       (ARRAY_AGG(reason ORDER BY (kind = 'billing') DESC, at DESC))[1] AS reason, BOOL_OR(kind = 'billing') AS billing
-      FROM service_faults WHERE at > NOW() - INTERVAL '24 hours' GROUP BY service ORDER BY BOOL_OR(kind = 'billing') DESC, n DESC LIMIT 12`, [], []);
+      FROM service_faults WHERE at > NOW() - INTERVAL '24 hours' GROUP BY service
+     ORDER BY BOOL_OR(kind = 'billing') DESC, BOOL_OR(kind IS NOT NULL) DESC, n DESC LIMIT 20`, [], []);
   // A vendor we have not paid: first in the subject and first in the body.
   out.paymentFailures = (out.faults24h || []).filter((f) => f.billing);
   // Last night's preflight.

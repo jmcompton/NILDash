@@ -46,6 +46,8 @@ function world(down = {}) {
       if (down.hunter) return res(401, { errors: [{ id: 'authentication_failed', details: down.hunter }] });
       return res(200, { data: { requests: { searches: { available: 500, used: down.hunterSpent ? 500 : 12 } } } });
     }
+    // The DeepSeek check reads the balance too (services/preflight).
+    if (/api\.deepseek\.com\/user\/balance/.test(url)) return res(200, { is_available: true, balance_infos: [{ currency: 'USD', total_balance: '50.00' }] });
     if (/api\.resend\.com\/domains/.test(url)) {
       if (down.resend) return res(401, { name: 'validation_error', message: down.resend });
       return res(200, { data: [{ name: 'mynildash.com', status: down.resendUnverified ? 'pending' : 'verified' }] });
@@ -223,7 +225,7 @@ async function main() {
   const rep2 = await MA.collect(P, { now: MNOW });
   const t2 = MA.render(rep2);
   ok('a failed preflight is in the morning alert, with the provider\'s words', !rep2.preflightMissing && /PREFLIGHT for 2031-04-09 FAILED/.test(t2.text) && /google-places: HTTP 403/.test(t2.text), t2.text.split('\n').filter((l) => /PREFLIGHT|google-places|preflight/i.test(l)));
-  ok('our own failures are listed by service', (rep2.faults24h || []).some((f) => f.service === 'google-places') && /OUR FAILURES, last 24 hours/.test(t2.text));
+  ok('our own failures are listed by service', (rep2.faults24h || []).some((f) => f.service === 'google-places') && /OUR FAILURES, last 24 hours/.test(t2.text), (rep2.faults24h || []).map((f) => f.service + ':' + f.n + (f.billing ? ':billing' : '')));
   ok('the alert has a section for digests and approved emails not sent', /AGENT DIGESTS for/.test(read('server/services/morningAlert.js')) && /APPROVED EMAILS NOT SENT/.test(read('server/services/morningAlert.js')));
   const clear = MA.render({ runDate: MDAY, problemCount: 0, problems: [], cardsLastNight: 3, agentsWithAthletes: 1, queueEnabled: true,
     builds: { total: 1, failed: 0, pooled: 1, failures: [] }, newBusinesses24h: 2, digests: { sent: 1 },

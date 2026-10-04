@@ -1230,6 +1230,11 @@
       "run_id": "TEXT",
       "service": "TEXT"
     },
+    "service_fault_alerts": {
+      "kind": "TEXT",
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "service": "TEXT"
+    },
     "service_faults": {
       "at": "TIMESTAMPTZ DEFAULT NOW()",
       "context": "TEXT",

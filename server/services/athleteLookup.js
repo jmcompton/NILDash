@@ -642,14 +642,7 @@ function searchProvider() {
 // as citations, so sanitizeWeb's "a cited source for every field" still holds.
 async function anthropicWebLoop(o) {
   const AI = require('../ai');
-  const client = AI.getClient();
-  const t0 = Date.now();
-  const msg = await client.messages.create({
-    model: AI.MODEL_FAST, max_tokens: o.maxTokens || 2600, temperature: 0, system: o.system,
-    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: o.maxSearches || MAX_SEARCHES }],
-    messages: [{ role: 'user', content: o.prompt }],
-  });
-  Ledger.record(msg, { model: AI.MODEL_FAST, ms: Date.now() - t0, ctx: o.ctx });
+  const msg = await AI.webSearchMessage({ system: o.system, prompt: o.prompt, maxTokens: o.maxTokens || 2600, maxSearches: o.maxSearches || MAX_SEARCHES, ctx: o.ctx });
   const blocks = Array.isArray(msg.content) ? msg.content : [];
   { const f = AI._webSearchFault ? AI._webSearchFault(blocks, 'lookup.anthropic') : null; if (f) throw f; }
   const citations = [], seen = new Set(), results = [];

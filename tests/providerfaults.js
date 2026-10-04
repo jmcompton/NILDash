@@ -244,20 +244,20 @@ async function main() {
   // The lookup, end to end: DeepSeek answers in markup twice; the same lookup
   // runs on Haiku (Anthropic web search) and finds the athlete, cited.
   const AIm = require(REPO + 'server/ai.js');
-  const realGetClient = AIm.getClient;
+  const realWSM = AIm.webSearchMessage;
   process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test-anthropic';
   let haikuCalls = 0;
-  AIm.getClient = () => ({ messages: { create: async () => { haikuCalls++; return {
+  AIm.webSearchMessage = async () => { haikuCalls++; return {
     stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 10 },
     content: [{ type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'Jamond Test' } },
       { type: 'web_search_tool_result', tool_use_id: 's1', content: [{ type: 'web_search_result', url: 'https://example.edu/roster', title: 'Roster' }] },
-      { type: 'text', text: '{"found":true,"athletes":[{"name":"Jamond Test","school":"Zzyzx Academy","sport":"Underwater Hockey","position":"Guard","sources":{"name":"https://example.edu/roster","school":"https://example.edu/roster","position":"https://example.edu/roster"}}]}' }] }; } } });
+      { type: 'text', text: '{"found":true,"athletes":[{"name":"Jamond Test","school":"Zzyzx Academy","sport":"Underwater Hockey","position":"Guard","sources":{"name":"https://example.edu/roster","school":"https://example.edu/roster","position":"https://example.edu/roster"}}]}' }] }; };
   await clearCache();
   bodies = script([DSML, DSML]);
   const realFetch2 = global.fetch;
   global.fetch = async (u, init) => (/espn|statsapi|nhle|hockeytech/.test(String(u)) ? Promise.reject(new Error('offline')) : realFetch2(u, init));
   const lk2 = await L.resolveAthlete(ai, { name: 'Jamond Test', school: 'Zzyzx Academy', sport: 'Underwater Hockey' }, {});
-  AIm.getClient = realGetClient; global.fetch = realFetch;
+  AIm.webSearchMessage = realWSM; global.fetch = realFetch;
   ok('the lookup: DeepSeek wrote markup twice, the same lookup ran on Haiku and found the athlete',
     haikuCalls === 1 && lk2.candidates && lk2.candidates.length >= 1 && lk2.candidates[0].name === 'Jamond Test', { haikuCalls, n: (lk2.candidates || []).length, message: lk2.message, notes: lk2.notes });
   ok('  and nothing on the screen carries the markup', !/DSML|invoke name|<\|/.test(JSON.stringify({ m: lk2.message, n: lk2.notes, c: lk2.candidates })));

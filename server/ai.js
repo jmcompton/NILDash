@@ -531,6 +531,22 @@ async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model, o
   return _out(text);
 }
 
+// Haiku with Anthropic's web search, returning the raw message (every block,
+// so a caller can read the search results as citations). Ledgered here, like
+// every model call in this file. Used by the athlete lookup's fallback
+// (services/athleteLookup.anthropicWebLoop) when DeepSeek is off or failed.
+async function webSearchMessage(o = {}) {
+  const client = getClient();
+  const _t0 = Date.now();
+  const msg = await client.messages.create({
+    model: MODEL_FAST, max_tokens: o.maxTokens || 2600, temperature: 0, system: o.system,
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: o.maxSearches || 4 }],
+    messages: [{ role: 'user', content: o.prompt }],
+  });
+  Ledger.record(msg, { model: MODEL_FAST, ms: Date.now() - _t0, ctx: o.ctx });
+  return msg;
+}
+
 async function oneShotWithSearch(prompt, systemPrompt) {
   // Skip web search attempt - use high-quality oneShot with rich context instead
   // (web_search tool was causing timeouts on Railway - oneShot with good prompts is more reliable)
@@ -4547,7 +4563,7 @@ Return ONLY this JSON:
 }
 
 module.exports = {
-  guardAnthropic,
+  guardAnthropic, webSearchMessage,
   // Read by /admin/cache-health, which hard-coded 6 while the cache wrote 8.
   CONTACTS_CACHE_VERSION: _CONTACTS_CACHE_VERSION,
   MODEL_FAST,
