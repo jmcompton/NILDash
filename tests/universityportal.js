@@ -220,15 +220,19 @@ async function main() {
   OUT.push('', '-- /university --');
   const page = read('public/university.html');
   const cssOf = (h) => h.slice(h.indexOf('<style>'), h.indexOf('</style>') + 8);
-  ok('the page\'s CSS is the demo\'s, byte for byte', cssOf(page) === cssOf(html));
+  // The demo's styles, every rule unchanged; the portal adds its own for the
+  // screens built since (Home's leads, Sponsors).
+  const ruleLines = (h) => cssOf(h).split('\n').map((l) => l.trim()).filter((l) => l && !/^<\/?style>$/.test(l));
+  const missingCss = ruleLines(html).filter((l) => !ruleLines(page).includes(l));
+  ok('the page\'s CSS keeps every rule of the demo\'s, unchanged', missingCss.length === 0, missingCss.slice(0, 5));
   ok('  and its shell is the demo\'s: brand, nav, crumb, who', ['<nav class="side">', '<div class="eyebrow">UNIVERSITY PORTAL</div>',
     '<div class="eyebrow">ADMINISTRATION</div>', '<span class="ready"><i></i>AI READY</span>', '<div class="navwrap"><div class="navlist" id="nav1"></div></div>']
     .every((s) => page.includes(s) && html.includes(s)));
   ok('  the nav lists every demo item', /\["home","Home"\], \["scan","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]/.test(page)
     && /const NAV2 = \[\["compliance","Compliance"\], \["settings","Settings"\]\];/.test(page));
-  ok('  only My Teams and Inventory do anything', /const LIVE = \{ teams:true, inventory:true \}/.test(page));
-  ok('  it reads only its two APIs and signs in with the account login',
-    (page.match(/\/api\/[a-z/_-]+/g) || []).every((u) => ['/api/university/teams', '/api/university/inventory', '/api/auth/login', '/api/auth/logout'].includes(u)),
+  ok('  Home, Sponsors, My Teams and Inventory do something; the rest of the nav waits', /const LIVE = \{ home:true, sponsors:true, teams:true, inventory:true \}/.test(page));
+  ok('  it reads only its own department\'s APIs (teams, inventory, the market tool) and signs in with the account login',
+    (page.match(/\/api\/[a-z/_-]+/g) || []).every((u) => ['/api/university/teams', '/api/university/inventory', '/api/auth/login', '/api/auth/logout'].includes(u) || u.startsWith('/api/university/market/')),
     [...new Set(page.match(/\/api\/[a-z/_-]+/g))]);
   ok('  and never sends anyone to the agent app', !/location(\.href)?\s*=/.test(page) && !/href="\/"/.test(page));
   ok('it is not part of the agent app', !/university\.html/.test(read('public/index.html')));
@@ -261,6 +265,10 @@ async function main() {
           if (u.pathname.startsWith('/api/university/')) {
             if (!state.signedIn) return r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"Not authenticated"}' });
             if (state.signedIn === 'agent') return r.fulfill({ status: 403, contentType: 'application/json', body: '{"code":"UNIVERSITY_ROLE_REQUIRED"}' });
+            // The market tool answers as a department with no leads and no
+            // businesses yet (tests/universityleads.js covers it with data).
+            const market = { '/api/university/market/me': { teams: [], stages: [] }, '/api/university/market/cards': { cards: [] }, '/api/university/market/search': { ok: true, rows: [], total: 0 } };
+            if (market[u.pathname]) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(market[u.pathname]) });
             return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(u.pathname.endsWith('teams') ? T2 : I2) });
           }
           return r.fulfill({ status: 404, body: '' });
@@ -273,7 +281,9 @@ async function main() {
       ok('logged out: the sign-in screen, not a blank page and not the agent app',
         !!(await p.$('#loginForm')) && !(await p.$('.shell')) && p.url().endsWith('/university'));
       await p.fill('#lemail', 'ad@cypress.test'); await p.fill('#lpass', 'x'); await p.click('#lgo'); await p.waitForTimeout(400);
-      ok('signed in: My Teams, from the API', (await p.textContent('#crumbNow')) === 'My Teams' && (await p.$$('.tablewrap tbody tr')).length === 15, [await p.textContent('#crumbNow'), (await p.$$('.tablewrap tbody tr')).length, errs]);
+      ok('signed in: Home first (the sponsor leads), saying none are written yet', (await p.textContent('#crumbNow')) === 'Home' && /No leads written yet/.test(await p.textContent('#view')), [await p.textContent('#crumbNow'), errs]);
+      await p.click('[data-goto="teams"]'); await p.waitForTimeout(150);
+      ok('  My Teams, from the API', (await p.textContent('#crumbNow')) === 'My Teams' && (await p.$$('.tablewrap tbody tr')).length === 15, [await p.textContent('#crumbNow'), (await p.$$('.tablewrap tbody tr')).length, errs]);
       ok('  the KPIs say 15 teams, 274 athletes, 131 home dates, $38,525 (and no "no football": flag football is a team)',
         /TEAMS15(?!nofootball)/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /ATHLETES274/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, ''))
         && /HOMEDATES131/.test((await p.textContent('.kpi-grid')).replace(/\s+/g, '')) && /\$38,525/.test(await p.textContent('.kpi-grid')), await p.textContent('.kpi-grid'));
@@ -282,7 +292,7 @@ async function main() {
       await p.click('[data-inv="Department"]'); await p.waitForTimeout(100);
       ok('  the Department filter shows the three department-wide items', (await p.$$('.tablewrap tbody tr')).length === 3);
       await p.click('#nav1 [aria-disabled="true"]', { force: true }); await p.waitForTimeout(100);
-      ok('the other nav items are there and do nothing', (await p.$$('[aria-disabled="true"]')).length === 10 && (await p.textContent('#crumbNow')) === 'Inventory');
+      ok('the other nav items are there and do nothing', (await p.$$('[aria-disabled="true"]')).length === 8 && (await p.textContent('#crumbNow')) === 'Inventory');
       ok('  and nothing threw', errs.length === 0, errs);
       const s2 = { loginAs: 'agent' };
       const q = await mk(s2);

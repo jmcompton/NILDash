@@ -5526,6 +5526,10 @@ async function doLogin() {
       btn.disabled = false; btn.textContent = 'Sign In →';
       return;
     }
+    // An athletics department account has its own portal. Signed in here it
+    // would load the agent app and be refused by the university wall on every
+    // call, so it goes straight to /university.
+    if (data.role === 'university' || data.role === 'university_admin') { window.location.assign('/university'); return; }
     currentUser = data;
     bootApp();
   } catch(e) { err.textContent = 'Connection error. Is the server running?'; }

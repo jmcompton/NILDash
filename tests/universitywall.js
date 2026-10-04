@@ -87,7 +87,12 @@ async function main() {
   const fetched = new Set();
   for (const m of page.matchAll(/getJson\("(\/api\/[^"]+)"\)/g)) fetched.add('GET ' + m[1]);
   for (const m of page.matchAll(/fetch\("(\/api\/[^"]+)",\s*\{\s*method:\s*"(\w+)"/g)) fetched.add(m[2].toUpperCase() + ' ' + m[1]);
-  const every = new Set(page.match(/\/api\/[a-z/_-]+/g));
+  // The department market tool is allowed by PREFIX (pinned below), so the
+  // page's calls under /api/university/market/ are accounted for by it; every
+  // other path must be named exactly.
+  const MARKET = '/api/university/market/';
+  for (const f of [...fetched]) if (f.split(' ')[1].startsWith(MARKET)) fetched.delete(f);
+  const every = new Set((page.match(/\/api\/[a-z/_-]+/g) || []).filter((p) => !p.startsWith(MARKET)));
   ok('every API path in university.html is accounted for', [...every].every((p) => [...fetched].some((f) => f.endsWith(' ' + p))), [...every]);
   // Beyond the page: a staff member's own mailbox connect (send only), named
   // here one by one so nothing else slips in. The market tool is a prefix,

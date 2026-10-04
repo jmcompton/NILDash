@@ -113,6 +113,29 @@ main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 
 .panel{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:19px 21px}
 .panel h3{margin:0 0 4px;font-family:var(--display);font-size:17px;font-weight:700}
+/* ── Today's leads and the sponsor list ── */
+.lead{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:16px 18px;display:grid;gap:8px}
+.lead .biz{font-family:var(--display);font-size:17px;font-weight:700}
+.lead .who{font-size:13.5px;color:var(--text)}
+.lead .who span{color:var(--muted)}
+.lead .reach{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted)}
+.lead .reach a{color:var(--lime);text-decoration:none}
+.lead .why{font-size:13.5px;color:var(--muted);line-height:1.5}
+.lead details{border-top:1px solid var(--line);padding-top:8px}
+.lead summary{cursor:pointer;font-size:13px;color:var(--lime);font-weight:600}
+.lead pre{white-space:pre-wrap;font:13.5px/1.55 var(--body);color:var(--text);margin:8px 0 0}
+.leads{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.teamhead{display:flex;align-items:baseline;gap:10px;margin:22px 0 10px}
+.teamhead h3{margin:0;font-family:var(--display);font-size:18px}
+.teamhead span{color:var(--dim);font-size:13px}
+.howto{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-top:4px}
+.howto div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:13.5px;color:var(--muted);line-height:1.5}
+.howto b{display:block;color:var(--text);font-size:13px;margin-bottom:2px}
+.sel{height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--line-3);background:#0E1520;color:var(--text);font-size:13px}
+.inp.sm{height:34px;font-size:13px;width:220px}
+.modal{position:fixed;inset:0;background:rgba(5,8,12,.7);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal .box{background:var(--card);border:1px solid var(--line-2);border-radius:14px;padding:20px;max-width:640px;width:100%;max-height:88vh;overflow:auto}
+.modal pre{white-space:pre-wrap;font:14px/1.6 var(--body);color:var(--text)}
 .panel p.lede{margin:0;color:var(--muted);font-size:14px;max-width:76ch}
 .grid{display:grid;gap:13px}
 .g2{grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
@@ -439,10 +462,13 @@ body.signin{padding-bottom:0}
 
 <script>
 /* ===================== the university portal =====================
-   Two screens for now, My Teams and Inventory, rendered from
-   GET /api/university/teams and GET /api/university/inventory. Both answer
-   only for the signed-in account's own university. The rest of the nav is
-   shown, as in the demo, and does nothing yet.                            */
+   Home (this morning's sponsor leads), Sponsors (every business near
+   campus, searchable, with a spreadsheet download), My Teams and Inventory.
+   Teams and Inventory read /api/university/teams and /inventory; Home and
+   Sponsors read the department's market (/api/university/market/*, routes/
+   campus.js). Every read answers only for the signed-in account's own
+   university. The rest of the nav is shown, as in the demo, and does
+   nothing yet.                            */
 
 const $  = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s)
@@ -459,9 +485,13 @@ const NAV1 = [
   ["calendar","Season Calendar"], ["reports","Reports"], ["command","AI Command"]
 ];
 const NAV2 = [["compliance","Compliance"], ["settings","Settings"]];
-const LIVE = { teams:true, inventory:true };      /* the screens built so far */
+const LIVE = { home:true, sponsors:true, teams:true, inventory:true };      /* the screens built so far */
 
-let view = "teams";
+let view = "home";
+let ME = null;              /* from /api/university/market/me: teams, stages, sender */
+let CARDS = [];             /* this morning's leads, /api/university/market/cards */
+let NEAR = { total:0, withContact:0, rows:[] };
+let SP = { q:"", team:"", contact:true, stage:"", rows:[], total:0, loading:false };
 let invFilter = "All";
 let university = null;      /* { id, name, ... } */
 let TEAMS = [];             /* from /api/university/teams */
@@ -494,6 +524,15 @@ async function load(){
   university = t.body.university || i.body.university || { name:"Your university" };
   TEAMS = t.body.teams || [];
   ITEMS = i.body.items || [];
+  // The market side: who I am, this morning's leads, and how many businesses
+  // near campus have a named person. Each read failing on its own leaves its
+  // screen saying so, never the whole portal down.
+  const [m, c, all, wc] = await Promise.all([getJson("/api/university/market/me"), getJson("/api/university/market/cards"),
+    getJson("/api/university/market/search?limit=1"), getJson("/api/university/market/search?contact=1&limit=8&sort=distance")]);
+  ME = m.status === 200 ? m.body : null;
+  CARDS = c.status === 200 ? (c.body.cards || []) : [];
+  NEAR = { total: all.status === 200 ? all.body.total || 0 : 0, withContact: wc.status === 200 ? wc.body.total || 0 : 0,
+    rows: wc.status === 200 ? wc.body.rows || [] : [], failed: all.status !== 200 };
   shell(); paint();
 }
 
@@ -544,7 +583,7 @@ async function doSignin(e){
 
 async function signout(){
   try { await fetch("/api/auth/logout", { method:"POST", credentials:"same-origin" }) } catch (_) {}
-  university = null; TEAMS = []; ITEMS = []; view = "teams"; invFilter = "All";
+  university = null; TEAMS = []; ITEMS = []; view = "home"; invFilter = "All"; CARDS = []; ME = null; SP = { q:"", team:"", contact:true, stage:"", rows:[], total:0, loading:false };
   signin("");
 }
 
@@ -582,7 +621,7 @@ function shell(){
 
   <main class="stage">
     <div class="crumb">
-      <span class="path">${esc(name)} Athletics / <b id="crumbNow">My Teams</b></span>
+      <span class="path">${esc(name)} Athletics / <b id="crumbNow">Home</b></span>
       <span class="grow"></span>
       <span class="search">Search...</span>
       <span class="ready"><i></i>AI READY</span>
@@ -597,7 +636,7 @@ function paintNav(){
     LIVE[id] ? `data-goto="${id}"` : `aria-disabled="true" title="Coming soon"`}>${esc(label)}</button>`;
   $("nav1").innerHTML = NAV1.map(row).join("");
   $("nav2").innerHTML = NAV2.map(row).join("");
-  $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","My Teams"])[1];
+  $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","Home"])[1];
 }
 
 /* ===================== MY TEAMS ===================== */
@@ -653,6 +692,186 @@ function vTeams(){
     </div>
     ${SEASONS.concat([NO_SEASON]).map(block).join("")}
   </div>`;
+}
+
+/* ===================== TODAY (home) =====================
+   What NILDash does for the department, in one sentence, then the work:
+   this morning's leads, one card per business, grouped by team. Each card
+   says who to talk to, how to reach them, why this business fits this team,
+   and the email to send. Nothing is sent from here: the email opens in the
+   department's own mail, and "Mark contacted" records it so nobody on staff
+   pitches the same business twice.                                        */
+const STAGE_TXT = { not_contacted:"Not contacted", contacted:"Contacted", replied:"Replied", in_talks:"In talks", deal_signed:"Deal signed", declined:"Declined", do_not_contact:"Do not contact" };
+const stageLabel = k => ((ME && ME.stages || []).find(x => x.key === k) || {}).label || STAGE_TXT[k] || k;
+function reachLine(c){
+  const bits = [];
+  if (c.email) bits.push(`<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`);
+  if (c.phone) bits.push(`<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>`);
+  if (c.instagram) bits.push(`<a href="https://instagram.com/${esc(String(c.instagram).replace(/^@/,""))}" target="_blank" rel="noopener">@${esc(String(c.instagram).replace(/^@/,""))}</a>`);
+  if (c.website) bits.push(`<a href="${esc(c.website)}" target="_blank" rel="noopener">website</a>`);
+  return bits.length ? `<div class="reach">${bits.join("")}</div>` : `<div class="reach">No direct contact yet: call or visit</div>`;
+}
+function leadCard(d){
+  const mailto = d.contact_email ? `mailto:${encodeURIComponent(d.contact_email)}?subject=${encodeURIComponent(d.subject || "")}&body=${encodeURIComponent(d.body || "")}` : "";
+  const done = d.sent_at || (d.stage && d.stage !== "not_contacted");
+  return `<div class="lead">
+    <div class="biz">${esc(d.brand_name)}</div>
+    <div class="who">${d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No named contact yet</span>`}</div>
+    ${reachLine({ email:d.contact_email, phone:d.contact_phone, instagram:d.contact_instagram })}
+    ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
+    <details><summary>Read the email</summary><pre>${esc(d.subject ? "Subject: " + d.subject + "\n\n" : "")}${esc(d.body || "")}</pre></details>
+    <div class="toolrow">
+      ${mailto ? `<a class="btn go sm" href="${mailto}" data-sent="${esc(d.id)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Open in email</a>` : ""}
+      <button type="button" class="btn ghost sm" data-copy="${esc(d.id)}">Copy email</button>
+      ${done ? `<span class="chip green">${esc(stageLabel(d.stage || "contacted").toUpperCase())}</span>`
+        : `<button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Mark contacted</button>`}
+    </div>
+  </div>`;
+}
+function vHome(){
+  const name = university.name || "Your university";
+  const byTeam = {};
+  for (const d of CARDS) (byTeam[d.team_name || "Department"] = byTeam[d.team_name || "Department"] || []).push(d);
+  const teamsWithLeads = Object.keys(byTeam).sort();
+  const night = CARDS.length && CARDS[0].night ? new Date(String(CARDS[0].night).slice(0,10) + "T12:00:00").toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" }) : "";
+  const intro = `
+    <div class="head">
+      <h1>Sponsor leads for ${esc(name)} Athletics</h1>
+      <p>Every night NILDash looks at the businesses around campus, picks the ones that fit each of your teams,
+         finds the person who decides, and writes the first email for you. You read it, open it in your own email, and send it.
+         Nothing goes out without you.</p>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">LEADS THIS MORNING</span><span class="kpi-val lime">${CARDS.length}</span><span class="kpi-note">${CARDS.length ? `for ${word(teamsWithLeads.length).toLowerCase()} team${teamsWithLeads.length === 1 ? "" : "s"}` : "the first arrive after a nightly run"}</span></div>
+      <div class="kpi"><span class="kpi-label">BUSINESSES NEAR CAMPUS</span><span class="kpi-val">${NEAR.total.toLocaleString("en-US")}</span><span class="kpi-note">looked at for your teams</span></div>
+      <div class="kpi"><span class="kpi-label">WITH A NAMED PERSON</span><span class="kpi-val">${NEAR.withContact.toLocaleString("en-US")}</span><span class="kpi-note">who to ask for, and how</span></div>
+      <div class="kpi"><span class="kpi-label">YOUR TEAMS</span><span class="kpi-val">${TEAMS.length}</span><span class="kpi-note">${TEAMS.reduce((a,t)=>a+(t.roster_size||0),0)} athletes</span></div>
+    </div>
+    <div class="howto">
+      <div><b>1. Read the lead</b>Who the business is, who to talk to, and why they fit that team.</div>
+      <div><b>2. Send the email</b>"Open in email" puts it in your own email, ready to edit and send.</div>
+      <div><b>3. Mark it contacted</b>So nobody on your staff pitches the same business twice.</div>
+    </div>`;
+  if (!CARDS.length){
+    return `<div class="board">${intro}
+      <div class="panel" style="margin-top:18px">
+        <h3>No leads written yet</h3>
+        <p class="lede">The nightly run writes a few leads for every team once your department is set up. Until then, these are the closest businesses where we already know who to ask for. The full list is under Sponsors, and downloads as a spreadsheet.</p>
+        ${NEAR.rows.length ? `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Business</th><th>Kind</th><th>Who to ask for</th><th>Reach</th><th>Miles</th></tr></thead><tbody>
+          ${NEAR.rows.map(r => `<tr><td data-l="BUSINESS"><span class="b">${esc(r.brand)}</span></td><td data-l="KIND"><span class="s">${esc(r.kind || "")}</span></td>
+            <td data-l="WHO">${esc(r.contact.name || "")}${r.contact.title ? `<span class="s"> · ${esc(r.contact.title)}</span>` : ""}</td>
+            <td data-l="REACH">${r.contact.email ? `<a href="mailto:${esc(r.contact.email)}" style="color:var(--lime)">${esc(r.contact.email)}</a>` : esc(r.contact.phone || "")}</td>
+            <td data-l="MILES">${r.miles == null ? "" : r.miles}</td></tr>`).join("")}
+        </tbody></table></div>` : `<div class="empty" style="margin-top:10px"><b>${NEAR.failed ? "The business list could not be loaded" : "The business list is being built"}</b>${NEAR.failed ? "Try again in a moment." : "It fills in as the area around campus is mapped."}</div>`}
+        <div class="toolrow" style="margin-top:12px"><button type="button" class="btn ghost sm" data-goto="sponsors">See every business</button></div>
+      </div></div>`;
+  }
+  return `<div class="board">${intro}
+    <p class="lede" style="margin-top:18px">This morning's leads${night ? `, written ${esc(night)}` : ""}.</p>
+    ${teamsWithLeads.map(t => `<div class="teamhead"><h3>${esc(t)}</h3><span>${byTeam[t].length} lead${byTeam[t].length === 1 ? "" : "s"}</span></div>
+      <div class="leads">${byTeam[t].map(leadCard).join("")}</div>`).join("")}
+  </div>`;
+}
+
+/* ===================== SPONSORS (every business near campus) ===================== */
+function spQuery(extra){
+  const q = new URLSearchParams();
+  if (SP.q) q.set("q", SP.q);
+  if (SP.team) q.set("team", SP.team);
+  if (SP.contact) q.set("contact", "1");
+  if (SP.stage) q.set("stage", SP.stage);
+  for (const [k,v] of Object.entries(extra || {})) q.set(k, v);
+  return q.toString();
+}
+async function spLoad(){
+  SP.loading = true; paint();
+  const r = await getJson("/api/university/market/search?" + spQuery({ limit:"100" }));
+  SP.loading = false; SP.failed = r.status !== 200;
+  SP.rows = r.status === 200 ? r.body.rows || [] : []; SP.total = r.status === 200 ? r.body.total || 0 : 0;
+  SP.loaded = true; paint();
+}
+function vSponsors(){
+  if (!SP.loaded && !SP.loading) { setTimeout(spLoad, 0); }
+  const teams = (ME && ME.teams) || TEAMS;
+  const stages = (ME && ME.stages) || Object.keys(STAGE_TXT).map(k => ({ key:k, label:STAGE_TXT[k] }));
+  return `<div class="board">
+    <div class="head">
+      <h1>Sponsors</h1>
+      <p>Every business near campus NILDash has looked at, nearest first, or best fit first when you pick a team.
+         Set where each one stands, write a pitch for a team, or download the list as a spreadsheet.</p>
+    </div>
+    <div class="toolrow">
+      <input class="inp sm" id="spq" placeholder="Search a business" value="${esc(SP.q)}">
+      <select class="sel" id="spteam"><option value="">Any team</option>${teams.map(t => `<option value="${esc(t.id)}" ${t.id===SP.team?"selected":""}>${esc(t.name)}</option>`).join("")}</select>
+      <select class="sel" id="spstage"><option value="">Any stage</option>${stages.map(s => `<option value="${esc(s.key)}" ${s.key===SP.stage?"selected":""}>${esc(s.label)}</option>`).join("")}</select>
+      <label style="font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center"><input type="checkbox" id="spcontact" ${SP.contact?"checked":""}> With a named person</label>
+      <span class="grow"></span>
+      <span class="stats"><span>${SP.loading ? "Loading…" : `<b>${SP.total.toLocaleString("en-US")}</b> businesses`}</span></span>
+      <a class="btn ghost sm" href="/api/university/market/search?${esc(spQuery({ format:"csv" }))}">Download as spreadsheet</a>
+    </div>
+    ${SP.failed ? `<div class="empty"><b>Could not load the list</b>Try again in a moment.</div>` : `
+    <div class="tablewrap">
+      <table><thead><tr><th>Business</th><th>Who to ask for</th><th>Reach</th><th>${SP.team ? "Why for this team" : "Best fit"}</th><th>Miles</th><th>Stage</th><th></th></tr></thead><tbody>
+      ${SP.rows.map(r => `<tr>
+        <td data-l="BUSINESS"><span class="b">${esc(r.brand)}</span><div class="s">${esc(r.kind || "")}</div></td>
+        <td data-l="WHO">${esc(r.contact.name || "")}${r.contact.title ? `<div class="s">${esc(r.contact.title)}</div>` : ""}</td>
+        <td data-l="REACH">${r.contact.email ? `<a href="mailto:${esc(r.contact.email)}" style="color:var(--lime)">${esc(r.contact.email)}</a>` : ""}${r.contact.phone ? `<div class="s">${esc(r.contact.phone)}</div>` : ""}</td>
+        <td data-l="FIT"><span class="s">${esc(r.fit ? r.fit.why : (r.teamFit[0] ? r.teamFit[0].team + ": " + r.teamFit[0].why : ""))}</span></td>
+        <td data-l="MILES">${r.miles == null ? "" : r.miles}</td>
+        <td data-l="STAGE"><select class="sel" data-stage="${esc(r.brand)}">${stages.map(s => `<option value="${esc(s.key)}" ${s.key===r.stage?"selected":""}>${esc(s.label)}</option>`).join("")}</select></td>
+        <td>${r.stage === "do_not_contact" ? "" : `<button type="button" class="btn ghost xs" data-pitch="${esc(r.brand)}">Write a pitch</button>`}</td>
+      </tr>`).join("") || `<tr><td colspan="7"><span class="s">${SP.loading ? "Loading…" : "No businesses match. Try fewer filters."}</span></td></tr>`}
+      </tbody></table>
+    </div>`}
+  </div>`;
+}
+
+/* Write a pitch for one business and a team, shown in a box with the email
+   ready to open. A business someone on staff has already worked asks first
+   (the server answers needsAck with the history). */
+async function writePitch(brand, ack){
+  const teams = (ME && ME.teams) || TEAMS;
+  const teamId = SP.team || (await chooseTeam(teams));
+  if (!teamId) return;
+  toast("Writing the email…");
+  const r = await fetch("/api/university/market/pitch", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ brand, teamId, acknowledgeHistory: !!ack }) });
+  let b = {}; try { b = await r.json() } catch (_) {}
+  if (r.status === 409 && b.needsAck){
+    const h = b.history || {};
+    const who = h.lastTouchBy ? ` by ${h.lastTouchBy}` : "";
+    if (confirm(`Someone on your staff already contacted ${brand}${who}${h.lastTouchAt ? " on " + String(h.lastTouchAt).slice(0,10) : ""}. Write another email anyway?`)) return writePitch(brand, true);
+    return;
+  }
+  if (!r.ok || !b.ok){ toast(b.error ? "Could not write it: " + b.error : "Could not write it. Try again in a minute."); return; }
+  const d = b.draft;
+  showModal(`<h3 style="margin:0 0 6px">${esc(brand)}</h3>
+    <p class="lede">${d.contact && d.contact.name ? `To ${esc(d.contact.name)}${d.to ? ` &lt;${esc(d.to)}&gt;` : ""}` : (d.to ? esc(d.to) : "No email address yet: call or visit")}</p>
+    <pre>${esc("Subject: " + d.subject + "\n\n" + d.body)}</pre>
+    <div class="toolrow" style="margin-top:12px">
+      ${d.mailto ? `<a class="btn go sm" href="${esc(d.mailto)}" data-sent="${esc(d.id)}" data-brand="${esc(brand)}" data-team="${esc(teamId)}">Open in email</a>` : ""}
+      <button type="button" class="btn ghost sm" data-copytext="${esc("Subject: " + d.subject + "\n\n" + d.body)}">Copy email</button>
+      <button type="button" class="btn ghost sm" data-close>Close</button>
+    </div>`);
+}
+function chooseTeam(teams){
+  return new Promise((resolve) => {
+    showModal(`<h3 style="margin:0 0 6px">Which team is this pitch for?</h3>
+      <div class="toolrow" style="margin-top:10px">${teams.map(t => `<button type="button" class="btn ghost sm" data-pickteam="${esc(t.id)}">${esc(t.name)}</button>`).join("")}</div>
+      <div class="toolrow" style="margin-top:12px"><button type="button" class="btn ghost sm" data-close>Cancel</button></div>`);
+    window._pickTeam = (id) => { closeModal(); resolve(id); };
+    window._pickCancel = () => resolve(null);
+  });
+}
+function showModal(html){ closeModal(); const m = document.createElement("div"); m.className = "modal"; m.id = "modal"; m.innerHTML = `<div class="box">${html}</div>`; document.body.appendChild(m); }
+function closeModal(){ const m = $("modal"); if (m) m.remove(); }
+
+/* "Mark contacted" and "Open in email" both record a touch, which moves the
+   business to Contacted for the whole staff. */
+async function markContacted(brand, teamId, draftId){
+  await fetch("/api/university/market/business/touch", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ brand, channel:"email", direction:"out", summary:"Sent the NILDash email", stage:"contacted", teamId: teamId || null, draftId: draftId || null }) }).catch(() => {});
+  const d = CARDS.find(x => x.id === draftId); if (d){ d.stage = "contacted"; d.sent_at = new Date().toISOString(); }
 }
 
 /* ===================== INVENTORY ===================== */
@@ -720,9 +939,9 @@ function exportCsv(){
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-const VIEWS = { teams:vTeams, inventory:vInventory };
+const VIEWS = { home:vHome, sponsors:vSponsors, teams:vTeams, inventory:vInventory };
 function paint(){
-  $("view").innerHTML = (VIEWS[view] || vTeams)();
+  $("view").innerHTML = (VIEWS[view] || vHome)();
   paintNav();
   window.scrollTo({ top:0 });
 }
@@ -730,9 +949,33 @@ function go(v){ if (!LIVE[v]) return; view = v; paint() }
 
 /* ===================== events ===================== */
 document.addEventListener("submit", e => { if (e.target.id === "loginForm") doSignin(e) });
+/* Sponsors filters: search on Enter or after a pause, the rest at once. */
+let _spT = null;
+document.addEventListener("input", e => {
+  if (e.target.id === "spq"){ clearTimeout(_spT); _spT = setTimeout(() => { SP.q = e.target.value.trim(); spLoad(); }, 400); }
+});
+document.addEventListener("change", e => {
+  const id = e.target.id;
+  if (id === "spteam"){ SP.team = e.target.value; spLoad(); return }
+  if (id === "spstage"){ SP.stage = e.target.value; spLoad(); return }
+  if (id === "spcontact"){ SP.contact = e.target.checked; spLoad(); return }
+  if (e.target.dataset && e.target.dataset.stage){
+    const brand = e.target.dataset.stage, stage = e.target.value;
+    fetch("/api/university/market/business/stage", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ brand, stage }) })
+      .then(r => { toast(r.ok ? `${brand}: ${stageLabel(stage)}` : "Could not save that. Try again."); const row = SP.rows.find(x => x.brand === brand); if (row && r.ok) row.stage = stage; });
+  }
+});
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry]");
+  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close]");
   if (!t) return;
+  const copy = (txt) => { try { navigator.clipboard.writeText(txt); toast("Copied. Paste it into your email."); } catch (_) { toast("Select the text and copy it."); } };
+  if (t.dataset.copy !== undefined){ const d = CARDS.find(x => x.id === t.dataset.copy); if (d) copy((d.subject ? "Subject: " + d.subject + "\n\n" : "") + (d.body || "")); return }
+  if (t.dataset.copytext !== undefined){ copy(t.dataset.copytext); return }
+  if (t.dataset.mark !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.mark).then(() => { toast("Marked contacted for your whole staff."); paint(); }); return }
+  if (t.dataset.sent !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.sent).then(() => { if (view === "home") paint(); }); return }   /* the mailto opens as usual */
+  if (t.dataset.pitch !== undefined){ writePitch(t.dataset.pitch); return }
+  if (t.dataset.pickteam !== undefined){ if (window._pickTeam) window._pickTeam(t.dataset.pickteam); return }
+  if (t.dataset.close !== undefined){ closeModal(); if (window._pickCancel) { window._pickCancel(); window._pickCancel = null; } return }
   if (t.dataset.goto !== undefined){ e.preventDefault(); go(t.dataset.goto); return }
   if (t.dataset.inv !== undefined){ invFilter = t.dataset.inv; paint(); return }
   if (t.dataset.do === "export"){ exportCsv(); toast("Downloaded."); return }
