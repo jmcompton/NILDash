@@ -99,7 +99,14 @@ async function main() {
   ok('--no-password creates it with a password nobody knows, and says how to set one',
     none.status === 0 && /Forgot password/.test(none.stdout)
     && (await P.query(`SELECT COUNT(*)::int n FROM users WHERE email = $1 AND role = 'university'`, [E('four')])).rows[0].n === 1, none.stdout);
-  ok('it is not an HTTP route and not in the admin script runner', !/create-university-user/.test(read('server/index.js')));
+  // One HTTP route, for the admin only (Cypress, without a terminal): it
+  // generates the password and returns it once. Nothing else reaches it, and
+  // it is not in the admin script runner. To be replaced by an emailed
+  // set-password link.
+  ok('the only HTTP route to it is the admin one, and it is not in the admin script runner',
+    (IDX.match(/create-university-user/g) || []).length === 1
+    && /app\.post\('\/api\/admin\/university-users', requireAuth, requireCampusAdmin,/.test(IDX)
+    && /password: r\.created \? password : undefined/.test(IDX));
 
   await clean();
   await P.query(`DELETE FROM universities WHERE id = 'cu-other-uni'`).catch(() => {});
