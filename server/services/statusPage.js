@@ -26,7 +26,8 @@ async function collect(pool) {
 
   // Latest check per service, and the last time each one was green.
   const latest = await q('service_checks', `
-    SELECT DISTINCT ON (service) service, ok, ms, error, checked_at, detail->>'kind' AS kind
+    SELECT DISTINCT ON (service) service, ok, ms, error, checked_at, detail->>'kind' AS kind,
+           CASE WHEN jsonb_typeof(detail) = 'string' THEN detail #>> '{}' ELSE NULL END AS note
       FROM service_checks ORDER BY service, checked_at DESC`);
   const lastOk = await q('service_checks (last ok)', `
     SELECT service, MAX(checked_at) AS at FROM service_checks WHERE ok GROUP BY service`);
@@ -63,6 +64,9 @@ async function collect(pool) {
       error: liveNewer ? `${lf.reason} (live: ${lf.n || 1} time(s) in 24 h, last ${new Date(lf.at).toISOString().slice(11, 16)} UTC; the last check had passed)`
         : (r && !r.ok ? r.error : null),
       checkedAt: r ? r.checked_at : null,
+      // What a green check found ("ADMIN_ALERT_EMAIL is unset; using
+      // ADMIN_EMAIL = ..."): shown, so a green row says where alerts go.
+      note: r && r.ok ? (r.note || null) : null,
       lastOkAt: okAt.get(s) || null,
       consequence: PF.CONSEQUENCE[s] || null,
     };
@@ -200,7 +204,7 @@ function renderHtml(s) {
     <td>${r.ms == null ? '' : r.ms + ' ms'}</td>
     <td>${r.state === 'failed'
       ? `<div class="err">${esc(r.error)}</div><div class="sm">Last green: ${esc(ago(r.lastOkAt))}. ${esc(r.consequence || '')}</div>`
-      : r.state === 'unchecked' ? '<span class="sm">No preflight has checked this yet.</span>' : ''}</td></tr>`).join('');
+      : r.state === 'unchecked' ? '<span class="sm">No preflight has checked this yet.</span>' : (r.note ? `<span class="sm">${esc(r.note)}</span>` : '')}</td></tr>`).join('');
 
   const agentRows = s.agents.map((a) => {
     const r = a.run;
