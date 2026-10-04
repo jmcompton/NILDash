@@ -26,7 +26,7 @@ async function collect(pool) {
 
   // Latest check per service, and the last time each one was green.
   const latest = await q('service_checks', `
-    SELECT DISTINCT ON (service) service, ok, ms, error, checked_at
+    SELECT DISTINCT ON (service) service, ok, ms, error, checked_at, detail->>'kind' AS kind
       FROM service_checks ORDER BY service, checked_at DESC`);
   const lastOk = await q('service_checks (last ok)', `
     SELECT service, MAX(checked_at) AS at FROM service_checks WHERE ok GROUP BY service`);
@@ -34,19 +34,42 @@ async function collect(pool) {
   const okAt = new Map((lastOk || []).map((r) => [r.service, r.at]));
   const te = byService.get('token-encryption'), mb = byService.get('mailbox-tokens');
   if (te && mb && new Date(mb.checked_at) > new Date(te.checked_at)) byService.delete('token-encryption');
-  const names = [...SERVICES, ...[...byService.keys()].filter((s) => !SERVICES.includes(s))];
+  // ── LIVE PAYMENT, KEY AND QUOTA FAILURES BEAT THE LAST CHECK ────────────
+  // The preflight runs once a night. On 2026-10-03 DeepSeek passed it at 05:31
+  // UTC and was refusing customers with 402 by the afternoon while this page
+  // stayed green. A billing/auth/quota failure recorded since the service's
+  // last check (services/ourFault.providerError) turns it red, with its kind.
+  const live = await q('service_faults (live)', `
+    SELECT DISTINCT ON (service) service, kind, reason, at,
+           (SELECT SUM(1 + COALESCE(f2.suppressed, 0))::int FROM service_faults f2
+             WHERE f2.service = f.service AND f2.kind = f.kind AND f2.at > NOW() - INTERVAL '24 hours') AS n
+      FROM service_faults f WHERE kind IS NOT NULL AND at > NOW() - INTERVAL '24 hours'
+     ORDER BY service, (kind = 'billing') DESC, at DESC`);
+  // Fault service names onto the preflight's: the search providers are checked as web-search.
+  const CHECK_NAME = { serper: 'web-search', 'brave-search': 'web-search', tavily: 'web-search' };
+  const liveBy = new Map();
+  for (const f of live || []) { const k = CHECK_NAME[f.service] || f.service; if (!liveBy.has(k) || f.kind === 'billing') liveBy.set(k, f); }
+  const names = [...SERVICES, ...[...byService.keys()].filter((s) => !SERVICES.includes(s)),
+    ...[...liveBy.keys()].filter((s) => !SERVICES.includes(s) && !byService.has(s))];
   const services = names.map((s) => {
     const r = byService.get(s);
+    const lf = liveBy.get(s);
+    const liveNewer = lf && (!r || new Date(lf.at) > new Date(r.checked_at));
     return {
       service: s,
-      state: !r ? 'unchecked' : r.ok ? 'ok' : 'failed',
+      state: liveNewer ? 'failed' : !r ? 'unchecked' : r.ok ? 'ok' : 'failed',
+      kind: liveNewer ? lf.kind : (r && !r.ok ? (r.kind || null) : null),
       ms: r ? r.ms : null,
-      error: r && !r.ok ? r.error : null,
+      error: liveNewer ? `${lf.reason} (live: ${lf.n || 1} time(s) in 24 h, last ${new Date(lf.at).toISOString().slice(11, 16)} UTC; the last check had passed)`
+        : (r && !r.ok ? r.error : null),
       checkedAt: r ? r.checked_at : null,
       lastOkAt: okAt.get(s) || null,
       consequence: PF.CONSEQUENCE[s] || null,
     };
   });
+  const payment = (live || []).filter((f) => f.kind === 'billing')
+    .concat(services.filter((x) => x.state === 'failed' && x.kind === 'billing' && !(live || []).some((f) => f.kind === 'billing' && (CHECK_NAME[f.service] || f.service) === x.service))
+      .map((x) => ({ service: x.service, kind: 'billing', reason: x.error, at: x.checkedAt, n: 1 })));
 
   const preflights = await q('preflight_runs', `
     SELECT night, status, failed, alert, started_at, finished_at
@@ -54,9 +77,10 @@ async function collect(pool) {
 
   const faults = await q('service_faults', `
     SELECT service, SUM(1 + COALESCE(suppressed, 0))::int AS n, MAX(at) AS last,
-           (ARRAY_AGG(reason ORDER BY at DESC))[1] AS reason
+           (ARRAY_AGG(reason ORDER BY at DESC))[1] AS reason,
+           BOOL_OR(kind = 'billing') AS billing
       FROM service_faults WHERE at > NOW() - ($1::int || ' days')::interval
-     GROUP BY service ORDER BY n DESC`, [DAYS]);
+     GROUP BY service ORDER BY BOOL_OR(kind = 'billing') DESC, n DESC`, [DAYS]);
 
   // Agents: one row per night. Cards filled, agents who ran, agents with
   // athletes who got nothing, and faults the queue recorded that night.
@@ -140,6 +164,7 @@ async function collect(pool) {
   return {
     at: new Date().toISOString(),
     services,
+    payment,
     faults: faults || [],
     agents,
     universities,
@@ -159,10 +184,18 @@ function ago(t) {
   return `${Math.round(m / 1440)} days ago`;
 }
 
+const KIND_LABEL = { billing: 'PAYMENT FAILURE', auth: 'KEY REFUSED', quota: 'QUOTA / RATE LIMIT' };
 function renderHtml(s) {
+  // THE LOUDEST THING ON THE PAGE: a vendor we have not paid. Every customer
+  // call to it fails until someone tops it up.
+  const pay = (s.payment || []).length
+    ? `<div class="pay"><div class="payh">PAYMENT FAILURE: ${s.payment.map((p) => esc(p.service)).join(', ')}</div>${s.payment.map((p) =>
+      `<div>${esc(p.service)}: ${esc(String(p.reason || '').slice(0, 300))}<span class="sm"> &middot; ${p.n || 1} time(s) in 24 h, last ${esc(ago(p.at))}</span></div>`).join('')}
+      <div class="sm" style="margin-top:6px">Every call to these fails until billing is fixed. Customers see a plain "try again" message.</div></div>`
+    : '';
   const dot = (state) => `<span class="dot ${state}"></span>`;
   const svc = s.services.map((r) => `<tr class="${r.state}">
-    <td>${dot(r.state)}<b>${esc(r.service)}</b></td>
+    <td>${dot(r.state)}<b>${esc(r.service)}</b>${r.kind ? `<div class="kind ${esc(r.kind)}">${esc(KIND_LABEL[r.kind] || r.kind)}</div>` : ''}</td>
     <td>${r.state === 'unchecked' ? 'never checked' : esc(ago(r.checkedAt))}<div class="sm">${r.checkedAt ? esc(new Date(r.checkedAt).toISOString().replace('T', ' ').slice(0, 16)) + ' UTC' : ''}</div></td>
     <td>${r.ms == null ? '' : r.ms + ' ms'}</td>
     <td>${r.state === 'failed'
@@ -196,7 +229,7 @@ function renderHtml(s) {
 
   const faults = s.faults.length
     ? `<table><tr><th>service</th><th>failures (7 days)</th><th>last</th><th>most recent reason</th></tr>${s.faults.map((f) =>
-      `<tr><td>${esc(f.service)}</td><td>${f.n}</td><td>${esc(ago(f.last))}</td><td class="sm">${esc(String(f.reason || '').slice(0, 200))}</td></tr>`).join('')}</table>`
+      `<tr class="${f.billing ? 'failed' : ''}"><td>${esc(f.service)}${f.billing ? '<div class="kind billing">PAYMENT FAILURE</div>' : ''}</td><td>${f.n}</td><td>${esc(ago(f.last))}</td><td class="sm">${esc(String(f.reason || '').slice(0, 200))}</td></tr>`).join('')}</table>`
     : '<p class="sm">No failures recorded on our side in the last 7 days.</p>';
 
   const red = s.services.filter((r) => r.state === 'failed').length;
@@ -227,9 +260,15 @@ function renderHtml(s) {
  .banner.warnb{background:#fff8e6;border:1px solid #f0dda6}
  .banner.goodb{background:#f2f9ec;border:1px solid #cfe4b6}
  code{background:#f3f5f9;padding:1px 5px;border-radius:4px}
+ .pay{background:#b91c1c;color:#fff;padding:14px 16px;border-radius:8px;margin:14px 0 6px;font-size:14px}
+ .pay .payh{font-size:18px;font-weight:800;letter-spacing:.02em;margin-bottom:6px}
+ .pay .sm{color:#fde2e2}
+ .kind{display:inline-block;margin-top:4px;font-size:10.5px;font-weight:800;letter-spacing:.06em;padding:1px 6px;border-radius:4px;background:#fde68a;color:#7c2d12}
+ .kind.billing{background:#b91c1c;color:#fff}
 </style>
 <h1>System status</h1>
 <div class="sub">Generated ${esc(s.at.replace('T', ' ').slice(0, 16))} UTC. Read only. JSON: <code>/api/admin/status</code></div>
+${pay}
 <div class="banner ${head[0]}">${esc(head[1])}</div>
 ${s.readErrors.length ? `<div class="err">${s.readErrors.map(esc).join('\n')}</div>` : ''}
 

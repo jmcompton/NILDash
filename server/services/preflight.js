@@ -33,6 +33,8 @@
 const OF = require('./ourFault');
 
 const TIMEOUT_MS = 15000;
+// Below this the DeepSeek check is red: a day of lookups costs a few dollars.
+const DEEPSEEK_MIN_BALANCE = parseFloat(process.env.DEEPSEEK_MIN_BALANCE) || 5;
 // What each service's failure means for tonight, in plain words.
 const CONSEQUENCE = {
   'google-places': 'Places market builds fail, so no new businesses are discovered tonight (scans fall back to web search only); per-business Places lookups (phone, website) are missing; schools not in the built-in map cannot be located. University team scans cannot find businesses at all.',
@@ -54,7 +56,7 @@ async function timed(fn) {
     const detail = await fn();
     return { ok: true, ms: Date.now() - t0, detail: detail || null, error: null };
   } catch (e) {
-    return { ok: false, ms: Date.now() - t0, error: String((e && e.message) || e).slice(0, 500), detail: (e && e.detail) || null };
+    return { ok: false, ms: Date.now() - t0, error: String((e && e.message) || e).slice(0, 500), detail: (e && e.detail) || null, status: OF.statusOf(e) };
   }
 }
 
@@ -75,7 +77,7 @@ async function httpJson(fetchImpl, url, init) {
     if (!r.ok) {
       const msg = (j && j.error && (j.error.message || j.error.status)) || (j && (j.message || j.name))
         || (j && Array.isArray(j.errors) && j.errors[0] && (j.errors[0].details || j.errors[0].message)) || text.slice(0, 200);
-      throw new Error(`HTTP ${r.status}: ${msg}`);
+      const e = new Error(`HTTP ${r.status}: ${msg}`); e.status = r.status; throw e;
     }
     return j;
   } finally { clearTimeout(k); }
@@ -146,7 +148,20 @@ function checks(deps) {
       // Anthropic (services/deepseek.route), which has its own check.
       if (!ds.apiKey()) throw new Error('DEEPSEEK_API_KEY is not set');
       await ds.chat({ messages: [{ role: 'user', content: 'ping' }], maxTokens: 1, timeoutMs: TIMEOUT_MS, ledger: false });
-      return `${ds.model()} answered`;
+      // ANSWERING IS NOT PAID FOR. On 2026-10-03 this ping passed at 05:31 UTC
+      // and the balance ran out that afternoon. So the check also reads the
+      // balance itself, and a balance below the floor is red BEFORE it runs
+      // out: a night and a day of customers is more than a few dollars.
+      const b = await httpJson(fetchImpl, 'https://api.deepseek.com/user/balance', { headers: { Authorization: 'Bearer ' + ds.apiKey(), Accept: 'application/json' } });
+      if (b && b.is_available === false) { const e = new Error('DeepSeek says the account balance is not available (is_available: false): calls will fail with 402 Insufficient Balance'); e.status = 402; throw e; }
+      const infos = (b && Array.isArray(b.balance_infos)) ? b.balance_infos : [];
+      const usd = infos.find((x) => String(x.currency).toUpperCase() === 'USD') || infos[0] || null;
+      const left = usd ? Number(usd.total_balance) : null;
+      if (left !== null && Number.isFinite(left) && left < DEEPSEEK_MIN_BALANCE) {
+        const e = new Error(`DeepSeek balance is ${usd.currency} ${left.toFixed(2)}, below the ${DEEPSEEK_MIN_BALANCE.toFixed(2)} floor (DEEPSEEK_MIN_BALANCE): top it up before it runs out and customers get 402s`);
+        e.status = 402; throw e;
+      }
+      return `${ds.model()} answered; balance ${usd ? usd.currency + ' ' + left.toFixed(2) : 'not reported'}`;
     },
 
     'web-search': async () => {
@@ -230,12 +245,19 @@ async function runAll(pool, opts = {}) {
       if (!routed) { r.ok = true; r.detail = 'not configured; the fast tier uses Anthropic'; r.error = null; }
     }
     const svc = (!r.ok && service === 'mailbox-tokens' && r.detail && r.detail.tokenEncryption) ? 'token-encryption' : service;
+    // PAYMENT, KEY OR QUOTA (services/ourFault.classify): red like any failure,
+    // and named, so the status page and the alert put a vendor we have not
+    // paid first.
+    if (!r.ok) {
+      const kind = OF.classify(r.status || OF.statusOf(new Error(r.error)), r.error);
+      if (kind) r.detail = Object.assign({}, (r.detail && typeof r.detail === 'object') ? r.detail : (r.detail ? { note: r.detail } : {}), { kind });
+    }
     results.push({ service: svc, ok: r.ok, ms: r.ms, error: r.error, detail: r.detail });
     await pool.query(
       `INSERT INTO service_checks (run_id, service, ok, ms, error, detail) VALUES ($1,$2,$3,$4,$5,$6)`,
       [runId, svc, r.ok, r.ms, r.error, r.detail == null ? null : JSON.stringify(r.detail)]).catch((e) =>
       console.error('[preflight] could not record ' + svc + ': ' + e.message));
-    if (!r.ok) OF.record(svc, r.error, 'preflight');
+    if (!r.ok) OF.record(svc, (r.detail && r.detail.kind ? OF.KIND_WORDS[r.detail.kind] + ': ' : '') + r.error, 'preflight', r.detail && r.detail.kind);
     console[r.ok ? 'log' : 'error'](`[preflight] ${svc}: ${r.ok ? 'ok' : 'FAILED'} ${r.ms}ms ${r.ok ? (typeof r.detail === 'string' ? r.detail : '') : r.error}`);
   }
   return { runId, results, failed: results.filter((x) => !x.ok) };
@@ -243,10 +265,15 @@ async function runAll(pool, opts = {}) {
 
 function render(run, when) {
   const failed = run.failed;
-  const subject = `NILDash PREFLIGHT FAILED: ${failed.map((f) => f.service).join(', ')} (tonight's run is affected)`;
+  const paid = failed.filter((f) => f.detail && f.detail.kind === 'billing').map((f) => f.service);
+  const subject = paid.length
+    ? `NILDash PAYMENT FAILURE: ${paid.join(', ')}${failed.length > paid.length ? ' (+' + (failed.length - paid.length) + ' other)' : ''} -- tonight's run is affected`
+    : `NILDash PREFLIGHT FAILED: ${failed.map((f) => f.service).join(', ')} (tonight's run is affected)`;
   const lines = [subject, '', `Checked ${new Date(when || Date.now()).toISOString()}, before the nightly run.`, ''];
-  for (const f of failed) {
-    lines.push(`${f.service.toUpperCase()}: ${f.error}`);
+  const rank = (f) => (f.detail && f.detail.kind === 'billing' ? 0 : f.detail && f.detail.kind ? 1 : 2);
+  for (const f of failed.slice().sort((a, b) => rank(a) - rank(b))) {
+    const kind = f.detail && f.detail.kind;
+    lines.push(`${kind ? '*** ' + OF.KIND_WORDS[kind] + ' *** ' : ''}${f.service.toUpperCase()}: ${f.error}`);
     lines.push(`  What will not work tonight: ${CONSEQUENCE[f.service] || 'anything that depends on it.'}`);
     lines.push('');
   }
@@ -309,4 +336,4 @@ async function ensureTonight(pool, opts = {}) {
   return { night, ...run, alert };
 }
 
-module.exports = { runAll, ensureTonight, render, checks, inPreflightWindow, CONSEQUENCE };
+module.exports = { runAll, ensureTonight, render, checks, inPreflightWindow, CONSEQUENCE, DEEPSEEK_MIN_BALANCE };

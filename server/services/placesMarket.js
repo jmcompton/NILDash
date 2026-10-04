@@ -111,6 +111,7 @@ async function _post(url, body, apiKey, fieldMask, opts = {}) {
     try { json = await resp.json(); } catch (_) { json = null; }
     if (!resp.ok) {
       const err = (json && json.error) || {};
+      require('./ourFault').providerError('google-places', { status: resp.status, message: `${err.status || ''} ${err.message || ''}`.trim() || ('HTTP ' + resp.status) }, 'placesMarket');
       return { ok: false, http: resp.status, status: err.status || 'HTTP_' + resp.status,
         message: String(err.message || 'no message').slice(0, 300) };
     }

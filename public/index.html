@@ -11558,7 +11558,10 @@ async function lookupPlayer() {
     const data = await r.json();
 
     if (!data.found || !data.candidates || !data.candidates.length) {
-      status.innerHTML = '<span style="color:var(--muted)">' + (data.message || 'No verified athlete found — fill in details manually.') + '</span>';
+      // A search that failed on our side says so in plain words and offers to
+      // try again; the server logged the detail (services/customerErrors).
+      status.innerHTML = '<span style="color:var(--muted)">' + escHtml(data.message || 'No verified athlete found — fill in details manually.') + '</span>'
+        + (data.retry ? ' <a href="#" onclick="lookupPlayer();return false" style="color:var(--accent);font-weight:700;text-decoration:none">Try again</a>' : '');
       btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'AI Lookup';
       return;
     }
@@ -11591,7 +11594,7 @@ async function lookupPlayer() {
       renderLookupCandidates(data.candidates, status, candEl);
     }
   } catch(e) {
-    status.innerHTML = '<span style="color:var(--muted)">Search unavailable — fill in details manually.</span>';
+    status.innerHTML = '<span style="color:var(--muted)">We couldn\'t finish the search just now.</span> <a href="#" onclick="lookupPlayer();return false" style="color:var(--accent);font-weight:700;text-decoration:none">Try again</a>';
     console.error('[lookup]', e);
   }
   btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'AI Lookup';
@@ -14395,7 +14398,9 @@ window.addEventListener('DOMContentLoaded', checkSession);
       var v = el.value.trim();
       clearTimeout(_schoolFieldTimers[f.input]);
       if (sug) { sug.style.display = 'none'; sug.innerHTML = ''; }
-      if (!v) { out.textContent = ''; if (f.onResult) f.onResult(null); return null; }
+      if (!v) { out.textContent = ''; delete out.dataset.forValue; if (f.onResult) f.onResult(null); return null; }
+      // Whatever this line says, it says about THIS value (see _guardSchoolHint).
+      out.dataset.forValue = v;
       var city = mode && typeof mode === 'object' ? mode.city : null;
       var deep = mode === 'deep' || !!city;
       var qs = '/api/onboarding/check-school?q=' + encodeURIComponent(v) + (deep ? '&deep=1' : '') + (city ? '&city=' + encodeURIComponent(city) : '');
@@ -14463,6 +14468,36 @@ window.addEventListener('DOMContentLoaded', checkSession);
     _schoolFields['ob-athlete-school'] = { input: 'ob-athlete-school', status: 'ob-school-status', suggest: 'ob-school-suggest', pick: 'obPickSchool',
       onResult: function (d) { obSchoolOk = d ? !!d.ok : null; obSchoolMarket = (d && d.market) || null; } };
     _schoolFields['a_school'] = { input: 'a_school', status: 'a_school_status', suggest: 'a_school_suggest', pick: 'aPickSchool' };
+
+    // ── THE HINT DESCRIBES THE VALUE IN THE FIELD, OR NOTHING ──────────────
+    // "Local businesses will be found around Tuscaloosa, AL" stayed on screen
+    // under an EMPTY school field: the form was cleared in code (a reset after
+    // save, Add after Edit), which fires no input event, so the last athlete's
+    // answer stayed. Now every status line records the value it was written
+    // for, and the field's value -- typed or set in code -- clears any line
+    // that no longer matches.
+    var _valueDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    function _clearStaleSchoolHint(f) {
+      var el = document.getElementById(f.input), out = document.getElementById(f.status), sug = document.getElementById(f.suggest);
+      if (!el || !out) return;
+      var cur = String(_valueDesc.get.call(el) || '').trim();
+      if ((out.dataset.forValue || '') === cur && cur) return;
+      if (!out.textContent && !out.dataset.forValue) return;
+      out.textContent = ''; delete out.dataset.forValue;
+      if (sug) { sug.style.display = 'none'; sug.innerHTML = ''; }
+      clearTimeout(_schoolFieldTimers[f.input]);
+      if (f.onResult) f.onResult(null);
+    }
+    function _guardSchoolHint(f) {
+      var el = document.getElementById(f.input);
+      if (!el || el.__hintGuard || !_valueDesc) return;
+      Object.defineProperty(el, 'value', { configurable: true,
+        get: function () { return _valueDesc.get.call(this); },
+        set: function (nv) { _valueDesc.set.call(this, nv); _clearStaleSchoolHint(f); } });
+      el.addEventListener('input', function () { _clearStaleSchoolHint(f); });
+      el.__hintGuard = true;
+    }
+    Object.keys(_schoolFields).forEach(function (k) { _guardSchoolHint(_schoolFields[k]); });
 
     // deep: the wizard's Next and the field's blur run the lookup at once
     // rather than waiting for the typing pause.

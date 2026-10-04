@@ -31,7 +31,14 @@ async function _getJson(url, init, timeoutMs) {
   try {
     const r = await fetch(url, Object.assign({ signal: ac.signal }, init || {}));
     const text = await r.text();
-    if (!r.ok) throw new Error(`HTTP ${r.status}: ${text.slice(0, 160)}`);
+    if (!r.ok) {
+      const e = new Error(`HTTP ${r.status}: ${text.slice(0, 160)}`); e.status = r.status;
+      // Out of credits / key refused / rate limited: recorded at once.
+      const host = String(url).replace(/^https?:\/\//, '').split('/')[0];
+      const svc = /serper/.test(host) ? 'serper' : /brave/.test(host) ? 'brave-search' : /tavily/.test(host) ? 'tavily' : host;
+      require('./ourFault').providerError(svc, e, 'webSearchTool');
+      throw e;
+    }
     return JSON.parse(text);
   } finally { clearTimeout(killer); }
 }
@@ -120,12 +127,15 @@ const TOOLS = [
 // rate. The scan meter is NOT bumped here: the caller in ai.js bumps it once
 // per call, exactly as the Anthropic path does, so the nightly budget and
 // the flat estimate see the same counts whichever provider answered.
+const FINAL_TURN = 'You have no searches or page fetches left. Answer now, in exactly the format asked for, from the results above. Do not call a tool.';
 async function searchLoop(o = {}) {
   const sp = o.provider || provider();
   const OF = require('./ourFault');
   if (!sp) { const e = OF.fault('search', 'no web search provider: set BRAVE_SEARCH_API_KEY, SERPER_API_KEY or TAVILY_API_KEY'); e.status = 0; throw e; }
   const maxSearches = Math.max(1, Number(o.maxSearches) || 3);
-  const maxFetches = Math.max(0, Number(o.maxFetches) || maxSearches);
+  // 0 means none. `Number(0) || maxSearches` turned an explicit 0 (schoolFind
+  // asks for no fetches) into as many fetches as searches.
+  const maxFetches = o.maxFetches === undefined || o.maxFetches === null ? maxSearches : Math.max(0, Number(o.maxFetches) || 0);
   const maxRounds = maxSearches + maxFetches + 1;
   const deadline = Date.now() + (Number(o.timeoutMs) || 120000);
   const sys = (o.system || 'You are a precise research assistant.')
@@ -141,6 +151,7 @@ async function searchLoop(o = {}) {
   // model then answers "nothing matched".
   const queries = [];
   let finishReason = null;
+  let lastMarkup = false;
   const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0 };
   let text = '';
   // Every search result the loop saw, kept for a caller that checks the
@@ -153,13 +164,22 @@ async function searchLoop(o = {}) {
     rounds++;
     const toolsLeft = searches < maxSearches || fetches < maxFetches;
     const last = !toolsLeft || round === maxRounds - 1 || Date.now() > deadline - 15000;
+    // THE LAST ROUND KEEPS THE TOOLS AND FORBIDS THEM. It used to drop
+    // `tools` while the conversation still held tool calls; a model that
+    // still wanted to search then had no structured way to say so and wrote
+    // its own tool-call markup out as text ("<|DSML|>invoke ..."), which no
+    // caller can parse. Now the tools stay defined, tool_choice is 'none',
+    // and the turn says plainly that it is time to answer.
+    if (last && round > 0) convo.push({ role: 'user', content: FINAL_TURN });
     const r = await DS.chat({
       system: sys, messages: convo, maxTokens: o.maxTokens || 1200,
       temperature: o.temperature, model: o.model, apiKey: o.apiKey, baseUrl: o.baseUrl,
-      tools: last ? undefined : TOOLS,
+      tools: TOOLS, toolChoice: last ? 'none' : 'auto', allowMarkup: true,
       timeoutMs: Math.max(10000, deadline - Date.now()),
       ledger: o.ledger === false ? false : { ctx: o.ctx },
     });
+    if (last && r.toolCalls.length) r.toolCalls = [];   // told not to; the answer is what it wrote
+    lastMarkup = !!r.markup;
     outTokens += r.usage.outputTokens; apiMs += r.ms;
     // The LAST round's stop reason. 'length' means the answer was cut off at
     // the token limit, which a caller parsing JSON out of it has to know:
@@ -204,6 +224,24 @@ async function searchLoop(o = {}) {
       } else result = { error: `unknown tool ${fn}` };
       convo.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
     }
+  }
+  // ── AN ANSWER WRITTEN AS TOOL-CALL MARKUP GETS ONE REPAIR, THEN IS OURS ──
+  // One more turn, tools forbidden, told to answer. Still markup: an OurFault,
+  // recorded, and thrown -- which every caller turns into its Anthropic
+  // fallback (ai.js) or a plain "try again" (the lookup). Never returned as
+  // text for a caller to fail to parse and read as "found nothing".
+  if (lastMarkup || DS.isToolMarkup(text)) {
+    convo.push({ role: 'assistant', content: '(no answer yet)' }, { role: 'user', content: FINAL_TURN });
+    const r2 = await DS.chat({ system: sys, messages: convo, maxTokens: o.maxTokens || 1200, temperature: o.temperature, model: o.model,
+      apiKey: o.apiKey, baseUrl: o.baseUrl, tools: TOOLS, toolChoice: 'none', allowMarkup: true,
+      timeoutMs: Math.max(10000, deadline - Date.now()), ledger: o.ledger === false ? false : { ctx: o.ctx } }).catch((e) => ({ error: e }));
+    if (r2.error || r2.markup || DS.isToolMarkup(r2.text) || !String(r2.text || '').trim()) {
+      const f = OF.fault('deepseek', `answered with tool-call markup instead of an answer, twice (starts "${String((r2 && r2.text) || text).slice(0, 60)}")`, { queries, markup: true });
+      OF.record(f, null, (o.ctx && o.ctx.site) || 'webSearchTool.searchLoop');
+      throw f;
+    }
+    text = r2.text; finishReason = r2.finishReason || finishReason;
+    for (const k of ['inputTokens', 'outputTokens', 'cacheReadTokens']) usage[k] += r2.usage[k];
   }
   usage.webSearches = searches;
   // The searches, priced once: an extra zero-token row would double-count

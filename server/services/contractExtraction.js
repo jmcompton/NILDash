@@ -98,7 +98,7 @@ async function extractText(buffer, mimetype) {
     // oneShot sends text only; this sends the PDF itself as a document block.
     // It used to bill Opus with no ledger row at all, so contract scans never
     // appeared in spend-breakdown. The response is recorded by hand instead.
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const anthropic = require('../ai').guardAnthropic(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }), 'contractExtraction');
     const _t0 = Date.now();
     const resp = await anthropic.messages.create({
       model: 'claude-opus-4-8',

@@ -4198,6 +4198,9 @@ async function ensureMarketSightings() {
       at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `).catch(e => console.error('[init] service_faults:', e.message));
+  // billing | auth | quota (services/ourFault.providerError); NULL for any
+  // other failure. The status page and the alerts put 'billing' first.
+  await pool.query(`ALTER TABLE service_faults ADD COLUMN IF NOT EXISTS kind TEXT`).catch(e => console.error('[init] service_faults.kind:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS service_faults_at_idx ON service_faults (at)`)
     .catch(e => console.error('[init] service_faults index:', e.message));
   // ── THE PREFLIGHT (services/preflight) ────────────────────────────────────

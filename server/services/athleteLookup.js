@@ -610,7 +610,7 @@ function anchorNote(level, w) {
 // Now each query is named with the number of results it brought back, and
 // the answer is described in words.
 function traceWeb(trace, web) {
-  if (web.skipped) { trace.push(`web search: ${web.skipped}`); return; }
+  if (web.skipped) { trace.push(`web search: ${web.skippedDetail || web.skipped}`); return; }
   const qs = (web.queries || []).length
     // Not wrapped in quotes: a query already carries its own quoted name.
     ? web.queries.map((x) => `${x.query} -> ${x.error ? 'search failed: ' + x.error : x.results + ' result(s)'}`).join('; ')
@@ -627,23 +627,68 @@ function traceWeb(trace, web) {
 // ── THE WEB STAGE ────────────────────────────────────────────────────────
 // DeepSeek through the search loop, Serper preferred. Never Anthropic.
 let _searchLoopOverride = null;
+const CUSTOMER_SEARCH_DOWN = "We couldn't finish the search just now. Please try again in a minute, or fill in the details yourself.";
 function _setSearchLoopForTests(fn) { _searchLoopOverride = fn || null; }
 function searchProvider() {
   const WST = require('./webSearchTool');
   const serper = WST.PROVIDERS.serper;
   return serper.key() ? serper : WST.provider();
 }
+// ── THE LOOKUP ON ANTHROPIC: WHEN DEEPSEEK IS OFF OR FAILS ────────────────
+// The lookup's web stage was DeepSeek-only: with AI_FAST_PROVIDER=anthropic
+// (the switch for a night DeepSeek is broken) it skipped the web entirely, and
+// when the DeepSeek loop failed it gave up. Now both go here: Haiku with
+// Anthropic's web search, the same prompt, and the URLs the searches returned
+// as citations, so sanitizeWeb's "a cited source for every field" still holds.
+async function anthropicWebLoop(o) {
+  const AI = require('../ai');
+  const client = AI.getClient();
+  const t0 = Date.now();
+  const msg = await client.messages.create({
+    model: AI.MODEL_FAST, max_tokens: o.maxTokens || 2600, temperature: 0, system: o.system,
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: o.maxSearches || MAX_SEARCHES }],
+    messages: [{ role: 'user', content: o.prompt }],
+  });
+  Ledger.record(msg, { model: AI.MODEL_FAST, ms: Date.now() - t0, ctx: o.ctx });
+  const blocks = Array.isArray(msg.content) ? msg.content : [];
+  { const f = AI._webSearchFault ? AI._webSearchFault(blocks, 'lookup.anthropic') : null; if (f) throw f; }
+  const citations = [], seen = new Set(), results = [];
+  const cite = (u) => { if (/^https?:\/\//i.test(String(u || '')) && !seen.has(u)) { seen.add(u); citations.push(u); } };
+  let searches = 0;
+  for (const b of blocks) {
+    if (b && b.type === 'web_search_tool_result') {
+      searches++;
+      for (const x of (Array.isArray(b.content) ? b.content : [])) { cite(x.url); results.push({ title: x.title || '', url: x.url || '', snippet: '' }); }
+    }
+    if (b && b.type === 'text' && Array.isArray(b.citations)) for (const c of b.citations) cite(c.url);
+  }
+  const text = blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');
+  return { text, citations, searches, results, queries: [], usage: null, finishReason: msg.stop_reason === 'max_tokens' ? 'length' : null, provider: 'anthropic' };
+}
+const anthropicReady = () => { const k = process.env.ANTHROPIC_API_KEY; return !!k && !k.includes('YOUR_KEY'); };
+
 async function webStage(level, q, feedTop, ctx, opts = {}) {
   const rt = DS.route('lookup', { needsSearch: true });
-  if (rt.provider !== 'deepseek' && !_searchLoopOverride) {
-    return { skipped: `web search unavailable: ${rt.reason}`, candidates: [], citations: [], usage: null, ms: 0 };
+  if (rt.provider !== 'deepseek' && !_searchLoopOverride && anthropicReady()) {
+    console.warn(`[lookup] web stage on Haiku: ${rt.reason}`);
+    return webStageOn(level, q, feedTop, ctx, opts, anthropicWebLoop);
   }
+  if (rt.provider !== 'deepseek' && !_searchLoopOverride) {
+    // The customer sees plain words; the reason (which names the provider) is
+    // logged and kept for the trace (services/customerErrors).
+    console.warn(`[lookup] web search unavailable: ${rt.reason}`);
+    return { skipped: CUSTOMER_SEARCH_DOWN, skippedDetail: `web search unavailable: ${rt.reason}`, retry: true, candidates: [], citations: [], usage: null, ms: 0 };
+  }
+  return webStageOn(level, q, feedTop, ctx, opts, null);
+}
+
+async function webStageOn(level, q, feedTop, ctx, opts, loop) {
   const WST = require('./webSearchTool');
   const site = `lookup.${level}`;
   const t0 = Date.now();
   let r;
   try {
-    const run = _searchLoopOverride || WST.searchLoop;
+    const run = loop || _searchLoopOverride || WST.searchLoop;
     r = await run({ prompt: opts.prompt || promptFor(level, q, feedTop), system: SYSTEM,
       maxSearches: opts.maxSearches === undefined ? MAX_SEARCHES : opts.maxSearches,
       maxFetches: opts.maxFetches === undefined ? MAX_FETCHES : opts.maxFetches,
@@ -652,9 +697,27 @@ async function webStage(level, q, feedTop, ctx, opts = {}) {
       maxTokens: 2600, temperature: 0, provider: _searchLoopOverride ? undefined : searchProvider(),
       ctx: { site, brand: q.name, agentId: ctx && ctx.agentId } });
   } catch (e) {
-    return { skipped: `web search failed: ${e.message}`, candidates: [], citations: [], usage: null, ms: Date.now() - t0 };
+    // NEVER THE VENDOR'S WORDS ON A CUSTOMER'S SCREEN. Jamond Dubose read
+    // "DeepSeek HTTP 402: Insufficient Balance (request_id: ...)" in Add
+    // Client. The detail goes to the log (and a 402 to services/ourFault, where
+    // the provider client already recorded it); the screen says try again.
+    console.error(`[lookup] web search failed (${q.name || '?'}): ${e.message}`);
+    // DeepSeek failed (unreadable answer, a provider error): the same lookup
+    // on Haiku, once, before telling the customer to try again. A payment
+    // failure has already been recorded and alerted by the client.
+    if (!loop && anthropicReady() && !_searchLoopOverride) {
+      console.warn(`[lookup] falling back to Haiku for ${q.name || '?'}`);
+      return webStageOn(level, q, feedTop, ctx, opts, anthropicWebLoop);
+    }
+    return { skipped: CUSTOMER_SEARCH_DOWN, skippedDetail: `web search failed: ${e.message}`, retry: true, candidates: [], citations: [], usage: null, ms: Date.now() - t0 };
   }
   const { obj: parsed, how } = parseModelJson(r.text);
+  // AN ANSWER WE COULD NOT READ IS OURS, NOT "NOBODY BY THAT NAME": recorded,
+  // so a night of them is on the status page instead of looking empty.
+  if (!parsed && String(r.text || '').trim()) {
+    require('./ourFault').record(r.provider === 'anthropic' ? 'anthropic' : 'deepseek',
+      `UNREADABLE ANSWER in the athlete lookup (${how || 'not JSON'}): starts "${String(r.text).trim().slice(0, 60)}"`, site);
+  }
   const citations = Array.isArray(r.citations) ? r.citations : [];
   const list = (parsed && Array.isArray(parsed.athletes)) ? parsed.athletes : [];
   const candidates = list.map((a) => sanitizeWeb(a, citations, level)).filter(Boolean);
@@ -850,13 +913,18 @@ async function resolveAthlete(ai, q, opts = {}) {
     found: candidates.length > 0, level, candidates, needsSport,
     autoSelect: candidates.length === 1 && candidates[0].confidence >= 95,
     espnSupported: level === 'college' && !!(normSport && ESPN_SUPPORTED_SPORTS.has(normSport)),
-    message: candidates.length ? null : (web.searchNote || notes.filter((n) => /unavailable|failed/.test(n))[0] || 'No verified athlete found. Please fill in details manually.'),
+    message: candidates.length ? null : (web.skipped || web.searchNote || 'No verified athlete found. Please fill in details manually.'),
+    // The search itself failed on our side: the screen offers to try again.
+    retry: !candidates.length && !!web.retry,
     searchNote: web.searchNote || null, notes, citations: web.citations || [],
     costUsd, searches: web.searches || 0, ms: Date.now() - t0, cached: false, checkedAt: new Date().toISOString(),
   });
   if (candidates.length) candidates[0].best = true;
   result.trace = trace;
-  if (!candidates.length) result.message = `${result.message} Checked: ${trace.join(' | ')}`.slice(0, 900);
+  // THE TRACE IS FOR US. It was appended to the customer's message, which is
+  // how "THE ANSWER COULD NOT BE READ ... <|DSML|>invoke ..." reached the
+  // Add Client screen. It is logged below and kept on result.trace for the
+  // assistant and the admin; the route does not send it.
   for (const line of trace) console.log(`[lookup] ${level} "${name}": ${line}`);
   console.log(`[lookup] ${level} "${name}"${q.school ? ' @ ' + q.school : ''}${q.team ? ' / ' + q.team : ''}: ${candidates.length} candidate(s), ${result.searches} search(es), ${costUsd.toFixed(4)}, ${result.ms}ms${notes.length ? ' [' + notes.join('; ') + ']' : ''}`);
   // A skipped web stage with no feed answer is not a fact about the athlete: not cached.
@@ -874,7 +942,10 @@ async function resolveMany(ai, list, opts = {}) {
       const i = next++;
       if (i >= items.length) return;
       try { out[i] = await resolveAthlete(ai, items[i] || {}, opts); }
-      catch (e) { out[i] = { found: false, candidates: [], level: levelOf(items[i] || {}), message: 'The lookup failed: ' + e.message, notes: [e.message], costUsd: 0, ms: 0 }; }
+      catch (e) {
+        console.error(`[lookup] batch item ${i} failed: ${e.message}`);
+        out[i] = { found: false, candidates: [], level: levelOf(items[i] || {}), message: CUSTOMER_SEARCH_DOWN, retry: true, notes: [CUSTOMER_SEARCH_DOWN], costUsd: 0, ms: 0 };
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(BATCH_CONCURRENCY, items.length)) }, worker));

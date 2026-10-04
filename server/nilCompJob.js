@@ -14,7 +14,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 // Built on first use, so requiring this file (tests read acceptDeal) never
 // constructs a client without a key.
 let _client = null;
-const client = { get messages() { if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }); return _client.messages; } };
+const client = { get messages() { if (!_client) _client = require('./ai').guardAnthropic(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }), 'nilCompJob'); return _client.messages; } };
 
 // ── BRANDS THAT BUY ENDORSEMENTS, NOT WHOEVER WAS IN THE STORY ─────────────
 // These queries used to ask for collective payments, transfer-portal values

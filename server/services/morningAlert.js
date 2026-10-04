@@ -138,8 +138,10 @@ async function collect(pool, { now } = {}) {
   out.overdueSends = { total: ov.reduce((t, r) => t + r.n, 0), reasons: ov };
   // Every one of our failures in the last day, by service (services/ourFault).
   out.faults24h = await q(`SELECT service, SUM(1 + COALESCE(suppressed, 0))::int AS n, MAX(at) AS last,
-      (ARRAY_AGG(reason ORDER BY at DESC))[1] AS reason
-      FROM service_faults WHERE at > NOW() - INTERVAL '24 hours' GROUP BY service ORDER BY n DESC LIMIT 12`, [], []);
+      (ARRAY_AGG(reason ORDER BY (kind = 'billing') DESC, at DESC))[1] AS reason, BOOL_OR(kind = 'billing') AS billing
+      FROM service_faults WHERE at > NOW() - INTERVAL '24 hours' GROUP BY service ORDER BY BOOL_OR(kind = 'billing') DESC, n DESC LIMIT 12`, [], []);
+  // A vendor we have not paid: first in the subject and first in the body.
+  out.paymentFailures = (out.faults24h || []).filter((f) => f.billing);
   // Last night's preflight.
   out.preflight = ((await q(`SELECT night, status, failed, alert FROM preflight_runs ORDER BY night DESC LIMIT 1`, [], []))[0]) || null;
   out.preflightFailures = out.preflight && out.preflight.status === 'failed'
@@ -220,8 +222,14 @@ function render(r) {
   if (r.digests && r.digests.held) bits.push(`${r.digests.held} digest(s) held by the allowlist`);
   if (r.overdueSends && r.overdueSends.total) bits.push(`${r.overdueSends.total} approved email(s) not sent`);
   if ((r.faults24h || []).length) bits.push(`our failures in ${r.faults24h.length} service(s)`);
+  if ((r.paymentFailures || []).length) bits.unshift(`PAYMENT FAILURE: ${r.paymentFailures.map((f) => f.service).join(', ')}`);
   const subject = `NILDash alert ${r.runDate}: ${bits.join(', ')}`;
   lines.push(subject, '');
+  if ((r.paymentFailures || []).length) {
+    lines.push('*** PAYMENT FAILURE: every call to these fails until billing is fixed ***');
+    for (const f of r.paymentFailures) lines.push(`  ${String(f.n).padStart(5)}x  ${f.service}: ${String(f.reason || '').slice(0, 200)}`);
+    lines.push('');
+  }
   if ((r.floor || {}).short && r.floor.short.length) {
     lines.push(`ATHLETES SHORT OF FIVE (${r.runDate}): ${r.floor.short.length} of ${r.floor.athletes}; ${r.floor.hit} reached five. The bar did not move; what passed shipped.`);
     for (const x of r.floor.short) {

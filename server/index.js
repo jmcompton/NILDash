@@ -452,6 +452,13 @@ app.use(session({
   cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
 }));
 
+// ── CUSTOMERS NEVER SEE A VENDOR'S ERROR (services/customerErrors) ─────────
+// Every /api JSON response except /api/admin: an error, note or reason that
+// names a provider, an HTTP status or a request id is replaced with plain
+// words, and the original is logged as [customer-error]. Before any route, so
+// none is missed.
+app.use(require('./services/customerErrors').middleware);
+
 // ── THE WALL BETWEEN THE UNIVERSITY AND AGENT SIDES ───────────────────────
 // One choke point for every API route, mounted straight after the session so
 // nothing below can be reached around it: a university-role session may call
@@ -3559,7 +3566,10 @@ app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
     // A pro lookup searches league rosters (NFL, NBA, MLB and the rest) rather
     // than ESPN's college pages; see athleteLookup.proSearchStage.
     const result = await resolveAthlete(ai, { name, school, sport, position, year, athleteType, team, city }, { agentId: req.session.userId });
-    res.json(result);
+    // The trace (what each stage did, the model's raw output when it could not
+    // be read) is logged server side and never sent to the screen.
+    const { trace: _trace, ...forScreen } = result || {};
+    res.json(forScreen);
   } catch (err) {
     console.error('[player-lookup]', err.message);
     res.status(500).json({ found: false, candidates: [], message: 'Search unavailable. Please fill in details manually.' });
@@ -5361,6 +5371,11 @@ const ADMIN_SCRIPTS = {
   // else is listed for the agent, who sees it on Home.
   //   /api/admin/scripts/school-problems?text=1
   'school-problems': { file: 'scripts/school-problems.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
+  // Which model DeepSeek actually served, by day; unreadable answers (tool-call
+  // markup) by day and where; DeepSeek payment/key/quota failures; and last
+  // night's DeepSeek calls by site. Read-only.
+  //   /api/admin/scripts/deepseek-health?text=1
+  'deepseek-health': { file: 'scripts/deepseek-health.js', args: () => [] },
   // Every external service the night depends on, called once now; results
   // written to service_checks. &alert=1 also emails the failures.
   //   /api/admin/scripts/preflight?text=1
@@ -8735,7 +8750,7 @@ Example of RIGHT tone:
 Never give legal advice but help them understand what questions to ask.`;
 
     const Anthropic = require('@anthropic-ai/sdk');
-    const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const anthropicClient = require('./ai').guardAnthropic(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }), 'index.js');
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -8746,7 +8761,7 @@ Never give legal advice but help them understand what questions to ask.`;
       messages: [{ role: 'user', content: message }],
     });
     stream.on('text', text => res.write(`data: ${JSON.stringify({ text })}\n\n`));
-    stream.on('error', err => { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); });
+    stream.on('error', err => { res.write(`data: ${JSON.stringify(require('./services/customerErrors').scrub({ error: err.message }, { path: 'stream' }))}\n\n`); res.end(); });
     await stream.finalMessage();
     res.write('data: [DONE]\n\n');
     res.end();

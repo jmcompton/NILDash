@@ -65,12 +65,31 @@ function getClient() {
     // keep working exactly as they do today, but exposed as an env var so it can be
     // lowered globally without a deploy. Callers that must stay responsive should
     // use withTimeout below rather than relying on this.
-    client = new Anthropic({
+    client = guardAnthropic(new Anthropic({
       apiKey: key,
       timeout: Number(process.env.ANTHROPIC_TIMEOUT_MS) || 600000,
-    });
+    }), 'ai.getClient');
   }
   return client;
+}
+
+// ── A PAYMENT OR KEY FAILURE FROM ANTHROPIC IS RECORDED WHERE IT HAPPENS ─────
+// Every Anthropic client in the server is passed through this, so a "credit
+// balance is too low" (a 400, not a 402), a refused key or a rate limit reaches
+// services/ourFault.providerError -- the status page, and at once the admin's
+// inbox -- whichever caller hit it. The error still propagates unchanged.
+function guardAnthropic(c, where) {
+  if (!c || !c.messages || c.__guarded) return c;
+  const OF = require('./services/ourFault');
+  const m = c.messages;
+  const create = m.create.bind(m);
+  m.create = (...args) => create(...args).then(undefined, (e) => { OF.providerError('anthropic', e, where); throw e; });
+  if (typeof m.stream === 'function') {
+    const stream = m.stream.bind(m);
+    m.stream = (...args) => { const st = stream(...args); try { st.on('error', (e) => OF.providerError('anthropic', e, where + ' (stream)')); } catch (_) {} return st; };
+  }
+  Object.defineProperty(c, '__guarded', { value: true });
+  return c;
 }
 
 // TWO CAPS, TWO NAMES, AND THE REASON THEY ARE NOT ONE NAME.
@@ -291,7 +310,7 @@ async function streamResponse(athlete, message, role, res) {
 
   stream.on('text', text => res.write(`data: ${JSON.stringify({ text: stripEmDashes(text) })}\n\n`));
   stream.on('error', err => {
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+    res.write(`data: ${JSON.stringify(require('./services/customerErrors').scrub({ error: err.message }, { path: 'stream' }))}\n\n`);
     res.end();
   });
   await stream.finalMessage();
@@ -4528,6 +4547,7 @@ Return ONLY this JSON:
 }
 
 module.exports = {
+  guardAnthropic,
   // Read by /admin/cache-health, which hard-coded 6 while the cache wrote 8.
   CONTACTS_CACHE_VERSION: _CONTACTS_CACHE_VERSION,
   MODEL_FAST,

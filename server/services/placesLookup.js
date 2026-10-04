@@ -109,7 +109,11 @@ async function lookupPlaceResult(brand, locationHint = '') {
     if (!resp.ok) {
       console.warn('[places] brand=' + brand + ' http=' + resp.status);
       let msg = ''; try { const j = await resp.json(); msg = (j && j.error && (j.error.status + ': ' + j.error.message)) || ''; } catch (_) {}
-      require('./ourFault').record('google-places', `HTTP ${resp.status}${msg ? ' ' + msg : ''}`, 'placesLookup.lookupPlaceResult');
+      // Billing off, key refused, quota: the loud kind (providerError); anything
+      // else is an ordinary fault as before.
+      if (!require('./ourFault').providerError('google-places', { status: resp.status, message: msg || ('HTTP ' + resp.status) }, 'placesLookup.lookupPlaceResult')) {
+        require('./ourFault').record('google-places', `HTTP ${resp.status}${msg ? ' ' + msg : ''}`, 'placesLookup.lookupPlaceResult');
+      }
       return { ok: false, place: null, reason: 'http-' + resp.status + (msg ? ' ' + msg.slice(0, 160) : '') };
     }
     data = await resp.json();
@@ -171,7 +175,7 @@ async function geocodePlace(query) {
       body: JSON.stringify({ textQuery: q, maxResultCount: 1 }),
     });
     clearTimeout(t);
-    if (!resp.ok) { console.warn('[places] geocode http=' + resp.status + ' q="' + q + '"'); return null; }
+    if (!resp.ok) { require('./ourFault').providerError('google-places', { status: resp.status, message: 'HTTP ' + resp.status }, 'placesLookup.geocode'); console.warn('[places] geocode http=' + resp.status + ' q="' + q + '"'); return null; }
     const data = await resp.json();
     const p = data && Array.isArray(data.places) && data.places[0];
     const loc = p && p.location;
@@ -214,6 +218,7 @@ async function _autocompleteCall(body, apiKey) {
     if (!resp.ok) {
       const txt = await resp.text().catch(() => '');
       console.warn('[places] autocomplete http=' + resp.status + ' ' + txt.slice(0, 200));
+      require('./ourFault').providerError('google-places', { status: resp.status, message: txt.slice(0, 300) }, 'placesLookup.autocomplete');
       return null;
     }
     return await resp.json();
@@ -279,7 +284,7 @@ async function lookupPlaceById(placeId) {
       headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': PLACE_FIELDS },
     });
     clearTimeout(t);
-    if (!resp.ok) { console.warn('[places] details id=' + id + ' http=' + resp.status); return null; }
+    if (!resp.ok) { require('./ourFault').providerError('google-places', { status: resp.status, message: 'HTTP ' + resp.status }, 'placesLookup.details'); console.warn('[places] details id=' + id + ' http=' + resp.status); return null; }
     const p = await resp.json();
     if (!p || !p.id) return null;
     const out = _mapPlace(p, null);

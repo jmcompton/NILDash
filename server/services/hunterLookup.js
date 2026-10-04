@@ -316,6 +316,7 @@ async function findDomainEmails(domain, opts = {}) {
     let detail = null;
     try { const j = await resp.json(); detail = j && j.errors && j.errors[0] && j.errors[0].details; } catch (_) {}
     console.warn(`[hunter] @${key} http=${resp.status} ${oc} ms=${ms}${detail ? ' detail=' + detail : ''}`);
+    require('./ourFault').providerError('hunter', { status: resp.status, message: detail || ('HTTP ' + resp.status) }, 'hunterLookup.search');
     return _failOut(_fault(key, oc, detail || ('HTTP ' + resp.status)), opts);
   }
 
@@ -396,6 +397,7 @@ async function verifyEmail(email) {
         : resp.status === 429 ? 'Hunter rate limited or out of credits'
           : `Hunter returned HTTP ${resp.status}`;
       console.warn(`[hunter-verify] ${addr}: ${why}`);
+      require('./ourFault').providerError('hunter', { status: resp.status, message: why }, 'hunterLookup.verify');
       return { ok: false, why };
     }
     const j = await resp.json();

@@ -45,6 +45,28 @@ const PROVIDER = 'deepseek';
 const DEFAULT_SITES = ['discovery', 'instagram', 'contacts', 'lookup', 'social', 'enrichment'];
 const NEVER_ROUTED = ['writer'];
 
+// The model's tool-call syntax written out as text: DeepSeek's DSML
+// ("<|DSML|>invoke ..."), its older special tokens ("<｜tool▁calls▁begin｜>"),
+// and the generic <tool_call> form.
+const TOOL_MARKUP = /<\|DSML\|>|<[|｜]tool[▁_ ]?call|<\/?tool_call>|<\|(?:tool_calls?|invoke|function)[^>]{0,20}\|?>/i;
+function isToolMarkup(t) { return TOOL_MARKUP.test(String(t || '').slice(0, 4000)); }
+
+// ── WHICH MODEL ACTUALLY ANSWERED ─────────────────────────────────────────
+// DEFAULT_MODEL is an alias DeepSeek can repoint. Every response names the
+// model that served it (stored on each ai_call_ledger row as \`model\`); the
+// first time this process sees a served model that differs from what was
+// asked for, or a new one, it is logged and recorded, so an alias that moves
+// is on the status page the same hour. Pin with DEEPSEEK_MODEL.
+const _served = new Set();
+function noteServedModel(asked, served) {
+  if (!served || _served.has(served)) return;
+  _served.add(served);
+  const msg = `served model ${served}${served !== asked ? ` (asked for ${asked})` : ''}`;
+  console.log('[deepseek] ' + msg);
+  if (served !== asked && _served.size > 0) require('./ourFault').record('deepseek', 'MODEL: ' + msg, 'deepseek.chat');
+}
+function servedModels() { return [..._served]; }
+
 function apiKey() { return String(process.env.DEEPSEEK_API_KEY || '').trim(); }
 function model() { return String(process.env.DEEPSEEK_MODEL || '').trim() || DEFAULT_MODEL; }
 function baseUrl() { return String(process.env.DEEPSEEK_BASE_URL || '').trim().replace(/\/+$/, '') || DEFAULT_BASE_URL; }
@@ -132,10 +154,29 @@ async function chat(opts = {}) {
       if (opts.ledger !== false) {
         Ledger.recordUsage({ provider: PROVIDER, model: out.model, usage, ms: out.ms, ctx: (opts.ledger && opts.ledger.ctx) || undefined });
       }
+      noteServedModel(useModel, out.model);
+      // ── TOOL-CALL MARKUP IS NOT AN ANSWER ──────────────────────────────
+      // 2026-10-04: the lookup's answer came back as
+      //   "<|DSML|>calls> <|DSML|>invoke name="web_search"> ..."
+      // -- the model's own tool-call syntax written out as text, which no
+      // caller can parse, so the lookup read "found nobody" and recorded
+      // nothing. Detected here for every caller. The search loop repairs it
+      // (allowMarkup); anyone else gets a throw, which every DeepSeek path
+      // already turns into its Anthropic fallback, and it is recorded.
+      if (!out.toolCalls.length && isToolMarkup(out.text)) {
+        out.markup = true;
+        if (!opts.allowMarkup) {
+          const e = new Error(`DeepSeek (${out.model}) answered with tool-call markup instead of an answer: ${String(out.text).slice(0, 80)}`);
+          e.status = 0; e.markup = true; e.noRetry = true;
+          require('./ourFault').record('deepseek', 'UNREADABLE ANSWER: ' + e.message, (opts.ledger && opts.ledger.ctx && opts.ledger.ctx.site) || 'deepseek.chat');
+          throw e;
+        }
+      }
       return out;
     } catch (e) {
       lastErr = e;
       const status = e.status || 0;
+      if (e.markup) throw e;   // recorded above; not a provider failure, not retried
       const retriable = status === 429 || status >= 500 || e.name === 'AbortError' || /fetch failed|ECONNRESET|ETIMEDOUT/.test(String(e.message));
       if (retriable && attempt < delays.length) {
         console.warn(`[deepseek] ${e.name === 'AbortError' ? 'timeout' : e.message} -- retrying in ${delays[attempt] / 1000}s (attempt ${attempt + 1})`);
@@ -143,6 +184,9 @@ async function chat(opts = {}) {
         continue;
       }
       if (e.name === 'AbortError') { const t = new Error(`DeepSeek timed out after ${timeoutMs}ms`); t.status = 0; throw t; }
+      // 402 Insufficient Balance, a refused key, a quota: recorded where it
+      // happens (services/ourFault.providerError), so the admin hears now.
+      require('./ourFault').providerError('deepseek', e, 'deepseek.chat');
       throw e;
     } finally {
       clearTimeout(killer);
@@ -166,4 +210,5 @@ function usageOf(j) {
   };
 }
 
-module.exports = { chat, usageOf, route, configured, describeRouting, apiKey, model, baseUrl, sites, PROVIDER, DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_SITES, NEVER_ROUTED };
+module.exports = {
+  isToolMarkup, servedModels, chat, usageOf, route, configured, describeRouting, apiKey, model, baseUrl, sites, PROVIDER, DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_SITES, NEVER_ROUTED };
