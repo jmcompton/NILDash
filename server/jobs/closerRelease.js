@@ -128,7 +128,7 @@ function buildSend(pool, cache, { dry }) {
     // wanted rather than the id that shipped would break reply matching for
     // exactly the messages that got a reply. Gmail and IMAP report no such
     // field, so for them this is the minted id, unchanged.
-    return { ...(res || {}), messageId: (res && res.messageId) || messageId, replyTo };
+    return { ...(res || {}), messageId: res && res.messageIdUnknown ? null : ((res && res.messageId) || messageId), replyTo };
   };
 }
 

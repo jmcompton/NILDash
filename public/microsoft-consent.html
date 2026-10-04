@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connect Outlook</title>
+<style>
+  :root { --bg:#F6F8FB; --card:#fff; --text:#0E1726; --body:#3A4657; --muted:#64748B; --line:#E3E8EF; --accent:#2563EB; --ok:#15803D; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width:620px; margin:48px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:28px 26px; }
+  h1 { font-size:22px; margin:0 0 8px; }
+  p { color:var(--body); margin:0 0 14px; }
+  ol { color:var(--body); padding-left:20px; margin:0 0 18px; }
+  li { margin-bottom:8px; }
+  .link { display:flex; gap:8px; margin:6px 0 18px; }
+  .link input { flex:1; min-width:0; font:12.5px ui-monospace, Menlo, monospace; padding:10px; border:1px solid var(--line); border-radius:8px; color:var(--text); background:#FAFBFC; }
+  button, .btn { display:inline-block; font:600 14px/1 inherit; padding:11px 16px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; text-decoration:none; white-space:nowrap; }
+  .ghost { background:#fff; color:var(--accent); }
+  .row { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+  .note { font-size:13px; color:var(--muted); }
+  .ok { color:var(--ok); font-weight:700; }
+  .hide { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+
+  <!-- The usual case: the organization asks for its admin's approval. -->
+  <div id="need">
+    <h1>Your organization's IT admin needs to approve NILDash</h1>
+    <p>Your Microsoft 365 account is set so that apps can only connect to company mailboxes after an administrator approves them. That is a setting your organization chose, not a problem with your account. It takes your admin about a minute, once, and then everyone in your organization can connect.</p>
+    <p><b>What NILDash is asking for:</b> <span id="ask">permission to send email as you, from your own mailbox, when you approve a pitch. It cannot read, change or delete your email.</span></p>
+    <ol>
+      <li>Copy this link and send it to your IT admin.</li>
+      <li>They open it, sign in with their admin account, and click <b>Accept</b>.</li>
+      <li>Come back here and click <b>Connect again</b>. It will go straight through.</li>
+    </ol>
+    <div class="link"><input id="url" readonly aria-label="Approval link for your IT admin"><button id="copy" type="button">Copy link</button></div>
+    <div class="row">
+      <a class="btn ghost" id="mail" href="#">Email it to my admin</a>
+      <a class="btn" id="again" href="/api/email/oauth/outlook">Connect again</a>
+    </div>
+    <p class="note" style="margin-top:16px">If you are the admin, open the link yourself. It asks you to sign in with an admin account and shows exactly the permissions above.</p>
+  </div>
+
+  <!-- The admin approved. -->
+  <div id="approved" class="hide">
+    <h1 class="ok">Approved</h1>
+    <p>NILDash is approved for your organization. Anyone in it can now connect their mailbox from NILDash Settings, with no further approval.</p>
+    <div class="row"><a class="btn" href="/api/email/oauth/outlook">Connect my mailbox</a></div>
+  </div>
+
+  <!-- The admin declined, or the approval did not finish. -->
+  <div id="declined" class="hide">
+    <h1>The approval was not completed</h1>
+    <p>Nothing was changed. If your admin has questions, NILDash only asks to send email as the person who connects, and (optionally) to read replies. You can send them the approval link again.</p>
+    <div class="row"><a class="btn ghost" href="/microsoft-consent.html">Get the link again</a></div>
+  </div>
+
+</div></div>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var read = q.get('read') === '1';
+  function show(id) { ['need', 'approved', 'declined'].forEach(function (x) { document.getElementById(x).classList.toggle('hide', x !== id); }); }
+  if (q.get('approved') === '1') return show('approved');
+  if (q.get('declined') === '1') return show('declined');
+  show('need');
+  if (read) {
+    document.getElementById('ask').textContent = 'permission to send email as you, and to read replies in your mailbox so they show up in NILDash. It cannot change or delete your email.';
+    document.getElementById('again').href = '/api/email/oauth/outlook?read=1';
+  }
+  fetch('/api/email/oauth/outlook/admin-link' + (read ? '?read=1' : ''))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.url) return;
+      document.getElementById('url').value = d.url;
+      document.getElementById('mail').href = 'mailto:?subject=' + encodeURIComponent('Please approve NILDash for our Microsoft 365')
+        + '&body=' + encodeURIComponent('Hi,\n\nI use NILDash to send partnership emails from my work mailbox. Our Microsoft 365 needs an admin to approve it once. Please open this link, sign in with your admin account and click Accept:\n\n' + d.url + '\n\nIt asks only to send email as the person who connects' + (read ? ' and to read their replies' : '') + '.\n\nThank you!');
+    })
+    .catch(function () {});
+  document.getElementById('copy').addEventListener('click', function () {
+    var i = document.getElementById('url'); i.select();
+    try { navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); }
+    this.textContent = 'Copied';
+  });
+})();
+</script>
+</body>
+</html>

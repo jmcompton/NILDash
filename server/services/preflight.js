@@ -215,7 +215,15 @@ function checks(deps) {
         if (r.provider === 'gmail' || r.provider === 'outlook' || r.provider === 'microsoft365') {
           const prov = r.provider === 'gmail' ? (deps.gmail || require('./providers/gmail')) : (deps.outlook || require('./providers/outlook'));
           if (prov.isAvailable && !prov.isAvailable()) { bad.push(`${r.name || r.agent_email}: ${r.provider} is not configured on this server`); continue; }
-          try { await withTimeout(prov.refreshAccessToken(full.refreshToken), TIMEOUT_MS, r.provider); checked++; }
+          try {
+            const t = await withTimeout(prov.refreshAccessToken(full.refreshToken), TIMEOUT_MS, r.provider);
+            // Microsoft rotates refresh tokens on every refresh: keep the new
+            // one, or the check itself would age the stored one out.
+            if (t && t.refreshToken && t.refreshToken !== full.refreshToken && emailStore.updateAccountTokens) {
+              await emailStore.updateAccountTokens(r.id, t.accessToken, t.refreshToken, t.expiry || null).catch(() => {});
+            }
+            checked++;
+          }
           catch (e) { bad.push(`${r.name || r.agent_email} (${r.email_address}): ${r.provider} refused the token: ${String(e.message).slice(0, 160)}`); }
         } else checked++;
       }

@@ -760,7 +760,7 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   // we asked for rather than the id that shipped would silently break reply
   // matching. Gmail and IMAP report no such field, so this is unchanged for them.
   // replyTo travels back too, so the caller records what actually went out.
-  return { ...(result || {}), messageId: (result && result.messageId) || messageId, replyTo };
+  return { ...(result || {}), messageId: result && result.messageIdUnknown ? null : ((result && result.messageId) || messageId), replyTo };
 }
 
 module.exports = router;

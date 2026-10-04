@@ -70,6 +70,12 @@ async function syncAccount(account) {
   // logging here fired on every UI-triggered sync as well as every poll. The
   // disabled state is announced ONCE per process in startPoller instead.
   if (account.provider === 'gmail' && !INBOX_SYNC_ENABLED) return;
+  // An Outlook mailbox connected send-only (the default) has no permission to
+  // read: nothing to sync, and asking would fail every poll. Replies to pitches
+  // still arrive through the Reply-To address. Synced once Mail.Read is granted
+  // ("also read replies"). Unknown scopes (older rows) are tried as before.
+  if ((account.provider === 'outlook' || account.provider === 'microsoft365') && Array.isArray(account.granted_scopes)
+    && account.granted_scopes.length && !require('./providers/outlook').canReadFrom(account.granted_scopes)) return;
   syncLocks.add(account.id);
 
   const logId = await emailStore.logSyncStart(account.id, account.user_id);
@@ -95,7 +101,7 @@ async function syncAccount(account) {
     if (account.provider === 'gmail') {
       result = await gmail.fetchMessages(access, refresh, account.sync_cursor);
     } else if (account.provider === 'outlook' || account.provider === 'microsoft365') {
-      result = await outlook.fetchMessages(access, refresh, account.sync_cursor);
+      result = await outlook.fetchMessages(access, refresh, account.sync_cursor, 50, { ownAddress: account.email_address });
     } else {
       // IMAP — password stored in access_token_enc, config in sync_cursor field
       const cfg = account.sync_cursor && account.sync_cursor.startsWith('{')
@@ -222,6 +228,8 @@ async function maybeRefreshToken(account, accessToken, refreshToken) {
       const r = await outlook.refreshAccessToken(refreshToken);
       newAccess  = r.accessToken;
       newExpiry  = r.expiry;
+      // Microsoft rotates the refresh token; keep the new one.
+      if (r.refreshToken) refreshToken = r.refreshToken;
     }
     // Save refreshed tokens
     await emailStore.updateAccountTokens(account.id, newAccess, refreshToken, newExpiry);

@@ -46,18 +46,12 @@ GraphPkg.Client.init = () => ({ api: fakeApi });
 const outlook = require(ROOT + 'server/services/providers/outlook.js');
 
 const MINTED = '<out_abc123.deadbeef@reply.mynildash.com>';
-const GRAPH_OWN = '<AS8PR01MB1234@prod.outlook.com>';
 
-// Default tenant: accepts our stamp, and the read-back reflects it.
-function acceptingTenant(stamped) {
-  return (verb, path, body) => {
-    if (verb === 'POST' && path === '/me/messages') return { id: 'DRAFT1', conversationId: 'CONV1' };
-    if (verb === 'POST' && /\/createReply$/.test(path)) return { id: 'DRAFT2', conversationId: 'CONV1', body: { contentType: 'HTML', content: '<hr>quoted original' } };
-    if (verb === 'PATCH') { if (body && body.internetMessageId) stamped.v = body.internetMessageId; return {}; }
+// A tenant that answers. Send-only: /me/sendMail and /reply return 202 with
+// no body; a conversation lookup (needs Mail.Read) returns its newest message.
+function tenant() {
+  return (verb, path) => {
     if (verb === 'GET' && path === '/me/messages') return { value: [{ id: 'MSG_LATEST' }] };
-    if (verb === 'GET') return { internetMessageId: stamped.v || GRAPH_OWN };
-    if (verb === 'POST' && /\/send$/.test(path)) return {};
-    if (verb === 'POST' && /\/attachments$/.test(path)) return { id: 'ATT1' };
     return {};
   };
 }
@@ -69,108 +63,69 @@ const check = (name, cond, detail) => {
 };
 const paths = () => CALLS.map((c) => c.verb + ' ' + c.path);
 
+// THE SEND IS ONE CALL ON Mail.Send (services/providers/outlook). It used to
+// be draft, stamp our Message-ID, send -- which needs Mail.ReadWrite, a second
+// and broader mail permission on every connection, for an anchor the Reply-To
+// already gives: the business's answer goes to the agent's reply address.
 (async () => {
-  // ── 1. New message, tenant accepts the stamp ──────────────────────────────
-  console.log('\n1. NEW MESSAGE, tenant accepts our Message-ID');
-  CALLS = []; let st = {}; BEHAVIOUR = acceptingTenant(st);
+  // ── 1. New message ────────────────────────────────────────────────────────
+  console.log('\n1. NEW MESSAGE');
+  CALLS = []; BEHAVIOUR = tenant();
   let r = await outlook.sendEmail('tok', null, {
     to: ['owner@bikeshop.com'], subject: 'A partnership idea',
     bodyHtml: '<p>Hi Laura,</p>', replyTo: 'jordan@reply.mynildash.com', messageId: MINTED,
   });
   console.log('     ' + paths().join('\n     '));
-  const patch1 = CALLS.find((c) => c.verb === 'PATCH');
-  check('draft created before send', paths()[0] === 'POST /me/messages');
-  check('our Message-ID was stamped on the draft', patch1 && patch1.body.internetMessageId === MINTED);
-  check('draft was sent', paths().includes('POST /me/messages/DRAFT1/send'));
-  check('never used the one-shot /me/sendMail', !paths().some((p) => p.includes('sendMail')));
-  check('returns the id that shipped', r.messageId === MINTED, r.messageId);
-  check('reports the stamp took', r.messageIdStamped === true);
-  check('carries the conversation back', r.providerThreadId === 'CONV1');
+  const send = CALLS.find((c) => c.path === '/me/sendMail');
+  check('one call: POST /me/sendMail', JSON.stringify(paths()) === JSON.stringify(['POST /me/sendMail']));
+  check('no draft is created (that needs Mail.ReadWrite)', !paths().some((p) => p === 'POST /me/messages' || /\/send$/.test(p)));
+  check('subject, body and recipient on the message', send && send.body.message.subject === 'A partnership idea' && send.body.message.body.content === '<p>Hi Laura,</p>'
+    && send.body.message.toRecipients[0].emailAddress.address === 'owner@bikeshop.com');
+  check('the Reply-To that routes the answer back to us', send && send.body.message.replyTo[0].emailAddress.address === 'jordan@reply.mynildash.com');
+  check('our id rides along as an X- header', send && send.body.message.internetMessageHeaders[0].name === 'X-NILDash-Message-Id' && send.body.message.internetMessageHeaders[0].value === MINTED);
+  check('saved to Sent Items, so the agent sees it in Outlook', send && send.body.saveToSentItems === true);
+  check('says the Message-ID on the wire is unknown (not ours)', r.messageId === null && r.messageIdUnknown === true && r.messageIdStamped === false);
 
-  // ── 2. Tenant refuses the stamp ───────────────────────────────────────────
-  console.log('\n2. NEW MESSAGE, tenant REFUSES a caller-supplied Message-ID');
-  CALLS = [];
-  BEHAVIOUR = (verb, path, body) => {
-    if (verb === 'PATCH' && body && body.internetMessageId) throw new Error('ErrorInvalidPropertySet');
-    return acceptingTenant({})(verb, path, body);
-  };
-  r = await outlook.sendEmail('tok', null, {
-    to: ['owner@bikeshop.com'], subject: 'x', bodyHtml: '<p>y</p>', messageId: MINTED,
-  });
-  check('still sent -- a refused stamp must not lose the email', paths().includes('POST /me/messages/DRAFT1/send'));
-  check('returns what Graph actually assigned, not what we asked for', r.messageId === GRAPH_OWN, r.messageId);
-  check('says plainly that the stamp did not take', r.messageIdStamped === false);
+  // ── 2. Reply to a known message ───────────────────────────────────────────
+  console.log('\n2. REPLY to a message id');
+  CALLS = []; BEHAVIOUR = tenant();
+  await outlook.sendEmail('tok', null, { bodyHtml: '<p>Following up.</p>', replyToMessageId: 'M9', replyTo: 'jordan@reply.mynildash.com' });
+  const rep = CALLS.find((c) => /\/reply$/.test(c.path));
+  check('POST /me/messages/{id}/reply (Mail.Send is enough)', JSON.stringify(paths()) === JSON.stringify(['POST /me/messages/M9/reply']));
+  check('the follow-up is the comment, with the Reply-To', rep && rep.body.comment === '<p>Following up.</p>' && rep.body.message.replyTo[0].emailAddress.address === 'jordan@reply.mynildash.com');
 
-  // ── 3. Reply: conversationId must not be posted as a message id ───────────
+  // ── 3. Reply by threadId: a conversationId is never posted as a message id ─
   console.log('\n3. REPLY by threadId (a conversationId)');
-  CALLS = []; st = {}; BEHAVIOUR = acceptingTenant(st);
-  r = await outlook.sendEmail('tok', null, {
-    to: null, bodyHtml: '<p>Following up.</p>', threadId: 'CONV1', messageId: MINTED,
-  });
-  console.log('     ' + paths().join('\n     '));
+  CALLS = []; BEHAVIOUR = tenant();
+  await outlook.sendEmail('tok', null, { bodyHtml: '<p>b</p>', threadId: 'CONV1' });
   const lookup = CALLS.find((c) => c.verb === 'GET' && c.path === '/me/messages');
-  check('resolved the conversation to a message first', !!lookup, lookup && lookup.filter);
-  check('newest message in the conversation', lookup && lookup.orderby === 'receivedDateTime desc' && lookup.top === 1);
-  check('createReply used the MESSAGE id', paths().includes('POST /me/messages/MSG_LATEST/createReply'));
-  check('the conversationId was never used as a message id',
-    !paths().some((p) => p.includes('/me/messages/CONV1/')));
-  check('the old /reply endpoint is gone entirely', !paths().some((p) => /\/reply$/.test(p)));
-  const patch3 = CALLS.find((c) => c.verb === 'PATCH');
-  check('reply keeps the quoted original underneath',
-    patch3 && /Following up\./.test(patch3.body.body.content) && /quoted original/.test(patch3.body.body.content));
-  check('reply is stamped too', patch3 && patch3.body.internetMessageId === MINTED);
+  check('resolved the conversation to its newest message first', lookup && /CONV1/.test(lookup.filter) && lookup.orderby === 'receivedDateTime desc' && lookup.top === 1);
+  check('replied to the MESSAGE id, never the conversationId', paths().includes('POST /me/messages/MSG_LATEST/reply') && !paths().some((p) => p.includes('/me/messages/CONV1/')));
 
-  // ── 4. Conversation resolves to nothing ───────────────────────────────────
-  console.log('\n4. REPLY where the conversation has no message');
+  // ── 4. The lookup fails (send-only: no Mail.Read) -> still delivered ──────
+  console.log('\n4. SEND-ONLY MAILBOX: the conversation lookup is refused');
   CALLS = [];
-  BEHAVIOUR = (verb, path, body) => {
-    if (verb === 'GET' && path === '/me/messages') return { value: [] };
-    return acceptingTenant({})(verb, path, body);
-  };
-  r = await outlook.sendEmail('tok', null, {
-    to: ['owner@bikeshop.com'], subject: 's', bodyHtml: '<p>b</p>', threadId: 'GONE', messageId: MINTED,
-  });
-  check('falls back to a new message rather than throwing', paths().includes('POST /me/messages'));
-  check('still delivered', paths().includes('POST /me/messages/DRAFT1/send'));
-
-  // ── 4b. The lookup itself fails ───────────────────────────────────────────
-  CALLS = [];
-  BEHAVIOUR = (verb, path, body) => {
-    if (verb === 'GET' && path === '/me/messages') throw new Error('Graph 503');
-    return acceptingTenant({})(verb, path, body);
-  };
-  r = await outlook.sendEmail('tok', null, {
-    to: ['o@b.com'], subject: 's', bodyHtml: '<p>b</p>', threadId: 'CONV1', messageId: MINTED,
-  });
-  check('a Graph outage on the lookup still delivers', paths().includes('POST /me/messages/DRAFT1/send'));
+  BEHAVIOUR = (verb, path) => { if (verb === 'GET') throw new Error('ErrorAccessDenied: Access is denied'); return {}; };
+  r = await outlook.sendEmail('tok', null, { to: ['o@b.com'], subject: 's', bodyHtml: '<p>b</p>', threadId: 'CONV1' });
+  check('a refused lookup still delivers, as a new message', paths().includes('POST /me/sendMail'));
 
   // ── 5. Attachments ────────────────────────────────────────────────────────
   console.log('\n5. MEDIA KIT ATTACHED');
-  CALLS = []; st = {}; BEHAVIOUR = acceptingTenant(st);
-  await outlook.sendEmail('tok', null, {
-    to: ['o@b.com'], subject: 's', bodyHtml: '<p>b</p>', messageId: MINTED,
-    attachments: [{ filename: 'kit.pdf', mimeType: 'application/pdf', data: 'YmFzZTY0' }],
-  });
-  const att = CALLS.find((c) => /\/attachments$/.test(c.path));
-  check('attachment posted to the draft', att && att.body.name === 'kit.pdf');
-  check('attached before the send', CALLS.indexOf(att) < CALLS.findIndex((c) => /\/send$/.test(c.path)));
+  CALLS = []; BEHAVIOUR = tenant();
+  await outlook.sendEmail('tok', null, { to: ['o@b.com'], subject: 's', bodyHtml: '<p>b</p>', attachments: [{ filename: 'kit.pdf', mimeType: 'application/pdf', data: 'YmFzZTY0' }] });
+  const a5 = (CALLS.find((c) => c.path === '/me/sendMail') || {}).body;
+  check('the attachment travels inside the one send', a5 && a5.message.attachments[0].name === 'kit.pdf' && a5.message.attachments[0].contentBytes === 'YmFzZTY0' && paths().length === 1);
 
-  // ── 6. No messageId supplied (reply capture off) ──────────────────────────
-  console.log('\n6. REPLY CAPTURE OFF (no messageId minted)');
-  CALLS = []; BEHAVIOUR = acceptingTenant({});
-  r = await outlook.sendEmail('tok', null, { to: ['o@b.com'], subject: 's', bodyHtml: '<p>b</p>' });
-  check('sends with no stamp attempt', !CALLS.some((c) => c.verb === 'PATCH' && c.body && c.body.internetMessageId));
-  check('still delivered', paths().includes('POST /me/messages/DRAFT1/send'));
-
-  // ── 7. Caller preference, the expression in both send paths ───────────────
-  console.log('\n7. WHAT THE CALLER STORES');
-  const caller = (res, minted) => ({ ...(res || {}), messageId: (res && res.messageId) || minted }).messageId;
-  check('Outlook confirmed id wins over the minted one',
-    caller({ providerMessageId: 'D', messageId: GRAPH_OWN }, MINTED) === GRAPH_OWN);
-  check('Gmail unchanged -- reports no messageId, so the minted one stands',
-    caller({ providerMessageId: 'g1', providerThreadId: 't1' }, MINTED) === MINTED);
-  check('IMAP unchanged',
-    caller({ providerMessageId: MINTED, providerThreadId: null }, MINTED) === MINTED);
+  // ── 6. What the caller stores ─────────────────────────────────────────────
+  console.log('\n6. WHAT THE CALLER STORES');
+  const caller = (res, minted) => (res && res.messageIdUnknown ? null : ((res && res.messageId) || minted));
+  check('Outlook: no anchor stored (never one that did not ship)', caller({ messageId: null, messageIdUnknown: true }, MINTED) === null);
+  check('Gmail unchanged: the minted id stands', caller({ providerMessageId: 'g1', providerThreadId: 't1' }, MINTED) === MINTED);
+  check('IMAP unchanged', caller({ providerMessageId: MINTED, providerThreadId: null }, MINTED) === MINTED);
+  const fs = require('fs');
+  check('both send paths use that expression',
+    /messageId: result && result\.messageIdUnknown \? null : \(\(result && result\.messageId\) \|\| messageId\)/.test(fs.readFileSync(ROOT + 'server/routes/outreach.js', 'utf8'))
+    && /messageId: res && res\.messageIdUnknown \? null : \(\(res && res\.messageId\) \|\| messageId\)/.test(fs.readFileSync(ROOT + 'server/jobs/closerRelease.js', 'utf8')));
 
   const bad = results.filter((x) => !x.ok);
   console.log('\n' + (results.length - bad.length) + '/' + results.length + ' passed');

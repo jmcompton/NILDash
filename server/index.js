@@ -14978,7 +14978,10 @@ app.patch('/api/athlete-messages/:id/read', requireAuth, async (req, res) => {
 const emailRoutes = require('./routes/email');
 // OAuth callbacks bypass session auth — identity is verified via the state param.
 function emailAuthMiddleware(req, res, next) {
-  const OAUTH_CALLBACKS = ['/oauth/gmail/callback', '/oauth/outlook/callback'];
+  // The Outlook admin pair is public on purpose: the person approving NILDash
+  // for a tenant is the customer's IT admin, who has no NILDash login. The link
+  // carries only our (public) client id.
+  const OAUTH_CALLBACKS = ['/oauth/gmail/callback', '/oauth/outlook/callback', '/oauth/outlook/admin-link', '/oauth/outlook/admin-callback'];
   if (OAUTH_CALLBACKS.includes(req.path)) return next();
   return requireAuth(req, res, next);
 }

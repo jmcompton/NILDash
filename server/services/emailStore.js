@@ -51,6 +51,14 @@ async function saveEmailAccount(id, userId, provider, emailAddress, displayName,
   // The callback then re-read by the same dead id (routes/email.js) and skipped
   // the post-connect sync without saying so. RETURNING id is the row that exists.
   const realId = (r.rows[0] && r.rows[0].id) || id;
+  // ── ONE MAILBOX PER AGENT, EITHER PROVIDER ──────────────────────────────
+  // The mailbox just connected is the one that sends. Any other this user had
+  // is marked disconnected -- not deleted, so its threads and history stay --
+  // which takes it out of the sending pick (pickSendingAccount), the preflight
+  // and sync. Every connect path (Gmail, Outlook, IMAP) saves through here.
+  await pool.query(`UPDATE email_accounts SET status = 'disconnected', updated_at = NOW()
+                     WHERE user_id = $1 AND id <> $2 AND COALESCE(status, 'active') <> 'disconnected'`, [userId, realId])
+    .catch((e) => console.error('[emailStore] could not retire the previous mailbox: ' + e.message));
   return getEmailAccount(realId);
 }
 
@@ -80,11 +88,38 @@ async function getEmailAccountWithTokens(id) {
   const r = await pool.query('SELECT * FROM email_accounts WHERE id=$1', [id]);
   if (!r.rows[0]) return null;
   const row = r.rows[0];
-  return {
+  const out = {
     ...sanitizeAccount(row),
     accessToken:  decrypt(row.access_token_enc),
     refreshToken: decrypt(row.refresh_token_enc),
   };
+  return freshOutlookTokens(out, row.token_expiry);
+}
+
+// ── AN OUTLOOK ACCESS TOKEN LASTS AN HOUR ─────────────────────────────────
+// Gmail's client refreshes itself from the refresh token it is handed;
+// Graph's does not. Every send and check reads its tokens through
+// getEmailAccountWithTokens, so an Outlook token within five minutes of
+// expiry (or with no expiry stored) is refreshed HERE, once, for every
+// caller -- and Microsoft's rotated refresh token is stored with it, so the
+// connection outlives the 90 days the first one would. A refresh that fails
+// leaves the old tokens in place; the send then fails with the provider's
+// words and is classified (services/ourFault).
+async function freshOutlookTokens(acct, expiry) {
+  if (!acct || !(acct.provider === 'outlook' || acct.provider === 'microsoft365') || !acct.refreshToken) return acct;
+  const exp = expiry ? new Date(expiry).getTime() : 0;
+  if (exp && exp - Date.now() > 5 * 60 * 1000) return acct;
+  try {
+    const outlook = require('./providers/outlook');
+    if (!outlook.isAvailable()) return acct;
+    const t = await outlook.refreshAccessToken(acct.refreshToken);
+    await updateAccountTokens(acct.id, t.accessToken, t.refreshToken || acct.refreshToken, t.expiry);
+    return { ...acct, accessToken: t.accessToken, refreshToken: t.refreshToken || acct.refreshToken, tokenRefreshed: true };
+  } catch (e) {
+    console.error(`[emailStore] outlook token refresh failed for ${acct.email_address}: ${e.message}`);
+    require('./ourFault').record('outlook-token', 'token refresh failed for ' + acct.email_address + ': ' + e.message, 'emailStore');
+    return acct;
+  }
 }
 
 async function updateAccountTokens(id, accessToken, refreshToken, tokenExpiry) {
@@ -332,6 +367,7 @@ async function deleteDraft(id, userId) {
 }
 
 module.exports = {
+  freshOutlookTokens,
   // Accounts
   saveEmailAccount, getEmailAccount, getEmailAccountsByUser,
   getEmailAccountWithTokens, updateAccountTokens, updateAccountStatus,

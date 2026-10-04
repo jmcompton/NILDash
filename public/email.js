@@ -25,15 +25,23 @@ const INBOX_SYNC_ENABLED = false;
 // Flip a flag to true and its button reappears -- markup and handlers are intact,
 // nothing was deleted. Server routes stay live so a half-finished OAuth round
 // trip still lands somewhere sane.
-const OUTLOOK_ENABLED = false;   // needs: npm packages, Azure app, messageId story
+// OUTLOOK: proven end to end now (tokens from the v2 endpoint with the
+// refresh token kept, draft-stamp-send for the Message-ID, direction by the
+// mailbox's own address), so its button follows the SERVER: shown when
+// /api/email/providers says Outlook is configured (OUTLOOK_CLIENT_ID and
+// OUTLOOK_CLIENT_SECRET set), hidden otherwise.
+let OUTLOOK_ENABLED = false;
 const IMAP_ENABLED    = false;   // needs: createTransport fix, config keys, TLS verify
 
 // The markup ships hidden; a live provider un-hides its own button. Hidden by
 // default means a stale cached page shows too little, never too much.
 function applyProviderFlags() {
-  const show = (id, on) => { const el = document.getElementById(id); if (el && on) el.style.display = ''; };
-  show('email-connect-outlook', OUTLOOK_ENABLED);
+  const show = (id, on) => { const el = document.getElementById(id); if (el && on) el.style.display = 'flex'; };
   show('email-connect-imap', IMAP_ENABLED);
+  fetch('/api/email/providers', { credentials: 'include' })
+    .then((r) => (r.ok ? r.json() : {}))
+    .then((p) => { OUTLOOK_ENABLED = !!(p && p.outlook); show('email-connect-outlook', OUTLOOK_ENABLED); })
+    .catch(() => {});
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -105,7 +113,10 @@ function renderEmailAccountsUI() {
           <span style="font-size:22px">${providerIcon}</span>
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--text)">${acc.email_address}</div>
-            <div style="font-size:11px;color:var(--muted)">${providerLabel} &nbsp;·&nbsp; Last sync: ${lastSync}</div>
+            <div style="font-size:11px;color:var(--muted)">${providerLabel} &nbsp;·&nbsp; ${acc.status === 'disconnected' ? 'Not sending (replaced by your newer mailbox)' : 'Last sync: ' + lastSync}</div>
+            ${acc.provider === 'outlook' && acc.status !== 'disconnected' && Array.isArray(acc.granted_scopes) && acc.granted_scopes.length
+              && !acc.granted_scopes.some((g) => /Mail\.Read/i.test(g))
+              ? `<a href="/api/email/oauth/outlook?read=1" style="font-size:11px;color:var(--accent);font-weight:600;text-decoration:none" title="Replies to your pitches already come back to NILDash. This also brings in replies sent straight to your address.">Also read replies from this mailbox</a>` : ''}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -149,7 +160,7 @@ function connectGmail() {
 // but a browser holding a cached copy of index.html from before this change
 // still has the old markup, and that agent must not reach a broken flow.
 function connectOutlook() {
-  if (!OUTLOOK_ENABLED) { emailToast('Outlook is not available yet — connect Gmail for now'); return; }
+  if (!OUTLOOK_ENABLED) { emailToast('Outlook is not available yet. Connect Gmail for now.'); return; }
   window.location.href = '/api/email/oauth/outlook';
 }
 

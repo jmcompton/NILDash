@@ -784,7 +784,7 @@
     },
     "outlooksend.js": {
       "failed": 0,
-      "total": 27,
+      "total": 17,
       "fault": null
     },
     "outreachtrack.js": {
@@ -1285,6 +1285,11 @@
     "providerfaults.js": {
       "failed": 0,
       "total": 45,
+      "fault": null
+    },
+    "outlook.js": {
+      "failed": 0,
+      "total": 29,
       "fault": null
     }
   }

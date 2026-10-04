@@ -201,6 +201,14 @@ router.get('/oauth/gmail/callback', async (req, res) => {
   }
 });
 
+// ── WHICH PROVIDERS THIS SERVER CAN CONNECT ─────────────────────────────────
+// The page shows a Connect button only for a provider that is configured here,
+// so the Outlook button appears the moment OUTLOOK_CLIENT_ID and
+// OUTLOOK_CLIENT_SECRET are set in Railway, with no code change.
+router.get('/providers', (req, res) => {
+  res.json({ gmail: gmail.isAvailable ? !!gmail.isAvailable() : true, outlook: outlook.isAvailable() });
+});
+
 // ── Outlook OAuth ────────────────────────────────────────────────────────────
 
 /**
@@ -215,8 +223,10 @@ router.get('/oauth/outlook', async (req, res) => {
   }
   try {
     const returnTo = safeReturnTo(req.query.returnTo);
-    const state = encodeState({ userId: req.session.userId, provider: 'outlook', returnTo: returnTo || undefined });
-    const url = await outlook.getAuthUrl(state);
+    // ?read=1: the optional upgrade, "also read replies from this mailbox".
+    const read = req.query.read === '1';
+    const state = encodeState({ userId: req.session.userId, provider: 'outlook', returnTo: returnTo || undefined, read: read || undefined });
+    const url = await outlook.getAuthUrl(state, { read });
     res.redirect(url);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -229,26 +239,45 @@ router.get('/oauth/outlook', async (req, res) => {
 router.get('/oauth/outlook/callback', async (req, res) => {
   try {
     const { code, state, error } = req.query;
-    let back = null;
-    try { back = safeReturnTo(decodeState(state).returnTo); } catch (_) { back = null; }
-    if (error) return res.redirect(back ? withMarker(back, 'emailError=' + encodeURIComponent(error)) : '/#settings?emailError=' + encodeURIComponent(error));
+    let back = null, st = {};
+    try { st = decodeState(state) || {}; back = safeReturnTo(st.returnTo); } catch (_) { back = null; }
+    if (error) {
+      // THE TENANT WANTS ITS ADMIN. Not an error to show raw: the explanation
+      // screen, with the link the agent sends to their IT admin.
+      console.warn(`[outlook callback] ${error}: ${String(req.query.error_description || '').split('\r\n')[0]}`);
+      if (outlook.isConsentError(error, req.query.error_description)) {
+        return res.redirect('/microsoft-consent.html' + (st.read ? '?read=1' : ''));
+      }
+      const why = /access_denied/i.test(error) ? 'You cancelled the Microsoft sign-in. Nothing was connected.' : 'Microsoft did not finish connecting the mailbox. Please try again.';
+      return res.redirect(back ? withMarker(back, 'emailError=' + encodeURIComponent(why)) : '/#settings?emailError=' + encodeURIComponent(why));
+    }
 
-    const { userId } = decodeState(state);
+    const { userId } = st;
     if (!userId) return res.status(400).send('Invalid state parameter');
 
-    const tokens = await outlook.exchangeCode(code);
+    const tokens = await outlook.exchangeCode(code, { read: !!st.read });
     const accountId = 'ea_' + crypto.randomBytes(8).toString('hex');
 
-    await emailStore.saveEmailAccount(
+    // Saved like Gmail: with the scopes Microsoft granted, and marked
+    // non-sending when Mail.Send was refused, so it never claims to send.
+    const saved = await emailStore.saveEmailAccount(
       accountId, userId, 'outlook',
       tokens.email, tokens.displayName,
-      tokens.accessToken, tokens.refreshToken, tokens.expiry
+      tokens.accessToken, tokens.refreshToken, tokens.expiry,
+      tokens.grantedScopes, tokens.canSend
     );
 
+    // The row that exists (a reconnect updates the original), not the new id.
     const { pool } = require('../store');
-    const r = await pool.query('SELECT * FROM email_accounts WHERE id=$1', [accountId]);
+    const r = await pool.query('SELECT * FROM email_accounts WHERE id=$1', [(saved && saved.id) || accountId]);
     if (r.rows[0]) emailSync.syncAccount(r.rows[0]).catch(() => {});
 
+    if (tokens.canSend === false) {
+      const why = 'Outlook connected, but permission to send email was not granted. Reconnect and accept "Send mail as you".';
+      return res.redirect(back
+        ? withMarker(back, 'emailScopeMissing=outlook&emailError=' + encodeURIComponent(why))
+        : '/#settings?emailScopeMissing=outlook&emailError=' + encodeURIComponent(why));
+    }
     res.redirect(back ? withMarker(back, 'emailConnected=outlook') : '/#settings?emailConnected=outlook');
   } catch (e) {
     console.error('[outlook callback]', e.message);
@@ -256,6 +285,22 @@ router.get('/oauth/outlook/callback', async (req, res) => {
     try { backErr = safeReturnTo(decodeState(req.query.state).returnTo); } catch (_) { backErr = null; }
     res.redirect(backErr ? withMarker(backErr, 'emailError=' + encodeURIComponent(e.message)) : '/#settings?emailError=' + encodeURIComponent(e.message));
   }
+});
+
+// ── THE ADMIN APPROVAL PATH ──────────────────────────────────────────────────
+// GET /api/email/oauth/outlook/admin-link[?read=1] -> { url }: the link an IT
+// admin opens to approve NILDash for their whole organization (Microsoft's
+// admin consent endpoint). Public: the admin has no NILDash login.
+router.get('/oauth/outlook/admin-link', (req, res) => {
+  if (!outlook.isAvailable()) return res.status(501).json({ error: 'Outlook is not configured on this server yet.' });
+  res.json({ url: outlook.adminConsentUrl({ read: req.query.read === '1' }), read: req.query.read === '1' });
+});
+// Where Microsoft sends the admin back. admin_consent=True: approved for the
+// tenant, and every agent in it can now connect on their own.
+router.get('/oauth/outlook/admin-callback', (req, res) => {
+  const okd = String(req.query.admin_consent || '').toLowerCase() === 'true';
+  if (!okd) console.warn(`[outlook admin-callback] ${req.query.error || 'not approved'}: ${String(req.query.error_description || '').split('\r\n')[0]}`);
+  res.redirect('/microsoft-consent.html?' + (okd ? 'approved=1' : 'declined=1'));
 });
 
 // ── IMAP / SMTP (generic) ────────────────────────────────────────────────────
