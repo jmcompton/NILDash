@@ -1220,6 +1220,16 @@
       "status": "TEXT DEFAULT 'auto'",
       "uses": "INTEGER DEFAULT 1"
     },
+    "send_request_timings": {
+      "agent_id": "TEXT",
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "id": "SERIAL",
+      "ms": "INTEGER",
+      "note": "TEXT",
+      "route": "TEXT",
+      "status": "INTEGER",
+      "steps": "JSONB"
+    },
     "service_checks": {
       "checked_at": "TIMESTAMPTZ DEFAULT NOW()",
       "detail": "JSONB",

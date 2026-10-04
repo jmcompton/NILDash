@@ -109,8 +109,9 @@ const src = (p) => fs.readFileSync(REPO + p, 'utf8');
   const outreach = src('server/routes/outreach.js');
   ok('the agent clicking Send: the footer is appended to what goes on the wire',
     /const bodyHtml = canSpam\.appendHtml\(log\.body_html, toEmail/.test(outreach));
-  ok('  all three providers send the footered body, not the stored draft',
-    (outreach.match(/bodyHtml,\s*(attachments,\s*)?replyTo, messageId/g) || []).length === 3, (outreach.match(/bodyHtml,\s*(attachments,\s*)?replyTo, messageId/g) || []).length);
+  // Four: Gmail, Outlook, SMTP, and the test-only fake (providers/fakeSend).
+  ok('  all three providers (and the test fake) send the footered body, not the stored draft',
+    (outreach.match(/bodyHtml,\s*(attachments,\s*)?replyTo, messageId/g) || []).length === 4, (outreach.match(/bodyHtml,\s*(attachments,\s*)?replyTo, messageId/g) || []).length);
   ok('  an unconfigured address answers with the sentence, not a 500 about the mailbox',
     /e\.code === 'CANSPAM_UNCONFIGURED'/.test(outreach) && /reason: 'can-spam'/.test(outreach));
 
