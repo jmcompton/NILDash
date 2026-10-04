@@ -65,6 +65,27 @@ async function main() {
     if (r.cadence_stopped_at) console.log(`     stopped ${t(r.cadence_stopped_at)}: ${r.cadence_stop_reason || ''}`);
   }
 
+  // ── THE REQUESTS THEMSELVES (services/sendTimings, from the deploy that
+  // added it): how long Approve, Send and the slow Home reloads took before
+  // they answered, step by step.
+  const timings = (await P.query(`
+    SELECT at, route, ms, steps, status, note FROM send_request_timings
+     WHERE agent_id = $1 AND at > NOW() - ($2 || ' days')::interval ORDER BY at DESC LIMIT 60`,
+    [agent.id, String(days)]).catch(() => ({ rows: null }))).rows;
+  if (timings === null) console.log('1b. REQUEST TIMINGS: not recorded yet (the table arrives with the deploy that measures them)\n');
+  else {
+    const byRoute = {};
+    for (const r of timings) (byRoute[r.route] = byRoute[r.route] || []).push(r.ms);
+    console.log(`1b. REQUEST TIMINGS (${timings.length})  ` + Object.entries(byRoute).map(([k, v]) => {
+      const sorted = v.slice().sort((a, b) => a - b);
+      return `${k}: n=${v.length} median ${sorted[Math.floor(sorted.length / 2)]}ms max ${sorted[sorted.length - 1]}ms`;
+    }).join('   '));
+    for (const r of timings.slice(0, 25)) {
+      console.log(`   ${t(r.at)}  ${r.route.padEnd(15)} ${String(r.ms).padStart(6)}ms  ${r.status}  ${Object.entries(r.steps || {}).map(([k, v]) => `${k}=${v}`).join(' ')}${r.note ? '  (' + r.note + ')' : ''}`);
+    }
+    console.log('');
+  }
+
   // The release queue's own faults while this agent had mail waiting.
   const faults = (await P.query(`
     SELECT at, service, reason, context FROM service_faults

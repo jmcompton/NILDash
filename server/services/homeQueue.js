@@ -421,7 +421,7 @@ async function buildHome(pool, agentId, opts = {}) {
   // or stopped in the last day.
   const outboxRows = selected ? await q('outbox',
     `SELECT l.id, l.brand_name, l.sent_to_email, l.approved_at, l.sent_at, l.status,
-            l.send_hold_reason, l.cadence_stopped_at, l.cadence_stop_reason,
+            l.send_hold_reason, l.send_failures, l.cadence_stopped_at, l.cadence_stop_reason,
             qc.contact_name
        FROM outreach_logs l
        LEFT JOIN LATERAL (SELECT contact_name FROM outreach_queue q
@@ -444,6 +444,10 @@ async function buildHome(pool, agentId, opts = {}) {
     sentAt: o.sent_at || null,
     holdReason: o.sent_at ? null : (o.send_hold_reason || null),
     stopReason: o.sent_at ? null : (o.cadence_stop_reason || null),
+    // A SEND THAT FAILED says so in those words, not "held": the provider
+    // refused it, and the reason (reconnect the mailbox, a bad address) is
+    // the agent's to act on. It is still retried on a backoff.
+    failed: !o.sent_at && !o.cadence_stopped_at && (Number(o.send_failures) || 0) > 0,
   }));
 
   // What every email card's From row shows: the mailbox it will actually send

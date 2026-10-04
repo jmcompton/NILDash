@@ -391,49 +391,65 @@ router.get('/logs/:id', async (req, res) => {
 
 /**
  * POST /api/outreach/logs/:id/send
- * Mark outreach as sent and trigger the actual email via the existing email system.
  * Body: { emailAccountId, toEmail }
+ *
+ * ── THE BUTTON ANSWERS AT ONCE; THE EMAIL GOES BEHIND IT ─────────────────
+ * This used to wait for Gmail / Outlook / SMTP before answering, so a slow
+ * provider was a frozen page: an agent gave up on a send that went out nine
+ * minutes later. Now the request checks the rules, CLAIMS the draft and
+ * answers 202 { state: 'sending' } in milliseconds. The send runs after the
+ * response; GET /logs/:id/send-status says sending, sent, or failed with a
+ * sentence the agent can act on, and the editor polls it.
+ *
+ * ── SAFE TO CALL TWICE ────────────────────────────────────────────────────
+ * The claim is one UPDATE on a draft nobody is sending (send_claimed_at, the
+ * same column the release queue claims with). A second click, a retry, or the
+ * release queue reaching the same row cannot get it while the first send is
+ * in flight: it is answered with the state of the send already running.
+ * It used to read status, send, and only then write 'sent', so two clicks
+ * inside a slow send both passed the check and both emailed the business.
  */
-router.post('/logs/:id/send', async (req, res) => {
+const CLAIM_STALE_MINUTES = 15;   // as the release queue: a claim older than this was a crash
+
+// The send itself, swappable by tests that mount this router.
+router._sendImpl = (ctx, emailAccountId, toEmail, log) => sendViaEmailService(ctx, emailAccountId, toEmail, log);
+
+// The same classifier the release queue uses, so a failure reads the same.
+function failureSentence(e) {
+  if (e && e.code === 'CANSPAM_UNCONFIGURED') return { msg: e.message, reason: 'can-spam' };
+  const sendGuard = require('../services/sendGuard');
+  const c = sendGuard.classifyError(e);
+  const mine = /^SCOPE_MISSING: /.test((e && e.message) || '');
+  const msg = mine ? e.message.replace(/^SCOPE_MISSING: /, '')
+    : (c.kind === 'other' ? ((e && e.message) || 'the send failed') : c.detail);
+  return { msg, reason: mine ? 'scope' : c.kind };
+}
+
+async function runManualSend(ctx, log, emailAccountId, toEmail) {
+  const sendRules = require('../services/sendRules');
+  const system = Number(log.touch_no || 1) > 1 ? 'follow-up' : 'manual';
+  let sendResult;
   try {
-    const { emailAccountId, toEmail } = req.body;
-    const r = await pool.query('SELECT * FROM outreach_logs WHERE id=$1 AND agent_id=$2', [req.params.id, req.principal.id]);
-    const log = r.rows[0];
-    if (!log) return res.status(404).json({ error: 'Outreach log not found' });
-    if (log.status === 'sent') return res.status(400).json({ error: 'Already sent' });
-
-    if (!emailAccountId || !toEmail) {
-      return res.status(400).json({ error: 'emailAccountId and toEmail required' });
-    }
-
-    // ── THE SAME RULES AS THE NIGHTLY RELEASE ─────────────────────────────
-    // A person clicking Send is still one of the systems that can mail this
-    // address. A follow-up is not sent before it is due; nothing is sent to
-    // an address on the suppression list, under a subject it already got, or
-    // inside four days of anything else we sent it.
-    if (log.next_follow_up_at && new Date(log.next_follow_up_at).getTime() > Date.now()) {
-      return res.status(409).json({ error: `This follow-up is not due until ${new Date(log.next_follow_up_at).toISOString().slice(0, 10)}. The cadence is 4 and 9 days after the last touch.`, reason: 'not-due' });
-    }
-    const sendRules = require('../services/sendRules');
-    const rule = await sendRules.check(pool, {
-      email: toEmail, subject: log.subject, refId: log.id,
-      system: Number(log.touch_no || 1) > 1 ? 'follow-up' : 'manual',
-    });
-    if (!rule.ok) return res.status(409).json({ error: 'Not sent: ' + rule.reason, reason: rule.kind });
-
-    // Call the existing /api/email/send endpoint logic (reuse without importing — call via fetch)
-    // We delegate to the existing email service to avoid any coupling
-    const sendResult = await sendViaEmailService(req, emailAccountId, toEmail, log);
-    await sendRules.record(pool, {
-      email: toEmail, subject: log.subject, agentId: req.principal.id, refId: log.id,
-      system: Number(log.touch_no || 1) > 1 ? 'follow-up' : 'manual',
-    });
-
+    sendResult = await router._sendImpl(ctx, emailAccountId, toEmail, log);
+  } catch (e) {
+    const f = failureSentence(e);
+    console.error('[outreach/send]', log.id, e && e.message);
+    // ON THE DRAFT, where the editor and the card read it. The claim goes, so
+    // the agent can fix the cause and press Send again.
+    await pool.query(
+      `UPDATE outreach_logs SET send_error = $2, send_claimed_at = NULL,
+              send_failures = COALESCE(send_failures, 0) + 1, updated_at = NOW()
+        WHERE id = $1 AND sent_at IS NULL`, [log.id, ('Not sent: ' + f.msg).slice(0, 300)]).catch(() => {});
+    return { ok: false, ...f };
+  }
+  // It has left. Every write from here on records a fact; none may undo it.
+  await sendRules.record(pool, { email: toEmail, subject: log.subject, agentId: ctx.principal.id, refId: log.id, system });
+  try {
     await pool.query(
       `UPDATE outreach_logs
        SET status='sent', sent_at=NOW(), email_account_id=$1,
            email_message_id=$2, sent_to_email=$4, message_id=$5,
-           reply_to=$6, updated_at=NOW()
+           reply_to=$6, send_claimed_at=NULL, send_error=NULL, send_hold_reason=NULL, updated_at=NOW()
        WHERE id=$3`,
       // sent_to_email is what the named-address matcher joins on. message_id is
       // the RFC822 id we put on the wire, which a reply echoes in In-Reply-To --
@@ -442,40 +458,103 @@ router.post('/logs/:id/send', async (req, res) => {
        String(toEmail).trim().toLowerCase(), sendResult?.messageId || null,
        sendResult?.replyTo || null]
     );
+  } catch (e) {
+    // The email went and the row could not say so. The claim stays (it goes
+    // stale in 15 minutes), so nothing re-sends it in the meantime, and it is
+    // an ourFault rather than a log line.
+    console.error('[outreach/send] sent but not recorded', log.id, e.message);
+    require('../services/ourFault').record('send', `sent ${log.id} but could not mark it sent: ${e.message}`, 'outreach/send');
+  }
+  pool.query(
+    `INSERT INTO workflow_events (run_id, agent_id, event_type, payload) VALUES (NULL,$1,$2,$3)`,
+    [ctx.principal.id, 'email_sent', JSON.stringify({ outreachId: log.id, brand: log.brand_name, to: toEmail })]
+  ).catch(() => {});
+  // Getting Started checklist: first AI outreach email sent
+  // The onboarding checklist is an agent artefact; an athlete has no row in it.
+  if (ctx.principal.kind === 'agent') markChecklistItem(ctx.principal.id, 'ai_outreach').catch(() => {});
+  return { ok: true };
+}
 
-    // Log workflow event
-    pool.query(
-      `INSERT INTO workflow_events (run_id, agent_id, event_type, payload) VALUES (NULL,$1,$2,$3)`,
-      [req.principal.id, 'email_sent', JSON.stringify({ outreachId: log.id, brand: log.brand_name, to: toEmail })]
-    ).catch(() => {});
+// What the editor and the card show. 'sending' while a claim is live (this
+// route's, or the release queue's), 'sent' once it has a sent_at, 'failed'
+// with the reason once a send failed and nothing is retrying it.
+function sendStateOf(row) {
+  if (!row) return null;
+  const claimFresh = row.send_claimed_at && (Date.now() - new Date(row.send_claimed_at).getTime()) < CLAIM_STALE_MINUTES * 60000;
+  if (row.sent_at || row.status === 'sent') return { state: 'sent', sentAt: row.sent_at, to: row.sent_to_email };
+  if (claimFresh) return { state: 'sending' };
+  if (row.cadence_stopped_at) return { state: 'failed', error: 'Not sent: ' + (row.cadence_stop_reason || 'stopped') };
+  if (row.status === 'approved') {
+    return row.send_hold_reason ? { state: 'sending', held: true, error: row.send_hold_reason } : { state: 'sending' };
+  }
+  if (row.send_error) return { state: 'failed', error: row.send_error };
+  return { state: row.status || 'draft' };
+}
 
-    // Getting Started checklist: first AI outreach email sent
-    // The onboarding checklist is an agent artefact; an athlete has no row in it.
-    if (req.principal.kind === 'agent') markChecklistItem(req.principal.id, 'ai_outreach').catch(() => {});
+router.get('/logs/:id/send-status', async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT status, sent_at, sent_to_email, send_claimed_at, send_error, send_hold_reason, cadence_stopped_at, cadence_stop_reason
+         FROM outreach_logs WHERE id = $1 AND agent_id = $2`, [req.params.id, req.principal.id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Outreach log not found' });
+    res.json({ id: req.params.id, ...sendStateOf(r.rows[0]) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-    res.json({ ok: true, message: 'Email sent successfully' });
+router.post('/logs/:id/send', require('../services/sendTimings').middleware('outreach/send', { pool }), async (req, res) => {
+  const T = req._T;
+  const finish = (status, body, note) => { if (res.locals) res.locals.timingNote = note || null; res.status(status).json(body); };
+  try {
+    const { emailAccountId, toEmail } = req.body || {};
+    const r = await pool.query('SELECT * FROM outreach_logs WHERE id=$1 AND agent_id=$2', [req.params.id, req.principal.id]);
+    const log = r.rows[0];
+    T.mark('read');
+    if (!log) return finish(404, { error: 'Outreach log not found' });
+    // ALREADY GONE, OR GOING: the same answer the first click got, not an error.
+    // A second click must never read as a failure the agent then "fixes".
+    const st = sendStateOf(log);
+    if (st.state === 'sent' || (st.state === 'sending' && !st.held)) return finish(200, { ok: true, already: true, ...st }, 'repeat click: ' + st.state);
+
+    if (!emailAccountId || !toEmail) {
+      return finish(400, { error: 'emailAccountId and toEmail required' });
+    }
+
+    // ── THE SAME RULES AS THE NIGHTLY RELEASE ─────────────────────────────
+    // A person clicking Send is still one of the systems that can mail this
+    // address. A follow-up is not sent before it is due; nothing is sent to
+    // an address on the suppression list, under a subject it already got, or
+    // inside four days of anything else we sent it.
+    if (log.next_follow_up_at && new Date(log.next_follow_up_at).getTime() > Date.now()) {
+      return finish(409, { error: `This follow-up is not due until ${new Date(log.next_follow_up_at).toISOString().slice(0, 10)}. The cadence is 4 and 9 days after the last touch.`, reason: 'not-due' });
+    }
+    const sendRules = require('../services/sendRules');
+    const rule = await sendRules.check(pool, {
+      email: toEmail, subject: log.subject, refId: log.id,
+      system: Number(log.touch_no || 1) > 1 ? 'follow-up' : 'manual',
+    });
+    T.mark('rules');
+    if (!rule.ok) return finish(409, { error: 'Not sent: ' + rule.reason, reason: rule.kind });
+
+    // ── THE CLAIM: ONE STATEMENT, ONE SENDER ──────────────────────────────
+    const claim = await pool.query(
+      `UPDATE outreach_logs SET send_claimed_at = NOW(), send_error = NULL, updated_at = NOW()
+        WHERE id = $1 AND agent_id = $2 AND sent_at IS NULL AND status <> 'sent'
+          AND (send_claimed_at IS NULL OR send_claimed_at < NOW() - ($3 || ' minutes')::interval)
+        RETURNING *`, [log.id, req.principal.id, String(CLAIM_STALE_MINUTES)]);
+    T.mark('claim');
+    if (!claim.rowCount) return finish(200, { ok: true, already: true, state: 'sending' }, 'lost the claim: already sending');
+
+    finish(202, { ok: true, state: 'sending', id: log.id }, 'claimed');
+    // Behind the response. Its outcome is on the row (send-status).
+    const ctx = { principal: { id: req.principal.id, kind: req.principal.kind } };
+    runManualSend(ctx, claim.rows[0], emailAccountId, toEmail)
+      .catch((e) => console.error('[outreach/send] background send crashed', log.id, e.message));
   } catch (e) {
     console.error('[outreach/send]', e.message);
-    // ── THE SAME FAILURE, DESCRIBED THE SAME WAY ──────────────────────────
-    // This returned e.message raw, so the agent read Google's own words --
-    // "Request had insufficient authentication scopes" -- with no hint that
-    // reconnecting was the fix, while the NIGHTLY path ran the identical failure
-    // through sendGuard and produced a sentence a person could act on. One
-    // classifier now serves both. Our own pre-send refusal is already written
-    // for a human, so it passes through unchanged.
-    // An unconfigured mailing address is our own setup problem, not the mail
-    // provider's, and it is fixed in Railway rather than by reconnecting a
-    // mailbox. It gets its own answer so the page says the right thing.
-    if (e && e.code === 'CANSPAM_UNCONFIGURED') {
-      return res.status(400).json({ error: e.message, reason: 'can-spam' });
-    }
-    const sendGuard = require('../services/sendGuard');
-    const c = sendGuard.classifyError(e);
-    const mine = /^SCOPE_MISSING: /.test(e.message || '');
-    const msg = mine ? e.message.replace(/^SCOPE_MISSING: /, '')
-      : (c.kind === 'other' ? e.message : c.detail);
-    res.status(c.kind === 'scope' || mine ? 400 : 500)
-      .json({ error: msg, reason: mine ? 'scope' : c.kind });
+    const f = failureSentence(e);
+    finish(f.reason === 'scope' || f.reason === 'can-spam' ? 400 : 500, { error: f.msg, reason: f.reason });
   }
 });
 
@@ -737,7 +816,11 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   const bodyHtml = canSpam.appendHtml(log.body_html, toEmail, { senderName });
 
   let result;
-  if (account.provider === 'gmail') {
+  const fake = require('../services/providers/fakeSend');
+  if (fake.active()) {
+    // Tests only (NILDASH_TEST_FAKE_SEND): never a real mailbox.
+    result = await fake.sendEmail({ to: [toEmail], subject: log.subject, bodyHtml, replyTo, messageId });
+  } else if (account.provider === 'gmail') {
     const gmail = require('../services/providers/gmail');
     result = await gmail.sendEmail(accessToken, refreshToken, {
       to: [toEmail], subject: log.subject, bodyHtml, attachments, replyTo, messageId,

@@ -21320,6 +21320,8 @@ function hqOutboxHtml(d) {
         label = 'Sent ' + hqClock(o.sentAt); cls = 'sent';
       } else if (o.status === 'not_sent') {
         label = 'Not sent'; cls = 'stopped'; why = o.stopReason;
+      } else if (o.failed) {
+        label = 'Send failed'; cls = 'stopped'; why = o.holdReason || 'The mail provider refused it. It will be retried.';
       } else if (o.holdReason) {
         label = 'Sending &middot; held'; cls = 'held'; why = o.holdReason;
       } else {
@@ -21358,7 +21360,7 @@ function hqPollOutbox(d) {
     if (HQ.selected !== d.selected) return;
     if (document.hidden || typing || HQ.busy) { hqPollOutbox(d); return; }
     hqLoad(d.selected);
-  }, 10000);
+  }, 3000);
 }
 
 function hqRenderCard(c, i) {
@@ -21377,7 +21379,9 @@ function hqRenderCard(c, i) {
     + '</button>'
     + '<span class="hq-chan ' + ch.cls + '">' + hqEscape(ch.label) + '</span>'
     + '<span class="hq-rowbtns">'
-    + '<button class="hm-btn primary" type="button" onclick="hqRowApprove(' + i + ', this)">Approve</button>'
+    + (HQ.inflight && HQ.inflight[c.id]
+      ? '<button class="hm-btn primary" type="button" disabled>Sending&hellip;</button>'
+      : '<button class="hm-btn primary" type="button" onclick="hqRowApprove(' + i + ', this)">Approve</button>')
     + '<button class="hm-btn ghost" type="button" onclick="hqRowSkip(' + i + ', this)">Skip</button>'
     + '</span></div>'
     // Where a row-level action reports a failure. Outside the fold, so an error
@@ -21600,10 +21604,18 @@ function hqRowSkip(i, btn) {
 }
 function hqCardSkip(i, btn) { hqQueueAction(i, btn, 'skip', {}); }
 
+// ── THE CLICK ANSWERS AT ONCE ─────────────────────────────────────────────
+// The row says Sending the moment it is clicked, before the request returns,
+// and a second click on it does nothing while the first is in flight
+// (HQ.inflight, by card id, so a re-render keeps the state). The server is
+// the second guard: approving a draft twice approves it once.
 async function hqApproveOne(i, btn) {
   var c = hqCardAt(i), d = HQ.data; if (!c || !d || HQ.busy) return;
+  HQ.inflight = HQ.inflight || {};
+  if (HQ.inflight[c.id]) return;
+  HQ.inflight[c.id] = true;
   var st = document.getElementById('hq-est-' + i);
-  if (btn) btn.disabled = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
   if (st) st.textContent = '';
   try {
     var r = await fetch('/api/agent/closer/approve', {
@@ -21618,10 +21630,12 @@ async function hqApproveOne(i, btn) {
     if (typeof showToast === 'function') {
       showToast(out.scheduled ? 'Sending. It goes out from your mailbox within a minute or two.' : (out.note || 'Not approved'));
     }
-    hqLoad(HQ.selected);
+    await hqLoad(HQ.selected);
+    delete HQ.inflight[c.id];
   } catch (e) {
+    delete HQ.inflight[c.id];
     if (st) st.textContent = 'Could not approve: ' + e.message;
-    if (btn) btn.disabled = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Approve'; }
   }
 }
 

@@ -1738,12 +1738,15 @@ app.get('/api/onboarding/check-school', requireAuth, async (req, res) => {
 // their counts, the selected athlete's cards, and whether approve is available.
 // The send cap rides along because it is the one number on the page and it
 // belongs beside the button, not on a separate fetch that can arrive late.
-app.get('/api/agent/home', requireAuth, async (req, res) => {
+// Measured: Home reloads after every approve, and a slow reload reads as a
+// frozen card (services/sendTimings). Only loads over 1.5s are kept.
+app.get('/api/agent/home', requireAuth, require('./services/sendTimings').middleware('agent/home', { minMs: 1500 }), async (req, res) => {
   try {
     const Home = require('./services/homeQueue');
     const sendGuard = require('./services/sendGuard');
     const out = await Home.buildHome(store.pool, req.session.userId,
       { athleteId: req.query.athlete || null });
+    if (req._T) req._T.mark('build');
     const guard = await sendGuard.status(store.pool, req.session.userId).catch(() => null);
     out.cap = guard
       ? { left: Math.max(0, guard.remaining), cap: guard.cap, blocked: !!guard.blocked,
@@ -1807,7 +1810,8 @@ app.get('/api/agent/closer/batch', requireAuth, async (req, res) => {
 // unchecked; everything else in `ids` goes. Approve means send: each approved
 // email is due now, and the release queue sends it within seconds, spaced
 // behind whatever this agent already has going out (jobs/closerRelease).
-app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
+// Measured on the request (services/sendTimings): what an agent waits for.
+app.post('/api/agent/closer/approve', requireAuth, require('./services/sendTimings').middleware('closer/approve'), async (req, res) => {
   try {
     const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
     const skip = Array.isArray(req.body.skip) ? req.body.skip : [];
@@ -1816,6 +1820,7 @@ app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
     // that athlete rather than trusting the posted id list.
     const out = await Closer.approveBatch(store.pool, req.session.userId,
       { ids, skip, athleteId: req.body.athleteId || null });
+    if (req._T) req._T.mark('approve');
     if (out.scheduled) kickRelease();
     // Logged with its channel, so approvals from the dashboard and approvals
     // from the digest email can be compared rather than guessed at. Only what
@@ -1823,6 +1828,8 @@ app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
     // already keeps, so this counts sends, not clicks.
     await PitchActions.logMany(store.pool,
       (out.when || []).map((w) => ({ pitchId: w.id, agentId: req.session.userId, action: 'approve', source: 'dashboard' })));
+    if (req._T) req._T.mark('log');
+    if (res.locals) res.locals.timingNote = `${out.scheduled} of ${ids.length} scheduled`;
     res.json(out);
   } catch (e) {
     // A REJECTED ID IS THE CLIENT'S FAULT, NOT A FAULT. approveBatch throws

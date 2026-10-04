@@ -75,6 +75,9 @@ async function senderFor(pool, agentId, cache) {
 
 function providerFor(account) {
   if (!account) return null;
+  // Tests only (NILDASH_TEST_FAKE_SEND): never a real mailbox.
+  const fake = require('../services/providers/fakeSend');
+  if (fake.active()) return fake;
   if (account.provider === 'gmail') return require('../services/providers/gmail');
   if (account.provider === 'outlook' || account.provider === 'microsoft365') {
     return require('../services/providers/outlook');

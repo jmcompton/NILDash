@@ -1479,8 +1479,18 @@ async function resumeOutreachAfterConnect() {
 
 // ── User actions ──────────────────────────────────────────────────────────────
 
+// ── SEND ANSWERS AT ONCE; THE EMAIL GOES BEHIND IT ───────────────────────────
+// The server claims the draft and answers 'sending' in milliseconds; this
+// polls GET /logs/:id/send-status until it says sent or failed. A second click
+// while one is in flight does nothing (and the server would answer it with the
+// running send's state anyway, never a second email).
+const _sendInFlight = {};
+const SEND_POLL_MS = 2000;
+const SEND_POLL_GIVE_UP_MS = 20 * 60 * 1000;
+
 async function sendOutreach(outreachId) {
   if (!outreachId) { showOutreachToast('No outreach draft found', true); return; }
+  if (_sendInFlight[outreachId]) return;
 
   const toEmail    = document.getElementById('outreach-to-email')?.value?.trim();
   const sel        = document.getElementById('outreach-from-account');
@@ -1503,7 +1513,27 @@ async function sendOutreach(outreachId) {
   if (!accountId) { showOutreachToast('Select a From account', true); return; }
 
   const btn = document.getElementById('outreach-send-btn');
+  const status = document.getElementById('outreach-send-status');
+  _sendInFlight[outreachId] = true;
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const sent = (to) => {
+    // Hard retire: an email actually sent through the platform is the strongest
+    // contacted signal. No undo. Retire the brand through the Deal Scan ledger.
+    if (window._dsOnBrandContacted) window._dsOnBrandContacted(OutreachEngineState.currentDealResult, 'email_sent', false);
+    if (status) {
+      status.style.color = '#84CC16';
+      status.textContent = `✅ Email sent to ${to || toEmail} — CRM updated automatically`;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = 'Sent ✓'; btn.style.background = '#4ade80'; }
+    showOutreachToast(`Email sent to ${to || toEmail}`);
+  };
+  const failed = (msg) => {
+    delete _sendInFlight[outreachId];
+    if (status) { status.style.color = '#f87171'; status.textContent = '❌ ' + (/^not sent/i.test(msg) ? msg : 'Send failed: ' + msg); }
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Email →'; }
+    showOutreachToast(/^not sent/i.test(msg) ? msg : 'Send failed: ' + msg, true);
+  };
 
   try {
     // Save any edits first
@@ -1512,24 +1542,28 @@ async function sendOutreach(outreachId) {
       await outreachAPI.patch('/logs/' + outreachId, { subject, body_html: bodyHtml });
     }
 
-    await outreachAPI.post('/logs/' + outreachId + '/send', { emailAccountId: accountId, toEmail });
+    const first = await outreachAPI.post('/logs/' + outreachId + '/send', { emailAccountId: accountId, toEmail });
+    if (first && first.state === 'sent') { sent(first.to); return; }
+    if (status) { status.style.color = '#60a5fa'; status.textContent = 'Sending… you can close this; it keeps going.'; }
 
-    // Hard retire: an email actually sent through the platform is the strongest
-    // contacted signal. No undo. Retire the brand through the Deal Scan ledger.
-    if (window._dsOnBrandContacted) window._dsOnBrandContacted(OutreachEngineState.currentDealResult, 'email_sent', false);
-
-    const status = document.getElementById('outreach-send-status');
-    if (status) {
-      status.style.color = '#84CC16';
-      status.textContent = `✅ Email sent to ${toEmail} — CRM updated automatically`;
+    // Until the server says sent or failed. Closing the modal does not stop the
+    // send; it only stops this page from watching it.
+    const t0 = Date.now();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, SEND_POLL_MS));
+      let st;
+      try { st = await outreachAPI.get('/logs/' + encodeURIComponent(outreachId) + '/send-status'); }
+      catch (_) { continue; }        // a blip while polling is not a failed send
+      if (st.state === 'sent') { sent(st.to); return; }
+      if (st.state === 'failed') { failed(st.error || 'the send failed'); return; }
+      if (st.held && st.error && status) status.textContent = 'Sending, held: ' + st.error;
+      if (Date.now() - t0 > SEND_POLL_GIVE_UP_MS) {
+        failed('still sending after 20 minutes. It has not been confirmed; check your Sent folder before sending again.');
+        return;
+      }
     }
-    if (btn) { btn.disabled = true; btn.textContent = 'Sent ✓'; btn.style.background = '#4ade80'; }
-    showOutreachToast(`Email sent to ${toEmail}`);
   } catch (e) {
-    const status = document.getElementById('outreach-send-status');
-    if (status) { status.style.color = '#f87171'; status.textContent = '❌ Send failed: ' + e.message; }
-    if (btn) { btn.disabled = false; btn.textContent = 'Send Email →'; }
-    showOutreachToast('Send failed: ' + e.message, true);
+    failed(e.message);
   }
 }
 

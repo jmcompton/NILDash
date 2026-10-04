@@ -420,6 +420,9 @@ async function approveBatch(pool, agentId, opts = {}) {
         AND ($3::text IS NULL OR l.athlete_id = $3)
         AND l.status = 'draft' AND l.approved_at IS NULL
         AND l.cadence_stopped_at IS NULL
+        -- Not while the editor's Send is sending it (routes/outreach claims
+        -- the row first); a claim older than 15 minutes was a crash.
+        AND (l.send_claimed_at IS NULL OR l.send_claimed_at < NOW() - INTERVAL '15 minutes')
         -- Same due-date rule as buildBatch: a follow-up posted early is not
         -- approvable yet, and is reported below as "not due yet".
         AND (l.next_follow_up_at IS NULL OR l.next_follow_up_at <= $4)`,
@@ -495,15 +498,26 @@ async function approveBatch(pool, agentId, opts = {}) {
     // DUE NOW. No slot, no window: the release queue picks it up at once and
     // spaces it behind whatever this agent already has going out.
     const kit = kitLineFor(r);
-    await pool.query(
+    // ── STILL A DRAFT, OR NOTHING ────────────────────────────────────────
+    // The SELECT above and this write are two statements, and a second click
+    // (or a second tab) runs the same pair. This matched on id alone, so the
+    // later request re-approved a row the first had already approved -- and
+    // cleared send_claimed_at, the release queue's claim, on an email it might
+    // be sending at that moment, letting the queue claim and send it again.
+    // Now the write itself requires the draft, so exactly one request wins and
+    // the other counts it as no longer waiting on approval.
+    const upd = await pool.query(
       `UPDATE outreach_logs
           SET status = 'approved', approved_at = NOW(), approved_by = $2,
               scheduled_send_at = $3, send_timezone = NULL,
               send_hold_reason = NULL, send_hold_at = NULL, send_claimed_at = NULL, send_failures = 0,
               body_html = COALESCE($4, body_html), updated_at = NOW()
-        WHERE id = $1`,
+        WHERE id = $1 AND status = 'draft' AND approved_at IS NULL AND sent_at IS NULL
+          AND (send_claimed_at IS NULL OR send_claimed_at < NOW() - INTERVAL '15 minutes')
+        RETURNING id`,
       [r.id, agentId, dueNow,
         kit ? String(r.body_html || '') + kit : null]);
+    if (!upd.rowCount) { dropped.push({ id: r.id, why: 'not an approvable draft any more' }); continue; }
     scheduled++;
     when.push({ id: r.id, brand: r.brand_name, at: dueNow });
 
@@ -546,7 +560,7 @@ async function approveBatch(pool, agentId, opts = {}) {
     if (stale) bits.push(`${stale} were no longer waiting on approval`);
   }
   return {
-    approved: rows.length, scheduled, skipped: skip.size, overflow,
+    approved: scheduled, scheduled, skipped: skip.size, overflow,
     dropped, requested: ids.length, when,
     note: bits.length
       ? bits.join('. ').replace(/^./, (ch) => ch.toUpperCase()) + '.'
