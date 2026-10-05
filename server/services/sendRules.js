@@ -60,6 +60,7 @@ const SYSTEMS = {
   inquiry: 'brand inquiry forward',
   brief: 'prospecting brief',
   reply: 'manual (reply in an inbox thread)',
+  'mailbox-followup': 'follow-up to a sales conversation (admin mailbox)',
 };
 
 // Notices are not outreach: suppression only. A reply inside a thread the

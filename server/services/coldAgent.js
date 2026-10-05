@@ -806,5 +806,5 @@ module.exports = {
   runDemo, usable, checkEmail, templateEmail, writeEmail, prepare, runOnce, detectReplies, approve, sendOne, skip, mark,
   listDrafts, listRuns, centralNow, dueAt, pastDeadline, tick, start,
   SANDBOX_AGENT, SYSTEM, MAX_TOUCHES, GAP_DAYS, ACTIVE_DAYS, DORMANT_DAYS, PAYING, DEFAULTS, INTERNAL_NAMES, FOOTER_WHY,
-  loginProblem, heldFor, MIN_DEMO_CARDS, NO_DEMO_RETRY_DAYS, HELD_PARTNERS, usesFirmFact, numbersIn, whenRan, BANNED,
+  loginProblem, heldFor, MIN_DEMO_CARDS, NO_DEMO_RETRY_DAYS, HELD_PARTNERS, usesFirmFact, numbersIn, whenRan, BANNED, textToHtml, adminEmail,
 };

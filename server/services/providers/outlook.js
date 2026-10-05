@@ -45,6 +45,12 @@ try { MicrosoftGraph = require('@microsoft/microsoft-graph-client'); } catch (e)
 const G = (x) => 'https://graph.microsoft.com/' + x;
 const SCOPES_SEND = [G('Mail.Send'), G('User.Read'), 'offline_access'];
 const SCOPES_READ = [G('Mail.Send'), G('Mail.Read'), G('User.Read'), 'offline_access'];
+// PROSPECTS (the admin's own mailbox only, services/mailboxProspects): read
+// plus the calendar, for the sales calls booked through Calendly and Teams.
+// Offered by one route, to the admin login alone; never to a customer.
+const SCOPES_PROSPECTS = [...SCOPES_READ, G('Calendars.Read')];
+const scopesFor = (opts = {}) => (opts.calendar ? SCOPES_PROSPECTS : opts.read ? SCOPES_READ : SCOPES_SEND);
+const canCalendarFrom = (granted) => (granted || []).some((g) => /Calendars\.Read(Write)?$/i.test(String(g)));
 const SCOPES = SCOPES_SEND;
 const canReadFrom = (granted) => (granted || []).some((g) => /Mail\.Read(Write)?$/i.test(String(g)));
 const DEFAULT_REDIRECT = 'https://mynildash.com/api/email/oauth/outlook/callback';
@@ -60,7 +66,8 @@ function getAuthUrl(stateToken, opts = {}) {
   if (!isAvailable()) throw new Error('Outlook is not configured on this server (OUTLOOK_CLIENT_ID / OUTLOOK_CLIENT_SECRET)');
   const q = new URLSearchParams({
     client_id: process.env.OUTLOOK_CLIENT_ID, response_type: 'code', redirect_uri: redirectUri(),
-    response_mode: 'query', scope: (opts.read ? SCOPES_READ : SCOPES_SEND).join(' '), state: stateToken,
+    response_mode: 'query', scope: scopesFor(opts).join(' '), state: stateToken,
+    ...(opts.loginHint ? { login_hint: String(opts.loginHint) } : {}),
     // Always the account picker: an agent signed in to a personal Outlook in
     // the same browser must be able to choose the work mailbox.
     prompt: 'select_account',
@@ -97,7 +104,7 @@ async function tokenRequest(params) {
 
 async function exchangeCode(code, opts = {}) {
   if (!isAvailable()) throw new Error('Outlook is not configured on this server');
-  const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(), scope: (opts.read ? SCOPES_READ : SCOPES_SEND).join(' ') });
+  const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(), scope: scopesFor(opts).join(' ') });
   if (!t.refreshToken) throw new Error('Microsoft did not return a refresh token (offline_access was not granted), so this mailbox could not stay connected. Reconnect and accept every permission.');
   const profile = await getGraphClient(t.accessToken).api('/me').select('mail,userPrincipalName,displayName').get();
   const granted = t.scope.split(/\s+/).filter(Boolean);
@@ -110,6 +117,7 @@ async function exchangeCode(code, opts = {}) {
     // a mailbox that cannot send must not claim it can.
     canSend: granted.length ? granted.some((g) => /Mail\.Send$/i.test(g)) : null,
     canRead: canReadFrom(granted),
+    canCalendar: canCalendarFrom(granted),
   };
 }
 
@@ -288,4 +296,4 @@ function extractSkip(nextLink) {
 }
 
 module.exports = { isAvailable, getAuthUrl, exchangeCode, refreshAccessToken, fetchMessages, sendEmail, normalizeGraphMessage, adminConsentUrl, isConsentError,
-  SCOPES, SCOPES_SEND, SCOPES_READ, canReadFrom, redirectUri, adminRedirectUri, DEFAULT_REDIRECT };
+  SCOPES, SCOPES_SEND, SCOPES_READ, SCOPES_PROSPECTS, scopesFor, canReadFrom, canCalendarFrom, redirectUri, adminRedirectUri, DEFAULT_REDIRECT };

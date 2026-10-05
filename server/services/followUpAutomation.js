@@ -139,6 +139,13 @@ async function runFollowUpCheck() {
   // agent's morning queue. Nothing here sends.
   try { await require('./followUps').run(pool); }
   catch (e) { console.error('[followUpAutomation] follow-ups failed:', e.message); }
+  // THE ADMIN'S OWN PIPELINE (services/mailboxProspects): read the one
+  // prospect mailbox and its calendar, stop what was answered, draft what is
+  // due. Does nothing until that mailbox is connected under the admin login.
+  try {
+    const r = await require('./mailboxProspects').run(pool);
+    if (r.ok && (r.drafted.length || r.stopped.length)) console.log(`[mailboxProspects] ${r.prospects} conversations, drafted ${r.drafted.length}, stopped ${r.stopped.length}`);
+  } catch (e) { console.error('[followUpAutomation] mailbox prospects failed:', e.message); }
   // Get all sent outreach with no reply, older than 4 days
   const day4Cutoff = new Date(Date.now() - FOLLOW_UP_DAY_1 * 24 * 60 * 60 * 1000).toISOString();
 

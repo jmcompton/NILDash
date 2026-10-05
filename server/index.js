@@ -12108,6 +12108,43 @@ app.post('/api/admin/cold-agent/prospects/:userId/mark', _coldAdmin, async (req,
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── TALKED TO, NO DEAL (services/mailboxProspects) ───────────────────────────
+// The admin's own Outlook (PROSPECT_MAILBOX) and calendar as a prospect source.
+// Admin only, like everything on /admin/prospects. Connecting asks Microsoft
+// for mail AND calendar read on that one mailbox; the email routes refuse the
+// calendar flag to anyone but the admin.
+app.get('/admin/prospects/connect-mailbox', _coldAdmin, (req, res) => {
+  res.redirect('/api/email/oauth/outlook?calendar=1&returnTo=' + encodeURIComponent('/admin/prospects'));
+});
+app.get('/api/admin/mailbox-prospects', _coldAdmin, async (req, res) => {
+  try {
+    const MP = require('./services/mailboxProspects');
+    res.json({ status: await MP.status(store.pool), prospects: await MP.list(store.pool) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/mailbox-prospects/sync', _coldAdmin, async (req, res) => {
+  try {
+    const r = await require('./services/mailboxProspects').run(store.pool);
+    res.status(r.ok ? 200 : 409).json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/mailbox-prospects/drafts/:id/approve', _coldAdmin, async (req, res) => {
+  try {
+    const r = await require('./services/mailboxProspects').approve(store.pool, req.params.id, req.body || {});
+    res.status(r.ok ? 200 : (r.status || 400)).json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/mailbox-prospects/drafts/:id/skip', _coldAdmin, async (req, res) => {
+  try { res.json(await require('./services/mailboxProspects').skip(store.pool, req.params.id, (req.body || {}).note)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/mailbox-prospects/:id/mark', _coldAdmin, async (req, res) => {
+  try {
+    const r = await require('./services/mailboxProspects').mark(store.pool, req.params.id, (req.body || {}).as);
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── /admin/inbound ────────────────────────────────────────────────────────────
 // The last 20 inbound webhook payloads, matched or not. This exists because the
 // Railway database is not reachable from a laptop: without a page, "did the

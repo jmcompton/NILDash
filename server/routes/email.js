@@ -225,8 +225,19 @@ router.get('/oauth/outlook', async (req, res) => {
     const returnTo = safeReturnTo(req.query.returnTo);
     // ?read=1: the optional upgrade, "also read replies from this mailbox".
     const read = req.query.read === '1';
-    const state = encodeState({ userId: req.session.userId, provider: 'outlook', returnTo: returnTo || undefined, read: read || undefined });
-    const url = await outlook.getAuthUrl(state, { read });
+    // ?calendar=1: the admin's prospect mailbox (services/mailboxProspects),
+    // mail AND calendar. Only the admin login may ask for it; for anyone
+    // else the flag is ignored and the ordinary connection is offered.
+    let calendar = false;
+    if (req.query.calendar === '1') {
+      const { pool } = require('../store');
+      const me = (await pool.query('SELECT email FROM users WHERE id = $1', [req.session.userId])).rows[0];
+      calendar = !!me && String(me.email || '').toLowerCase() === require('../services/coldAgent').adminEmail();
+      if (!calendar) return res.status(403).json({ error: 'Calendar access is only for the admin prospect mailbox.' });
+    }
+    const state = encodeState({ userId: req.session.userId, provider: 'outlook', returnTo: returnTo || undefined, read: (read || calendar) || undefined, calendar: calendar || undefined });
+    const url = await outlook.getAuthUrl(state, { read: read || calendar, calendar,
+      loginHint: calendar ? require('../services/mailboxProspects').mailboxAddress() : undefined });
     res.redirect(url);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -255,7 +266,7 @@ router.get('/oauth/outlook/callback', async (req, res) => {
     const { userId } = st;
     if (!userId) return res.status(400).send('Invalid state parameter');
 
-    const tokens = await outlook.exchangeCode(code, { read: !!st.read });
+    const tokens = await outlook.exchangeCode(code, { read: !!st.read, calendar: !!st.calendar });
     const accountId = 'ea_' + crypto.randomBytes(8).toString('hex');
 
     // Saved like Gmail: with the scopes Microsoft granted, and marked
@@ -271,6 +282,8 @@ router.get('/oauth/outlook/callback', async (req, res) => {
     const { pool } = require('../store');
     const r = await pool.query('SELECT * FROM email_accounts WHERE id=$1', [(saved && saved.id) || accountId]);
     if (r.rows[0]) emailSync.syncAccount(r.rows[0]).catch(() => {});
+    // The admin's prospect mailbox: read it now, so the page fills in.
+    if (st.calendar) require('../services/mailboxProspects').run(pool).catch((e) => console.error('[mailbox-prospects] first run:', e.message));
 
     if (tokens.canSend === false) {
       const why = 'Outlook connected, but permission to send email was not granted. Reconnect and accept "Send mail as you".';

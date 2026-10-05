@@ -75,6 +75,14 @@ Nothing is sent until you approve it. Max 3 touches per person, 10 days apart; a
   </div>
 </div>
 
+<div class="box" id="talked-box">
+  <h3 style="margin-top:0">Talked to, no deal</h3>
+  <p class="small" style="margin-bottom:10px">From your own mailbox and calendar (<span id="mbp-addr">…</span>): every sales call and email conversation with someone who is not a NILDash user and not one of us. Newest silence first.
+    No reply 4 days after your last word drafts follow-up 1 here; 7 days later, follow-up 2, the last. Nothing sends until you approve, and a reply in your mailbox stops it dead.</p>
+  <div class="row" id="mbp-status"><span class="small">Loading…</span></div>
+  <div id="mbp-list" style="margin-top:12px"></div>
+</div>
+
 <div class="box">
   <h3 style="margin-top:0">Runs</h3>
   <table class="runs"><tbody id="runs"><tr><td>Loading…</td></tr></tbody></table>
@@ -275,7 +283,82 @@ function startPoll(ms) {
     if (stillSending || Object.keys(_inflight).length || running) startPoll(ms);
   }, ms);
 }
-loadSettings(); loadPick(); loadRuns(); loadDrafts();
+// ── TALKED TO, NO DEAL ─────────────────────────────────────────────────────
+async function mbpApi(method, path, body) {
+  var r = await fetch('/api/admin/mailbox-prospects' + path, { method: method, credentials: 'same-origin',
+    headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  var j = await r.json().catch(function () { return {}; });
+  if (!r.ok && !j.error && !j.why) j.error = 'error ' + r.status;
+  return j;
+}
+function ago(d) { if (!d) return ''; var n = Math.floor((Date.now() - new Date(d).getTime()) / 86400000); return n <= 0 ? 'today' : n === 1 ? 'yesterday' : n + ' days ago'; }
+async function loadMailboxProspects() {
+  var j = await mbpApi('GET', '');
+  var st = j.status || {};
+  document.getElementById('mbp-addr').textContent = st.address || '';
+  var s = [];
+  if (!st.available) s.push('<span class="err" style="margin:0">Outlook is not configured on this server.</span>');
+  else if (!st.connected) s.push('<span class="err" style="margin:0">' + esc(st.why || 'Not connected.') + '</span> <a href="/admin/prospects/connect-mailbox"><button class="go">Connect ' + esc(st.address) + ' (mail and calendar)</button></a>');
+  else {
+    s.push('<span class="small">Connected · mail ' + (st.canRead ? 'yes' : '<b class="err" style="margin:0">no</b>') + ' · calendar ' + (st.canCalendar ? 'yes' : '<b class="err" style="margin:0">no</b>') + '</span>');
+    if (!st.canCalendar || !st.canRead) s.push('<a href="/admin/prospects/connect-mailbox"><button>Reconnect with mail and calendar</button></a>');
+    s.push('<button onclick="mbpSync(this)">Read the mailbox now</button>');
+  }
+  if (st.lastRun) s.push('<span class="small">Last read ' + esc(when(st.lastRun.started_at)) + ': ' + esc(st.lastRun.note || 'running…') + '</span>');
+  document.getElementById('mbp-status').innerHTML = s.join(' ');
+  var list = j.prospects || [];
+  document.getElementById('mbp-list').innerHTML = list.length ? list.map(mbpCard).join('') : (st.connected ? '<p class="small">No conversations found yet.</p>' : '');
+}
+function mbpCard(p) {
+  var people = (p.people || []).map(function (x) { return esc(x.name ? x.name + ' <' + x.email + '>' : x.email); }).join(', ');
+  var how = { 'they emailed': 'they emailed you', 'you emailed': 'you emailed them', meeting: 'a call' }[p.last_spoke_how] || p.last_spoke_how || '';
+  var line = p.status !== 'open' ? '<span class="state failed">' + esc(p.stop_reason || p.status) + '</span>'
+    : /^they replied/.test(p.state_note || '') ? '<span class="state sent">Your move: ' + esc(p.state_note) + '</span>'
+    : '<span class="state sending">' + esc(p.state_note || '') + '</span>';
+  var sent = (p.drafts || []).filter(function (d) { return d.status === 'sent'; }).map(function (d) { return 'follow-up ' + (d.touch_no - 1) + ' sent ' + when(d.sent_at); });
+  var d = p.pending;
+  var draft = '';
+  if (d) {
+    var pend = d.status === 'pending';
+    draft = '<h3>' + (d.touch_no >= 3 ? 'Follow-up 2 of 2 (the last)' : 'Follow-up 1 of 2') + ' to ' + esc(d.name ? d.name + ' <' + d.email + '>' : d.email) + '</h3>'
+      + (pend ? '<input type="text" id="mbs-' + esc(d.id) + '" value="' + esc(d.subject) + '" aria-label="Subject"><textarea id="mbb-' + esc(d.id) + '" aria-label="Email" style="margin-top:8px;min-height:150px">' + esc(d.body_text) + '</textarea>'
+          + '<div class="small" style="margin-top:4px">Sent from ' + esc(document.getElementById('mbp-addr').textContent) + ', with the unsubscribe footer added. Checked against your mailbox for a reply first.</div>'
+        : '<div class="meta"><b>' + esc(d.subject) + '</b> · ' + esc(d.status === 'sending' ? 'Sending…' : 'Send failed: ' + (d.send_error || '')) + '</div>')
+      + '<div class="actions">' + (pend ? '<button class="go" onclick="mbpApprove(\'' + esc(d.id) + '\', this)">Approve and send</button>' : '') + (d.status !== 'sending' ? '<button onclick="mbpSkip(\'' + esc(d.id) + '\', this)">Skip</button>' : '') + '</div><div class="msg" id="mbm-' + esc(d.id) + '"></div>';
+  }
+  return '<div class="card"><div class="who"><div><div class="name">' + esc(p.company || (p.people && p.people[0] && (p.people[0].name || p.people[0].email)) || p.key) + '</div>'
+    + '<div class="meta">' + people + '</div>'
+    + '<div class="meta">Last spoke ' + esc(day(p.last_spoke_at)) + ' (' + esc(ago(p.last_spoke_at)) + ', ' + esc(how) + ')' + (p.last_subject ? ' · "' + esc(p.last_subject) + '"' : '') + (p.via ? ' · ' + esc(p.via) : '') + '</div>'
+    + (sent.length ? '<div class="meta">' + esc(sent.join(' · ')) + '</div>' : '')
+    + '</div><div>' + line + '</div></div>' + draft
+    + '<div class="actions">'
+    + (p.status === 'open' ? '<button onclick="mbpMark(' + Number(p.id) + ', \'customer\')">Became a customer</button><button onclick="mbpMark(' + Number(p.id) + ', \'no\')">They said no</button>' : '')
+    + '<button onclick="mbpMark(' + Number(p.id) + ', \'exclude\')">Not a prospect</button></div></div>';
+}
+async function mbpSync(btn) {
+  btn.disabled = true; btn.textContent = 'Reading…';
+  var r = await mbpApi('POST', '/sync');
+  if (r.why || r.error) alert(r.why || r.error);
+  btn.disabled = false; btn.textContent = 'Read the mailbox now';
+  loadMailboxProspects();
+}
+async function mbpApprove(id, btn) {
+  btn.disabled = true; btn.textContent = 'Checking for a reply, then sending…';
+  var r = await mbpApi('POST', '/drafts/' + encodeURIComponent(id) + '/approve', { subject: document.getElementById('mbs-' + id).value, body: document.getElementById('mbb-' + id).value });
+  var m = document.getElementById('mbm-' + id);
+  if (r.error) { m.className = 'err'; m.textContent = r.error; btn.disabled = false; btn.textContent = 'Approve and send'; if (r.state === 'skipped') setTimeout(loadMailboxProspects, 1500); return; }
+  m.className = 'ok'; m.textContent = 'Sending from your mailbox…';
+  setTimeout(loadMailboxProspects, 4000);
+}
+async function mbpSkip(id, btn) { btn.disabled = true; await mbpApi('POST', '/drafts/' + encodeURIComponent(id) + '/skip', {}); loadMailboxProspects(); }
+async function mbpMark(id, as) {
+  var words = { customer: 'They became a customer: take them out of this list?', no: 'They said no: never email them again, from anything?', exclude: 'Not a prospect (a vendor, a friend): never list them again?' };
+  if (!confirm(words[as])) return;
+  var r = await mbpApi('POST', '/' + id + '/mark', { as: as });
+  if (r.error) alert(r.error);
+  loadMailboxProspects();
+}
+loadSettings(); loadPick(); loadRuns(); loadDrafts(); loadMailboxProspects();
 </script>
 </body>
 </html>
