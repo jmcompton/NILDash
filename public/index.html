@@ -2010,6 +2010,15 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-outstate.sent{color:var(--accent,#C8F135);border-color:rgba(200,241,53,.35)}
 .hq-outstate.stopped{color:var(--red,#FF3D5A);border-color:rgba(255,61,90,.35)}
 .hq-outwhy{margin:-4px 14px 12px 34px;font-size:12px;color:var(--muted,#9a9a8e)}
+.hq-sentrow .hq-rowbtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+.hq-mark{font-size:11.5px;padding:5px 10px;border-radius:999px;background:transparent;border:1px solid var(--border,#2a2a2a);color:var(--muted,#9a9a8e);cursor:pointer;font-family:inherit}
+.hq-mark:hover{color:var(--text,#fff);border-color:var(--muted,#9a9a8e)}
+.hq-mark.deal{color:#84CC16;border-color:rgba(132,204,22,.45);font-weight:700}
+.hq-mark[disabled]{opacity:.5;cursor:default}
+.hq-sentstate{font-size:11.5px;padding:4px 10px;border-radius:999px;border:1px solid var(--border,#2a2a2a);color:var(--muted,#9a9a8e);white-space:nowrap}
+.hq-sentstate.replied{color:#60a5fa;border-color:rgba(96,165,250,.35)}
+.hq-sentstate.signed{color:#84CC16;border-color:rgba(132,204,22,.45);background:rgba(132,204,22,.12);font-weight:700}
+.hq-sentstate.declined{color:var(--muted,#9a9a8e)}
 @media (max-width:560px){ .hq-outstate{width:auto} .hq-outwhy{margin-left:17px} }
 .hq-mail dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0 0 12px}
 .hq-mail dt{color:var(--dim,#63635a);font-size:12px;text-transform:uppercase;
@@ -15267,7 +15276,7 @@ function nilBadgeHtml(flags) {
   if (flags.nilActive) return '<span title="This business has completed an NIL deal on NILDash." style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35);margin-left:6px;vertical-align:middle">NIL-active</span>';
   return '';
 }
-function dealSignedOpen(athleteId, brand, brandKey) {
+function dealSignedOpen(athleteId, brand, brandKey, queueId) {
   if (!athleteId || !brand) { showToast('Which athlete and which business?'); return; }
   if (!DEALFORM) {
     DEALFORM = document.createElement('div');
@@ -15290,6 +15299,7 @@ function dealSignedOpen(athleteId, brand, brandKey) {
   DEALFORM.dataset.athleteId = athleteId;
   DEALFORM.dataset.brand = brand;
   DEALFORM.dataset.brandKey = brandKey || '';
+  DEALFORM.dataset.queueId = queueId || '';
   document.getElementById('deal-form-title').textContent = 'Deal signed with ' + brand;
   document.getElementById('deal-form-value').value = '';
   document.getElementById('deal-form-what').value = '';
@@ -15305,6 +15315,7 @@ async function dealSignedSave() {
     athleteId: DEALFORM.dataset.athleteId,
     brand: DEALFORM.dataset.brand,
     brandKey: DEALFORM.dataset.brandKey || null,
+    queueId: DEALFORM.dataset.queueId || null,
     value: (document.getElementById('deal-form-value').value || '').trim() || null,
     deliverable: (document.getElementById('deal-form-what').value || '').trim() || null,
   };
@@ -15319,6 +15330,7 @@ async function dealSignedSave() {
     if (typeof mbLoad === 'function' && document.getElementById('mb-body')) mbLoad();
     if (typeof loadPipeline === 'function') loadPipeline();
     if (typeof loadKPIs === 'function') loadKPIs();
+    if (DEALFORM.dataset.queueId && typeof hqLoad === 'function' && typeof HQ !== 'undefined') hqLoad(HQ.selected);
   } catch (e) { err.textContent = 'Could not save: ' + e.message; }
   finally { btn.disabled = false; btn.textContent = 'Save deal'; }
 }
@@ -21089,6 +21101,7 @@ function hqRender() {
   // empty, paused or full -- a control that moves depending on what the queue
   // happens to hold is a control nobody can find twice.
   html += hqOutboxHtml(d);
+  html += hqSentHtml(d);
   html += hqFillPanel(d);
   panel.innerHTML = html;
   hqPollOutbox(d);
@@ -21351,6 +21364,56 @@ function hqOutboxHtml(d) {
         + '</div>';
     }).join('') + '</div>';
 }
+
+// ── SENT, AND WHAT HAPPENED ────────────────────────────────────────────────
+// Every card that went out for this athlete in the last 90 days. One tap to
+// record what came back: they replied, not interested, or a deal was signed
+// (the deal form: value and what they will do, both optional). A signed deal
+// says so on the row with an Undo.
+function hqSentHtml(d) {
+  var rows = d.sent || [];
+  if (!rows.length) return '';
+  var signed = rows.filter(function (r) { return r.outcome === 'signed'; }).length;
+  var replied = rows.filter(function (r) { return r.outcome === 'replied' || r.outcome === 'declined'; }).length;
+  var head = rows.length + ' sent' + (replied ? ' &middot; ' + replied + ' replied' : '') + (signed ? ' &middot; ' + signed + ' signed' : '');
+  var CH = { email: 'Email', dm: 'DM', call: 'Call', program: 'Program' };
+  return '<p class="hq-sub hq-outhd">Sent &middot; what happened? <span style="font-weight:400">' + head + '</span></p>'
+    + '<div class="hq-cards">' + rows.map(function (r) {
+      var state = '', btns = '';
+      if (r.outcome === 'signed') {
+        state = '<span class="hq-sentstate signed">Deal signed' + (r.dealValue ? ' &middot; $' + Number(r.dealValue).toLocaleString() : '') + '</span>';
+        if (r.dealId) btns = '<button class="hq-mark" onclick="hqSentUndo(' + Number(r.dealId) + ')">Undo</button>';
+      } else {
+        if (r.outcome === 'replied') state = '<span class="hq-sentstate replied">Replied</span>';
+        else if (r.outcome === 'declined') state = '<span class="hq-sentstate declined">Not interested</span>';
+        if (r.outcome !== 'replied' && r.outcome !== 'declined') btns += '<button class="hq-mark" onclick="hqSentMark(this,' + Number(r.id) + ',\'replied\')">They replied</button>';
+        if (r.outcome !== 'declined') btns += '<button class="hq-mark" onclick="hqSentMark(this,' + Number(r.id) + ',\'declined\')">Not interested</button>';
+        btns += '<button class="hq-mark deal" onclick="hqSentDeal(' + Number(r.id) + ')">Deal signed</button>';
+      }
+      var when = r.sentAt ? new Date(r.sentAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+      return '<div class="hq-card hq-row hq-sentrow">'
+        + '<div class="hq-rowhead hq-outhead">'
+        + '<span class="hq-rowtxt"><span class="hq-rowbiz">' + hqEscape(r.business || 'A business') + '</span>'
+        + '<span class="hq-rowwho">' + [r.contact, CH[r.channel] || r.channel, when ? 'sent ' + when : null].filter(Boolean).map(hqEscape).join(' &middot; ') + '</span></span>'
+        + '<span class="hq-rowbtns">' + state + btns + '</span>'
+        + '</div></div>';
+    }).join('') + '</div>';
+}
+async function hqSentMark(btn, id, outcome) {
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/outreach-queue/' + id + '/outcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ outcome: outcome }) });
+    if (!r.ok) { var e = await r.json().catch(function () { return {}; }); showToast(e.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
+    showToast(outcome === 'declined' ? 'Marked not interested' : 'Marked replied');
+    hqLoad(HQ.selected);
+  } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }
+}
+function hqSentDeal(id) {
+  var r = ((HQ.data && HQ.data.sent) || []).find(function (x) { return x.id === id; });
+  if (!r) return;
+  dealSignedOpen(HQ.selected, r.business, r.brandKey, id);
+}
+async function hqSentUndo(dealId) { await dealUndo(dealId); hqLoad(HQ.selected); }
 
 function hqClock(at) {
   if (!at) return '';

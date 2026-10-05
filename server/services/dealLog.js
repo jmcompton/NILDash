@@ -55,6 +55,27 @@ async function ensureTable(pool) {
   await pool.query(`ALTER TABLE deal_outcomes ADD COLUMN IF NOT EXISTS undone_at TIMESTAMPTZ`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outcomes_brand_key ON deal_outcomes(brand_key)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outcomes_agent ON deal_outcomes(agent_id)`).catch(() => {});
+  // THE DEAL ON THE LEDGER ROW ITSELF. state 'closed' already meant signed;
+  // these say which deal and for how much, so a read of brand_engagement alone
+  // answers "has this product ever produced a deal".
+  await pool.query(`ALTER TABLE brand_engagement ADD COLUMN IF NOT EXISTS deal_outcome_id INT`).catch(() => {});
+  await pool.query(`ALTER TABLE brand_engagement ADD COLUMN IF NOT EXISTS deal_value NUMERIC`).catch(() => {});
+  await pool.query(`ALTER TABLE brand_engagement ADD COLUMN IF NOT EXISTS deal_signed_at TIMESTAMPTZ`).catch(() => {});
+}
+
+// THE CARD THE DEAL CAME FROM. Every sent card for this athlete and business
+// is marked closed (and replied: a signed deal was answered), whichever page
+// the deal was logged on. Returns the card ids it marked.
+async function markCards(pool, { agentId, athleteId, brand, queueId }) {
+  try {
+    const r = await pool.query(
+      `UPDATE outreach_queue
+          SET outcome = 'closed', outcome_at = NOW(), updated_at = NOW(), replied_at = COALESCE(replied_at, NOW())
+        WHERE agent_id = $1 AND athlete_id = $2 AND state = 'sent'
+          AND (id = $4 OR LOWER(TRIM(brand_name)) = LOWER(TRIM($3)))
+        RETURNING id`, [agentId, athleteId, brand, Number(queueId) || -1]);
+    return r.rows.map((x) => x.id);
+  } catch (e) { console.error('[deal-log] could not mark the card:', e.message); return []; }
 }
 
 // What the athlete brings to the row, for the fit model. Every field is
@@ -76,8 +97,21 @@ async function athleteFacts(pool, athleteId) {
 // ── LOG IT ──────────────────────────────────────────────────────────────────
 // Returns { ok, id, brand, athleteId, value, deliverable, stage } or
 // { ok:false, error } in words an agent can read.
-async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, deliverable, category, contactEmail, source, now } = {}) {
-  const brand = text(brandName, 200);
+async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, deliverable, category, contactEmail, source, now, queueId } = {}) {
+  let brand = text(brandName, 200);
+  // FROM A HOME CARD: the card names the athlete, the business and its key,
+  // and it must be this agent's.
+  if (queueId) {
+    let card;
+    try { card = (await pool.query(`SELECT athlete_id, brand_name, brand_key, business_category, email FROM outreach_queue WHERE id = $1 AND agent_id = $2`, [queueId, agentId])).rows[0]; }
+    catch (e) { return { ok: false, error: 'Could not read the card: ' + e.message }; }
+    if (!card) return { ok: false, error: 'That card is not one of yours.' };
+    athleteId = athleteId || card.athlete_id;
+    brand = brand || text(card.brand_name, 200);
+    brandKey = brandKey || card.brand_key || null;
+    category = category || card.business_category || null;
+    contactEmail = contactEmail || card.email || null;
+  }
   if (!agentId) return { ok: false, error: 'Sign in again: the deal needs an agent on it.' };
   if (!athleteId) return { ok: false, error: 'Which athlete signed this deal?' };
   if (!brand) return { ok: false, error: 'Which business signed the deal?' };
@@ -139,9 +173,17 @@ async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, d
   } catch (e) {
     console.error(`[deal-log] ledger write failed for "${brand}": ${e.message}`);
   }
+  try {
+    await pool.query(
+      `UPDATE brand_engagement SET deal_outcome_id = $3, deal_value = $4, deal_signed_at = $5, updated_at = NOW()
+        WHERE athlete_id = $1 AND state = 'closed'
+          AND (LOWER(TRIM(brand_name)) = LOWER(TRIM($2)) OR brand_key = $6)`,
+      [athleteId, brand, id, val, when, brandKey || '']);
+  } catch (e) { console.error(`[deal-log] ledger deal columns for "${brand}": ${e.message}`); }
+  const cards = await markCards(pool, { agentId, athleteId, brand, queueId });
 
   console.log(`[deal-log] agent=${agentId} athlete=${athleteId} "${brand}" signed${val ? ' $' + val : ' (no value given)'}${what ? ' — ' + what : ''} (outcome ${id})`);
-  return { ok: true, id, brand, athleteId, athleteName: facts.name, value: val, deliverable: what, stage: stage || 'Closed' };
+  return { ok: true, id, brand, athleteId, athleteName: facts.name, value: val, deliverable: what, stage: stage || 'Closed', cards };
 }
 
 // ── UNDO ────────────────────────────────────────────────────────────────────
@@ -191,11 +233,17 @@ async function undoDeal(pool, { agentId, id } = {}) {
           AND replied_at IS NOT NULL LIMIT 1`, [agentId, row.athlete_id, row.brand])).rows[0];
     const back = replied ? 'responded' : 'contacted';
     await pool.query(
-      `UPDATE brand_engagement SET state = $1, outcome = NULL, outcome_at = NULL, updated_at = NOW()
+      `UPDATE brand_engagement SET state = $1, outcome = NULL, outcome_at = NULL, updated_at = NOW(),
+              deal_outcome_id = NULL, deal_value = NULL, deal_signed_at = NULL
         WHERE athlete_id = $2 AND state = 'closed'
           AND (LOWER(TRIM(brand_name)) = LOWER(TRIM($3)) OR brand_key = $4)`,
       [back, row.athlete_id, row.brand, row.brand_key || '']);
   } catch (e) { console.error('[deal-log] undo could not revert the ledger:', e.message); }
+  // The card goes back to "they replied": it was answered, it was not signed.
+  await pool.query(
+    `UPDATE outreach_queue SET outcome = 'replied', outcome_at = NOW(), updated_at = NOW()
+      WHERE agent_id = $1 AND athlete_id = $2 AND outcome = 'closed' AND LOWER(TRIM(brand_name)) = LOWER(TRIM($3))`,
+    [agentId, row.athlete_id, row.brand]).catch((e) => console.error('[deal-log] undo could not revert the card:', e.message));
 
   console.log(`[deal-log] agent=${agentId} UNDID deal ${id} "${row.brand}"`);
   return { ok: true, id, brand: row.brand, stage: stage || null };

@@ -229,8 +229,8 @@ const CAND = (over) => Object.assign({
     ok('  something sent yesterday is not chased', w.indexOf(2) === -1, w);
     ok('  nor something already answered', w.indexOf(3) === -1, w);
     ok('  nor an unsent card', w.indexOf(4) === -1, w);
-    ok('the three outcomes are the ones asked for',
-      String(Q.OUTCOMES) === 'no_reply,replied,closed', Q.OUTCOMES);
+    ok('the outcomes are the ones asked for: no reply, replied, not interested (declined), deal signed (closed)',
+      String(Q.OUTCOMES) === 'no_reply,replied,declined,closed', Q.OUTCOMES);
   }
 
   console.log('\n-- A FREED SLOT DOES NOT REFILL UNTIL THE NEXT NIGHT --');

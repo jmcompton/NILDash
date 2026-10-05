@@ -90,7 +90,12 @@ const MAX_ATTEMPTS_PER_SLOT = 3;
 // five with three pieces of filler in it, and the writer is allowed to refuse.
 const SLOTS_PER_ATHLETE = 5;
 const WAITING_AFTER_DAYS = 3;
-const OUTCOMES = ['no_reply', 'replied', 'closed'];
+// What happened after a card went out, as the agent marks it on Home:
+//   replied   they answered
+//   declined  they answered no (a reply, and an outcome)
+//   closed    a deal was signed -- set by services/dealLog, which asks the value
+//   no_reply  nothing came back
+const OUTCOMES = ['no_reply', 'replied', 'declined', 'closed'];
 
 // ── FIVE A NIGHT, AS INTENDED ────────────────────────────────────────────────
 // This was 1, and it was the whole reason a night produced one card per athlete.

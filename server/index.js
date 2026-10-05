@@ -5366,6 +5366,9 @@ const ADMIN_SCRIPTS = {
   // Reply rate by lane and size band, with or without signing evidence: is a
   // national brand a lead or a fantasy, measured. Read-only.
   //   /api/admin/scripts/lane-band-report?days=42&text=1
+  // Every business contacted or beyond, by agent, with what happened next;
+  // every reply, decline and logged deal anywhere. Read-only.
+  'real-outcomes': { file: 'scripts/real-outcomes.js', args: () => [] },
   'lane-band-report': { file: 'scripts/lane-band-report.js', args: (q) => ['--days', String(Math.max(1, Math.min(365, parseInt(q.days, 10) || 42)))] },
   // Every athlete's school, the market it resolves to, and the markets their
   // cards were actually built in: anyone pitched to another town's businesses
@@ -10813,7 +10816,7 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
     // "replied" on a DM or call card taught the Writer nothing -- the only
     // replies it could ever see were emailed ones that came back through the
     // Resend webhook. A close implies a reply, so it stamps the same field.
-    const replied = outcome === 'replied' || outcome === 'closed';
+    const replied = outcome === 'replied' || outcome === 'closed' || outcome === 'declined';
     const r = await store.pool.query(
       `UPDATE outreach_queue
           SET outcome = $3, outcome_at = NOW(), updated_at = NOW(),
@@ -10843,6 +10846,17 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
           source: 'outreach_queue',
         });
       } catch (e) { console.error('[queue/outcome] pipeline write failed:', e.message); }
+    } else if (outcome === 'declined') {
+      // THEY ANSWERED, AND IT WAS NO. A reply in the ledger (responded), with
+      // the no as its outcome; the Pipeline is not moved, because there is no
+      // deal to move.
+      await store.advanceBrandEngagement(card.athlete_id, {
+        state: 'responded', agentId: card.agent_id, brandKey: card.brand_key, brandName: card.brand_name,
+        lane: card.lane || null, outcome: 'declined', source: 'queue_outcome',
+      });
+      await store.pool.query(
+        `UPDATE brand_engagement SET outcome = 'declined', outcome_at = NOW(), updated_at = NOW()
+          WHERE athlete_id = $1 AND brand_key = $2 AND state <> 'closed'`, [card.athlete_id, card.brand_key]).catch(() => {});
     } else {
       await store.pool.query(
         `UPDATE brand_engagement SET outcome = $3, outcome_at = NOW(), updated_at = NOW()
@@ -12165,6 +12179,7 @@ app.post('/api/deals/log', requireAuth, async (req, res) => {
       agentId: req.session.userId, athleteId: b.athleteId, brandName: b.brand || b.brandName,
       brandKey: b.brandKey || null, value: b.value, deliverable: b.deliverable,
       category: b.category || null, contactEmail: b.contactEmail || null, source: b.source || 'deal-button',
+      queueId: b.queueId || null,
     });
     if (!out.ok) return res.status(400).json(out);
     res.json(out);

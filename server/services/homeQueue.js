@@ -450,6 +450,42 @@ async function buildHome(pool, agentId, opts = {}) {
     failed: !o.sent_at && !o.cadence_stopped_at && (Number(o.send_failures) || 0) > 0,
   }));
 
+  // ── SENT, AND WHAT HAPPENED ───────────────────────────────────────────────
+  // Every card that went out for this athlete in the last 90 days, by any
+  // channel, with what the agent has marked since: replied, not interested,
+  // or a deal signed. This is the only place a sent card is still on the page
+  // after its day, so it is where the outcome gets recorded -- a reply read in
+  // the agent's own mailbox, a yes on the phone, a deal signed by text.
+  const sentRows = selected ? await q('sent',
+    `SELECT q.id, q.brand_name, q.brand_key, q.contact_name, q.channel, q.sent_via,
+            COALESCE(q.sent_at, q.updated_at) AS sent_at, q.outcome, q.outcome_at,
+            COALESCE(q.replied_at, l.replied_at) AS replied_at, d.id AS deal_id, d.deal_value
+       FROM outreach_queue q
+       LEFT JOIN outreach_logs l ON l.id = q.outreach_log_id
+       LEFT JOIN LATERAL (SELECT o.id, o.deal_value FROM deal_outcomes o
+                           WHERE o.agent_id = q.agent_id AND o.athlete_id = q.athlete_id
+                             AND LOWER(TRIM(o.brand)) = LOWER(TRIM(q.brand_name))
+                           ORDER BY o.id DESC LIMIT 1) d ON TRUE
+      WHERE q.agent_id = $1 AND q.athlete_id = $2 AND q.state = 'sent'
+        AND COALESCE(q.sent_at, q.updated_at) > NOW() - INTERVAL '90 days'
+      ORDER BY COALESCE(q.sent_at, q.updated_at) DESC
+      LIMIT 50`, [agentId, selected]) : [];
+  const sent = sentRows.map((r) => ({
+    id: r.id,
+    business: r.brand_name || null,
+    brandKey: r.brand_key || null,
+    contact: r.contact_name || null,
+    channel: r.sent_via || r.channel || null,
+    sentAt: r.sent_at || null,
+    // One word for the row: signed > declined > replied > waiting.
+    outcome: r.deal_id || r.outcome === 'closed' ? 'signed'
+      : r.outcome === 'declined' ? 'declined'
+      : (r.outcome === 'replied' || r.replied_at) ? 'replied'
+      : r.outcome === 'no_reply' ? 'no_reply' : 'waiting',
+    dealId: r.deal_id || null,
+    dealValue: r.deal_value != null ? Number(r.deal_value) : null,
+  }));
+
   // What every email card's From row shows: the mailbox it will actually send
   // from (emailStore.sendingMailbox, the send's own choice), or that there is
   // none. Never the login email.
@@ -460,6 +496,8 @@ async function buildHome(pool, agentId, opts = {}) {
     from,
     // Approved emails for this athlete: Sending until they have a sent_at.
     outbox,
+    // Sent in the last 90 days, and what came of each (see above).
+    sent,
     // The tab count MATCHES THE SCREEN. Showing 63 on a tab that renders five
     // is the same defect as the shift report's two counts of one pile. The true
     // backlog is reported separately, per athlete, and said in words below the
