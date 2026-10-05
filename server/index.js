@@ -17574,6 +17574,26 @@ app.post('/api/agent/athletes/:id/dismiss-school-question', requireAuth, async (
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── FEATURE FLAGS (admin) ────────────────────────────────────────────────────
+//   GET  /api/admin/flags                              every flag and its state
+//   POST /api/admin/flags/signing_evidence_bar {"on": true|false}
+// The signing-evidence bar (services/signingEvidence): "no evidence, no card"
+// for the national and social lanes. Default off.
+app.get('/api/admin/flags', async (req, res) => {
+  try {
+    const SE = require('./services/signingEvidence');
+    res.json({ signing_evidence_bar: await SE.barOn(store.pool), envOverride: process.env.SIGNING_EVIDENCE_BAR || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/flags/signing_evidence_bar', async (req, res) => {
+  try {
+    const on = (req.body || {}).on === true;
+    const now = await require('./services/signingEvidence').setBar(store.pool, on);
+    console.log(`[flags] signing_evidence_bar -> ${now} by ${req.session && req.session.userId}`);
+    res.json({ ok: true, signing_evidence_bar: now, envOverride: process.env.SIGNING_EVIDENCE_BAR || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/agent/home-notices — read-time home feed: kits first viewed today
 // and inbound inquiries from the last 48 hours. No stored notification state.
 app.get('/api/agent/home-notices', requireAuth, async (req, res) => {

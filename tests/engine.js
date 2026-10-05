@@ -244,6 +244,23 @@ async function main() {
   const soc2 = (lanes2.find((x) => x.lane === 'social') || {}).n || 0;
   ok('a mid-tier athlete from zero reaches five, with the social lane carrying its half', z2.r.filled === 5 && soc2 >= 2, { filled: z2.r.filled, lanes2, rungs: (z2.r.loop || {}).rungs });
 
+  // THE EVIDENCE BAR EMPTIES THE SOCIAL LANE: the athlete still reaches five.
+  // Bar on, and every social brand on offer has no evidence of signing anyone
+  // (no deal, no program): the lane is refused whole, at the slate and at the
+  // social rung, and local fills every seat. Stricter brands never mean four cards.
+  await P.query(`DELETE FROM market_business_seen WHERE market_key = $1`, [probe.marketKey]);
+  await P.query(`DELETE FROM market_pool_schedule WHERE market_key = $1`, [probe.marketKey]).catch(() => {});
+  const _bar = process.env.SIGNING_EVIDENCE_BAR;
+  process.env.SIGNING_EVIDENCE_BAR = '1';
+  store.getSocialBrandPool = async () => Array.from({ length: 6 }, (_, i) => ({ brand: `EN Unproven ${i}`, brandKey: `en-unp-${i}`, fitScore: 90 }));
+  let z3;
+  try { z3 = await fill('en-z3', { name: 'En Zero Three', school: 'Montana State University', division: 'D1', sport: 'Football', instagram: 12000 }); }
+  finally { store.getSocialBrandPool = realSocial; if (_bar === undefined) delete process.env.SIGNING_EVIDENCE_BAR; else process.env.SIGNING_EVIDENCE_BAR = _bar; }
+  const lanes3 = (await P.query(`SELECT lane, COUNT(*)::int n FROM outreach_queue WHERE athlete_id = 'en-z3' AND state = 'queued' GROUP BY 1`)).rows;
+  const loc3 = (lanes3.find((x) => x.lane === 'local') || {}).n || 0;
+  ok('EVIDENCE BAR ON, SOCIAL LANE EMPTIED: the athlete still reaches five, all from local', z3.r.filled === 5 && loc3 === 5 && !lanes3.some((x) => x.lane === 'social'),
+    { filled: z3.r.filled, lanes3, rungs: (z3.r.loop || {}).rungs, note: z3.r.note });
+
   // ── 8. THE PROOF HARNESS ──────────────────────────────────────────────────
   OUT.push('', '-- the proof harness --');
   const pk = await EP.pick(P);
@@ -380,30 +397,34 @@ async function main() {
   ok('  at a large brand the CEO, president, founder or owner is refused; the partnerships or marketing lead is accepted',
     !!ONS.titleProblem('CEO', { large: true }) && !!ONS.titleProblem('Owner', { large: true }) && !!ONS.titleProblem('Co-founder', { large: true })
     && !ONS.titleProblem('Head of Athlete Partnerships', { large: true }) && !ONS.titleProblem('Director of Influencer Marketing', { large: true }));
-  // Jasper Johnson's night, replayed: Nike's search names Phil Knight first.
+  // Jasper Johnson's night, replayed: a national brand's search names its
+  // chairman emeritus first. (Nike itself is now refused outright as a household
+  // incumbent -- services/signingEvidence -- so the contact rule is shown on a
+  // national brand that is not one.)
   const realComps = store.getTopNilComps, realSocial2 = store.getSocialBrandPool, realWS = ai.webSearchJson;
-  store.getTopNilComps = async () => [{ brand: 'Nike', brandKey: 'nike', why: 'signs athletes' }, { brand: 'Texas Tech', brandKey: 'texastech', why: 'NIL program' }];
+  store.getTopNilComps = async () => [{ brand: 'Nike', brandKey: 'nike', why: 'signs athletes' }, { brand: 'EN Natl Apparel', brandKey: 'ennatlapparel', why: 'signs athletes' }, { brand: 'Texas Tech', brandKey: 'texastech', why: 'NIL program' }];
   store.getSocialBrandPool = async () => [];
   const asked = [];
   ai.webSearchJson = async (prompt) => {
-    if (/^Find the official Instagram account of "Nike"/.test(String(prompt))) return { text: '{"handle":"nike","confidence":"high"}', citations: ['https://instagram.com/nike'], searches: 1 };
+    if (/^Find the official Instagram account of "EN Natl Apparel"/.test(String(prompt))) return { text: '{"handle":"ennatlapparel","confidence":"high"}', citations: ['https://instagram.com/ennatlapparel'], searches: 1 };
     if (/^Find the official Instagram account of /.test(String(prompt))) return { text: '{"handle":null}', citations: [], searches: 1 };
     const m = String(prompt).match(/^Search for: (.+)\n/);
     if (m) {
       asked.push(m[1]);
-      if (/^Nike /.test(m[1]) && /partnerships/.test(m[1])) return { text: JSON.stringify({ name: 'Phil Knight', title: 'Chairman Emeritus and co-founder', confidence: 'high' }), citations: [], searches: 1 };
-      if (/^Nike /.test(m[1]) && /marketing director/.test(m[1])) return { text: JSON.stringify({ name: 'Marcus Hill', title: 'Director of Athlete Marketing', confidence: 'high' }), citations: [], searches: 1 };
+      if (/^EN Natl Apparel /.test(m[1]) && /partnerships/.test(m[1])) return { text: JSON.stringify({ name: 'Phil Knight', title: 'Chairman Emeritus and co-founder', confidence: 'high' }), citations: [], searches: 1 };
+      if (/^EN Natl Apparel /.test(m[1]) && /marketing director/.test(m[1])) return { text: JSON.stringify({ name: 'Marcus Hill', title: 'Director of Athlete Marketing', confidence: 'high' }), citations: [], searches: 1 };
       return { text: JSON.stringify({ name: 'Pat Rivera', title: 'Owner', confidence: 'high' }), citations: [], searches: 1 };
     }
     throw new Error('the real web search must not be reached here');
   };
-  await P.query(`DELETE FROM brand_evidence_cache WHERE brand ILIKE 'nike' OR brand ILIKE 'texas tech'`).catch(() => {});
+  await P.query(`DELETE FROM brand_evidence_cache WHERE brand ILIKE 'nike' OR brand ILIKE 'en natl apparel' OR brand ILIKE 'texas tech'`).catch(() => {});
   const jj = await fill('en-jj', { name: 'En Jasper', school: 'Auburn University', sport: 'Basketball', instagram: 150000 });
   store.getTopNilComps = realComps; store.getSocialBrandPool = realSocial2; ai.webSearchJson = realWS;
   const jjCards = (await P.query(`SELECT brand_name, contact_name, contact_title FROM outreach_queue WHERE athlete_id = 'en-jj' AND state = 'queued'`)).rows;
-  const nike = jjCards.find((c) => c.brand_name === 'Nike');
-  ok('Nike: Phil Knight (Chairman Emeritus) is refused, the Director of Athlete Marketing is the contact', nike && nike.contact_name === 'Marcus Hill', { jjCards, asked: asked.filter((q) => /^Nike/.test(q)) });
-  ok('  a large brand is never searched for its owner or founder', !asked.some((q) => /^Nike .*owner/.test(q) && !/partnerships/.test(q)), asked.filter((q) => /^Nike/.test(q)));
+  const natl = jjCards.find((c) => c.brand_name === 'EN Natl Apparel');
+  ok('a national brand: its Chairman Emeritus is refused, the Director of Athlete Marketing is the contact', natl && natl.contact_name === 'Marcus Hill', { jjCards, asked: asked.filter((q) => /^EN Natl/.test(q)) });
+  ok('  a large brand is never searched for its owner or founder', !asked.some((q) => /^EN Natl Apparel .*owner/.test(q) && !/partnerships/.test(q)), asked.filter((q) => /^EN Natl/.test(q)));
+  ok('NIKE never reaches a card, or a contact search: a household incumbent, refused on every path', !jjCards.some((c) => c.brand_name === 'Nike') && !asked.some((q) => /^Nike /.test(q)), { jjCards, asked: asked.filter((q) => /^Nike/.test(q)) });
   ok('  and Texas Tech never reached a card, or a search', !jjCards.some((c) => /Texas Tech/.test(c.brand_name)) && !asked.some((q) => /^Texas Tech/.test(q)), jjCards);
 
   await clean();

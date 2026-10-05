@@ -48,6 +48,37 @@ function incumbent(brand) {
   return null;
 }
 
+// ── THE BAR IS A FLAG, DEFAULT OFF ─────────────────────────────────────────
+// The incumbent refusal always applies: it only removes cards that were
+// never going to work. "No evidence, no card" (and its ranking, and the
+// partnerships-lead-only contact rule for social brands) waits behind this
+// flag until a before/after on real athletes shows the evidence index can
+// carry it: social and national are a fifth of all cards, and switching them
+// off on an empty index would empty that fifth overnight.
+// Stored in feature_flags so it turns on without a deploy:
+//   POST /api/admin/flags/signing_evidence_bar {"on": true}
+// SIGNING_EVIDENCE_BAR=1 / =0 in the environment overrides the table.
+let _flag = { at: 0, on: false };
+async function barOn(pool) {
+  const env = process.env.SIGNING_EVIDENCE_BAR;
+  if (env === '1' || env === '0') return env === '1';
+  if (Date.now() - _flag.at < 60000) return _flag.on;
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS feature_flags (key TEXT PRIMARY KEY, on_value BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ DEFAULT NOW())`);
+    const r = (await pool.query(`SELECT on_value FROM feature_flags WHERE key = 'signing_evidence_bar'`)).rows[0];
+    _flag = { at: Date.now(), on: !!(r && r.on_value) };
+  } catch (_) { _flag = { at: Date.now(), on: false }; }
+  return _flag.on;
+}
+async function setBar(pool, on) {
+  await pool.query(`CREATE TABLE IF NOT EXISTS feature_flags (key TEXT PRIMARY KEY, on_value BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ DEFAULT NOW())`);
+  await pool.query(`INSERT INTO feature_flags (key, on_value, updated_at) VALUES ('signing_evidence_bar', $1, NOW())
+                    ON CONFLICT (key) DO UPDATE SET on_value = EXCLUDED.on_value, updated_at = NOW()`, [!!on]);
+  _flag = { at: Date.now(), on: !!on };
+  return _flag.on;
+}
+function _resetFlagCache() { _flag = { at: 0, on: false }; }
+
 const MONTHS = 12;
 const REACH_SPAN = 4;            // comparable: within 4x either way
 const NO_REACH_MAX_FOLLOWERS = 100000;
@@ -145,13 +176,22 @@ function sentence(ev) {
 // The national and social candidates, filtered and ranked. Each kept one
 // carries sizeBand, signingEvidence and evidenceNote; each refused one is
 // returned in `refused` with why.
-async function filterAndRank(pool, cands, athlete) {
+// opts.bar: override the flag (the before/after script shows the bar ON
+// whatever the flag says).
+async function filterAndRank(pool, cands, athlete, opts = {}) {
+  const bar = typeof opts.bar === 'boolean' ? opts.bar : await barOn(pool);
   const kept = [], refused = [];
   for (const c of cands || []) {
     const name = c.brand_name || c.brand;
     const inc = incumbent(name);
     if (inc) { refused.push({ brand: name, lane: c.lane, why: `a household incumbent (${inc}): a college athlete reaching them cold is not a real outcome` }); continue; }
     const ev = await forBrand(pool, name, athlete);
+    // BAR OFF: kept as before, in its own order, with whatever evidence and
+    // band we found recorded on the card for measurement.
+    if (!bar) {
+      kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.ok ? ev.evidence : null, evidenceNote: ev.ok ? sentence(ev) : null, evidenceScore: 0, hasProgram: ev.program, sameSportEvidence: ev.sameSport });
+      continue;
+    }
     if (!ev.ok) {
       refused.push({ brand: name, lane: c.lane, band: ev.band, why: ev.error ? `could not check its signings: ${ev.error}`
         : `no evidence it signed or partnered with an athlete of comparable reach in the last ${MONTHS} months` });
@@ -159,8 +199,8 @@ async function filterAndRank(pool, cands, athlete) {
     }
     kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.evidence, evidenceNote: sentence(ev), evidenceScore: score(ev), hasProgram: ev.program, sameSportEvidence: ev.sameSport });
   }
-  kept.sort((a, b) => b.evidenceScore - a.evidenceScore);
-  return { kept, refused };
+  if (bar) kept.sort((a, b) => b.evidenceScore - a.evidenceScore);
+  return { kept, refused, bar };
 }
 
-module.exports = { INCUMBENTS, incumbent, forBrand, bandOf, score, sentence, filterAndRank, reachOf, MONTHS, REACH_SPAN };
+module.exports = { INCUMBENTS, incumbent, forBrand, bandOf, score, sentence, filterAndRank, reachOf, MONTHS, REACH_SPAN, barOn, setBar, _resetFlagCache };

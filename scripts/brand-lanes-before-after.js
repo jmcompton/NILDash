@@ -5,7 +5,8 @@
 // in their own order). AFTER: what survives the signing-evidence bar
 // (services/signingEvidence): a sourced deal with an athlete of comparable
 // reach, or a verified program whose range takes this athlete, in the last 12
-// months; household incumbents refused. Each kept brand shows its evidence and
+// months; household incumbents refused. Shown with the bar ON whatever the
+// flag says (that is the question it answers). Each kept brand shows its evidence and
 // size band; each refused one, why. Read-only: nothing is written or spent.
 //
 //   node scripts/brand-lanes-before-after.js --athlete <id or name> [--agent <email>] [--max 3]
@@ -40,7 +41,7 @@ async function main() {
       const raw = lane === 'national'
         ? await Scout.nationalCandidates(P, { limit: 10, store, athlete: subject })
         : await Scout.socialCandidates(P, { limit: 10, store, athlete: subject });
-      const { kept, refused } = await SE.filterAndRank(P, raw, subject);
+      const { kept, refused } = await SE.filterAndRank(P, raw, subject, { bar: true });
       console.log(`\n  ${lane.toUpperCase()} BEFORE (${raw.length}): ${raw.slice(0, 12).map((c) => c.brand_name).join(', ') || 'nothing'}`);
       console.log(`  ${lane.toUpperCase()} AFTER (${kept.length}):`);
       for (const c of kept.slice(0, 10)) console.log(`    ${c.brand_name}  [${c.sizeBand}${c.hasProgram ? ', PROGRAM' : ''}${c.sameSportEvidence ? ', same sport' : ''}]  ${c.evidenceNote}`);

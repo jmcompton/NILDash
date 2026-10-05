@@ -786,6 +786,7 @@ async function fillAthlete(pool, ctx) {
 
 async function _fillAthlete(pool, ctx, nightFaults) {
   const { agentId, athleteId, athleteName, budget, region } = ctx;
+  ctx._evidenceBar = await require('../services/signingEvidence').barOn(pool);
   // ── WHICH SCHOOL IS THIS? ─────────────────────────────────────────────────
   // A school name that is more than one real school ("Miami") gets no cards at
   // all until the agent picks on Home: a card for the wrong school's town is
@@ -1230,6 +1231,19 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     try { rows = await fn(pool, { athlete: profile, limit: slateLimit * 3, store }); }
     catch (e) { faultOf('database', `${lane} rung: ${e.message}`, lane + ' rung'); return []; }
     if (rows && rows.fault) faultOf('database', rows.fault, lane + ' rung');
+    // THE SAME BAR AS THE SLATE (services/signingEvidence): incumbents never,
+    // and with the evidence flag on, no evidence no card. A rung emptied by it
+    // is simply an empty rung: the ladder climbs on to local-wide, Places and
+    // the hometown, so the athlete still reaches five from local.
+    if (Array.isArray(rows) && rows.length) {
+      const SE = require('../services/signingEvidence');
+      const f = await SE.filterAndRank(pool, rows, profile);
+      if (f.refused.length) {
+        say(`${athleteName}: ${lane} rung refused ${f.refused.length}: ` + f.refused.slice(0, 4).map((r) => r.brand).join(', '));
+        for (const r of f.refused) tried.push({ brand: r.brand, lane, result: 'rejected', reason: r.why, evidenceBar: true });
+      }
+      rows = f.kept;
+    }
     return fresh(rows);
   }
 
@@ -1549,7 +1563,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
               // EVERY social and national brand: its founder, CEO or corporate
               // office is never the contact, only its partnerships / marketing /
               // athlete-program lead (ownerNameSearch.titleProblem, LARGE_ORDER).
-              large: cand.lane === 'national' || cand.lane === 'social' || cand.brandSize === 'national' });
+              // With the signing-evidence bar on (services/signingEvidence): every
+              // social brand too. Off: as before, national or sized national.
+              large: cand.lane === 'national' || cand.brandSize === 'national' || (cand.lane === 'social' && !!ctx._evidenceBar) });
             _sw.lap('ownerSearch');
           } catch (e) {
             say(`${cand.brand_name}: owner search failed on our side (${e.message})`);

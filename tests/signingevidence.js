@@ -77,7 +77,7 @@ async function main() {
   // ── 2. THE RANKING ───────────────────────────────────────────────────────
   OUT.push('', '-- once the bar is met --');
   const cands = ['Nike', B('Comparable Hoops'), B('Comparable Softball'), B('DTC Program'), B('Unsourced'), B('Stars Only')].map((b) => ({ brand_name: b, lane: 'national' }));
-  const { kept, refused } = await SE.filterAndRank(P, cands, ATH);
+  const { kept, refused } = await SE.filterAndRank(P, cands, ATH, { bar: true });
   ok('kept: only the three with evidence', kept.map((c) => c.brand_name).sort().join('|') === [B('Comparable Hoops'), B('Comparable Softball'), B('DTC Program')].sort().join('|'), kept.map((c) => c.brand_name));
   ok('  ranked: the program first, then the same sport, then the other sport', kept.map((c) => c.brand_name).join('|') === [B('DTC Program'), B('Comparable Softball'), B('Comparable Hoops')].join('|'), kept.map((c) => [c.brand_name, c.evidenceScore]));
   ok('  each carries its band, its evidence and a sentence the agent can read', kept.every((c) => c.sizeBand && Array.isArray(c.signingEvidence) && c.signingEvidence.length && /https?:\/\//.test(c.evidenceNote)), kept.map((c) => c.evidenceNote));
@@ -85,13 +85,30 @@ async function main() {
     && /no evidence/.test((refused.find((r) => r.brand === B('Unsourced')) || {}).why || '') && refused.length === 3, refused);
   ok('size bands: 20+ deals is national, a small brand with a program is growth', SE.bandOf({ brand: 'X', deals: 25 }) === 'national' && SE.bandOf({ brand: 'X', size: 'small', program: true }) === 'growth' && SE.bandOf({ brand: 'Nike' }) === 'incumbent');
 
+  // ── 2b. THE FLAG: DEFAULT OFF ────────────────────────────────────────────
+  OUT.push('', '-- the flag (default off) --');
+  delete process.env.SIGNING_EVIDENCE_BAR;
+  await P.query(`DELETE FROM feature_flags WHERE key = 'signing_evidence_bar'`).catch(() => {});
+  SE._resetFlagCache();
+  ok('the bar is OFF by default', (await SE.barOn(P)) === false);
+  const off = await SE.filterAndRank(P, cands, ATH);
+  ok('  OFF: Nike is still refused (the incumbent list always applies)', off.refused.length === 1 && off.refused[0].brand === 'Nike' && /incumbent/.test(off.refused[0].why), off.refused);
+  ok('  OFF: every other brand is kept, in its original order', off.kept.map((c) => c.brand_name).join('|') === cands.filter((c) => c.brand_name !== 'Nike').map((c) => c.brand_name).join('|'), off.kept.map((c) => c.brand_name));
+  ok('  OFF: band and evidence still recorded where found, nothing invented where not', off.kept.every((c) => c.sizeBand) && !!off.kept.find((c) => c.brand_name === B('DTC Program')).signingEvidence && off.kept.find((c) => c.brand_name === B('Unsourced')).signingEvidence === null && off.kept.every((c) => c.evidenceScore === 0));
+  await SE.setBar(P, true); SE._resetFlagCache();
+  ok('turned on in the table (no deploy): the bar applies', (await SE.barOn(P)) === true && (await SE.filterAndRank(P, cands, ATH)).refused.length === 3);
+  process.env.SIGNING_EVIDENCE_BAR = '0';
+  ok('  the environment overrides the table', (await SE.barOn(P)) === false);
+  delete process.env.SIGNING_EVIDENCE_BAR;
+  await SE.setBar(P, false);
+
   // ── 3. IN THE SLATE ──────────────────────────────────────────────────────
   OUT.push('', '-- the slate --');
   const src = fs.readFileSync(REPO + 'server/services/scout.js', 'utf8');
   ok('the slate runs both lanes through it, social exactly as national', /const sF = await SE\.filterAndRank\(pool, social, athlete\);/.test(src) && /const nF = await SE\.filterAndRank\(pool, national, athlete\);/.test(src));
   ok('  and the evidence score counts in the fit ranking', /fit \+= c\.evidenceScore/.test(src));
   const job = fs.readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
-  ok('every social and national brand: a founder / CEO / corporate office is never the contact', /large: cand\.lane === 'national' \|\| cand\.lane === 'social'/.test(job));
+  ok('a national brand: a founder / CEO / corporate office is never the contact; social too once the bar is on', /large: cand\.lane === 'national' \|\| cand\.brandSize === 'national' \|\| \(cand\.lane === 'social' && !!ctx\._evidenceBar\)/.test(job));
   ok('EVERY CARD records its size band and its evidence', /size_band, signing_evidence\)/.test(job) && /card\.sizeBand \|\| \(card\.lane === 'local' \? 'local' : null\)/.test(job));
   const ONS = require(REPO + 'server/services/ownerNameSearch.js');
   ok('  a national brand\'s founder or CEO is refused; its partnerships lead is not', !!ONS.titleProblem('Founder & CEO', { large: true }) && !ONS.titleProblem('Head of Athlete Partnerships', { large: true }));
