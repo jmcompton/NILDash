@@ -34,12 +34,20 @@ const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FA
 const DAY = 86400000;
 const ago = (d) => new Date(Date.now() - d * DAY);
 const P = () => store.pool;
-const S = CA.clampSettings(CA.DEFAULTS);
+const S = CA.clampSettings({ ...CA.DEFAULTS, holdEmails: ['cal@fordsports.com'] });
 
 // The people. Each is one rule.
 const U = {
   g1old:    { name: 'Dana Fields',   email: 'dana@fieldsagency.com',  created: ago(180), login: ago(170) },
-  g1new:    { name: 'Ray Ortiz',     email: 'ray@ortizsports.com',    created: ago(40),  login: null },
+  // Never logged in, but a set-password link is out there and unexpired.
+  g1new:    { name: 'Ray Ortiz',     email: 'ray@ortizsports.com',    created: ago(40),  login: null, link: 'valid' },
+  // CANNOT LOG IN, three ways.
+  lockedRandom:  { name: 'Lamar Wills',  email: 'lamar@willsreps.com',  created: ago(100), login: null, resetRequired: true },
+  lockedExpired: { name: 'Nia Brooks',   email: 'nia@brooksnil.com',    created: ago(100), login: null, resetRequired: true, link: 'expired' },
+  lockedForm:    { name: 'Omar Diaz',    email: 'omar@diazsports.com',  created: ago(100), login: null },
+  // Held for the admin personally.
+  greg:     { name: 'Tia Moss',      email: 'tia@mossagency.com',     created: ago(100), login: ago(60), referredBy: 'pliable' },
+  handHeld: { name: 'Cal Ford',      email: 'cal@fordsports.com',     created: ago(100), login: ago(60) },
   g2:       { name: 'Kim Lowe',      email: 'kim@lowemgmt.com',       created: ago(120), login: ago(30), athletes: 2 },
   g3:       { name: 'Pat Greer',     email: 'pat@greernil.com',       created: ago(60),  login: ago(10), athletes: 1 },
   active:   { name: 'Lee Young',     email: 'lee@youngreps.com',      created: ago(90),  login: ago(2) },
@@ -61,8 +69,12 @@ async function seed() {
   const p = P();
   await p.query(`INSERT INTO users (id,name,email,password,role) VALUES ('ca-admin','John Mark Compton',$1,'x','admin') ON CONFLICT (id) DO NOTHING`, [process.env.ADMIN_EMAIL]);
   for (const [k, u] of Object.entries(U)) {
-    await p.query(`INSERT INTO users (id,name,email,password,role,created_at,last_login,subscription_status,comped)
-                   VALUES ($1,$2,$3,'x','agent',$4,$5,$6,$7)`, [ID(k), u.name, u.email, u.created, u.login, u.sub || null, !!u.comped]);
+    await p.query(`INSERT INTO users (id,name,email,password,role,created_at,last_login,subscription_status,comped,password_reset_required,referred_by)
+                   VALUES ($1,$2,$3,'x','agent',$4,$5,$6,$7,$8,$9)`, [ID(k), u.name, u.email, u.created, u.login, u.sub || null, !!u.comped, !!u.resetRequired, u.referredBy || null]);
+    if (u.link) {
+      await p.query(`INSERT INTO password_resets (email, token_hash, expires_at, used) VALUES ($1, $2, $3, FALSE)`,
+        [u.email, 'ca-hash-' + k, u.link === 'valid' ? new Date(Date.now() + 5 * DAY) : ago(30)]);
+    }
     for (let i = 0; i < (u.athletes || 0); i++) {
       await p.query(`INSERT INTO athletes (id,agent_id,data) VALUES ($1,$2,$3::jsonb)`,
         [ID(k) + '-ath' + i, ID(k), JSON.stringify({ name: 'Tess Court ' + i, school: 'Auburn University', sport: 'Tennis' })]);
@@ -86,6 +98,7 @@ async function clean() {
   await p.query(`DELETE FROM athletes WHERE agent_id = ANY($1)`, [IDS]).catch(() => {});
   await p.query(`DELETE FROM email_suppression WHERE email = ANY($1)`, [Object.values(U).map((u) => u.email)]).catch(() => {});
   await p.query(`DELETE FROM email_sends WHERE email = ANY($1)`, [Object.values(U).map((u) => u.email)]).catch(() => {});
+  await p.query(`DELETE FROM password_resets WHERE email = ANY($1)`, [Object.values(U).map((u) => u.email)]).catch(() => {});
   await p.query(`DELETE FROM users WHERE id = ANY($1) OR id = 'ca-admin'`, [IDS]).catch(() => {});
   await p.query(`DELETE FROM cold_runs WHERE trigger LIKE 'test%'`).catch(() => {});
 }
@@ -117,16 +130,35 @@ async function main() {
   ok('group 2: athletes, no login for 14+ days', c('g2').group === 2, c('g2'));
   ok('group 3: athletes, logs in, never approved a card', c('g3').group === 3, c('g3'));
   ok('someone using it (has approved cards, logged in within 14 days) is left alone', !c('using').group, c('using'));
+
+  // ── CANNOT LOG IN ──
+  ok('CANNOT LOG IN: created for them with a random password and no link ever issued', c('lockedRandom').hold === 'login' && /no set-password link was ever issued/.test(c('lockedRandom').why), c('lockedRandom'));
+  ok('  a link issued, never used, now expired', c('lockedExpired').hold === 'login' && /expired/.test(c('lockedExpired').why), c('lockedExpired'));
+  ok('  signed up, never logged in, no link ever issued', c('lockedForm').hold === 'login' && /never logged in/.test(c('lockedForm').why), c('lockedForm'));
+  ok('  a never-logged-in account WITH an unexpired link is eligible', c('g1new').group === 1, c('g1new'));
+  // The fix lands: a working link is issued, and they are eligible by themselves.
+  await P().query(`INSERT INTO password_resets (email, token_hash, expires_at, used) VALUES ($1, 'ca-hash-fixed', $2, FALSE)`, [U.lockedRandom.email, new Date(Date.now() + 7 * DAY)]);
+  const fixed = CA.classify((await CA.candidates(P())).find((u) => u.id === ID('lockedRandom')), S);
+  ok('  once a working set-password link exists, they become eligible again with no other change', fixed.group === 1, fixed);
+  await P().query(`DELETE FROM password_resets WHERE token_hash = 'ca-hash-fixed'`);
+  // ── HELD FOR THE ADMIN ──
+  ok("GREG GLYNN'S REFERRALS are held out, named as his", c('greg').hold === 'referral' && /Greg Glynn/.test(c('greg').why), c('greg'));
+  ok('  and so is anyone on the hand hold list', c('handHeld').hold === 'hand', c('handHeld'));
+
   const pk = await CA.pick(P(), { settings: S, limit: 20, onlyIds: IDS });
+  ok('the page gets them in their own groups: cannot log in, held for you',
+    pk.held.filter((h) => h.hold === 'login').map((h) => h.id).sort().join() === [ID('lockedExpired'), ID('lockedForm'), ID('lockedRandom')].sort().join()
+    && pk.held.filter((h) => h.hold !== 'login').map((h) => h.id).sort().join() === [ID('greg'), ID('handHeld')].sort().join(), pk.held);
+  ok('ONE PERSON A RUN by default, in code', CA.DEFAULTS.perRun === 1 && CA.clampSettings({}).perRun === 1);
   ok('priority order: group 1 oldest first, then 2, then 3',
     JSON.stringify(pk.picked.map((u) => u.id)) === JSON.stringify([ID('gapOk'), ID('g1old'), ID('g1new'), ID('g2'), ID('g3')]), pk.picked.map((u) => [u.id, u.group]));
 
   // ── 2. AN EMPTY RUN SAYS WHY ─────────────────────────────────────────────
   OUT.push('', '-- an empty run --');
-  const empty = await CA.runOnce(P(), { trigger: 'test-empty', deps: { onlyIds: [ID('active'), ID('paying'), ID('touched3')] } });
+  const empty = await CA.runOnce(P(), { trigger: 'test-empty', deps: { onlyIds: [ID('active'), ID('paying'), ID('touched3'), ID('lockedRandom')] } });
   const er = (await P().query(`SELECT * FROM cold_runs WHERE id = $1`, [empty.runId])).rows[0];
   ok('a run that finds nobody writes a row saying so, with every reason counted',
-    er && er.finished_at && er.picked === 0 && /^Nobody to contact\./.test(er.note) && /logged in this week/.test(er.note) && /paying customer/.test(er.note) && /3 touches/.test(er.note), er && er.note);
+    er && er.finished_at && er.picked === 0 && /^Nobody to contact\./.test(er.note) && /logged in this week/.test(er.note) && /paying customer/.test(er.note) && /3 touches/.test(er.note) && /1 cannot log in/.test(er.note), er && er.note);
 
   // ── 3. A REAL RUN: THE DEMO IS THE ENGINE, THE EMAIL NAMES ITS ROWS ──────
   OUT.push('', '-- a run: the demo night, the draft --');
@@ -170,6 +202,25 @@ async function main() {
     && CA.checkEmail(d.subject, d.body_text, demoRows.map((r) => r.brand_name)).length === 0, CA.checkEmail(d.subject, d.body_text, demoRows.map((r) => r.brand_name)));
   ok('  the card shows who, why them, the touch number', d.grp === 2 && /14\+ days/.test(d.why) && d.touch_no === 1 && d.status === 'pending', d);
   ok('nothing was sent: it waits for approval', sent.length === 0);
+
+  // ── 3b. FEWER THAN 3: NO DEMO, NO EMAIL ──────────────────────────────────
+  OUT.push('', '-- a thin demo --');
+  const thinSent = sent.length;
+  const thin = await CA.runOnce(P(), { trigger: 'test-thin', deps: { ...deps, onlyIds: [ID('g1old')],
+    research: async () => ({ agency: 'Fields Agency', sports: ['Tennis'], rosterAthletes: [], nearbySchool: 'Auburn University' }),
+    runDemo: async () => ({ demoAthleteId: 'colddemo:thin', cards: [engineCard(1), engineCard(2), { ...engineCard(3), contactName: null }], tried: 9 }) } });
+  const td = (await P().query(`SELECT * FROM cold_drafts WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, [ID('g1old')])).rows[0];
+  ok('fewer than 3 businesses with a named person: no email is drafted, the person is shown as "no demo" with why',
+    thin.drafted === 0 && td && td.status === 'no_demo' && !td.subject && !td.body_text && /found 2 businesses with a named person/.test(td.status_note) && /needs 3/.test(td.status_note), { thin: thin.note, td });
+  ok('  what it did find is kept for you to see', (await P().query(`SELECT COUNT(*)::int n FROM cold_demo_cards WHERE draft_id = $1`, [td && td.id])).rows[0].n === 2);
+  ok('  nothing sent, no touch counted', sent.length === thinSent && !(await P().query(`SELECT 1 FROM cold_prospects WHERE user_id = $1`, [ID('g1old')])).rowCount);
+  ok('  it cannot be approved', !((await CA.approve(P(), td.id, {}, deps)).state === 'sending') && sent.length === thinSent);
+  ok('  the run says so', /No demo for 1, not emailed/.test(thin.note), thin.note);
+  const again = CA.classify((await CA.candidates(P())).find((u) => u.id === ID('g1old')), S);
+  ok('  and they are not tried (and spent on) again for 14 days', !again.group && /no demo/.test(again.why), again);
+  ok('  the "No demo" tab lists them', (await CA.listDrafts(P(), { status: 'no_demo' })).some((x) => x.id === td.id));
+  await P().query(`DELETE FROM cold_demo_cards WHERE draft_id = $1`, [td.id]);
+  await P().query(`DELETE FROM cold_drafts WHERE id = $1`, [td.id]);
 
   // ── 4. APPROVE ───────────────────────────────────────────────────────────
   OUT.push('', '-- approve --');

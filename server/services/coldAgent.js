@@ -45,15 +45,26 @@ const DORMANT_DAYS = 14;        // group 2
 const PAYING = new Set(['active', 'trialing', 'past_due', 'unpaid']);
 const CLAIM_STALE_MINUTES = 15;
 const HARD_DEADLINE = { h: 7, m: 0 };    // Central; no setting can move past this
+// THE DEMO HAS TO HAVE SOMETHING IN IT. Fewer businesses with a named person
+// than this and nobody is emailed: the person is shown as "no demo", and not
+// tried again (not spent on again) for NO_DEMO_RETRY_DAYS.
+const MIN_DEMO_CARDS = 3;
+const NO_DEMO_RETRY_DAYS = 14;
+// REFERRAL PARTNERS WHOSE PEOPLE THE ADMIN HANDLES PERSONALLY. 'pliable' is
+// Greg Glynn (referral_partners, seeded in store.js); users.referred_by holds
+// the partner code a signup came through. Not a setting: the admin's best
+// channel is never risked by a slider. Add people by hand with holdEmails.
+const HELD_PARTNERS = ['pliable'];
 
 const DEFAULTS = {
   enabled: true,
-  perRun: 4,                    // 3 to 5 to start, so every one gets read
+  perRun: 1,                    // ONE until real emails have been read; turned up on the page
   startHour: 5, startMinute: 0, // Central
   deadlineHour: 6, deadlineMinute: 40,
   weekdaysOnly: true,
   excludeEmails: [],            // never these, whatever the rules say
   excludeNames: [],
+  holdEmails: [],               // handled by the admin personally, never by this agent
 };
 
 // OUR OWN PEOPLE, by name and by address. The settings add to this list.
@@ -116,6 +127,7 @@ function clampSettings(s) {
     weekdaysOnly: s.weekdaysOnly !== false,
     excludeEmails: (Array.isArray(s.excludeEmails) ? s.excludeEmails : []).map(lc).filter(Boolean).slice(0, 200),
     excludeNames: (Array.isArray(s.excludeNames) ? s.excludeNames : []).map(norm).filter(Boolean).slice(0, 200),
+    holdEmails: (Array.isArray(s.holdEmails) ? s.holdEmails : []).map(lc).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).slice(0, 500),
   };
   // Finished before 7am Central, whatever is typed: the deadline is the last
   // moment a new person is started, and it is never later than 6:59.
@@ -145,8 +157,18 @@ async function candidates(pool) {
             OR EXISTS (SELECT 1 FROM outreach_queue q WHERE q.agent_id = u.id AND q.state IN ('sent', 'sending'))) AS ever_approved,
            EXISTS (SELECT 1 FROM email_suppression s WHERE s.email = LOWER(TRIM(u.email))) AS suppressed,
            COALESCE(cp.touches, 0) AS touches, cp.last_touch_at, COALESCE(cp.status, 'open') AS prospect_status, cp.stop_reason,
-           EXISTS (SELECT 1 FROM cold_drafts d WHERE d.user_id = u.id AND d.status IN ('pending', 'sending')) AS open_draft
+           EXISTS (SELECT 1 FROM cold_drafts d WHERE d.user_id = u.id AND d.status IN ('pending', 'sending')) AS open_draft,
+           (SELECT MAX(d.created_at) FROM cold_drafts d WHERE d.user_id = u.id AND d.status = 'no_demo') AS last_no_demo_at,
+           -- CAN THEY LOG IN? The set-password links issued to their address
+           -- (password_resets, the evidence the signup funnel reads).
+           u.password_reset_required,
+           pr.tokens AS reset_tokens, pr.any_used AS reset_used, pr.any_valid AS reset_valid, pr.last_expires AS reset_expires,
+           u.referred_by, rp.name AS referred_by_name
       FROM users u LEFT JOIN cold_prospects cp ON cp.user_id = u.id
+      LEFT JOIN (SELECT LOWER(TRIM(email)) AS email, COUNT(*)::int AS tokens, BOOL_OR(used) AS any_used,
+                        BOOL_OR(NOT COALESCE(used, FALSE) AND expires_at > NOW()) AS any_valid, MAX(expires_at) AS last_expires
+                   FROM password_resets GROUP BY 1) pr ON pr.email = LOWER(TRIM(u.email))
+      LEFT JOIN referral_partners rp ON rp.code = u.referred_by
      WHERE u.email IS NOT NULL`)).rows;
 }
 
@@ -163,6 +185,36 @@ function isInternal(u, settings) {
   return null;
 }
 
+// ── CAN THEY LOG IN? ──────────────────────────────────────────────────────
+// The email asks them to log in and look, so it never goes to someone who
+// cannot. Usable: they have logged in, or a set-password link was used, or one
+// is out there now, unused and unexpired. Anything else is "cannot log in",
+// with the evidence as the reason; it clears by itself once a working link is
+// issued (password_resets) or they sign in.
+function loginProblem(u, now = new Date()) {
+  if (u.last_login) return null;
+  if (u.reset_used || u.reset_valid) return null;
+  const d = (x) => new Date(x).toISOString().slice(0, 10);
+  if (Number(u.reset_tokens) > 0) {
+    return `a set-password link was issued but never used, and it expired${u.reset_expires ? ' ' + d(u.reset_expires) : ''}; they have never logged in`;
+  }
+  if (u.password_reset_required) {
+    return 'the account was created for them with a password nobody knows, and no set-password link was ever issued';
+  }
+  return 'they have never logged in since signing up, and no set-password link was ever issued';
+}
+
+function heldFor(u, settings) {
+  const lp = loginProblem(u);
+  if (lp) return { why: 'cannot log in: ' + lp, hold: 'login', detail: lp };
+  const partner = lc(u.referred_by);
+  if (partner && HELD_PARTNERS.includes(partner)) {
+    return { why: `came through ${u.referred_by_name || partner}: yours to handle personally`, hold: 'referral', detail: u.referred_by_name || partner };
+  }
+  if ((settings.holdEmails || []).includes(lc(u.email))) return { why: 'on your hold list: yours to handle personally', hold: 'hand', detail: 'hold list' };
+  return null;
+}
+
 // The reason a person is NOT eligible, or null with their group. Pure, so the
 // rules are tested directly and an empty run can say exactly why.
 function classify(u, settings, now = new Date()) {
@@ -176,9 +228,14 @@ function classify(u, settings, now = new Date()) {
   if (u.comped) return { why: 'comped (free access we gave them)' };
   if (u.suppressed) return { why: 'suppressed (bounced, unsubscribed or said no)' };
   if (u.prospect_status && u.prospect_status !== 'open') return { why: `stopped: ${u.stop_reason || u.prospect_status}` };
+  // ── HELD FOR THE ADMIN ──────────────────────────────────────────────────
+  // Shown on the page in their own groups, never emailed by this agent.
+  const held = heldFor(u, settings);
+  if (held) return held;
   if (Number(u.touches) >= MAX_TOUCHES) return { why: `already had ${MAX_TOUCHES} touches` };
   if (days(u.last_touch_at) < GAP_DAYS) return { why: `contacted in the last ${GAP_DAYS} days` };
   if (u.open_draft) return { why: 'a draft is already waiting for approval' };
+  if (days(u.last_no_demo_at) < NO_DEMO_RETRY_DAYS) return { why: `no demo on the last try (tried again after ${NO_DEMO_RETRY_DAYS} days)` };
   if (days(u.last_login) < ACTIVE_DAYS) return { why: 'logged in this week' };
   if (Number(u.athletes) === 0) return { group: 1, why: 'signed up, never added an athlete' };
   if (days(u.last_login) >= DORMANT_DAYS) return { group: 2, why: `has ${u.athletes} athlete${u.athletes === 1 ? '' : 's'}, has not logged in for 14+ days` };
@@ -191,15 +248,18 @@ async function pick(pool, { limit, now, settings, onlyIds } = {}) {
   // onlyIds: a test's own accounts, so a shared test database's other users
   // do not decide the outcome.
   const rows = (await candidates(pool)).filter((u) => !onlyIds || onlyIds.includes(u.id));
-  const picked = [], skipped = {};
+  const picked = [], skipped = {}, held = [];
   for (const u of rows) {
     const c = classify(u, s, now);
-    if (c.group) picked.push({ ...u, group: c.group, groupWhy: c.why });
-    else skipped[c.why] = (skipped[c.why] || 0) + 1;
+    if (c.group) { picked.push({ ...u, group: c.group, groupWhy: c.why }); continue; }
+    // Counted by kind, not by each person's own sentence.
+    const key = c.hold === 'login' ? 'cannot log in' : c.hold ? 'held for you (' + (c.hold === 'referral' ? c.detail + "'s referrals" : 'hold list') + ')' : c.why;
+    skipped[key] = (skipped[key] || 0) + 1;
+    if (c.hold) held.push({ id: u.id, name: u.name, email: u.email, hold: c.hold, why: c.why, athletes: Number(u.athletes) || 0, signedUp: u.created_at });
   }
   picked.sort((a, b) => (a.group - b.group) || (new Date(a.created_at) - new Date(b.created_at)));
   const n = Number.isFinite(limit) ? limit : s.perRun;
-  return { picked: picked.slice(0, n), eligible: picked.length, skipped };
+  return { picked: picked.slice(0, n), eligible: picked.length, skipped, held };
 }
 
 // ── RESEARCH ────────────────────────────────────────────────────────────────
@@ -403,11 +463,26 @@ async function prepare(pool, u, { runId, deps = {} } = {}) {
   const senderFirst = deps.senderFirst || firstName(admin && admin.name) || 'John Mark';
   const found = await research(u, deps);
   const subj = await demoSubject(pool, u, found);
-  if (!subj) return { ok: false, why: 'no athlete of theirs, no public roster athlete and no nearby school to run a demo for' };
+  // ── NO DEMO, NO EMAIL ────────────────────────────────────────────────────
+  // A thin list is never sent. The person is shown as "no demo" with why
+  // (and what little it did find), nothing is drafted, and they are not
+  // tried again for NO_DEMO_RETRY_DAYS.
+  const noDemo = async (why, demo, cards) => {
+    const id = 'cold_' + crypto.randomBytes(8).toString('hex');
+    await pool.query(
+      `INSERT INTO cold_drafts (id, run_id, user_id, email, name, grp, why, research, demo, touch_no, status, status_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'no_demo',$11)`,
+      [id, runId || null, u.id, lc(u.email), u.name || null, u.group, u.groupWhy, JSON.stringify(found || {}),
+        JSON.stringify(demo || {}), Number(u.touches || 0) + 1, why]);
+    for (const c of cards || []) await saveDemoCard(pool, id, runId, demo && demo.demoAthleteId, c);
+    return { ok: false, noDemo: true, draftId: id, why };
+  };
+  if (!subj) return noDemo('no athlete of theirs, no athlete on their agency\'s public roster and no college near them to run a demo for', {}, []);
   const demo = await runDemo(pool, u, subj, { ...deps, senderFirst });
   const cards = (demo.cards || []).filter(usable).slice(0, 5);
-  if (cards.length < 3) {
-    return { ok: false, why: `the demo night for ${subj.name || subj.school} found ${cards.length} business${cards.length === 1 ? '' : 'es'} with a named person and a way to reach them (needs 3)`, demo: { ...demo, cards: undefined, found: cards.length } };
+  const demoInfo = { athlete: { name: subj.name, school: subj.school, sport: subj.sport, kind: subj.kind }, demoAthleteId: demo.demoAthleteId, tried: demo.tried, ms: demo.ms };
+  if (cards.length < MIN_DEMO_CARDS) {
+    return noDemo(`the demo night for ${subj.name || subj.school} found ${cards.length} business${cards.length === 1 ? '' : 'es'} with a named person and a way to reach them, out of ${demo.tried || 0} tried (an email needs ${MIN_DEMO_CARDS})`, demoInfo, cards);
   }
   const touchNo = Number(u.touches || 0) + 1;
   const mail = await writeEmail(u, { cards, subject: subj, research: found, touchNo, senderFirst }, deps);
@@ -420,14 +495,16 @@ async function prepare(pool, u, { runId, deps = {} } = {}) {
       JSON.stringify({ athlete: { name: subj.name, school: subj.school, sport: subj.sport, kind: subj.kind }, demoAthleteId: demo.demoAthleteId,
         tried: demo.tried, ms: demo.ms, writtenBy: mail.by, writerProblems: mail.writerProblems || null }),
       mail.subject, mail.body, touchNo]);
-  for (const c of cards) {
-    await pool.query(
-      `INSERT INTO cold_demo_cards (draft_id, run_id, demo_athlete_id, brand_name, contact_name, contact_title, email, phone, instagram, why, category, card)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [id, runId || null, demo.demoAthleteId, c.brandName, c.contactName, c.contactTitle || null, c.email || null, c.phone || null,
-        c.instagram || null, c.why || null, c.businessCategory || null, JSON.stringify(c)]);
-  }
+  for (const c of cards) await saveDemoCard(pool, id, runId, demo.demoAthleteId, c);
   return { ok: true, draftId: id, cards: cards.length };
+}
+
+async function saveDemoCard(pool, draftId, runId, demoAthleteId, c) {
+  await pool.query(
+    `INSERT INTO cold_demo_cards (draft_id, run_id, demo_athlete_id, brand_name, contact_name, contact_title, email, phone, instagram, why, category, card)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [draftId, runId || null, demoAthleteId || null, c.brandName, c.contactName || null, c.contactTitle || null, c.email || null, c.phone || null,
+      c.instagram || null, c.why || null, c.businessCategory || null, JSON.stringify(c)]);
 }
 
 // ── A RUN ───────────────────────────────────────────────────────────────────
@@ -455,6 +532,7 @@ async function runOnce(pool, { trigger = 'manual', limit, now, deps = {} } = {})
       try {
         const r = await prepare(pool, u, { runId, deps });
         if (r.ok) detail.drafted.push({ userId: u.id, name: u.name, email: u.email, group: u.group, draftId: r.draftId, cards: r.cards });
+        else if (r.noDemo) (detail.noDemo = detail.noDemo || []).push({ userId: u.id, name: u.name, email: u.email, group: u.group, draftId: r.draftId, why: r.why });
         else detail.failed.push({ userId: u.id, name: u.name, email: u.email, group: u.group, why: r.why });
       } catch (e) {
         detail.failed.push({ userId: u.id, name: u.name, email: u.email, group: u.group, why: 'our failure: ' + String(e.message || e).slice(0, 200) });
@@ -467,6 +545,7 @@ async function runOnce(pool, { trigger = 'manual', limit, now, deps = {} } = {})
       note = `Nobody to contact. ${top || 'No accounts at all.'}`;
     } else {
       note = `Drafted ${detail.drafted.length} of ${picked.length} picked (${eligible} eligible).`
+        + (detail.noDemo && detail.noDemo.length ? ` No demo for ${detail.noDemo.length}, not emailed: ${detail.noDemo.map((f) => `${f.name || f.email} (${f.why})`).join('; ')}.` : '')
         + (detail.failed.length ? ` Could not draft ${detail.failed.length}: ${detail.failed.map((f) => `${f.name || f.email} (${f.why})`).join('; ')}.` : '')
         + (detail.deadline ? ' ' + detail.deadline + '.' : '');
     }
@@ -665,4 +744,5 @@ module.exports = {
   runDemo, usable, checkEmail, templateEmail, writeEmail, prepare, runOnce, detectReplies, approve, sendOne, skip, mark,
   listDrafts, listRuns, centralNow, dueAt, pastDeadline, tick, start,
   SANDBOX_AGENT, SYSTEM, MAX_TOUCHES, GAP_DAYS, ACTIVE_DAYS, DORMANT_DAYS, PAYING, DEFAULTS, INTERNAL_NAMES, FOOTER_WHY,
+  loginProblem, heldFor, MIN_DEMO_CARDS, NO_DEMO_RETRY_DAYS, HELD_PARTNERS,
 };

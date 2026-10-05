@@ -64,6 +64,16 @@ Nothing is sent until you approve it. Max 3 touches per person, 10 days apart; a
   </div>
 </div>
 
+<div class="box" id="held-box">
+  <h3 style="margin-top:0">Not emailed by the agent, needs you</h3>
+  <div id="held"><span class="small">Loading…</span></div>
+  <div style="margin-top:12px">
+    <label style="display:block;margin-bottom:6px">Hold list: people you will handle personally, one email per line</label>
+    <textarea id="s-hold" style="min-height:70px" placeholder="name@agency.com"></textarea>
+    <button style="margin-top:6px" onclick="saveHold()">Save hold list</button> <span id="h-msg" class="small"></span>
+  </div>
+</div>
+
 <div class="box">
   <h3 style="margin-top:0">Runs</h3>
   <table class="runs"><tbody id="runs"><tr><td>Loading…</td></tr></tbody></table>
@@ -72,6 +82,7 @@ Nothing is sent until you approve it. Max 3 touches per person, 10 days apart; a
 <div class="tabs" role="group" aria-label="Show">
   <button aria-pressed="true" data-s="pending" onclick="show('pending', this)">Waiting for you</button>
   <button aria-pressed="false" data-s="sent" onclick="show('sent', this)">Sent</button>
+  <button aria-pressed="false" data-s="no_demo" onclick="show('no_demo', this)">No demo</button>
   <button aria-pressed="false" data-s="" onclick="show('', this)">Everything</button>
 </div>
 <div id="drafts"><div class="box">Loading…</div></div>
@@ -98,6 +109,13 @@ async function loadSettings() {
   document.getElementById('s-start').value = hhmm(s.startHour, s.startMinute);
   document.getElementById('s-dead').value = hhmm(s.deadlineHour, s.deadlineMinute);
   document.getElementById('s-weekdays').checked = !!s.weekdaysOnly;
+  document.getElementById('s-hold').value = (s.holdEmails || []).join('\n');
+}
+async function saveHold() {
+  var list = document.getElementById('s-hold').value.split(/[\s,;]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+  var s = await api('POST', '/settings', { holdEmails: list });
+  document.getElementById('h-msg').textContent = s.error ? 'Not saved: ' + s.error : 'Saved: ' + (s.holdEmails || []).length + ' held.';
+  loadSettings(); loadPick();
 }
 async function saveSettings() {
   var st = document.getElementById('s-start').value.split(':'), dl = document.getElementById('s-dead').value.split(':');
@@ -113,11 +131,25 @@ async function loadPick() {
   if (p.error) { el.textContent = 'Could not read who is next: ' + p.error; return; }
   // Each name can be dropped BEFORE a demo is paid for: one of our own people
   // the name rules missed, or someone you would rather not write to.
+  renderHeld(p);
   if (!p.eligible) { el.textContent = 'Nobody is eligible right now.'; return; }
   el.innerHTML = 'Next run: ' + (p.next || []).map(function (u) {
     return '<span title="' + esc(u.email + ' · ' + u.why) + '">' + esc(u.name || u.email) + ' (group ' + esc(u.group) + ')</span>'
       + ' <a href="#" class="small" onclick="markAs(\'' + esc(u.id) + '\', \'exclude\'); return false;">never contact</a>';
   }).join(', ') + '. ' + esc(p.eligible) + ' eligible in all.';
+}
+function renderHeld(p) {
+  var row = function (h) {
+    return '<tr><td><b>' + esc(h.name || h.email) + '</b><div class="small">' + esc(h.email) + '</div></td><td class="small">'
+      + esc(h.athletes) + ' athlete' + (h.athletes === 1 ? '' : 's') + '<br>signed up ' + esc(day(h.signedUp)) + '</td><td>' + esc(h.why) + '</td></tr>';
+  };
+  var cl = p.cannotLogIn || [], hf = p.heldForYou || [];
+  document.getElementById('held').innerHTML =
+    '<h3>Cannot log in (' + cl.length + ')</h3>'
+    + (cl.length ? '<p class="small" style="margin-bottom:6px">The email asks them to log in, so they are skipped until the account works: once a set-password link is issued and unexpired, or they sign in, they become eligible again by themselves.</p>'
+      + '<table><tbody>' + cl.map(row).join('') + '</tbody></table>' : '<p class="small">None.</p>')
+    + '<h3>Held for you (' + hf.length + ')</h3>'
+    + (hf.length ? '<table><tbody>' + hf.map(row).join('') + '</tbody></table>' : '<p class="small">None.</p>');
 }
 async function runNow() {
   var b = document.getElementById('run-now'); b.disabled = true; b.textContent = 'Running…';
@@ -159,23 +191,25 @@ function card(d) {
       + '</td><td>' + esc(reach) + '</td><td class="small">' + esc(b.why || '') + '</td></tr>';
   }).join('');
   var pending = d.status === 'pending';
-  var state = d.status === 'pending' ? '' : '<span class="state ' + esc(d.status) + '">' + esc(d.status === 'sending' ? 'Sending…' : d.status === 'sent' ? 'Sent ' + when(d.sent_at) : d.status === 'failed' ? 'Send failed' : 'Skipped') + '</span>';
+  var state = d.status === 'pending' ? '' : d.status === 'no_demo' ? '<span class="state failed">No demo</span>' : '<span class="state ' + esc(d.status) + '">' + esc(d.status === 'sending' ? 'Sending…' : d.status === 'sent' ? 'Sent ' + when(d.sent_at) : d.status === 'failed' ? 'Send failed' : 'Skipped') + '</span>';
   var known = [res.agency || d.agency_name, res.role, res.rosterSize ? '~' + res.rosterSize + ' athletes' : null, res.basedIn && res.basedIn.city ? res.basedIn.city + (res.basedIn.state ? ', ' + res.basedIn.state : '') : null].filter(Boolean).join(' · ');
   return '<div class="card" id="d-' + esc(d.id) + '">'
     + '<div class="who"><div><div class="name">' + esc(d.name || d.email) + '</div>'
     + '<div class="meta">' + esc(d.email) + (known ? ' · ' + esc(known) : '') + '</div>'
     + '<div class="meta"><span class="badge">Group ' + esc(d.grp) + '</span>' + esc(d.why || '') + '</div>'
-    + '<div class="meta">Touch ' + esc(d.touch_no) + ' of 3 · touches sent so far: ' + esc(d.touches) + ' · last contacted: ' + esc(when(d.last_touch_at)) + ' · last login: ' + esc(day(d.last_login)) + ' · signed up: ' + esc(day(d.signed_up)) + '</div>'
+    + '<div class="meta">' + (d.status === 'no_demo' ? 'Not emailed' : 'Touch ' + esc(d.touch_no) + ' of 3') + ' · touches sent so far: ' + esc(d.touches) + ' · last contacted: ' + esc(when(d.last_touch_at)) + ' · last login: ' + esc(day(d.last_login)) + ' · signed up: ' + esc(day(d.signed_up)) + '</div>'
     + (res.recent ? '<div class="meta">Recent: ' + esc(res.recent) + '</div>' : '')
     + '</div><div>' + state + '</div></div>'
-    + '<h3>The demo night: ' + esc(ath.name || ('an athlete at ' + (ath.school || '?'))) + (ath.school && ath.name ? ' · ' + esc(ath.school) : '') + (ath.sport ? ' · ' + esc(ath.sport) : '') + ' <span class="small">(' + esc(ath.kind || '') + ', ' + esc(demo.tried || 0) + ' businesses tried)</span></h3>'
-    + '<table><thead><tr><th>Business</th><th>Person</th><th>Reach</th><th>Why</th></tr></thead><tbody>' + biz + '</tbody></table>'
-    + '<h3>The email</h3>'
-    + (pending
+    + (!(ath.name || ath.school) ? '' : '<h3>The demo night: ' + esc(ath.name || ('an athlete at ' + (ath.school || '?'))) + (ath.school && ath.name ? ' · ' + esc(ath.school) : '') + (ath.sport ? ' · ' + esc(ath.sport) : '') + ' <span class="small">(' + esc(ath.kind || '') + ', ' + esc(demo.tried || 0) + ' businesses tried)</span></h3>'
+    + (biz ? '<table><thead><tr><th>Business</th><th>Person</th><th>Reach</th><th>Why</th></tr></thead><tbody>' + biz + '</tbody></table>' : '<p class="small">No business with a named person and a way to reach them.</p>'))
+    + (d.status === 'no_demo'
+      ? '<h3>No demo: not emailed</h3><div class="err" style="margin-top:0">' + esc(d.status_note || '') + '</div>'
+      : '<h3>The email</h3>')
+    + (d.status === 'no_demo' ? '' : pending
       ? '<input type="text" id="sub-' + esc(d.id) + '" value="' + esc(d.subject) + '" aria-label="Subject"><textarea id="body-' + esc(d.id) + '" aria-label="Email" style="margin-top:8px">' + esc(d.body_text) + '</textarea>'
         + '<div class="small" style="margin-top:4px">Sent from your mailbox, with the unsubscribe footer added.</div>'
       : '<div class="meta"><b>' + esc(d.subject) + '</b></div><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.5;margin-top:6px">' + esc(d.body_text) + '</pre>')
-    + (d.send_error ? '<div class="err">' + esc(d.send_error) + '</div>' : '') + (d.status_note && d.status !== 'sent' ? '<div class="err">' + esc(d.status_note) + '</div>' : '')
+    + (d.send_error ? '<div class="err">' + esc(d.send_error) + '</div>' : '') + (d.status_note && d.status !== 'sent' && d.status !== 'no_demo' ? '<div class="err">' + esc(d.status_note) + '</div>' : '')
     + '<div class="actions">'
     + (pending ? '<button class="go" onclick="approve(\'' + esc(d.id) + '\', this)">Approve and send</button><button onclick="skipDraft(\'' + esc(d.id) + '\', this)">Skip</button>' : '')
     + '<button onclick="markAs(\'' + esc(d.user_id) + '\', \'replied\')">They replied</button>'

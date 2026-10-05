@@ -12017,7 +12017,11 @@ app.get('/api/admin/cold-agent/pick', _coldAdmin, async (req, res) => {
     const s = await CA.getSettings(store.pool);
     const p = await CA.pick(store.pool, { settings: s, limit: 50 });
     res.json({ perRun: s.perRun, eligible: p.eligible, next: p.picked.slice(0, s.perRun).map((u) => ({ id: u.id, name: u.name, email: u.email, group: u.group, why: u.groupWhy, athletes: u.athletes, touches: u.touches, lastLogin: u.last_login, signedUp: u.created_at })),
-      later: p.picked.slice(s.perRun).map((u) => ({ name: u.name, email: u.email, group: u.group })), notPicked: p.skipped });
+      later: p.picked.slice(s.perRun).map((u) => ({ name: u.name, email: u.email, group: u.group })), notPicked: p.skipped,
+      // Not emailed by this agent, shown so the admin can act: accounts that
+      // cannot log in (fix the account first), and the people held for the
+      // admin personally (Greg Glynn's referrals, the hold list).
+      cannotLogIn: p.held.filter((h) => h.hold === 'login'), heldForYou: p.held.filter((h) => h.hold !== 'login') });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/admin/cold-agent/settings', _coldAdmin, async (req, res) => {
