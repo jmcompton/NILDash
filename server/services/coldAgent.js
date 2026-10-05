@@ -306,9 +306,13 @@ async function demoSubject(pool, u, found) {
   // itself resolves it with localContextFor, which checks it against where the
   // school actually is).
   const SG = require('./schoolGeocode');
+  const R = require('./schoolResolver');
   const ok = (row) => {
-    try { const p = job.athleteProfile(row); if (p && p.hasLocalMarket) return true; } catch (_) { /* fall through */ }
     const sch = (row && row.data && row.data.school) || (row && row.school) || '';
+    // A name that is more than one school is never a demo: it would be a guess.
+    const amb = sch ? R.ambiguity(sch, { state: row && row.data && row.data.state }) : null;
+    if (amb && amb.candidates) return false;
+    try { const p = job.athleteProfile(row); if (p && p.hasLocalMarket) return true; } catch (_) { /* fall through */ }
     return !!(sch && SG.usable(sch));
   };
   if (Number(u.athletes) > 0) {

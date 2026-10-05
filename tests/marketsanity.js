@@ -90,6 +90,46 @@ async function main() {
   const other = Q.buildCard({ brand: "Domino's" }, { tiers: [{ tier: 1, rows: [{ name: 'Greg Neichter', title: 'Owner' }, { name: 'Austin Mitchell', title: 'Manager', email: 'austin.mitchell@dominos.com', emailKind: 'published' }] }] }, null);
   ok('another named person\'s address is not borrowed for the owner', other.contactName !== 'Greg Neichter' || other.email !== 'austin.mitchell@dominos.com', other);
 
+  // ── 4. A NAME THAT IS MORE THAN ONE SCHOOL STOPS, IT DOES NOT PICK ──────
+  OUT.push('', '-- which school is this? --');
+  for (const [name, n] of [['Miami', 2], ['Columbia', 3], ['Washington', 5], ['Charleston', 3], ['Jackson', 2], ['Michigan', 2], ['Alabama', 2]]) {
+    const a = R.ambiguity(name);
+    ok(`"${name}" is not guessed: no market, and the candidates are named`, R.resolveSchool(name) === null && a && a.candidates.length >= n, a);
+  }
+  ok('  "Alabama" no longer goes to Birmingham, "Michigan" no longer to East Lansing', R.resolveSchool('Alabama') === null && R.resolveSchool('Michigan') === null);
+  ok('a state narrows it to one: "Miami (Ohio)" is Oxford, "Miami (FL)" is Coral Gables',
+    (R.resolveSchool('Miami (Ohio)') || {}).city === 'Oxford' && (R.resolveSchool('Miami (FL)') || {}).city === 'Coral Gables');
+  ok('  and so does the athlete\'s own state on file', (R.ambiguity('Miami', { state: 'OH' }) || {}).narrowed && R.ambiguity('Miami', { state: 'OH' }).narrowed.city === 'Oxford');
+  ok('a full name is not asked: University of Miami, Michigan State, Georgia Tech, Bama',
+    ['University of Miami', 'Michigan State', 'Georgia Tech', 'Bama'].every((x) => !R.ambiguity(x) && R.resolveSchool(x)));
+
+  const LLC = require(REPO + 'server/services/localLaneCheck.js');
+  const pr = LLC.problemFor({ data: { name: 'Tess Court', school: 'Miami' } });
+  ok('HOME asks "which school is this?" in the Clint Frazier block, with each candidate as a choice',
+    pr && pr.code === 'ambiguous-school' && /Which school is this\?/.test(pr.text) && /no cards until you pick/.test(pr.text)
+    && pr.choices.map((c) => c.school).join('|') === 'University of Miami|Miami University' && /Coral Gables, FL/.test(pr.choices[0].label), pr);
+  await P.query(`DELETE FROM athletes WHERE id = 'ms-ath'`); await P.query(`DELETE FROM users WHERE id = 'ms-agent'`);
+  await P.query(`INSERT INTO users (id,name,email,password,role) VALUES ('ms-agent','Ms Agent','ms@ms.test','x','agent')`);
+  await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ('ms-ath','ms-agent','{"name":"Tess Court","school":"Miami"}')`);
+  const listed = await LLC.forAgent(P, 'ms-agent');
+  ok('  it is on the agent\'s list', listed.some((x) => x.athleteId === 'ms-ath' && x.code === 'ambiguous-school'), listed);
+  const badPick = await LLC.applyFix(P, 'ms-agent', 'ms-ath', { choice: 'University of Florida' });
+  ok('  only one of the schools offered can be picked', !badPick.ok && badPick.status === 400, badPick);
+  const pick = await LLC.applyFix(P, 'ms-agent', 'ms-ath', { choice: 'Miami University' });
+  const after = (await P.query(`SELECT data->>'school' AS school FROM athletes WHERE id = 'ms-ath'`)).rows[0];
+  ok('  the pick is saved as the full name, which resolves, and the question goes away',
+    pick.ok && after.school === 'Miami University' && (R.resolveSchool(after.school) || {}).city === 'Oxford' && !(await LLC.forAgent(P, 'ms-agent')).some((x) => x.athleteId === 'ms-ath'), { pick, after });
+  await P.query(`DELETE FROM athletes WHERE id = 'ms-ath'`); await P.query(`DELETE FROM users WHERE id = 'ms-agent'`);
+
+  const fill = await job.fillAthlete(P, { agentId: 'ms-agent', athleteId: 'ms-x', athleteName: 'Tess Court', agentFirstName: 'Sam', athleteRow: { name: 'Tess Court', school: 'Columbia' },
+    budget: null, region: null, dryRun: true });
+  ok('THE NIGHT writes no cards and spends nothing for an ambiguous school, and says why', fill.filled === 0 && fill.ambiguousSchool && /more than one school/.test(fill.note) && fill.tried.length === 0, fill);
+  const r2 = await job.localContextFor({ id: 'x', name: 'T', data: { name: 'T', school: 'Columbia' } });
+  ok('  and no market is built (Places is not asked to pick one)', !r2.region && !r2.profile.hasLocalMarket, r2);
+  const SF = require(REPO + 'server/services/schoolFind.js');
+  const form = await SF.findSchool('Miami', { instantOnly: true });
+  ok('the add-athlete form asks too, at the keyboard', form.status === 'ambiguous' && form.options.length === 2, form);
+
   OUT.push('', 'failures: ' + F);
   console.log(OUT.join('\n'));
   try { await store.pool.end(); } catch (_) {}

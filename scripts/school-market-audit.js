@@ -83,7 +83,18 @@ async function main() {
     console.log(`   ${x.school.padEnd(38)} -> ${String(x.market || 'NO MARKET').padEnd(26)} cards: ${cm}  (${x.name}, ${x.agent})`);
   }
 
-  const none = out.filter((x) => !x.market);
+  // From this deploy on, a name that is more than one real school stops: no
+  // cards until the agent picks on Home.
+  const R = require(ROOT + 'server/services/schoolResolver.js');
+  const amb = out.map((x) => ({ ...x, amb: R.ambiguity(x.school, { state: x.data && x.data.state }) })).filter((x) => x.amb && x.amb.candidates);
+  console.log(`\n2b. NOW ASKED "WHICH SCHOOL IS THIS?" ON HOME, NO CARDS UNTIL PICKED: ${amb.length}`);
+  for (const x of amb) {
+    const cm = x.cards.map((c) => `${c.market_key} x${c.n}`).join(', ') || 'no cards in 30 days';
+    console.log(`   "${x.school}"  ${x.name}, agent ${x.agent} <${x.agent_email}>  -- cards so far: ${cm}`);
+    console.log(`      could be: ${x.amb.candidates.map((c) => `${c.name} (${c.city}, ${c.state})`).join('; ')}`);
+  }
+
+  const none = out.filter((x) => !x.market && !(R.ambiguity(x.school, { state: x.data && x.data.state }) || {}).candidates);
   console.log(`\n3. NO MARKET YET (the nightly will look the school up with Places): ${none.length}`);
   for (const x of none.slice(0, 40)) console.log(`   ${x.school}  (${x.name}, ${x.agent})`);
 

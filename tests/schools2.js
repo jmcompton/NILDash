@@ -48,7 +48,7 @@ OUT.push('', '-- a shared bare name is never guessed --');
 ok('"Bethel University" alone is ambiguous (Minnesota, Indiana, Tennessee): null, not a coin toss', R.resolveSchool('Bethel University') === null);
 ok('  with the state it resolves', R.resolveSchool('Bethel University (TN)').city === 'McKenzie' && R.resolveSchool('Bethel University (Minnesota)').city === 'Arden Hills' && R.resolveSchool('Bethel University (Indiana)').city === 'Mishawaka');
 ok('  and the check offers every one with its town, each of which resolves when picked', (() => { const s = SC.checkSchool('Bethel University'); return s.ok === false && s.suggestions.length >= 3 && s.suggestions.every((x) => /Bethel/.test(x.name) && SC.checkSchool(x.name).ok === true); })(), SC.checkSchool('Bethel University').suggestions);
-ok('the old ambiguity still holds: "Miami" is Coral Gables by key, "Miami University" is Oxford', R.resolveSchool('Miami').city === 'Coral Gables' && R.resolveSchool('Miami University').city === 'Oxford');
+ok('a bare "Miami" is asked, never guessed; "Miami University" is Oxford', R.resolveSchool('Miami') === null && R.resolveSchool('Miami University').city === 'Oxford');
 
 OUT.push('', '-- a state the agent typed is never overruled --');
 const mo = R.resolveSchool('Miami (Ohio)');
@@ -57,7 +57,7 @@ ok('  so is "Miami (OH)"', R.resolveSchool('Miami (OH)').city === 'Oxford');
 ok('  "Miami (Florida)" and "Miami (FL)" stay Coral Gables', R.resolveSchool('Miami (Florida)').city === 'Coral Gables' && R.resolveSchool('Miami (FL)').city === 'Coral Gables');
 ok('  the shipped map spells the state out and still agrees with a code hint', R.resolveSchool('Auburn (Alabama)').city === 'Auburn' && R.resolveSchool('Auburn (AL)').city === 'Auburn');
 ok('  a school in the wrong state is null, never a school somewhere else', R.resolveSchool('Auburn (Georgia)') === null && R.resolveSchool('Western New Mexico University (Texas)') === null);
-ok('  a note in parentheses is still a note', R.resolveSchool('Maryland (incoming; Class of 2026 recruit)').city === 'College Park');
+ok('  a note in parentheses is still a note (and the bare "Maryland" left is asked, not guessed)', R.resolveSchool('University of Maryland (incoming; Class of 2026 recruit)').city === 'College Park' && R.resolveSchool('Maryland (incoming; Class of 2026 recruit)') === null);
 
 OUT.push('', '-- suggestions share a word, or the state, with what was typed --');
 const sug = (q) => SC.suggestionsFor(q).map((x) => x.name);

@@ -459,6 +459,83 @@ function isIdentityLike(s) {
 
 // opts.map lets a test supply its own list. opts.lookup is the shipped exact
 // lookup, injected so this module can be exercised without ai.js.
+// ── A NAME THAT IS MORE THAN ONE SCHOOL STOPS; IT DOES NOT PICK ───────────
+// Agents type "Miami", not "University of Miami". A bare name that is several
+// real institutions, with nothing to narrow it (a "(Ohio)", a state), has no
+// answer: guessing quietly is what sent a New York agent Missouri businesses.
+// ambiguity() names the candidates; resolveSchool returns null for it; Home
+// asks the agent which one (services/localLaneCheck), and nothing local is
+// built until they pick.
+const AMBIGUOUS = {
+  miami: [
+    { name: 'University of Miami', city: 'Coral Gables', state: 'FL' },
+    { name: 'Miami University', city: 'Oxford', state: 'OH' },
+  ],
+  columbia: [
+    { name: 'Columbia University', city: 'New York', state: 'NY' },
+    { name: 'Columbia College', city: 'Columbia', state: 'MO' },
+    { name: 'Columbia College Chicago', city: 'Chicago', state: 'IL' },
+  ],
+  washington: [
+    { name: 'University of Washington', city: 'Seattle', state: 'WA' },
+    { name: 'Washington State University', city: 'Pullman', state: 'WA' },
+    { name: 'Washington University in St. Louis', city: 'St. Louis', state: 'MO' },
+    { name: 'George Washington University', city: 'Washington', state: 'DC' },
+    { name: 'Washington and Lee University', city: 'Lexington', state: 'VA' },
+  ],
+  charleston: [
+    { name: 'College of Charleston', city: 'Charleston', state: 'SC' },
+    { name: 'University of Charleston', city: 'Charleston', state: 'WV' },
+    { name: 'Charleston Southern University', city: 'North Charleston', state: 'SC' },
+  ],
+  jackson: [
+    { name: 'Jackson State University', city: 'Jackson', state: 'MS' },
+    { name: 'Jackson College', city: 'Jackson', state: 'MI' },
+  ],
+};
+// null: not ambiguous. { narrowed }: a state picked exactly one. { candidates }:
+// more than one real school and nothing to choose between them.
+function ambiguity(raw, opts = {}) {
+  const { name: input, stateHint } = splitParenthetical(String(raw || '').trim());
+  if (!input) return null;
+  if (kindsOf(input).size) return null;          // "... University" says which
+  const n = normalize(input).replace(/^the /, '');
+  let cands = AMBIGUOUS[n] ? AMBIGUOUS[n].slice() : null;
+  // A BARE STATE NAME IS EVERY SCHOOL IN IT. "Michigan" resolved to East
+  // Lansing, "Georgia" to Atlanta, "Alabama" to Birmingham: the longest name
+  // containing it won. Whoever the agent meant, they are asked.
+  if (!cands && Object.prototype.hasOwnProperty.call(US_STATES, n)) {
+    const extra = opts.map || EXTRA_SCHOOLS;
+    const exact = opts.lookup || lookupSchoolLocation;
+    const all = Object.keys(extra).map((k) => ({ name: splitParenthetical(k).name, loc: extra[k] }))
+      .concat((opts.mapNames || SHIPPED_NAMES).map((k) => ({ name: k, loc: exact(k) })));
+    const word = new RegExp('\\b' + n.replace(/\s+/g, '\\s+') + '\\b');
+    const seen = new Set();
+    const rank = (x) => (normalize(x.name) === 'university of ' + n ? 0 : normalize(x.name) === n + ' state university' ? 1 : 2);
+    cands = [];
+    for (const x of all.filter((x) => x.loc && x.loc.city && kindsOf(x.name).size && word.test(normalize(x.name))).sort((a, b) => rank(a) - rank(b))) {
+      const town = normalize(x.loc.city) + '|' + stateCode(x.loc.state || '');
+      if (seen.has(town)) continue;
+      seen.add(town);
+      cands.push({ name: x.name, city: x.loc.city, state: stateCode(x.loc.state || '') || x.loc.state });
+      if (cands.length >= 5) break;
+    }
+    if (cands.length < 2) cands = null;
+  }
+  if (!cands) {
+    const on = candidatesFor(input, opts);
+    if (on.length > 1) cands = on.map((c) => ({ name: c.name, city: c.city, state: c.state }));
+  }
+  if (!cands || cands.length < 2) return null;
+  const hint = stateHint || (opts.state ? stateCode(opts.state) : null);
+  if (hint) {
+    const inState = cands.filter((c) => sameState(c.state, hint));
+    if (inState.length === 1) return { narrowed: inState[0] };
+    if (inState.length > 1) cands = inState;
+  }
+  return { name: input, candidates: cands };
+}
+
 function resolveSchool(raw, opts = {}) {
   // A SCHOOL WHOSE MARKET WAS CHECKED AGAINST ITS ACTUAL LOCATION AND FOUND
   // WRONG (services/schoolMarketCheck) answers with where it really is, on
@@ -468,6 +545,11 @@ function resolveSchool(raw, opts = {}) {
       const o = require('./schoolMarketCheck').overrideFor(raw);
       if (o) return { city: o.city, state: o.state, matched: String(raw || '').trim(), method: 'located', confidence: 1 };
     } catch (_) { /* no corrections loaded: the name rules alone */ }
+  }
+  {
+    const amb = ambiguity(raw, opts);
+    if (amb && amb.narrowed) return { city: amb.narrowed.city, state: amb.narrowed.state, matched: amb.narrowed.name, method: 'narrowed', confidence: 1 };
+    if (amb) return null;
   }
   // The note comes off the name first. "Maryland (incoming; Class of 2026
   // recruit)" is Maryland; the parenthetical is an agent's aside, not part of
@@ -649,6 +731,6 @@ module.exports = {
   resolveSchool, normalize, core, similarity, levenshtein,
   EXTRA_SCHOOLS, ALIASES, MIN_CONFIDENCE, MIN_MARGIN, TYPO_MIN_CORE, MARKET_FLOOR,
   GENERIC, isIdentityLike, SHIPPED_NAMES, splitParenthetical, US_STATES,
-  INSTITUTION_WORDS, stateCode, sameState, kindsOf, kindsAgree,
+  INSTITUTION_WORDS, stateCode, sameState, kindsOf, kindsAgree, ambiguity, AMBIGUOUS,
   learn, unlearn, learnedNames, candidatesFor, _resetLearnedForTests,
 };

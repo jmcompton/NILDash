@@ -17544,7 +17544,7 @@ app.get('/api/agent/athletes/needs-fix', requireAuth, async (req, res) => {
 // in the school field, or a pro whose team names the city).
 app.post('/api/agent/athletes/:id/apply-fix', requireAuth, async (req, res) => {
   try {
-    const r = await require('./services/localLaneCheck').applyFix(store.pool, req.session.userId, req.params.id);
+    const r = await require('./services/localLaneCheck').applyFix(store.pool, req.session.userId, req.params.id, { choice: (req.body || {}).choice });
     if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
     res.json(r);
   } catch (e) { console.error('[apply-fix]', e.message); res.status(500).json({ error: e.message }); }

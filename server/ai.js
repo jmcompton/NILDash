@@ -705,13 +705,21 @@ function lookupSchoolLocation(school) {
   if (!q) return null;
   if (!_foldedSchoolKeys) _foldedSchoolKeys = Object.keys(SCHOOL_LOCATIONS).map((k) => [_foldSchool(k), k]);
   for (const [fk, key] of _foldedSchoolKeys) if (fk === q) return SCHOOL_LOCATIONS[key];
-  // The substring scan, preferring the LONGEST key that matches: "Georgia
-  // Tech" must not lose to "Georgia" just because "Georgia" comes first.
-  let best = null;
+  // The substring scan. A key INSIDE the typed name: the longest one wins
+  // ("Georgia Tech" must not lose to "Georgia"). The typed name inside longer
+  // keys is different: "Alabama" sits inside "University of Alabama" AND
+  // "University of Alabama at Birmingham", and taking the longest sent it to
+  // Birmingham. Only an answer when every such key is the same town.
+  let inside = null;
+  const around = [];
   for (const [fk, key] of _foldedSchoolKeys) {
-    if (q.includes(fk) || fk.includes(q)) { if (!best || fk.length > best[0].length) best = [fk, key]; }
+    if (q.includes(fk)) { if (!inside || fk.length > inside[0].length) inside = [fk, key]; }
+    else if (fk.includes(q)) around.push(key);
   }
-  return best ? SCHOOL_LOCATIONS[best[1]] : null;
+  if (inside) return SCHOOL_LOCATIONS[inside[1]];
+  if (!around.length) return null;
+  const towns = new Set(around.map((k) => `${SCHOOL_LOCATIONS[k].city}|${SCHOOL_LOCATIONS[k].state}`));
+  return towns.size === 1 ? SCHOOL_LOCATIONS[around[0]] : null;
 }
 
 // Resolve a school to a real {city, state}. Tries the hardcoded map first

@@ -45,6 +45,13 @@ function problemFor(row, opts = {}) {
   const t = teamNamedIn(school);
   if (t) return { code: 'team-in-school', text: `${name} has "${school}" as their school. That is a pro team, so the local lane has no school to work from.`,
     fix: { athleteType: 'pro', team: t.name, city: `${t.city}, ${t.state}` }, fixLabel: `Make pro: ${t.name}, ${t.city}, ${t.state}` };
+  // MORE THAN ONE REAL SCHOOL BY THIS NAME: the agent picks; nothing is built
+  // until they do.
+  const amb = require('./schoolResolver').ambiguity(school, { state: d.state });
+  if (amb && amb.candidates) {
+    return { code: 'ambiguous-school', text: `Which school is this? "${school}" could be ${amb.candidates.length} schools, so ${name} gets no cards until you pick.`,
+      choices: amb.candidates.map((c) => ({ school: c.name, label: `${c.name} (${c.city}, ${c.state})` })) };
+  }
   if (opts.noMarketLastNight) return { code: 'unresolved', text: `We could not find where "${school}" is, so ${name} got no local businesses last night. Check the school name.` };
   return null;
 }
@@ -66,10 +73,18 @@ async function forAgent(pool, agentId) {
   return out;
 }
 
-async function applyFix(pool, agentId, athleteId) {
+async function applyFix(pool, agentId, athleteId, opts = {}) {
   const a = (await pool.query(`SELECT id, data FROM athletes WHERE id = $1 AND agent_id = $2`, [athleteId, agentId])).rows[0];
   if (!a) return { ok: false, status: 404, error: 'Athlete not found' };
   const p = problemFor(a);
+  // The agent's pick, and only one of the schools offered.
+  if (p && p.code === 'ambiguous-school') {
+    const pick = (p.choices || []).find((c) => c.school === opts.choice);
+    if (!pick) return { ok: false, status: 400, error: 'Pick one of the schools listed.' };
+    await pool.query(`UPDATE athletes SET data = data || $3::jsonb, updated_at = NOW() WHERE id = $1 AND agent_id = $2`,
+      [athleteId, agentId, JSON.stringify({ school: pick.school })]);
+    return { ok: true, applied: { school: pick.school }, was: p.code };
+  }
   if (!p || !p.fix) return { ok: false, status: 409, error: 'Nothing to fix automatically for this athlete; edit their profile.' };
   const patch = { ...p.fix };
   if (p.code === 'team-in-school') patch.school = null;

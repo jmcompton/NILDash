@@ -79,6 +79,14 @@ function resolveAthlete(row, opts = {}) {
   if (school && typeof opts.schoolLocation === 'function') {
     let loc = null;
     try { loc = opts.schoolLocation(school); } catch (_) { loc = null; }
+    // A name that is more than one school, narrowed by the state on the
+    // athlete's own record ("Miami" + OH): resolved as that one school.
+    if (!loc && _str(d.state) && !/\(/.test(school)) {
+      try {
+        const amb = require('./schoolResolver').ambiguity(school, { state: d.state });
+        if (amb && amb.narrowed) loc = { city: amb.narrowed.city, state: amb.narrowed.state };
+      } catch (_) { /* the name alone */ }
+    }
     if (loc && loc.city) {
       schoolCity = _str(loc.city); schoolState = _str(loc.state);
       // The resolver reports HOW it matched, which is worth keeping: a fuzzy
@@ -148,9 +156,18 @@ function resolveAthlete(row, opts = {}) {
   // agent can fix in ten seconds, but only if something tells them. The local
   // lane producing nothing looks identical to a quiet night otherwise.
   rec.schoolUnmatched = !!(rec.school && !rec.schoolCity);
+  // A name that is more than one real school is not "unmatched": the agent
+  // picks which (Home, services/localLaneCheck).
+  let _amb = null;
+  if (!isPro && rec.schoolUnmatched) {
+    try { _amb = require('./schoolResolver').ambiguity(rec.school, { state: d && d.state }); } catch (_) { _amb = null; }
+  }
+  rec.schoolAmbiguous = !!(_amb && _amb.candidates);
   rec.localLaneNote = isPro
     ? (!rec.city ? 'No city on file for this pro, so the local lane has no town to work in.' : null)
-    : rec.schoolUnmatched
+    : rec.schoolAmbiguous
+      ? `"${rec.school}" could be ${_amb.candidates.length} schools (${_amb.candidates.map((c) => c.name).join(', ')}). Pick which on Home; no cards until then.`
+      : rec.schoolUnmatched
       ? `We could not match "${rec.school}" to a school we know, so the local lane has no town to work in. Correct the school on this athlete and it will start.`
       : (!rec.school ? 'No school on file, so the local lane has no town to work in.' : null);
   rec.market = rec.schoolCity ? (rec.schoolCity + (rec.schoolState ? ', ' + rec.schoolState : '')) : null;

@@ -241,7 +241,11 @@ async function findSchool(raw, opts = {}) {
     return matched(hit.matched, { city: hit.city, state: R.stateCode(hit.state) || hit.state }, learned ? 'learned' : 'list', hit.method, hit.confidence);
   }
 
-  // 2. A shared name: every town, the agent picks.
+  // 2. A shared name: every town, the agent picks. A bare name that is more
+  // than one real school ("Miami", "Columbia", "Michigan") is asked, never
+  // guessed (schoolResolver.ambiguity).
+  const amb = R.ambiguity(name, { state: stateHint });
+  if (amb && amb.candidates) return ambiguous(name, amb.candidates);
   const cands = R.candidatesFor(name);
   if (cands.length >= 2) return ambiguous(name, cands);
 

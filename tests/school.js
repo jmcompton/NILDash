@@ -39,7 +39,7 @@ const cases = [
   ['auburn', 'Auburn'], ['AUBURN UNIVERSITY', 'Auburn'], ['Univ. of Alabama', 'Tuscaloosa'],
   ['Eastern Kentucky', 'Richmond'], ['eku', 'Richmond'], ['LSU', 'Baton Rouge'],
   ['Ole Miss', 'Oxford'], ['texas a&m', 'College Station'], ['  Virginia Tech  ', 'Blacksburg'],
-  ['University of Arkansas', 'Fayetteville'], ['arkansas', 'Fayetteville'],
+  ['University of Arkansas', 'Fayetteville'],
 ];
 for (const [input, city] of cases) {
   const r = R.resolveSchool(input);
@@ -159,10 +159,11 @@ ok('  "Auburn Collge" (the wrong kind) is left to the Places lookup, not guessed
 ok('  a name with no kind still matches one that has one ("Eastern Kentucky")', (R.resolveSchool('Eastern Kentucky') || {}).city === 'Richmond');
 
 // Parentheticals are notes, not names.
-for (const v of ['Maryland (incoming; Class of 2026 recruit)',
-  'University of Maryland (incoming, Class of 2026)', 'Maryland [transfer]']) {
-  const r = R.resolveSchool(v);
-  ok(`"${v}" resolves to College Park`, r && r.city === 'College Park', r);
+ok('"University of Maryland (incoming, Class of 2026)" resolves to College Park',
+  (R.resolveSchool('University of Maryland (incoming, Class of 2026)') || {}).city === 'College Park');
+// A bare state name is every school in it: asked, not guessed (ambiguity).
+for (const v of ['Maryland (incoming; Class of 2026 recruit)', 'Maryland [transfer]', 'arkansas']) {
+  ok(`"${v}" is asked which school, never guessed`, R.resolveSchool(v) === null && !!(R.ambiguity(v) || {}).candidates, R.ambiguity(v));
 }
 ok('the parenthetical is split off the name',
   R.splitParenthetical('Maryland (incoming, 2026)').name === 'Maryland');
@@ -187,8 +188,8 @@ for (const [name, city] of added) {
 // Miami is the ambiguity trap and must stay separated.
 ok('"Miami University" is the OHIO one, per the real naming convention',
   (R.resolveSchool('Miami University') || {}).city === 'Oxford', R.resolveSchool('Miami University'));
-ok('  while a bare "Miami" stays Coral Gables',
-  (R.resolveSchool('Miami') || {}).city === 'Coral Gables', R.resolveSchool('Miami'));
+ok('  while a bare "Miami" is asked: University of Miami or Miami University',
+  R.resolveSchool('Miami') === null && (R.ambiguity('Miami') || { candidates: [] }).candidates.map((c) => c.city).join() === 'Coral Gables,Oxford', R.ambiguity('Miami'));
 
 // The guards survive all of it.
 for (const bad of ['MSU', 'Nowhere Tech', 'State', 'Southern', '', '(incoming, 2026)']) {

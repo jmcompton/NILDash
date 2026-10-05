@@ -395,6 +395,10 @@ async function regionForAthleteAsync(athlete) {
   if (direct) return { region: direct, geocoded: false };
   const school = (athlete && athlete.data && athlete.data.school)
     || (athlete && athlete.school) || '';
+  // MORE THAN ONE REAL SCHOOL BY THAT NAME: not looked up, because Places
+  // would simply rank one first. The agent picks (Home), then it resolves.
+  const amb = require('../services/schoolResolver').ambiguity(school, { state: athlete && athlete.data && athlete.data.state });
+  if (amb && amb.candidates) return { region: '', geocoded: false, ambiguous: amb.candidates };
   if (!SchoolGeo.usable(school)) return { region: '', geocoded: false };
   // lookupPlaceResult, not lookupPlace: geocodeSchool WRITES ITS ANSWER DOWN for
   // six months, so it has to be able to tell "there is no such place" from "we
@@ -777,6 +781,18 @@ async function fillAthlete(pool, ctx) {
 
 async function _fillAthlete(pool, ctx, nightFaults) {
   const { agentId, athleteId, athleteName, budget, region } = ctx;
+  // ── WHICH SCHOOL IS THIS? ─────────────────────────────────────────────────
+  // A school name that is more than one real school ("Miami") gets no cards at
+  // all until the agent picks on Home: a card for the wrong school's town is
+  // worse than no card. Nothing is spent.
+  {
+    const _sch = ctx.athleteRow && ctx.athleteRow.school;
+    const _amb = _sch ? require('../services/schoolResolver').ambiguity(_sch, { state: ctx.athleteRow.state }) : null;
+    if (_amb && _amb.candidates) {
+      return { filled: 0, open: 0, tried: [], ambiguousSchool: _amb.candidates,
+        note: `"${_sch}" is more than one school (${_amb.candidates.map((c) => c.name).join(', ')}); no cards until the agent picks which on Home` };
+    }
+  }
   const OF = require('../services/ourFault');
   // One of OUR failures tonight: recorded as a fault, never as a market fact.
   const faultOf = (service, reason, where) => {

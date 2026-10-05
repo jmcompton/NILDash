@@ -60,10 +60,13 @@ async function main() {
   console.log('\n-- 1. the parenthetical school resolves --');
   const rec = AR.resolveAthlete({ id: A, data: { name: 'Kaden House',
     school: 'Maryland (incoming; Class of 2026 recruit)' } }, { schoolLocation: resolveSchool });
-  ok('"Maryland (incoming; Class of 2026 recruit)" resolves', rec.schoolCity === 'College Park', rec.schoolCity);
-  ok('  to College Park, MD', rec.schoolState === 'MD', rec.schoolState);
-  ok('  so he HAS a local market', rec.hasLocalMarket === true, rec.hasLocalMarket);
-  ok('  with no "no market" note on him', !rec.localLaneNote, rec.localLaneNote);
+  // "Maryland" alone is more than one school: asked, never guessed. The note
+  // says so (not "we could not match"), and the full name he is given on Home
+  // resolves to College Park.
+  ok('"Maryland (incoming; Class of 2026 recruit)" is asked which school, not guessed', rec.schoolAmbiguous === true && !rec.hasLocalMarket, rec);
+  ok('  the note says to pick which, not that we could not match it', /could be \d schools/.test(rec.localLaneNote || '') && !/could not match/.test(rec.localLaneNote || ''), rec.localLaneNote);
+  const picked = AR.resolveAthlete({ id: A, data: { name: 'Kaden House', school: 'University of Maryland' } }, { schoolLocation: resolveSchool });
+  ok('  once picked (University of Maryland) he HAS a local market in College Park, MD', picked.hasLocalMarket && picked.schoolCity === 'College Park' && picked.schoolState === 'MD' && !picked.localLaneNote, picked);
 
   // ── 2. DATE OF BIRTH ─────────────────────────────────────────────────────
   console.log('\n-- 2. the athlete supplies their own date of birth --');
