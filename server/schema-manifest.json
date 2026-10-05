@@ -1531,6 +1531,27 @@
       "university_id": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "university_social_brands": {
+      "brand": "TEXT",
+      "category": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "evidence": "TEXT",
+      "offer": "TEXT",
+      "program_url": "TEXT",
+      "proof_date": "DATE",
+      "sports": "TEXT[]",
+      "tier_max": "INTEGER",
+      "tier_min": "INTEGER",
+      "university_id": "TEXT",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "website": "TEXT"
+    },
+    "university_staff": {
+      "default_sender": "BOOLEAN DEFAULT FALSE",
+      "title": "TEXT",
+      "university_id": "TEXT",
+      "user_id": "TEXT"
+    },
     "university_users": {
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "email": "TEXT",

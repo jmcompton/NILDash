@@ -76,6 +76,44 @@ function blockedFor(c) {
   }
   const pd = _marks(c.name || c.brand_name, PAYDAY_MARKERS);
   if (pd) return { key: 'payday lending', why: `the business name contains "${pd}"` };
+  // ── THE AGENT SIDE'S REFUSALS, HERE TOO ─────────────────────────────────
+  // A household incumbent (Nike, Gatorade: services/signingEvidence) and a
+  // national chain location (services/nationalChains: start-of-name, whole
+  // words) never sign a community-college team: withdrawn, not just scored
+  // down. Schools of every level are not sponsors (notASponsor covers
+  // colleges, universities, athletic departments, conferences, collectives,
+  // media and rankings; a K-12 school is added here).
+  const inc = require('./signingEvidence').incumbent(name);
+  if (inc) return { key: 'national brand', why: `a household incumbent (${inc}), not a local sponsor` };
+  const NC = require('./nationalChains');
+  const chain = NC.isChainLocation(name) || NC.isNationalChain(name);
+  if (chain) return { key: 'national brand', why: `a national chain location (${chain})` };
+  if (/\b(high school|middle school|elementary( school)?|junior high|preparatory school|prep school|school district|unified school|academy charter|charter school|isd)\b/i.test(String(name || ''))) {
+    return { key: 'not-a-sponsor', why: 'a school, not a sponsor' };
+  }
+  // GOOGLE SAYS IT IS A SCHOOL. The agent-side classifier reads "university"
+  // as an education BUSINESS (a tutoring centre), so a campus typed
+  // `university` passed. Around a campus, anything Google types as a school
+  // or university is the school, or another one: never a sponsor.
+  const SCHOOL_TYPES = ['university', 'school', 'primary_school', 'secondary_school', 'school_district', 'college'];
+  const allTypes = [...(evidence.types || []), evidence.primaryType].filter(Boolean).map((t) => String(t).toLowerCase());
+  if (allTypes.some((t) => SCHOOL_TYPES.includes(t))) return { key: 'not-a-sponsor', why: `Google describes it as a ${allTypes.find((t) => SCHOOL_TYPES.includes(t)).replace(/_/g, ' ')}` };
+  // THE NAME ALONE. The agent-side rule lets a consumer category override a
+  // name ("SEC Barbers" the barber shop); around a campus a name that says it
+  // is a school, a team, a media or ranking outfit is believed, whatever
+  // Google typed it as. A "Collective" is a collective unless Google says
+  // what consumer business it is (the vintage boutique keeps its place).
+  const NS = require('./notASponsor');
+  const bare = NS.detect(name);
+  const GENERIC = ['store', 'establishment', 'point_of_interest', 'premise', 'finance', 'local_business'];
+  const specific = allTypes.filter((t) => !GENERIC.includes(t));
+  // A named organisation (On3, ESPN, SEC) inside a longer name of a business
+  // Google types specifically ("SEC Barbers", a barber shop) keeps the agent
+  // rule's pass; schools, teams and ranking phrases never do.
+  if (bare && bare.key === 'not-a-sponsor' && !(bare.kind === 'named' && specific.length)) return { key: 'not-a-sponsor', why: bare.why };
+  if (bare && bare.key === 'collective') {
+    if (!specific.length || /\bnil\b|athlet|alumni|booster|fund|foundation/i.test(String(name || ''))) return { key: 'collective', why: bare.why || 'an NIL collective' };
+  }
   return null;
 }
 

@@ -8,8 +8,8 @@
 // 'nightly-floor' alert naming the team, the count and the rungs tried, read by
 // the morning alert.
 //
-// Which universities: every one with staff and a worked contact pool
-// (university_contacts). Once per Central date, in the window below; a restart
+// Which universities: every one with teams and a business list (a built
+// local pool); see universitiesDue. Once per Central date, in the window below; a restart
 // inside the window does not run it twice (university_market_runs 'nightly').
 //
 //   POST /api/admin/campus/:universityId/nightly   run one now (admin)
@@ -40,11 +40,23 @@ function centralNow(now = new Date()) {
 // contact already on file, which only a bulk contact build produced; the night
 // finds and resolves the contacts for the businesses it picks, like the
 // agents' night, so a department without one never started.
+// THE CARDS NEED TEAMS AND A BUSINESS LIST, nothing else: a university with
+// teams and a built local pool is run whether or not its staff have signed in
+// yet, so the first login finds a morning of cards. Nothing is sent by the
+// night: every card is a draft.
 async function universitiesDue(pool) {
-  return (await pool.query(
-    `SELECT DISTINCT u.id FROM universities u
-       JOIN users s ON s.university_id = u.id AND s.role IN ('university','university_admin')
-      WHERE EXISTS (SELECT 1 FROM university_teams t WHERE t.university_id = u.id)`)).rows.map((r) => r.id);
+  const unis = (await pool.query(
+    `SELECT u.id, u.location FROM universities u
+      WHERE EXISTS (SELECT 1 FROM university_teams t WHERE t.university_id = u.id)`)).rows;
+  const CP = require('./campusPool');
+  const out = [];
+  for (const u of unis) {
+    const full = await CP.universityOf(pool, u.id).catch(() => null);
+    if (!full || !full.marketKey) continue;
+    const n = (await pool.query(`SELECT COUNT(*)::int n FROM university_market_seen WHERE market_key = $1 AND blocked_reason IS NULL`, [full.marketKey]).catch(() => ({ rows: [{ n: 0 }] }))).rows[0].n;
+    if (n > 0) out.push(u.id);
+  }
+  return out;
 }
 
 async function ranTonight(pool, universityId, night) {

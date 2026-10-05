@@ -99,14 +99,15 @@ async function main() {
   ok('--no-password creates it with a password nobody knows, and says how to set one',
     none.status === 0 && /Forgot password/.test(none.stdout)
     && (await P.query(`SELECT COUNT(*)::int n FROM users WHERE email = $1 AND role = 'university'`, [E('four')])).rows[0].n === 1, none.stdout);
-  // One HTTP route, for the admin only (Cypress, without a terminal): it
-  // generates the password and returns it once. Nothing else reaches it, and
-  // it is not in the admin script runner. To be replaced by an emailed
-  // set-password link.
-  ok('the only HTTP route to it is the admin one, and it is not in the admin script runner',
-    (IDX.match(/create-university-user/g) || []).length === 1
-    && /app\.post\('\/api\/admin\/university-users', requireAuth, requireCampusAdmin,/.test(IDX)
-    && /password: r\.created \? password : undefined/.test(IDX));
+  // The HTTP routes, admin only, no longer use this terminal path or return a
+  // password: both go to services/universityAdmin, which issues a set-password
+  // link and returns it (tests/universities.js). This script stays the
+  // command-line way, and is not in the admin script runner.
+  ok('the HTTP routes are admin-only, issue a set-password link, and never return a password',
+    /app\.post\('\/api\/admin\/university-users', requireAuth, requireCampusAdmin,/.test(IDX)
+    && /app\.post\('\/api\/admin\/create-university-user', requireAuth, requireCampusAdmin,/.test(IDX)
+    && !/password: r\.created \? password : undefined/.test(IDX)
+    && !/'create-university-user': \{ file:/.test(IDX));
 
   await clean();
   await P.query(`DELETE FROM universities WHERE id = 'cu-other-uni'`).catch(() => {});

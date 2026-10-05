@@ -66,6 +66,50 @@ a.back:hover{color:#C8F135}
   <div id="cca-result" style="padding:0 20px 16px;font-size:12px;color:#f0ede6;display:none"></div>
 </div>
 
+<!-- ── Universities ─────────────────────────────────────────────
+     Provision a university, its staff, its rosters, its business list and its
+     first night. Nothing here emails anyone: the set-password link is shown
+     to copy. (services/universityAdmin, universityRosterImport, campusBuild) -->
+<div id="uni-box" style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08)">
+    <div style="font-size:14px;font-weight:600;color:#f0ede6">Universities</div>
+    <div style="font-size:11px;color:rgba(240,237,230,0.4);margin-top:4px">Create a university (the campus address is geocoded so the local lane has a centre), its staff accounts (full free access, no card, no Stripe; the set-password link is shown here and never emailed), then load its rosters and build its business list.</div>
+  </div>
+  <div style="padding:14px 20px 4px;font-size:11px;font-weight:700;color:rgba(240,237,230,0.55);text-transform:uppercase;letter-spacing:.05em">Create university</div>
+  <div style="padding:6px 20px 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">
+    <input id="cu-name" type="text" placeholder="Name (Cypress College)" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="cu-short" type="text" placeholder="Short name (Cypress)" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="cu-street" type="text" placeholder="Campus street (9200 Valley View St)" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="cu-city" type="text" placeholder="City" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="cu-state" type="text" maxlength="2" placeholder="ST" style="width:56px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <button id="cu-btn" onclick="createUniversity()" style="padding:8px 16px;background:#60a5fa;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Create university</button>
+  </div>
+  <div id="cu-result" style="padding:0 20px 12px;font-size:12px;color:#f0ede6;display:none"></div>
+  <div style="padding:10px 20px 4px;font-size:11px;font-weight:700;color:rgba(240,237,230,0.55);text-transform:uppercase;letter-spacing:.05em;border-top:1px solid rgba(255,255,255,0.06)">Create university user</div>
+  <div style="padding:6px 20px 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">
+    <input id="cuu-email" type="email" placeholder="email@college.edu" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="cuu-name" type="text" placeholder="Full name" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="cuu-title" type="text" placeholder="Title (Athletic Director)" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <select id="cuu-uni" class="uni-pick" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none"></select>
+    <button id="cuu-btn" onclick="createUniversityUser()" style="padding:8px 16px;background:#a78bfa;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Create university user</button>
+  </div>
+  <div id="cuu-result" style="padding:0 20px 12px;font-size:12px;color:#f0ede6;display:none"></div>
+  <div style="padding:10px 20px 4px;font-size:11px;font-weight:700;color:rgba(240,237,230,0.55);text-transform:uppercase;letter-spacing:.05em;border-top:1px solid rgba(255,255,255,0.06)">Rosters, business list, first night</div>
+  <div style="padding:6px 20px 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">
+    <select id="ur-uni" class="uni-pick" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none"></select>
+    <input id="ur-site" type="text" placeholder="Athletics site (cypresschargers.com)" style="flex:1;min-width:140px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="ur-budget" type="number" min="1" max="50" value="12" title="Business list cap, dollars" style="width:70px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+  </div>
+  <div style="padding:0 20px 12px;display:flex;gap:8px;flex-wrap:wrap">
+    <button onclick="uniAction('university-roster-import')" style="padding:8px 16px;background:#4ade80;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Import rosters</button>
+    <button onclick="uniAction('university-business-build')" style="padding:8px 16px;background:#4ade80;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Build business list</button>
+    <button onclick="uniAction('university-nightly')" style="padding:8px 16px;background:#4ade80;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Run the nightly once</button>
+    <button onclick="uniAction('university-bootstrap')" style="padding:8px 16px;background:#fbbf24;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">All three, in order</button>
+    <button onclick="uniStatus()" style="padding:8px 16px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#f0ede6;cursor:pointer;font-weight:600;font-size:12px">Status</button>
+  </div>
+  <pre id="ur-out" style="margin:0 20px 16px;padding:12px;background:#0a0a09;border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:11px;color:#f0ede6;white-space:pre-wrap;display:none"></pre>
+</div>
+
 <!-- ── Create comped athlete ─────────────────────────────────────
      The mirror of the panel above, for handing an athlete free access before
      they have signed up. School and sport are optional: they are the only two
@@ -197,7 +241,8 @@ function _tileAdmin(n, label, sub) {
   return '<div><div style="font-size:22px;font-weight:700">' + n + '</div><div style="font-size:11px;color:rgba(240,237,230,0.5)">' + label + '</div>'
     + (sub ? '<div style="font-size:10px;color:rgba(240,237,230,0.35);margin-top:2px">' + sub + '</div>' : '') + '</div>';
 }
-function _money(n) { return '
+function _money(n) { return '$' + Math.round(Number(n || 0)).toLocaleString(); }
+</script>
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <div>
@@ -1148,6 +1193,66 @@ async function markRefPaid(code) {
 }
 
 setTimeout(loadReferrals, 600);
+</script>
+
+<script>
+// ── UNIVERSITIES (the section above) ───────────────────────────────────────
+function _uniEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+async function _uniPost(path, body) {
+  var r = await fetch('/api/admin/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
+  var j = await r.json().catch(function () { return {}; });
+  if (!r.ok && !j.error) j.error = 'error ' + r.status;
+  return j;
+}
+async function loadUniversities() {
+  try {
+    var r = await fetch('/api/admin/universities', { credentials: 'same-origin' });
+    var j = await r.json();
+    var opts = (j.universities || []).map(function (u) { return '<option value="' + _uniEsc(u.id) + '">' + _uniEsc(u.name) + ' (' + _uniEsc(u.id) + ')</option>'; }).join('');
+    document.querySelectorAll('.uni-pick').forEach(function (s) { var v = s.value; s.innerHTML = opts; if (v) s.value = v; });
+  } catch (_) {}
+}
+async function createUniversity() {
+  var b = document.getElementById('cu-btn'), out = document.getElementById('cu-result');
+  b.disabled = true;
+  var j = await _uniPost('create-university', { name: document.getElementById('cu-name').value, shortName: document.getElementById('cu-short').value,
+    street: document.getElementById('cu-street').value, city: document.getElementById('cu-city').value, state: document.getElementById('cu-state').value });
+  b.disabled = false; out.style.display = 'block';
+  out.innerHTML = j.ok
+    ? '<span style="color:#60a5fa;font-weight:700">' + _uniEsc(j.name) + ' (' + _uniEsc(j.id) + ') ' + (j.created ? 'created' : 'updated') + '.</span> ' + _uniEsc(j.location)
+      + (j.center ? ' &middot; campus centre ' + j.center.lat.toFixed(5) + ', ' + j.center.lng.toFixed(5) : ' &middot; <span style="color:#f87171">not geocoded: ' + _uniEsc(j.geocodeError) + '</span>')
+    : '<span style="color:#f87171">' + _uniEsc(j.error) + '</span>';
+  loadUniversities();
+}
+function _uniCopy() { var i = document.getElementById('cuu-link'); i.select(); document.execCommand('copy'); }
+async function createUniversityUser() {
+  var b = document.getElementById('cuu-btn'), out = document.getElementById('cuu-result');
+  b.disabled = true;
+  var j = await _uniPost('create-university-user', { email: document.getElementById('cuu-email').value, name: document.getElementById('cuu-name').value,
+    title: document.getElementById('cuu-title').value, universityId: document.getElementById('cuu-uni').value });
+  b.disabled = false; out.style.display = 'block';
+  if (!j.ok) { out.innerHTML = '<span style="color:#f87171">' + _uniEsc(j.error) + '</span>'; return; }
+  out.innerHTML = '<div style="background:#0f130a;border:1px solid rgba(167,139,250,0.4);border-radius:8px;padding:12px 14px">'
+    + '<div style="color:#a78bfa;font-weight:700;margin-bottom:6px">' + _uniEsc(j.name) + ' at ' + _uniEsc(j.university) + (j.created ? ' is ready' : ': a new link') + ' (full access, no card). Not emailed.</div>'
+    + '<div style="display:flex;gap:8px;align-items:center"><input id="cuu-link" readonly value="' + _uniEsc(j.resetUrl) + '" style="flex:1;padding:7px 10px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;outline:none">'
+    + '<button onclick="_uniCopy()" style="padding:7px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;cursor:pointer">Copy</button></div>'
+    + '<div style="color:rgba(240,237,230,0.35);font-size:10px;margin-top:6px">Set-password link, expires in ' + (j.expiresInDays || 7) + ' days. They sign in and land on /university.</div></div>';
+}
+async function uniAction(path) {
+  var out = document.getElementById('ur-out'); out.style.display = 'block';
+  var j = await _uniPost(path, { universityId: document.getElementById('ur-uni').value, siteUrl: document.getElementById('ur-site').value,
+    budgetUsd: Number(document.getElementById('ur-budget').value) || 12 });
+  out.textContent = j.ok ? 'Started: ' + j.started + '. Press Status to follow it.' : 'Not started: ' + j.error;
+  if (j.ok) setTimeout(uniStatus, 4000);
+}
+async function uniStatus() {
+  var out = document.getElementById('ur-out'); out.style.display = 'block';
+  var id = document.getElementById('ur-uni').value;
+  var r = await fetch('/api/admin/university-status/' + encodeURIComponent(id) + '?text=1', { credentials: 'same-origin' });
+  out.textContent = await r.text();
+  if (/RUNNING NOW/.test(out.textContent)) setTimeout(uniStatus, 8000);
+}
+loadUniversities();
 </script>
 </body>
 </html>

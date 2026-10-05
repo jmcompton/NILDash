@@ -119,7 +119,12 @@ function readDemo(file) {
 // are removed, with everything written for them. The removed
 // names are returned so the run can say what it took out.
 async function removeUnconfirmed(pool, uid, keepIds) {
-  const gone = (await pool.query(`SELECT id, name FROM university_teams WHERE university_id = $1 AND NOT (id = ANY($2))`, [uid, keepIds])).rows;
+  // A team that came from the athletics site's own rosters
+  // (services/universityRosterImport) is confirmed by that site: never removed
+  // here, whatever this file's list says.
+  await pool.query(`ALTER TABLE university_teams ADD COLUMN IF NOT EXISTS source TEXT`).catch(() => {});
+  const gone = (await pool.query(`SELECT id, name FROM university_teams WHERE university_id = $1 AND NOT (id = ANY($2))
+                                    AND COALESCE(source, '') <> 'roster-import'`, [uid, keepIds])).rows;
   if (!gone.length) return [];
   const ids = gone.map((t) => t.id);
   for (const t of ['university_drafts', 'university_outreach_queue', 'university_brand_engagement', 'university_research_claims']) {

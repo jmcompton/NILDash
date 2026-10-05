@@ -7204,21 +7204,101 @@ app.get('/api/admin/campus/:universityId/nightly-estimate', requireAuth, require
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// A department staff login, without a terminal. Generates the password and
-// returns it once, in this response; it is stored only as a hash. An existing
-// user keeps their password (nothing is returned for it).
+// ── UNIVERSITIES: PROVISIONING, ROSTERS, THE BUSINESS LIST, THE NIGHT ──────
+// Admin only (ADMIN_EMAIL). Nothing here sends an email to anyone.
+//   POST /api/admin/create-university        {name, shortName, city, state, street}
+//   POST /api/admin/create-university-user   {email, name, title, universityId} -> resetUrl
+//   POST /api/admin/university-roster-import {universityId, siteUrl}           (background)
+//   POST /api/admin/university-business-build {universityId, budgetUsd}       (background, $12 default)
+//   POST /api/admin/university-nightly       {universityId}                    (background)
+//   POST /api/admin/university-bootstrap     {universityId, siteUrl, budgetUsd} all three, in order (background)
+//   GET  /api/admin/university-status/:id[?text=1]  teams, athletes, businesses, named contacts, cards, spend, what is missing
+app.post('/api/admin/create-university', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const r = await require('./services/universityAdmin').createUniversity(store.pool, req.body || {});
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+// The person: full free access (comped, no card, no Stripe), a set-password
+// link RETURNED here to copy, NOT emailed (services/universityAdmin).
+app.post('/api/admin/create-university-user', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const r = await require('./services/universityAdmin').createUniversityUser(store.pool, req.body || {});
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+// The old path returned a plaintext password. It now does exactly what
+// create-university-user does: a set-password link, returned, not emailed.
 app.post('/api/admin/university-users', requireAuth, requireCampusAdmin, async (req, res) => {
   try {
-    const { email, name, universityId } = req.body || {};
-    if (!email || !universityId) return res.status(400).json({ error: 'email and universityId are required' });
-    const password = require('crypto').randomBytes(12).toString('base64url');
-    const r = await require('../scripts/create-university-user.js').createUniversityUser(store.pool, { email, name, universityId, password });
-    if (!r.ok) return res.status(400).json({ error: r.error });
-    res.json({ ok: true, created: !!r.created, email: r.user && r.user.email, university: r.university && (r.university.name || r.university.id),
-      password: r.created ? password : undefined,
-      note: r.created ? 'Give them this password; it is not shown again. They sign in at /login and land on /university.'
-        : 'This user already existed: their password is unchanged and is not shown.' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const r = await require('./services/universityAdmin').createUniversityUser(store.pool, req.body || {});
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+const _uniJobs = new Map();   // universityId -> the step running now
+async function _uniStep(universityId, kind, fn) {
+  const run = (await store.pool.query(`INSERT INTO university_market_runs (university_id, kind, summary) VALUES ($1,$2,$3) RETURNING id`,
+    [universityId, kind, { started: true }])).rows[0].id;
+  let r;
+  try { r = await fn(); } catch (e) { r = { ok: false, error: e.message }; }
+  await store.pool.query(`UPDATE university_market_runs SET finished_at = NOW(), summary = $2 WHERE id = $1`, [run, r]).catch(() => {});
+  return r;
+}
+function _uniBackground(req, res, label, work) {
+  const id = String((req.body || {}).universityId || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'universityId is required' });
+  if (_uniJobs.has(id)) return res.status(409).json({ ok: false, error: `${id} is already running: ${_uniJobs.get(id)}` });
+  _uniJobs.set(id, label);
+  (async () => { try { await work(id); } finally { _uniJobs.delete(id); } })()
+    .catch((e) => console.error(`[university] ${label} for ${id} failed:`, e.message));
+  res.json({ ok: true, started: label, status: `/api/admin/university-status/${encodeURIComponent(id)}?text=1` });
+}
+const _uniImport = (id, siteUrl) => _uniStep(id, 'roster-import', () => require('./services/universityRosterImport').importRosters(store.pool, { universityId: id, siteUrl }));
+const _uniBuild = (id, budgetUsd) => _uniStep(id, 'build-request', () => require('./services/campusBuild').build(store.pool, id, { budgetUsd: Math.min(50, Number(budgetUsd) || 12) }));
+const _uniNight = (id) => require('./services/campusNightly').runNight(store.pool, id);
+app.post('/api/admin/university-roster-import', requireAuth, requireCampusAdmin, (req, res) => {
+  const siteUrl = String((req.body || {}).siteUrl || '').trim();
+  if (!siteUrl) return res.status(400).json({ ok: false, error: 'siteUrl is required' });
+  _uniBackground(req, res, 'roster import', (id) => _uniImport(id, siteUrl));
+});
+app.post('/api/admin/university-business-build', requireAuth, requireCampusAdmin, (req, res) => {
+  _uniBackground(req, res, 'business build', (id) => _uniBuild(id, (req.body || {}).budgetUsd));
+});
+app.post('/api/admin/university-nightly', requireAuth, requireCampusAdmin, (req, res) => {
+  _uniBackground(req, res, 'nightly', (id) => _uniNight(id));
+});
+app.post('/api/admin/university-bootstrap', requireAuth, requireCampusAdmin, (req, res) => {
+  const { siteUrl, budgetUsd } = req.body || {};
+  _uniBackground(req, res, 'bootstrap', async (id) => {
+    if (siteUrl) { _uniJobs.set(id, 'bootstrap: roster import'); const r = await _uniImport(id, siteUrl); if (!r.ok) return; }
+    _uniJobs.set(id, 'bootstrap: business build'); const b = await _uniBuild(id, budgetUsd); if (!b.ok) return;
+    _uniJobs.set(id, 'bootstrap: nightly'); await _uniNight(id);
+  });
+});
+app.get('/api/admin/universities', requireAuth, requireCampusAdmin, async (req, res) => {
+  try { res.json({ universities: (await store.pool.query(`SELECT id, name, short_name, location FROM universities ORDER BY name`)).rows }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/admin/university-status/:universityId', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const id = req.params.universityId;
+    const CB = require('./services/campusBuild');
+    const v = await CB.verify(store.pool, id);
+    const last = async (kind) => ((await store.pool.query(`SELECT summary, started_at, finished_at FROM university_market_runs WHERE university_id = $1 AND kind = $2 ORDER BY id DESC LIMIT 1`, [id, kind]).catch(() => ({ rows: [] }))).rows[0] || null);
+    const imp = await last('roster-import');
+    const out = { ...v, running: _uniJobs.get(id) || null, rosterImport: imp };
+    if (req.query.text !== '1') return res.json(out);
+    const L = [CB.formatVerify(v)];
+    if (out.running) L.push(`\nRUNNING NOW: ${out.running}`);
+    if (imp && imp.summary) {
+      const s = imp.summary;
+      L.push(`\nROSTER IMPORT ${imp.finished_at ? String(imp.finished_at).slice(0, 16) : '(running)'}: ${s.ok === false ? 'FAILED: ' + s.error : `${s.teamCount} teams, ${s.athletes} athletes from ${s.site}`}`);
+      for (const t of s.teams || []) L.push(`  ${String(t.name).padEnd(30)} ${String(t.athletes).padStart(3)}  ${t.url}`);
+      for (const t of s.skipped || []) L.push(`  SKIPPED ${t.name} (${t.code}): ${t.why}`);
+    }
+    res.type('text/plain').send(L.join('\n') + '\n');
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.post('/api/admin/campus/:universityId/nightly', requireAuth, requireCampusAdmin, async (req, res) => {
