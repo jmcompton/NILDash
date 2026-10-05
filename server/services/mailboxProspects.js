@@ -130,6 +130,12 @@ async function readCalendar(mb, since, until, deps) {
   { headers: { Prefer: 'outlook.timezone="UTC"' }, deps });
 }
 
+function isCalendarMessage(m) {
+  if (/eventMessage/i.test(String(m['@odata.type'] || ''))) return true;
+  if (m.meetingMessageType && m.meetingMessageType !== 'none') return true;
+  return /^(accepted|declined|tentative(ly accepted)?|canceled|cancelled|updated invitation|invitation|new time proposed)\s*:/i.test(String(m.subject || '').trim());
+}
+
 // ── IS THIS MEETING A NILDASH SALES CALL? ───────────────────────────────────
 // Clearly, or not at all: a Calendly booking or a Teams meeting, AND the
 // title or invite names NILDash or NIL (a Calendly booking may say "demo").
@@ -233,6 +239,12 @@ async function collect(pool, mb, { now, deps } = {}) {
   if (mb.canRead) messages = await readMail(mb, since, deps);
   for (const m of messages) {
     if (m.isDraft) continue;
+    // CALENDAR TRAFFIC IS NOT A CONVERSATION. An invitation the admin sent,
+    // and an attendee's "Accepted: NILDash Demo", arrive as messages: the
+    // acceptance would read as a reply and stop the follow-ups, and the
+    // invitation would become the "thread" a follow-up replies under. The
+    // meeting itself is read from the calendar.
+    if (isCalendarMessage(m)) continue;
     const from = lc(m.from && m.from.emailAddress && m.from.emailAddress.address);
     const at = m.sentDateTime || m.receivedDateTime;
     const subject = m.subject || '';
@@ -664,6 +676,6 @@ async function status(pool) {
 
 module.exports = {
   LOOKBACK_DAYS, GAP_DAYS, MAX_TOUCHES, SYSTEM, FREEMAIL,
-  mailboxAddress, mailbox, isMachine, salesCall, companyOf, ensureTables, collect, stateOf, repliedLive,
+  mailboxAddress, mailbox, isMachine, isCalendarMessage, salesCall, companyOf, ensureTables, collect, stateOf, repliedLive,
   compose, subjectFor, check, run, approve, stopForSend, sendOne, latestInThread, skip, mark, list, status,
 };

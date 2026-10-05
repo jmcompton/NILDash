@@ -57,6 +57,10 @@ mail([ME, 'John'], [['already@user.example', 'Already User']], 'Hello', ago(3));
 mail(['noreply@calendly.com', 'Calendly'], [[ME]], 'New Event: NILDash Demo', ago(5));              // a machine
 mail(['cold.inbound@spam.example', 'Sam Spam'], [[ME]], 'Buy our leads', ago(2));                   // inbound only, never answered
 mail([ME, 'John'], [['notifications@hubspot.com']], 'Re: x', ago(2));                                // a machine
+// Calendar traffic in the mailbox: the invitation to Pat, and Pat's acceptance
+// AFTER the call -- neither is a conversation, and the acceptance is no reply.
+MAIL.push({ id: 'inv1', '@odata.type': '#microsoft.graph.eventMessageRequest', conversationId: 'conv:invite', from: addr(ME), toRecipients: [addr('pat@bsports.com', 'Pat Barnes')], ccRecipients: [], subject: 'NILDash Demo', sentDateTime: ago(7), receivedDateTime: ago(7), isDraft: false });
+MAIL.push({ id: 'acc1', conversationId: 'conv:invite', from: addr('pat@bsports.com', 'Pat Barnes'), toRecipients: [addr(ME)], ccRecipients: [], subject: 'Accepted: NILDash Demo', sentDateTime: ago(4), receivedDateTime: ago(4), isDraft: false });
 const EVENTS = [
   { id: 'e1', subject: 'NILDash Demo', bodyPreview: 'Event Name: NILDash Demo. Powered by Calendly.com', start: { dateTime: ago(5, 1).replace('Z', '') }, end: { dateTime: ago(5).replace('Z', '') },
     attendees: [{ type: 'required', emailAddress: { address: 'pat@bsports.com', name: 'Pat Barnes' }, status: { response: 'accepted' } }, { type: 'required', emailAddress: { address: ME }, status: { response: 'organizer' } }],
@@ -145,6 +149,8 @@ const SENT = [];
   ok('  it adds something, never "following up", and names no price', /send me your roster/i.test(dd.body_text) && !/follow(ing)?[- ]?up|check(ing)? in|circl/i.test(dd.body_text) && /^Hi Jamie,/.test(dd.body_text), dd.body_text);
   const bNew = await pend('bsports.com');
   ok('a call 5 days ago with no email since: follow-up 1 is drafted', !!bNew);
+  ok('  an attendee\'s "Accepted:" and the invitation are not a conversation: no reply recorded, no thread', MP.isCalendarMessage({ subject: 'Accepted: NILDash Demo' })
+    && MP.isCalendarMessage({ '@odata.type': '#microsoft.graph.eventMessageRequest', subject: 'NILDash Demo' }) && !MP.isCalendarMessage({ subject: 'Re: NILDash Demo' }));
   ok('  AS A NEW EMAIL, because there is no thread, with its own subject and the call date for the card', bNew && bNew.kind === 'new' && !bNew.reply_message_id && bNew.subject === 'NILDash for Bsports' && !!bNew.meeting_at, bNew);
   ok('  a call 2 days ago: not yet (4 days)', !(await pend('csports.com')));
   const lee = (await MP.list(P)).find((p) => p.key === 'lee.agent@gmail.com');
