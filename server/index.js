@@ -5364,7 +5364,7 @@ const ADMIN_SCRIPTS = {
   // Neichter / austin.mitchell@ stitch): on screens now, approved, and sent in
   // the last 30 days. Read-only.
   //   /api/admin/scripts/contact-mismatch-audit?text=1
-  'contact-mismatch-audit': { file: 'scripts/contact-mismatch-audit.js', args: () => [] },
+  'contact-mismatch-audit': { file: 'scripts/contact-mismatch-audit.js', args: (q) => (q.apply === '1' ? ['--apply'] : []) },
   'school-market-audit': { file: 'scripts/school-market-audit.js', args: (q) => [].concat(q.verify === '1' ? ['--verify'] : [], q.verify === '1' && q.apply === '1' ? ['--apply'] : []) },
   // One agent's sends: which path each took (Approve or the editor's Send),
   // the click, approval, claim and send times with the gaps, failures, and any

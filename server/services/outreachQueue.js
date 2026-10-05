@@ -675,6 +675,22 @@ function addressIsTheirs(email, name) {
   if (!local || !toks.length) return false;
   return toks.some((t) => local.includes(t));
 }
+// What an address that is NOT the named person's is instead.
+//   'theirs'        it carries their name
+//   'other-person'  clearly another human's mailbox: first.last / f.last shaped,
+//                   not a role or desk word, not the business's own name
+//   'generic'       a shop or role inbox, or anything not clearly a person
+function addressKind(email, name, brand) {
+  if (addressIsTheirs(email, name)) return 'theirs';
+  const ET = require('./emailTier');
+  if (ET.isGeneric(email) || ET.isRoleMailbox(email)) return 'generic';
+  const local = String(email || '').toLowerCase().split('@')[0];
+  const brandToks = String(brand || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((t) => t.length >= 3);
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  if (parts.some((p) => brandToks.some((b) => p.includes(b) || b.includes(p)))) return 'generic';
+  if (parts.length === 2 && parts.every((p) => /^[a-z]+$/.test(p)) && parts[1].length >= 2 && (parts[0].length >= 2 || parts[1].length >= 3)) return 'other-person';
+  return 'generic';
+}
 function inboxOf(ladder) {
   const rows = emailRowsOf(ladder);
   if (!rows.length) return null;
@@ -1271,7 +1287,7 @@ module.exports = {
   restrictedFor, RESTRICTED_AT_FILL,
   markFilling, unmarkFilling, isFilling, fillingIds, fillingSince,
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
-  inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, addressIsTheirs, channelFor, subjectFor, routeOf, genericRowsOf,
+  inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, addressIsTheirs, addressKind, channelFor, subjectFor, routeOf, genericRowsOf,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
   workedOutNote, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD, WIDEN_PER_ATHLETE_USD,
   ATHLETE_TIME_CEILING_MS, ATHLETE_COST_CEILING_USD, LADDER,

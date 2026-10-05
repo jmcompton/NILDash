@@ -82,9 +82,51 @@ function looksLikePerson(name, brand) {
 const NEVER_TITLE = /\b(emerit(us|a)|retired|former|ex-|chair(man|woman|person)? of the board|board (chair|member)|board of (directors|trustees|regents)|trustee|regent|vice chancellor|chancellor|provost|dean|athletic director|athletics director|director of athletics|head coach|assistant coach|coach)\b|\bpresident of (the )?[\w .&'-]*\b(university|college|school|institute)\b|\b(university|college) president\b|^\s*\d+(st|nd|rd|th) president\b/i;
 const DECIDES = /\b(marketing|partnerships?|brand|influencer|sponsorships?|athletes?|creators?|community|social media|nil|ambassador|talent|communications|public relations|events?|growth|affiliate|activation)\b/i;
 const TOP_EXEC = /\b(ceo|chief executive|president|chair(man|woman|person)?|co-?founder|founder|owner|proprietor|managing director|general partner)\b/i;
+// ── THE PARENT COMPANY'S LEADERSHIP IS NOT THIS LOCATION'S ──────────────────
+// A local franchise or chain location went down the local lane, where
+// "founder" is a fine title for a corner shop, so it was given the parent
+// company's founder: Chris Tomshack (HealthSource's franchise founder), Todd
+// Carmichael (La Colombe's co-founder), Ernest Garcia III for Carvana Tempe.
+// At a chain location the people who can say yes are the franchise owner and
+// the location's manager. So a founder / CEO / chair / president is refused
+// there unless the title is scoped to the location.
+//   a chain location: on the national-chains list; named for the town it is in
+//   ("Carvana Tempe", "HealthSource of Tempe"); a title that names a corporate
+//   parent ("... Franchising", "... Holdings", "corporate"); or a person found
+//   on a page about public figures (Wikipedia, Forbes, Bloomberg ...), where
+//   the owner of a corner shop does not appear.
+const PARENT_EXEC = /\b(ceo|chief executive|chair(man|woman|person)?|co-?founder|founder|president|managing director|general partner|executive chairman)\b/i;
+const LOCATION_SCOPED = /\b(franchise(e|\s+owner|\s+partner)?|owner[\/ -]operator|operator|general manager|store manager|branch manager|location manager|clinic director|office manager|area|regional|district|market)\b/i;
+const CORPORATE = /\b(franchising|franchise system|franchisor|corporate|corporation|holdings|brands|worldwide|international|global|nationwide|headquarters)\b/i;
+const FIGUREHEAD_SOURCE = /\b(wikipedia\.org|forbes\.com|bloomberg\.com|crunchbase\.com|businessinsider\.com|nytimes\.com|wsj\.com|fortune\.com|cnbc\.com|inc\.com|entrepreneur\.com|fastcompany\.com|theorg\.com|zoominfo\.com|craft\.co)\b/i;
+function chainLocation({ brand, city, title, sourceUrl } = {}) {
+  const b = String(brand || '').toLowerCase();
+  const c = String(city || '').split(',')[0].trim().toLowerCase();
+  if (b && require('./nationalChains').isNationalChain(b)) return 'a national chain';
+  // The town AFTER a brand ("Carvana Tempe", "HealthSource of Tempe",
+  // "Orangetheory - Tempe"): a location. The town first ("Tempe Tattoo") is a
+  // local business named for its town.
+  if (c.length >= 4) {
+    const esc = c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = b.match(new RegExp('^(.*?)\\s*(?:\\bof\\b|\\bin\\b|\\bat\\b|-|–|,)?\\s*' + esc + '(?:\\s+(?:location|store|clinic|office))?\\s*$'));
+    if (m && m[1].replace(/[^a-z]/g, '').length >= 3) return `a location named for ${city}`;
+  }
+  if (CORPORATE.test(String(title || ''))) return 'a title naming the corporate parent';
+  if (FIGUREHEAD_SOURCE.test(String(sourceUrl || ''))) return 'a person found on a public-figure page';
+  return null;
+}
 function titleProblem(title, opts = {}) {
   const t = String(title || '').trim();
   if (NEVER_TITLE.test(t)) return `"${t}" is not someone who signs an athlete deal (emeritus, retired, a board seat or a school's leadership)`;
+  // "Owner" at a franchise location is the franchisee; only a title that also
+  // names the corporate parent is refused.
+  const ownerTitle = /\b(co-?)?owner\b/i.test(t) && !CORPORATE.test(t);
+  if (!opts.large && PARENT_EXEC.test(t) && !LOCATION_SCOPED.test(t) && !ownerTitle) {
+    const c = String(opts.city || '').split(',')[0].trim();
+    const scopedToTown = c.length >= 4 && t.toLowerCase().includes(c.toLowerCase());
+    const chain = !scopedToTown && chainLocation({ brand: opts.brand, city: opts.city, title: t, sourceUrl: opts.sourceUrl });
+    if (chain) return `"${t}" is the parent company's leadership, not this location's (${chain}); we want the franchise owner or the location's manager`;
+  }
   if (opts.large) {
     if (DECIDES.test(t)) return null;
     if (TOP_EXEC.test(t)) return `"${t}" at a company this size is someone we would never reach; we want the marketing or partnerships decision maker`;
@@ -138,7 +180,7 @@ async function findOwnerName({ brand, city, search, say, order, large }) {
     const fallback = q.key === 'marketing' ? 'Marketing Director' : q.key === 'partnerships' ? 'Head of Partnerships' : 'Owner';
     const title = acceptableTitle(j.title, fallback);
     if (!title) { if (say) say(`${b}: owner search (${q.key}) named ${j.name} as "${j.title}", not a decision maker; refused`); continue; }
-    const tp = titleProblem(j.title || title, { large });
+    const tp = titleProblem(j.title || title, { large, brand: b, city: c, sourceUrl: j.sourceUrl || cited });
     if (tp) { if (say) say(`${b}: owner search (${q.key}) named ${j.name}: ${tp}; refused`); continue; }
     return { name: String(j.name).trim().replace(/\s+/g, ' '), title, sourceUrl: j.sourceUrl || cited || null, query: q.key, confidence: String(j.confidence || 'low') };
   }
@@ -190,4 +232,4 @@ const NO_NAME_REASON = 'no contact name found after all sources, including the f
 // Never its owner or founder.
 const LARGE_ORDER = ['partnerships', 'marketing'];
 
-module.exports = { titleProblem, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };
+module.exports = { titleProblem, chainLocation, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };

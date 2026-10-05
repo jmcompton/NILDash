@@ -1798,7 +1798,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       for (const t of (ladder.tiers || [])) {
         if (!Array.isArray(t.rows)) continue;
         t.rows = t.rows.filter((r) => {
-          const tp = r && r.name && r.title ? ONS.titleProblem(r.title) : null;
+          const tp = r && r.name && r.title ? ONS.titleProblem(r.title, { brand: cand.brand_name, city: (region || '').split(',')[0], sourceUrl: r.sourceUrl || r.emailSourceUrl || null }) : null;
           if (tp) say(`${cand.brand_name}: ${r.name} dropped from the contacts: ${tp}`);
           return !tp;
         });

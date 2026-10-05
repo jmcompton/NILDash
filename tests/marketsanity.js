@@ -157,6 +157,55 @@ async function main() {
   await P.query(`DELETE FROM school_question_dismissed WHERE agent_id = 'ms-agent2'`); await P.query(`DELETE FROM users WHERE id = 'ms-agent2'`);
   SK._reset();
 
+  // ── 6. WHOSE ADDRESS IS IT, AND IS THIS PERSON THE LOCATION'S? ─────────
+  OUT.push('', '-- what an address that is not theirs is --');
+  ok('austin.mitchell@ on Greg Neichter\'s card is ANOTHER PERSON', Q.addressKind('austin.mitchell@dominos.com', 'Greg Neichter', "Domino's") === 'other-person');
+  ok('  carvanatempe@, store5512@, info@, owner@ are GENERIC', ['carvanatempe@carvana.com', 'store5512@dominos.com', 'info@x.com', 'owner@x.com'].every((e) => Q.addressKind(e, 'Ernest Garcia', 'Carvana Tempe') === 'generic'));
+  ok('  gneichter@ is his', Q.addressKind('gneichter@dominos.com', 'Greg Neichter', "Domino's") === 'theirs');
+
+  OUT.push('', '-- the parent company\'s leadership is not the location\'s --');
+  const ONS = require(REPO + 'server/services/ownerNameSearch.js');
+  const refused = [
+    ['Founder & CEO', { brand: 'HealthSource of Tempe', city: 'Tempe' }, 'Chris Tomshack, HealthSource'],
+    ['Co-founder and CEO', { brand: 'La Colombe Coffee Roasters', city: 'Philadelphia', sourceUrl: 'https://en.wikipedia.org/wiki/Todd_Carmichael' }, 'Todd Carmichael, La Colombe'],
+    ['CEO', { brand: 'Carvana Tempe', city: 'Tempe' }, 'Ernest Garcia III, Carvana Tempe'],
+    ['Founder & CEO, HealthSource Franchising', { brand: 'HealthSource Chiropractic', city: 'Tempe' }, 'a title naming the franchisor'],
+  ];
+  for (const [t, o, who] of refused) ok(`refused: ${who}`, /parent company's leadership/.test(ONS.titleProblem(t, o) || ''), ONS.titleProblem(t, o));
+  const kept = [
+    ['Franchise Owner', { brand: 'HealthSource of Tempe', city: 'Tempe' }], ['Owner', { brand: 'HealthSource of Tempe', city: 'Tempe' }],
+    ['General Manager', { brand: 'Carvana Tempe', city: 'Tempe' }], ['Founder', { brand: 'Tempe Tattoo', city: 'Tempe' }],
+    ['Owner and Founder', { brand: 'Tempe Tattoo', city: 'Tempe' }], ['Founder', { brand: "Joe's Pizza", city: 'Tempe' }],
+  ];
+  ok('kept: the franchise owner, the owner, the location\'s manager, and a real local founder', kept.every(([t, o]) => !ONS.titleProblem(t, o)), kept.map(([t, o]) => ONS.titleProblem(t, o)));
+
+  // ── 7. THE CARDS ALREADY MADE ───────────────────────────────────────────
+  OUT.push('', '-- the cards already on screens --');
+  const { spawnSync } = require('child_process');
+  const clean7 = async () => { await P.query(`DELETE FROM outreach_queue WHERE agent_id = 'ms-cm'`); await P.query(`DELETE FROM outreach_logs WHERE agent_id = 'ms-cm'`); await P.query(`DELETE FROM athletes WHERE agent_id = 'ms-cm'`); await P.query(`DELETE FROM users WHERE id = 'ms-cm'`); };
+  await clean7();
+  await P.query(`INSERT INTO users (id,name,email,password,role) VALUES ('ms-cm','Asante Owusu','asante@ms.test','x','agent')`);
+  await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ('ms-cm-a','ms-cm','{"name":"Tess Court","school":"Arizona State University"}')`);
+  await P.query(`INSERT INTO outreach_logs (id,agent_id,athlete_id,brand_name,subject,body_html,status,sent_to_email,sent_at) VALUES
+    ('ms-l1','ms-cm','ms-cm-a','Dominos','s','<p>Hi Greg,</p><p>Tess plays near you.</p>','draft','austin.mitchell@dominos.com',NULL),
+    ('ms-l2','ms-cm','ms-cm-a','Tempe Bikes','s','<p>Hi Ernest,</p><p>x</p>','draft','tempebikes@tb.com',NULL),
+    ('ms-l3','ms-cm','ms-cm-a','HealthSource','s','<p>Hi Chris,</p><p>x</p>','sent','sarah.jones@hs.com',NOW() - INTERVAL '2 days'),
+    ('ms-l4','ms-cm','ms-cm-a','Carvana Tempe','s','<p>Hi Ernest,</p><p>x</p>','draft','ernest@carvana.com',NULL)`);
+  await P.query(`INSERT INTO outreach_queue (agent_id,athlete_id,slot,brand_key,brand_name,channel,state,outreach_log_id,contact_name,contact_title,phone,email,market_key) VALUES
+    ('ms-cm','ms-cm-a',1,'m1','Dominos','email','queued','ms-l1','Greg Neichter','Owner','(480) 555-0100','austin.mitchell@dominos.com','tempe, az'),
+    ('ms-cm','ms-cm-a',2,'m2','Tempe Bikes','email','queued','ms-l2','Ernest Lane','Owner',NULL,'tempebikes@tb.com','tempe, az'),
+    ('ms-cm','ms-cm-a',3,'m3','HealthSource','email','sent','ms-l3','Chris Tomshack','Founder',NULL,'sarah.jones@hs.com','tempe, az'),
+    ('ms-cm','ms-cm-a',4,'m4','Carvana Tempe','email','queued','ms-l4','Ernest Garcia III','CEO',NULL,'ernest@carvana.com','tempe, az')`);
+  const run = spawnSync(process.execPath, [REPO + 'scripts/contact-mismatch-audit.js', '--apply'], { env: { ...process.env, INIT_WAIT_MS: '3000' }, encoding: 'utf8', timeout: 120000 });
+  const outTxt = run.stdout || '';
+  const card = async (slot) => (await P.query(`SELECT q.channel, q.state, q.outreach_log_id, q.phone_ask_for, l.status, l.body_html FROM outreach_queue q LEFT JOIN outreach_logs l ON l.id = $2 WHERE q.agent_id = 'ms-cm' AND q.slot = $1`, [slot, 'ms-l' + slot])).rows[0];
+  const c1 = await card(1), c2 = await card(2), c4 = await card(4);
+  ok('"Hi Greg" to austin.mitchell@ becomes a CALL to Greg, and the email draft is withdrawn', c1.channel === 'call' && !c1.outreach_log_id && c1.status === 'expired' && c1.phone_ask_for === 'Greg', c1);
+  ok('a generic shop inbox keeps the email with the first name dropped ("Hi,")', c2.channel === 'email' && /^<p>Hi,<\/p>/.test(c2.body_html), c2);
+  ok('Ernest Garcia III (CEO) for Carvana Tempe is withdrawn from the screen', c4.state === 'expired' && c4.status === 'expired', c4);
+  ok('the already-sent one is listed under the agent, marked DIFFERENT PERSON', /Asante Owusu <asante@ms\.test>: 1 \(1 to a different person\)/.test(outTxt) && /\[DIFFERENT PERSON\] .*HealthSource: greeted "Chris Tomshack", sent to <sarah\.jones@hs\.com>/.test(outTxt), outTxt.slice(-900));
+  await clean7();
+
   OUT.push('', 'failures: ' + F);
   console.log(OUT.join('\n'));
   try { await store.pool.end(); } catch (_) {}
