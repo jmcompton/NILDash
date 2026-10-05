@@ -171,6 +171,16 @@ function ensureTables(pool) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), decided_at TIMESTAMPTZ, sent_at TIMESTAMPTZ,
       send_claimed_at TIMESTAMPTZ, send_error TEXT)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS mailbox_prospect_drafts_p ON mailbox_prospect_drafts (prospect_id, created_at DESC)`);
+    // THE THREAD. The newest message with each person and its conversation,
+    // so a follow-up is a reply in the thread they are already in.
+    for (const c of ['thread_message_id TEXT', 'thread_conversation_id TEXT', 'thread_subject TEXT', 'thread_at TIMESTAMPTZ']) {
+      await pool.query(`ALTER TABLE mailbox_prospect_people ADD COLUMN IF NOT EXISTS ${c}`);
+    }
+    // kind: 'reply' (Graph reply inside the existing thread) or 'new' (a call
+    // with no email thread: a fresh email, and the card says so).
+    for (const c of ['kind TEXT', 'reply_message_id TEXT', 'conversation_id TEXT', 'thread_subject TEXT', 'meeting_at TIMESTAMPTZ']) {
+      await pool.query(`ALTER TABLE mailbox_prospect_drafts ADD COLUMN IF NOT EXISTS ${c}`);
+    }
     await pool.query(`CREATE TABLE IF NOT EXISTS mailbox_prospect_runs (
       id SERIAL PRIMARY KEY, started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), finished_at TIMESTAMPTZ,
       messages INTEGER, meetings INTEGER, prospects INTEGER, drafted INTEGER, stopped INTEGER, note TEXT)`);
@@ -201,17 +211,23 @@ async function collect(pool, mb, { now, deps } = {}) {
   const people = new Map();     // email -> { name, lastIn, lastOut, lastMeeting, firstAt, subject, outCount }
   const touch = (addr, name) => {
     const a = lc(addr);
-    if (!people.has(a)) people.set(a, { email: a, name: null, lastIn: null, lastOut: null, lastMeeting: null, outCount: 0, subject: null, subjectAt: null, via: new Set() });
+    if (!people.has(a)) people.set(a, { email: a, name: null, lastIn: null, lastOut: null, lastMeeting: null, outCount: 0, subject: null, subjectAt: null, via: new Set(), thread: null });
     const p = people.get(a);
     if (name && !p.name && !/@/.test(name)) p.name = String(name).trim().slice(0, 120);
     return p;
   };
   const later = (a, b) => (!a ? b : !b ? a : (new Date(b) > new Date(a) ? b : a));
-  // OUR sends, matched by address, subject AND time: the admin's own reply
-  // in the same thread carries the same "Re:" subject and must still count.
+  // OUR sends, matched by address, thread (or subject) AND time: the admin's
+  // own reply in the same thread must still count as the admin speaking.
   const oursRows = (await pool.query(
-    `SELECT LOWER(email) AS e, LOWER(COALESCE(subject, '')) AS s, sent_at FROM mailbox_prospect_drafts WHERE status = 'sent'`)).rows;
-  const isOurs = (a, subject, at) => oursRows.some((r) => r.e === a && r.s === lc(subject) && Math.abs(new Date(r.sent_at) - new Date(at)) < 15 * 60000);
+    `SELECT LOWER(email) AS e, LOWER(COALESCE(subject, '')) AS s, conversation_id AS c, sent_at FROM mailbox_prospect_drafts WHERE status = 'sent'`)).rows;
+  const isOurs = (a, subject, at, conv) => oursRows.some((r) => r.e === a && ((conv && r.c === conv) || r.s === lc(subject)) && Math.abs(new Date(r.sent_at) - new Date(at)) < 15 * 60000);
+  // The newest message of any thread with this person, ours included: a reply
+  // to it lands at the bottom of the thread they already have.
+  const thread = (p, m, at) => {
+    if (!m.id || !m.conversationId) return;
+    if (!p.thread || new Date(at) > new Date(p.thread.at)) p.thread = { id: m.id, conv: m.conversationId, subject: m.subject || '', at };
+  };
 
   let messages = [];
   if (mb.canRead) messages = await readMail(mb, since, deps);
@@ -225,14 +241,16 @@ async function collect(pool, mb, { now, deps } = {}) {
         const a = lc(r.emailAddress && r.emailAddress.address);
         if (!a || a === mb.address) continue;
         const p = touch(a, r.emailAddress.name);
+        thread(p, m, at);
         // One of OUR follow-ups is not the admin speaking: it never resets
         // the silence it was sent into.
-        if (isOurs(a, subject, at)) continue;
+        if (isOurs(a, subject, at, m.conversationId)) continue;
         p.lastOut = later(p.lastOut, at); p.outCount++; p.via.add('email');
         if (!p.subjectAt || new Date(at) > new Date(p.subjectAt)) { p.subject = subject; p.subjectAt = at; }
       }
     } else if (from) {
       const p = touch(from, m.from.emailAddress.name);
+      thread(p, m, at);
       p.lastIn = later(p.lastIn, at); p.via.add('email');
       if (!p.subjectAt || new Date(at) > new Date(p.subjectAt)) { p.subject = subject; p.subjectAt = at; }
     }
@@ -305,13 +323,19 @@ async function collect(pool, mb, { now, deps } = {}) {
       [key, companyOf(d), FREEMAIL.has(d) ? null : d, via, lastSpoke[0], lastSpoke[1], subj, lastIn, lastOut, lastMeeting])).rows[0];
     for (const p of list) {
       await pool.query(
-        `INSERT INTO mailbox_prospect_people (prospect_id, email, name, last_spoke_at, last_in_at, last_out_at, via, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+        `INSERT INTO mailbox_prospect_people (prospect_id, email, name, last_spoke_at, last_in_at, last_out_at, via,
+                                              thread_message_id, thread_conversation_id, thread_subject, thread_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
          ON CONFLICT (email) DO UPDATE SET name = COALESCE(EXCLUDED.name, mailbox_prospect_people.name),
            last_spoke_at = GREATEST(mailbox_prospect_people.last_spoke_at, EXCLUDED.last_spoke_at),
            last_in_at = GREATEST(mailbox_prospect_people.last_in_at, EXCLUDED.last_in_at),
-           last_out_at = GREATEST(mailbox_prospect_people.last_out_at, EXCLUDED.last_out_at), via = EXCLUDED.via, updated_at = NOW()`,
-        [row.id, p.email, p.name, [p.lastIn, p.lastOut, p.lastMeeting].filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0], p.lastIn, p.lastOut, [...p.via].join(', ')]);
+           last_out_at = GREATEST(mailbox_prospect_people.last_out_at, EXCLUDED.last_out_at), via = EXCLUDED.via,
+           thread_message_id = CASE WHEN EXCLUDED.thread_at IS NOT NULL AND EXCLUDED.thread_at >= COALESCE(mailbox_prospect_people.thread_at, EXCLUDED.thread_at) THEN EXCLUDED.thread_message_id ELSE mailbox_prospect_people.thread_message_id END,
+           thread_conversation_id = CASE WHEN EXCLUDED.thread_at IS NOT NULL AND EXCLUDED.thread_at >= COALESCE(mailbox_prospect_people.thread_at, EXCLUDED.thread_at) THEN EXCLUDED.thread_conversation_id ELSE mailbox_prospect_people.thread_conversation_id END,
+           thread_subject = CASE WHEN EXCLUDED.thread_at IS NOT NULL AND EXCLUDED.thread_at >= COALESCE(mailbox_prospect_people.thread_at, EXCLUDED.thread_at) THEN EXCLUDED.thread_subject ELSE mailbox_prospect_people.thread_subject END,
+           thread_at = GREATEST(mailbox_prospect_people.thread_at, EXCLUDED.thread_at), updated_at = NOW()`,
+        [row.id, p.email, p.name, [p.lastIn, p.lastOut, p.lastMeeting].filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0], p.lastIn, p.lastOut, [...p.via].join(', '),
+          p.thread ? p.thread.id : null, p.thread ? p.thread.conv : null, p.thread ? p.thread.subject : null, p.thread ? p.thread.at : null]);
     }
   }
   return { messages: messages.length, meetings, prospects: groups.size };
@@ -374,10 +398,16 @@ function compose({ person, company, touch, senderFull, earlier }) {
   const body = [first ? `Hi ${first},` : 'Hi,', chosen.join(' '), `${senderFull}\nNILDash`].join('\n\n');
   return body;
 }
-function subjectFor(p, touch) {
-  const s = String(p.last_subject || '').trim();
-  const base = s ? (/^re:/i.test(s) ? s : 'Re: ' + s) : `NILDash for ${p.company || 'you'}`;
-  return touch >= 3 ? base.replace(/\s*\(last note\)$/i, '') + ' (last note)' : base;
+// A REPLY keeps the thread's own subject: Outlook threads it, and the
+// subject is the one they already see (shown on the card, not editable).
+// A NEW email (a call with no thread) gets its own plain subject.
+function subjectFor(p, touch, person) {
+  if (person && person.thread_message_id) {
+    const s = String(person.thread_subject || '').trim();
+    return /^re:/i.test(s) ? s : 'RE: ' + (s || '(no subject)');
+  }
+  const base = `NILDash for ${p.company || (firstOf(person && person.name) || 'you')}`;
+  return touch >= 3 ? base + ' (last note)' : base;
 }
 function check({ subject, body, earlier, touch }) {
   const FUP = require('./followUps');
@@ -424,21 +454,29 @@ async function run(pool, { now, deps = {} } = {}) {
       }
       if (!to) { await setStatus(pool, p.id, 'stopped', 'every address bounced, unsubscribed or said no'); await stopPending('suppressed'); continue; }
       if (!st.due) continue;
+      // Drafts written before follow-ups replied in the thread: never sent as
+      // they are. Withdrawn, and written again below as a thread reply.
+      await pool.query(`UPDATE mailbox_prospect_drafts SET status = 'superseded', status_note = 'rewritten to reply inside the thread', decided_at = NOW()
+                         WHERE prospect_id = $1 AND status = 'pending' AND kind IS NULL`, [p.id]);
       const pending = (await pool.query(`SELECT 1 FROM mailbox_prospect_drafts WHERE prospect_id = $1 AND status IN ('pending', 'sending')`, [p.id])).rowCount;
       if (pending) continue;
       const already = (await pool.query(`SELECT 1 FROM mailbox_prospect_drafts WHERE prospect_id = $1 AND touch_no = $2 AND anchor_at = $3 AND status IN ('sent', 'skipped')`, [p.id, st.next, st.anchor])).rowCount;
       if (already) continue;              // skipped by the admin: that touch is not offered again
       const earlier = (await pool.query(`SELECT body_text FROM mailbox_prospect_drafts WHERE prospect_id = $1 AND status = 'sent'`, [p.id])).rows
         .map((r) => '<p>' + String(r.body_text || '').replace(/\n/g, '<br>') + '</p>');
-      const subject = subjectFor(p, st.next);
+      const kind = to.thread_message_id ? 'reply' : 'new';
+      const subject = subjectFor(p, st.next, to);
       const body = compose({ person: to, company: p.company, touch: st.next, senderFull, earlier });
       const problems = check({ subject, body, earlier, touch: st.next });
       if (problems.length) { out.refused.push({ id: p.id, why: problems.join('; ') }); continue; }
       const id = 'mbp_' + crypto.randomBytes(8).toString('hex');
       await pool.query(
-        `INSERT INTO mailbox_prospect_drafts (id, prospect_id, email, name, subject, body_text, touch_no, anchor_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [id, p.id, to.email, to.name || null, subject, body, st.next, st.anchor]);
-      out.drafted.push({ id, prospect: p.id, touch: st.next, to: to.email });
+        `INSERT INTO mailbox_prospect_drafts (id, prospect_id, email, name, subject, body_text, touch_no, anchor_at, kind, reply_message_id, conversation_id, thread_subject, meeting_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [id, p.id, to.email, to.name || null, subject, body, st.next, st.anchor, kind,
+          kind === 'reply' ? to.thread_message_id : null, kind === 'reply' ? to.thread_conversation_id : null,
+          kind === 'reply' ? to.thread_subject : null, kind === 'new' ? p.last_meeting_at : null]);
+      out.drafted.push({ id, prospect: p.id, touch: st.next, to: to.email, kind });
     }
     await pool.query(`UPDATE mailbox_prospect_runs SET finished_at = NOW(), messages = $2, meetings = $3, prospects = $4, drafted = $5, stopped = $6, note = $7 WHERE id = $1`,
       [runId, out.messages, out.meetings, out.prospects, out.drafted.length, out.stopped.length,
@@ -463,7 +501,9 @@ async function approve(pool, draftId, { subject, body } = {}, deps = {}) {
   const d = (await pool.query(`SELECT * FROM mailbox_prospect_drafts WHERE id = $1`, [draftId])).rows[0];
   if (!d) return { ok: false, status: 404, error: 'no such draft' };
   if (d.status !== 'pending') return { ok: true, already: true, state: d.status };
-  const subj = (typeof subject === 'string' && subject.trim()) ? subject.trim() : d.subject;
+  if (!d.kind) return { ok: false, status: 409, error: 'This draft was written before follow-ups replied inside the thread; it is rewritten at the next read of the mailbox.' };
+  // A reply's subject is the thread's: Outlook decides it, so it is not edited.
+  const subj = d.kind === 'reply' ? d.subject : ((typeof subject === 'string' && subject.trim()) ? subject.trim() : d.subject);
   const text = (typeof body === 'string' && body.trim()) ? body.trim() : d.body_text;
   const earlier = (await pool.query(`SELECT body_text FROM mailbox_prospect_drafts WHERE prospect_id = $1 AND status = 'sent'`, [d.prospect_id])).rows
     .map((r) => '<p>' + String(r.body_text || '').replace(/\n/g, '<br>') + '</p>');
@@ -522,25 +562,58 @@ async function sendOne(pool, d, deps = {}) {
       await pool.query(`UPDATE mailbox_prospect_drafts SET status = 'skipped', status_note = $2, send_claimed_at = NULL WHERE id = $1`, [d.id, 'not sent: ' + why]);
       return { ok: false, error: why };
     }
-    const rule = await sendRules.check(pool, { email: d.email, subject: d.subject, system: SYSTEM, refId: d.id });
+    if (!d.kind) return fail('Not sent: written before follow-ups replied inside the thread; it is rewritten at the next read.');
+    // A reply inside a thread the other side is already in is a conversation
+    // (sendRules' 'reply' system: suppression applies, the subject rule does
+    // not -- every reply in a thread carries the thread's subject). A new
+    // email is outreach and gets every rule.
+    const system = d.kind === 'reply' ? 'reply' : SYSTEM;
+    const rule = await sendRules.check(pool, { email: d.email, subject: d.subject, system, refId: d.id });
     if (!rule.ok) return fail('Not sent: ' + rule.reason);
     const CA = require('./coldAgent');
     const html = canSpam.appendHtml(CA.textToHtml(d.body_text), d.email,
       { why: 'You received this because we spoke about NILDash.' });
-    if (deps.send) await deps.send({ to: d.email, subject: d.subject, html, text: d.body_text });
-    else {
-      // FROM THIS MAILBOX, the one the conversation happened in.
-      const mb = await mailbox(pool);
-      if (!mb.ok) return fail(mb.why);
-      const full = await require('./emailStore').getEmailAccountWithTokens(mb.account.id);
-      await require('./providers/outlook').sendEmail(full.accessToken, full.refreshToken, { to: [d.email], subject: d.subject, bodyHtml: html });
+    const mb = await mailbox(pool);
+    if (!mb.ok) return fail(mb.why);
+    // IN THE THREAD, OR NOT AT ALL. The newest message in the conversation
+    // (ours included), found again now; if the thread cannot be found the
+    // follow-up is not sent, never quietly turned into a new email.
+    let target = null;
+    if (d.kind === 'reply') {
+      try { target = await latestInThread(mb, d, deps); }
+      catch (e) { return fail('Not sent: could not find the thread in the mailbox (' + e.message + '); it is never sent outside the thread.'); }
+      if (!target) return fail('Not sent: the thread is no longer in the mailbox; it is never sent outside the thread.');
     }
-    await pool.query(`UPDATE mailbox_prospect_drafts SET status = 'sent', sent_at = NOW(), send_claimed_at = NULL, send_error = NULL WHERE id = $1`, [d.id]);
-    await sendRules.record(pool, { email: d.email, subject: d.subject, system: SYSTEM, agentId: 'nildash-mailbox-prospects', refId: d.id });
+    if (deps.send) await deps.send({ to: d.email, subject: d.subject, html, text: d.body_text, kind: d.kind, replyToMessageId: target });
+    else {
+      // FROM THIS MAILBOX, the one the conversation happened in. Graph's
+      // /reply on the thread's newest message, addressed to the person
+      // (a reply to a message the admin sent would otherwise go back to the
+      // admin); a new email only for a call with no thread.
+      const full = await require('./emailStore').getEmailAccountWithTokens(mb.account.id);
+      const OL = require('./providers/outlook');
+      if (d.kind === 'reply') await OL.sendEmail(full.accessToken, full.refreshToken, { to: [d.email], replyToMessageId: target, bodyHtml: html });
+      else await OL.sendEmail(full.accessToken, full.refreshToken, { to: [d.email], subject: d.subject, bodyHtml: html });
+    }
+    await pool.query(`UPDATE mailbox_prospect_drafts SET status = 'sent', sent_at = NOW(), send_claimed_at = NULL, send_error = NULL,
+                        reply_message_id = COALESCE($2, reply_message_id) WHERE id = $1`, [d.id, target]);
+    await sendRules.record(pool, { email: d.email, subject: d.subject, system, agentId: 'nildash-mailbox-prospects', refId: d.id });
     return { ok: true };
   } catch (e) {
     return fail('Send failed: ' + (e.message || 'unknown'));
   }
+}
+
+// The newest message in the draft's conversation, read now from Graph; the
+// message recorded at draft time when the conversation lookup returns none.
+async function latestInThread(mb, d, deps) {
+  if (d.conversation_id) {
+    const conv = String(d.conversation_id).replace(/'/g, "''");
+    const msgs = await graphAll(mb, `/me/messages?$filter=conversationId eq '${conv}'&$top=50&$select=id,receivedDateTime,sentDateTime,isDraft`, { deps });
+    const real = msgs.filter((m) => !m.isDraft).sort((a, b) => new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime));
+    if (real.length) return real[0].id;
+  }
+  return d.reply_message_id || null;
 }
 
 async function skip(pool, draftId, note) {
@@ -592,5 +665,5 @@ async function status(pool) {
 module.exports = {
   LOOKBACK_DAYS, GAP_DAYS, MAX_TOUCHES, SYSTEM, FREEMAIL,
   mailboxAddress, mailbox, isMachine, salesCall, companyOf, ensureTables, collect, stateOf, repliedLive,
-  compose, subjectFor, check, run, approve, stopForSend, sendOne, skip, mark, list, status,
+  compose, subjectFor, check, run, approve, stopForSend, sendOne, latestInThread, skip, mark, list, status,
 };

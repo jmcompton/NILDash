@@ -320,11 +320,21 @@ function mbpCard(p) {
   var draft = '';
   if (d) {
     var pend = d.status === 'pending';
-    draft = '<h3>' + (d.touch_no >= 3 ? 'Follow-up 2 of 2 (the last)' : 'Follow-up 1 of 2') + ' to ' + esc(d.name ? d.name + ' <' + d.email + '>' : d.email) + '</h3>'
-      + (pend ? '<input type="text" id="mbs-' + esc(d.id) + '" value="' + esc(d.subject) + '" aria-label="Subject"><textarea id="mbb-' + esc(d.id) + '" aria-label="Email" style="margin-top:8px;min-height:150px">' + esc(d.body_text) + '</textarea>'
+    // WHICH KIND, SAID PLAINLY: a reply inside the thread they are already in,
+    // or a new email because there is no thread (a call only).
+    var kind = d.kind === 'reply'
+      ? '<div class="meta"><span class="badge">Reply in the thread</span>Goes into your existing Outlook thread with ' + esc(d.name || d.email) + ', under &ldquo;' + esc(d.thread_subject || d.subject) + '&rdquo;, below what they already have.</div>'
+      : d.kind === 'new'
+        ? '<div class="meta"><span class="badge" style="color:#f0c98a;border-color:rgba(240,201,138,.5)">New email</span>There is no email thread with ' + esc(d.name || d.email) + ', only the call' + (d.meeting_at ? ' on ' + esc(day(d.meeting_at)) : '') + ', so this starts a fresh email.</div>'
+        : '<div class="meta err" style="margin:0">Written before follow-ups replied in the thread: it is rewritten at the next read of the mailbox.</div>';
+    draft = '<h3>' + (d.touch_no >= 3 ? 'Follow-up 2 of 2 (the last)' : 'Follow-up 1 of 2') + ' to ' + esc(d.name ? d.name + ' <' + d.email + '>' : d.email) + '</h3>' + kind
+      + (pend ? (d.kind === 'reply'
+            ? '<div class="meta" style="margin-top:8px">Subject (the thread\'s): <b>' + esc(d.subject) + '</b></div><input type="hidden" id="mbs-' + esc(d.id) + '" value="' + esc(d.subject) + '">'
+            : '<input type="text" id="mbs-' + esc(d.id) + '" value="' + esc(d.subject) + '" aria-label="Subject" style="margin-top:8px">')
+          + '<textarea id="mbb-' + esc(d.id) + '" aria-label="Email" style="margin-top:8px;min-height:150px">' + esc(d.body_text) + '</textarea>'
           + '<div class="small" style="margin-top:4px">Sent from ' + esc(document.getElementById('mbp-addr').textContent) + ', with the unsubscribe footer added. Checked against your mailbox for a reply first.</div>'
         : '<div class="meta"><b>' + esc(d.subject) + '</b> · ' + esc(d.status === 'sending' ? 'Sending…' : 'Send failed: ' + (d.send_error || '')) + '</div>')
-      + '<div class="actions">' + (pend ? '<button class="go" onclick="mbpApprove(\'' + esc(d.id) + '\', this)">Approve and send</button>' : '') + (d.status !== 'sending' ? '<button onclick="mbpSkip(\'' + esc(d.id) + '\', this)">Skip</button>' : '') + '</div><div class="msg" id="mbm-' + esc(d.id) + '"></div>';
+      + '<div class="actions">' + (pend && d.kind ? '<button class="go" onclick="mbpApprove(\'' + esc(d.id) + '\', this)">Approve and send</button>' : '') + (d.status !== 'sending' ? '<button onclick="mbpSkip(\'' + esc(d.id) + '\', this)">Skip</button>' : '') + '</div><div class="msg" id="mbm-' + esc(d.id) + '"></div>';
   }
   return '<div class="card"><div class="who"><div><div class="name">' + esc(p.company || (p.people && p.people[0] && (p.people[0].name || p.people[0].email)) || p.key) + '</div>'
     + '<div class="meta">' + people + '</div>'

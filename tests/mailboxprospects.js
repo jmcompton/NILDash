@@ -42,10 +42,12 @@ const ADMIN = 'mbp-admin', CUSTOMER = 'mbp-customer', USERP = 'mbp-user';
 // ── THE MAILBOX, AS GRAPH WOULD RETURN IT ───────────────────────────────────
 const addr = (a, n) => ({ emailAddress: { address: a, name: n || '' } });
 const MAIL = [];
-const mail = (from, to, subject, at, { cc = [] } = {}) => MAIL.push({ id: 'm' + MAIL.length, from: addr(from[0], from[1]), toRecipients: to.map((t) => addr(t[0], t[1])), ccRecipients: cc.map((t) => addr(t[0], t[1])), subject, sentDateTime: at, receivedDateTime: at, isDraft: false });
+// One conversation per subject root, as Outlook groups a thread.
+const convOf = (subject) => 'conv:' + String(subject || '').replace(/^(re|fw|fwd):\s*/i, '').replace(/\s*\(last note\)$/i, '').toLowerCase();
+const mail = (from, to, subject, at, { cc = [], conv } = {}) => { const id = 'm' + MAIL.length; MAIL.push({ id, conversationId: conv || convOf(subject), from: addr(from[0], from[1]), toRecipients: to.map((t) => addr(t[0], t[1])), ccRecipients: cc.map((t) => addr(t[0], t[1])), subject, sentDateTime: at, receivedDateTime: at, isDraft: false }); return id; };
 // Dubose Sports: two people; they wrote 8 days ago, John answered 6 days ago.
 mail(['jamie@dubosesports.com', 'Jamie Dubose'], [[ME, 'John']], 'NILDash for Dubose Sports', ago(8));
-mail([ME, 'John'], [['jamie@dubosesports.com', 'Jamie Dubose']], 'Re: NILDash for Dubose Sports', ago(6), { cc: [['ops@dubosesports.com', 'Riley Ops']] });
+const DUB_LAST = mail([ME, 'John'], [['jamie@dubosesports.com', 'Jamie Dubose']], 'Re: NILDash for Dubose Sports', ago(6), { cc: [['ops@dubosesports.com', 'Riley Ops']] });
 // Lee (a personal address): John wrote 10 days ago, Lee answered yesterday.
 mail([ME, 'John'], [['lee.agent@gmail.com', 'Lee Park']], 'Roster question', ago(10));
 mail(['lee.agent@gmail.com', 'Lee Park'], [[ME, 'John']], 'Re: Roster question', ago(1));
@@ -72,6 +74,8 @@ let LIVE_REPLY = null;          // what the live "did they write?" check returns
 const graph = async (path, ctx) => {
   CALLS.push({ path, accountId: ctx.accountId, address: ctx.address });
   if (/from\/emailAddress\/address eq/.test(path)) return LIVE_REPLY ? [LIVE_REPLY] : [];
+  const cm = path.match(/conversationId eq '([^']+)'/);
+  if (cm) return MAIL.filter((m) => m.conversationId === cm[1].replace(/''/g, "'"));
   if (path.startsWith('/me/messages')) return MAIL.slice();
   if (path.startsWith('/me/calendarView')) return EVENTS.slice();
   throw new Error('unexpected Graph path ' + path);
@@ -137,8 +141,11 @@ const SENT = [];
   const pend = (k) => (MP.list(P).then((l) => (l.find((p) => p.key === k) || {}).pending));
   const dd = await pend('dubosesports.com');
   ok('your last word 6 days ago, no reply: follow-up 1 is drafted, to the person you wrote to', dd && dd.touch_no === 2 && dd.email === 'jamie@dubosesports.com' && /^Re: NILDash for Dubose Sports$/.test(dd.subject), dd);
+  ok('  AS A REPLY IN THE THREAD: the thread\'s subject, its conversation and its newest message', dd.kind === 'reply' && dd.conversation_id === 'conv:nildash for dubose sports' && dd.reply_message_id === DUB_LAST, dd);
   ok('  it adds something, never "following up", and names no price', /send me your roster/i.test(dd.body_text) && !/follow(ing)?[- ]?up|check(ing)? in|circl/i.test(dd.body_text) && /^Hi Jamie,/.test(dd.body_text), dd.body_text);
-  ok('a call 5 days ago with no email since: follow-up 1 is drafted', !!(await pend('bsports.com')));
+  const bNew = await pend('bsports.com');
+  ok('a call 5 days ago with no email since: follow-up 1 is drafted', !!bNew);
+  ok('  AS A NEW EMAIL, because there is no thread, with its own subject and the call date for the card', bNew && bNew.kind === 'new' && !bNew.reply_message_id && bNew.subject === 'NILDash for Bsports' && !!bNew.meeting_at, bNew);
   ok('  a call 2 days ago: not yet (4 days)', !(await pend('csports.com')));
   const lee = (await MP.list(P)).find((p) => p.key === 'lee.agent@gmail.com');
   ok('THEY WROTE LAST (Lee, yesterday): nothing is drafted; it says it is your move', !lee.pending && /they replied/.test(lee.state_note || ''), lee);
@@ -146,19 +153,20 @@ const SENT = [];
   // Approve follow-up 1 for Dubose; it shows up in the mailbox as a sent message.
   const a1 = await MP.approve(P, dd.id, {}, deps);
   ok('approve sends it, from this mailbox, with the unsubscribe footer', a1.ok && SENT.length === 1 && SENT[0].to === 'jamie@dubosesports.com' && /unsubscribe/i.test(SENT[0].html), { a1, SENT });
+  ok('  as a Graph reply to the newest message in that thread, never a new email', SENT[0].kind === 'reply' && SENT[0].replyToMessageId === DUB_LAST, SENT[0]);
   const sentAt = (await P.query(`SELECT sent_at FROM mailbox_prospect_drafts WHERE id = $1`, [dd.id])).rows[0].sent_at;
-  mail([ME, 'John'], [['jamie@dubosesports.com']], dd.subject, new Date(sentAt).toISOString());
+  const FU1 = mail([ME, 'John'], [['jamie@dubosesports.com']], 'RE: NILDash for Dubose Sports', new Date(sentAt).toISOString(), { conv: 'conv:nildash for dubose sports' });
   r = await MP.run(P, { deps, now: new Date(Date.now() + 3 * DAY) });
   ok('our own follow-up in the sent folder does not count as you speaking (no new sequence)', !(await pend('dubosesports.com')), r);
   r = await MP.run(P, { deps, now: new Date(Date.now() + 8 * DAY) });
   const d3 = await pend('dubosesports.com');
-  ok('7 days after follow-up 1: follow-up 2, the last, the easiest no', d3 && d3.touch_no === 3 && /tell me and I will stop/i.test(d3.body_text) && /\(last note\)$/.test(d3.subject), d3);
+  ok('7 days after follow-up 1: follow-up 2, the last, the easiest no, still in the thread', d3 && d3.touch_no === 3 && /tell me and I will stop/i.test(d3.body_text) && d3.kind === 'reply' && d3.conversation_id === 'conv:nildash for dubose sports', d3);
   ok('  and it reuses nothing from follow-up 1', !require(REPO + 'server/services/followUps.js').reuses('<p>' + d3.body_text + '</p>', ['<p>' + dd.body_text + '</p>']));
   // Seven days have passed (the 4-day send rule would otherwise hold it).
   await P.query(`DELETE FROM email_sends WHERE email = 'jamie@dubosesports.com'`);
   const a3 = await MP.approve(P, d3.id, {}, deps);
-  ok('  approving it sends it', a3.ok && SENT.length === 2, { a3, err: (await P.query(`SELECT send_error FROM mailbox_prospect_drafts WHERE id = $1`, [d3.id])).rows[0] });
-  mail([ME, 'John'], [['jamie@dubosesports.com']], d3.subject, new Date().toISOString());
+  ok('  approving it sends it, threaded under follow-up 1 (now the newest message)', a3.ok && SENT.length === 2 && SENT[1].kind === 'reply' && SENT[1].replyToMessageId === FU1, { a3, err: (await P.query(`SELECT send_error FROM mailbox_prospect_drafts WHERE id = $1`, [d3.id])).rows[0] });
+  mail([ME, 'John'], [['jamie@dubosesports.com']], 'RE: NILDash for Dubose Sports', new Date().toISOString(), { conv: 'conv:nildash for dubose sports' });
   r = await MP.run(P, { deps, now: new Date(Date.now() + 40 * DAY) });
   const dubAfter = (await MP.list(P)).find((p) => p.key === 'dubosesports.com');
   ok('THREE TOUCHES IS THE CEILING: nothing more is ever drafted', !dubAfter.pending && /three touches/.test(dubAfter.state_note || '') && SENT.length === 2, dubAfter);
@@ -183,6 +191,34 @@ const SENT = [];
   // Bounce / unsubscribe: never starts.
   await require(REPO + 'server/services/suppression.js').suppress(P, 'pat@bsports.com', { reason: 'unsubscribed', kind: 'unsubscribe' });
   ok('a suppressed address is refused at send', /unsubscribed|suppress/.test(await MP.stopForSend(P, { prospect_id: bd.prospect_id, email: 'pat@bsports.com' }, deps) || ''));
+
+  // ── 4b. IN THE THREAD OR NOT AT ALL ──────────────────────────────────────
+  OUT.push('', '-- in the thread, or not at all --');
+  // A clean prospect (nothing stops it), whose thread has since been deleted.
+  const gp = (await P.query(`INSERT INTO mailbox_prospects (key, company, last_spoke_at, last_spoke_how, last_out_at) VALUES ('gone.example', 'Gone', $1, 'you emailed', $1) RETURNING id`, [ago(6)])).rows[0].id;
+  await P.query(`INSERT INTO mailbox_prospect_people (prospect_id, email, name) VALUES ($1, 'nobody@gone.example', 'No Body')`, [gp]);
+  await P.query(`INSERT INTO mailbox_prospect_drafts (id, prospect_id, email, subject, body_text, touch_no, kind, conversation_id, status)
+                 VALUES ('mbp-gone', $1, 'nobody@gone.example', 'RE: lost', 'Hi', 2, 'reply', 'conv:a thread deleted from the mailbox', 'sending')`, [gp]);
+  const n0 = SENT.length;
+  const gone = await MP.sendOne(P, (await P.query(`SELECT * FROM mailbox_prospect_drafts WHERE id = 'mbp-gone'`)).rows[0], { ...deps, graph: async (pth, c) => (/conversationId eq/.test(pth) ? [] : graph(pth, c)) });
+  const goneRow = (await P.query(`SELECT status, send_error FROM mailbox_prospect_drafts WHERE id = 'mbp-gone'`)).rows[0];
+  ok('A REPLY WHOSE THREAD CANNOT BE FOUND IS NOT SENT, and is never turned into a new email', SENT.length === n0 && !gone.ok
+    && goneRow.status === 'failed' && /never sent outside the thread/.test(goneRow.send_error || ''), { gone, goneRow });
+  await P.query(`DELETE FROM mailbox_prospect_people WHERE prospect_id = $1`, [gp]);
+  await P.query(`DELETE FROM mailbox_prospects WHERE id = $1`, [gp]);
+  await P.query(`DELETE FROM mailbox_prospect_drafts WHERE id = 'mbp-gone'`);
+  // A draft from before this change (no kind): withdrawn, never sent as it is.
+  const cara2 = (await MP.list(P)).find((p) => p.key === 'csports.com');
+  await P.query(`INSERT INTO mailbox_prospect_drafts (id, prospect_id, email, subject, body_text, touch_no) VALUES ('mbp-legacy', $1, 'cara@csports.com', 'Re: x', 'Hi', 2)`, [cara2.id]);
+  const leg = await MP.approve(P, 'mbp-legacy', {}, deps);
+  ok('an old draft written before threading is refused at Approve', !leg.ok && /rewritten/.test(leg.error), leg);
+  await P.query(`UPDATE mailbox_prospects SET status = 'open' WHERE id = $1`, [cara2.id]);
+  await MP.run(P, { deps });
+  ok('  and withdrawn at the next read (superseded, not "skipped": the touch is offered again)', (await P.query(`SELECT status FROM mailbox_prospect_drafts WHERE id = 'mbp-legacy'`)).rows[0].status !== 'pending');
+  const ps = fs.readFileSync(REPO + 'server/services/mailboxProspects.js', 'utf8');
+  ok('the real send is Graph\'s reply on that message, addressed to the person', /OL\.sendEmail\(full\.accessToken, full\.refreshToken, \{ to: \[d\.email\], replyToMessageId: target, bodyHtml: html \}\)/.test(ps));
+  const pg2 = fs.readFileSync(REPO + 'public/admin-prospects.html', 'utf8');
+  ok('the card says which kind: "Reply in the thread" or "New email" with why', />Reply in the thread</.test(pg2) && />New email</.test(pg2) && /There is no email thread with/.test(pg2));
 
   // ── 5. THE PAGE AND THE PERMISSION ───────────────────────────────────────
   OUT.push('', '-- the page and the permission --');

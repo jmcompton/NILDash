@@ -94,6 +94,14 @@ const paths = () => CALLS.map((c) => c.verb + ' ' + c.path);
   check('POST /me/messages/{id}/reply (Mail.Send is enough)', JSON.stringify(paths()) === JSON.stringify(['POST /me/messages/M9/reply']));
   check('the follow-up is the comment, with the Reply-To', rep && rep.body.comment === '<p>Following up.</p>' && rep.body.message.replyTo[0].emailAddress.address === 'jordan@reply.mynildash.com');
 
+  // A reply on a message WE sent goes back to us unless it is addressed: the
+  // admin's prospect follow-ups (services/mailboxProspects) name the person.
+  CALLS = []; BEHAVIOUR = tenant();
+  await outlook.sendEmail('tok', null, { to: ['jamie@dubosesports.com'], bodyHtml: '<p>Hi Jamie,</p>', replyToMessageId: 'M_OURS' });
+  const rep2 = CALLS.find((c) => /\/reply$/.test(c.path));
+  check('a reply addressed to a person sets the recipient, in the thread (no new email)', JSON.stringify(paths()) === JSON.stringify(['POST /me/messages/M_OURS/reply'])
+    && rep2 && rep2.body.message.toRecipients[0].emailAddress.address === 'jamie@dubosesports.com' && rep2.body.comment === '<p>Hi Jamie,</p>');
+
   // ── 3. Reply by threadId: a conversationId is never posted as a message id ─
   console.log('\n3. REPLY by threadId (a conversationId)');
   CALLS = []; BEHAVIOUR = tenant();
