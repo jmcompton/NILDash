@@ -97,9 +97,10 @@ async function main() {
                    VALUES ('auburn, al',$1,NOW(),NOW()) ON CONFLICT DO NOTHING`, ['E2E Local ' + i]);
   }
   await P.query(`INSERT INTO social_brands
-      (brand, category, website, sports, tier_min, tier_max, deal_structure, proof_url, proof_date, active)
+      (brand, category, website, sports, tier_min, tier_max, deal_structure, proof_url, proof_date, active, tier_stated)
       VALUES ('E2E Apparel','apparel','https://e2e.example',ARRAY['all'],0,999999,'cash_code',
-              'https://e2e.example/athletes','2026-01-01',true) ON CONFLICT (brand) DO NOTHING`);
+              'https://e2e.example/athletes',CURRENT_DATE,true,true)
+      ON CONFLICT (brand) DO UPDATE SET tier_stated = true, proof_date = CURRENT_DATE`);
   // WHAT BOOSTS A LOCAL BUSINESS: one that answered us for another athlete at
   // this school. A scraped news comp deliberately does NOT -- it is national
   // press evidence about collectives and big brands, and it is asserted below

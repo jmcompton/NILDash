@@ -662,9 +662,10 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
         source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
         dm_text, channel, state, angle, angle_key, category_key, ask, lane, program_url,
         sponsor_signal, sponsor_note, identity_key, email, email_kind, outreach_log_id, email_note,
-        business_category, thin, thin_note, email_tier, email_source_url, market_key)
+        business_category, thin, thin_note, email_tier, email_source_url, market_key,
+        size_band, signing_evidence)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20,
-             $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+             $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
      ON CONFLICT DO NOTHING RETURNING id`,
     [agentId, athleteId, slot, card.brandKey || identity, card.brandName, card.why, card.contactName,
      card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
@@ -692,7 +693,11 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
      card.emailTier || null, card.emailSourceUrl || null,
      // The market the card was found in: the stagger matches a name within a
      // market, and learning reads replies by kind of business and market.
-     card.marketKey || marketKey || null]);
+     card.marketKey || marketKey || null,
+     // The brand's size band and the evidence it signs athletes like this one
+     // (services/signingEvidence). A local card is 'local' with no evidence.
+     card.sizeBand || (card.lane === 'local' ? 'local' : null),
+     card.signingEvidence ? JSON.stringify(card.signingEvidence) : null]);
   const wrote = (ins.rowCount || 0) > 0;
   if (!wrote) {
     console.log(`[queue] athlete=${athleteId} slot=${slot} "${card.brandName}" not written `
@@ -1541,7 +1546,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         if (NAME_REQUIRED) {
           try {
             pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null,
-              large: cand.lane === 'national' || cand.brandSize === 'national' });
+              // EVERY social and national brand: its founder, CEO or corporate
+              // office is never the contact, only its partnerships / marketing /
+              // athlete-program lead (ownerNameSearch.titleProblem, LARGE_ORDER).
+              large: cand.lane === 'national' || cand.lane === 'social' || cand.brandSize === 'national' });
             _sw.lap('ownerSearch');
           } catch (e) {
             say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
@@ -1627,6 +1635,12 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         pcard.lane = cand.lane;
         pcard.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
         pcard.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
+        // THE EVIDENCE THIS BRAND SIGNS ATHLETES LIKE THIS ONE, and its size
+        // band, on the card: what the agent reads, and what reply rate is
+        // measured by (services/signingEvidence).
+        pcard.sizeBand = cand.sizeBand || null;
+        pcard.signingEvidence = cand.signingEvidence || null;
+        if (cand.evidenceNote) { pcard.sponsorSignal = pcard.sponsorSignal || 'signs-comparable'; pcard.sponsorNote = pcard.sponsorNote || cand.evidenceNote; }
         if (dry) {
           // A dry run hands the card it would have queued to the caller.
           if (ctx.onCard) { try { await ctx.onCard({ ...pcard, slot }); } catch (_) { /* the caller's problem */ } }

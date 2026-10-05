@@ -42,7 +42,7 @@ async function seed(P) {
   for (let i = 0; i < ROSTER.length; i++) {
     await P.query(`INSERT INTO athletes (id,agent_id,data,created_at)
                    VALUES ($1,$2,$3, NOW() - ($4||' minutes')::interval)`,
-      ['iso-' + i, AG, JSON.stringify({ name: ROSTER[i], school: 'Alabama', dob: '2004-09-02' }),
+      ['iso-' + i, AG, JSON.stringify({ name: ROSTER[i], school: 'University of Alabama', dob: '2004-09-02' }),
         String(100 - i)]);
   }
 }

@@ -150,6 +150,8 @@ async function main() {
 
   // ── 3. THE SOCIAL SEAT ──────────────────────────────────────────────────
   OUT.push('', '-- one social brand when the following justifies it --');
+  // Evidence that it signs athletes like this one (services/signingEvidence).
+  await require('./_evidence').seed(P, ['Shape Social Co']);
   const socialStore = Object.assign(Object.create(store), {
     getSocialBrandPool: async () => ([{ brand: 'Shape Social Co', brandKey: 'dom:shapesocial.example',
       fitScore: 1, whyFits: 'runs a programme', proof_url: 'https://shapesocial.example/athletes',
@@ -353,6 +355,7 @@ async function main() {
     && /thinNote: c\.thin === true \? \(c\.thinNote \|\| null\) : null/.test(hq));
 
   await wipe();
+  await require('./_evidence').clear(P, ['Shape Social Co']);
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));
   try { await P.end(); } catch (_) {}

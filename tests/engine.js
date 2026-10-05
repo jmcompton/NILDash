@@ -45,6 +45,12 @@ ai.webSearchJson = async (prompt) => {
       : { text: '{"handle":null}', citations: [], searches: 1, outTokens: 5, apiMs: 5 };
   }
   const m = String(prompt).match(/^Search for: (.+)\n/);
+  // A social / national brand is searched for its partnerships lead, never its
+  // founder (services/signingEvidence, ownerNameSearch.LARGE_ORDER): the
+  // partnerships search answers with one; the owner search with the founder.
+  if (m && /head of partnerships|athlete marketing|marketing director/i.test(m[1]) && /EN Social Brand/.test(m[1])) {
+    calls.owner.push(m[1]); return { text: JSON.stringify({ name: 'Sam Ortiz', title: 'Head of Athlete Partnerships', confidence: 'high' }), citations: ['https://x.test/team'], searches: 1 };
+  }
   if (m) { calls.owner.push(m[1]); return { text: JSON.stringify({ name: 'Pat Rivera', title: 'Founder', confidence: 'high' }), citations: ['https://x.test/team'], searches: 1 }; }
   throw new Error('the real web search must not be reached here');
 };
@@ -128,6 +134,10 @@ async function main() {
   // ── 2. HALF THE SUPPLY ────────────────────────────────────────────────────
   OUT.push('', '-- the social lane is half the supply where the tier allows it --');
   await P.query(`INSERT INTO market_business_seen (market_key, brand, category) SELECT 'enslate, ga', 'EN Local ' || g, 'restaurant' FROM generate_series(0, 9) g ON CONFLICT DO NOTHING`);
+  // Each social brand has evidence it signs athletes like this one (services/signingEvidence).
+  const EVID = require('./_evidence');
+  const EN_EV = Array.from({ length: 6 }, (_, i) => `EN Social ${i}`).concat(Array.from({ length: 6 }, (_, i) => `EN Social Brand ${i}`));
+  await EVID.seed(P, EN_EV);
   const socialStore = { ...store, getSocialBrandPool: async () => Array.from({ length: 6 }, (_, i) => ({ brand: `EN Social ${i}`, brandKey: `en-social-${i}`, fitScore: 40 })),
     getTopNilComps: async () => [] };
   const slateFor = async (a) => Scout.assembleSlate(P, { agentId: AG, athlete: { id: 'en-s', marketKey: 'enslate, ga', market: 'Enslate, GA', hasLocalMarket: true, ...a }, store: socialStore, limit: 5 });
@@ -402,6 +412,7 @@ async function main() {
 main().catch((e) => { F++; OUT.push('FAIL threw: ' + (e && e.stack || e)); }).finally(async () => {
   const pass = OUT.filter((l) => l.startsWith('PASS')).length;
   console.log(OUT.join('\n'));
+  await require('./_evidence').clear(store.pool, Array.from({ length: 6 }, (_, i) => `EN Social ${i}`).concat(Array.from({ length: 6 }, (_, i) => `EN Social Brand ${i}`)));
   console.log(`\n${pass} passed\nfailures: ${F}`);
   try { await store.pool.end(); } catch (_) {}
   process.exit(F ? 1 : 0);

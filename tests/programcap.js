@@ -154,9 +154,9 @@ async function main() {
   // anything at all.
   for (let i = 0; i < 5; i++) {
     await P.query(`INSERT INTO social_brands
-        (brand, category, website, sports, tier_min, tier_max, deal_structure, proof_url, proof_date, active)
+        (brand, category, website, sports, tier_min, tier_max, deal_structure, proof_url, proof_date, active, tier_stated)
         VALUES ($1,'apparel',$2,ARRAY['all'],0,999999,'cash_code',
-                $3,'2026-01-01',true) ON CONFLICT (brand) DO NOTHING`,
+                $3,CURRENT_DATE,true,true) ON CONFLICT (brand) DO UPDATE SET tier_stated = true, proof_date = CURRENT_DATE`,
       ['PCAP Form ' + i, 'https://pcap' + i + '.example', 'https://pcap' + i + '.example/athletes']);
   }
   const A1 = 'pcap-a1';
@@ -208,6 +208,8 @@ async function main() {
   // That is exactly the set the name-and-city Instagram search exists for, and
   // exactly the set this branch used to reject by name and drop.
   await P.query(`DELETE FROM social_brands WHERE brand LIKE 'PCAP%'`);
+  // Evidence these two sign athletes like this one (services/signingEvidence).
+  await require('./_evidence').seedDeals(P, ['PCAP Social', 'PCAP Handleless']);
   for (const b of ['PCAP Social', 'PCAP Handleless']) {
     for (let i = 0; i < 2; i++) {
       await P.query(`INSERT INTO deal_comps (id, sport, school, brand, deal_value, source)

@@ -162,6 +162,14 @@ async function main() {
   // ── THE MIXED SLATE ──────────────────────────────────────────────────────
   // A social pool with no geography: it must reach the slate for an athlete
   // whose local market is bare.
+  // Evidence that each signs athletes like this one (services/signingEvidence);
+  // Red Bull is a household incumbent and is refused whatever it has.
+  const EVID = require('./_evidence');
+  // Program rows only for brands that have a page; the page-less ones get a
+  // logged deal instead, so the test's "no page" stays true.
+  const EVBRANDS = ['Gymshark', 'Nocco', 'Alani Nu', 'Celsius', 'Program Only Co', 'DM Possible Co', 'National With Page', 'Plain No Page'];
+  await EVID.seed(P, ['Program Only Co', 'National With Page']);
+  await EVID.seedDeals(P, ['Gymshark', 'Nocco', 'Alani Nu', 'Celsius', 'DM Possible Co', 'Plain No Page']);
   const fakeStore = {
     getSocialBrandPool: async () => ([
       { brand: 'Gymshark', brandKey: 'gymshark', fitScore: 90, whyFits: 'Quarterly drops' },
@@ -297,6 +305,7 @@ async function main() {
     const legacy = await S.assembleSlate(P, { agentId: AG, athlete: BIG, store: capStore, limit: 5 });
     ok('a caller that passes no cap gets the old behaviour', names(legacy).includes('Program Only Co'), names(legacy));
     await P.query(`DELETE FROM social_brands WHERE brand='National With Page'`).catch(() => {});
+    await EVID.clear(P, EVBRANDS);
 
     // ── WHAT EACH LANE RETURNED IS ON THE SLATE ──────────────────────────────
     ok('the slate says how many rows each lane returned',

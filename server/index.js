@@ -5355,6 +5355,18 @@ const ADMIN_SCRIPTS = {
   // Read-only; no arguments.
   //   /api/admin/scripts/send-status?text=1
   'send-status': { file: 'scripts/send-status.js', args: () => [] },
+  // The national and social lanes for one athlete (or an agent's first few),
+  // before and after the signing-evidence bar, with each brand's evidence,
+  // band, and why each refused one was refused. Read-only, no spend.
+  //   /api/admin/scripts/brand-lanes-before-after?athlete=<id or name>&text=1   (&agent=<email>&max=3)
+  'brand-lanes-before-after': { file: 'scripts/brand-lanes-before-after.js', args: (q) => [].concat(
+    q.athlete ? ['--athlete', String(q.athlete).replace(/[^a-z0-9 ._'-]/gi, '').slice(0, 120)] : [],
+    q.agent ? ['--agent', String(q.agent).replace(/[^a-z0-9@._+-]/gi, '').slice(0, 120)] : [],
+    q.max ? ['--max', String(parseInt(q.max, 10) || 3)] : []) },
+  // Reply rate by lane and size band, with or without signing evidence: is a
+  // national brand a lead or a fantasy, measured. Read-only.
+  //   /api/admin/scripts/lane-band-report?days=42&text=1
+  'lane-band-report': { file: 'scripts/lane-band-report.js', args: (q) => ['--days', String(Math.max(1, Math.min(365, parseInt(q.days, 10) || 42)))] },
   // Every athlete's school, the market it resolves to, and the markets their
   // cards were actually built in: anyone pitched to another town's businesses
   // (the Columbia University -> Columbia, Missouri bug). Free by default;

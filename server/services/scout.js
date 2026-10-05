@@ -696,6 +696,25 @@ async function assembleSlate(pool, ctx) {
     social.fault ? [{ service: 'database', reason: social.fault }] : [],
     national.fault ? [{ service: 'database', reason: national.fault }] : []);
 
+  // ── ONLY BRANDS THAT SIGN ATHLETES LIKE THIS ONE (services/signingEvidence)
+  // Nike came up ten times in one night. A national or social brand needs
+  // evidence we found, with a source, that it signed or partnered with an
+  // athlete of comparable reach in the last 12 months; the household
+  // incumbents are refused outright. What is kept is ranked: a program to
+  // apply to, then DTC / growth over national, then the athlete's sport.
+  const evidenceRefused = [];
+  if (subject.subjectKind === 'athlete' && (social.length || national.length)) {
+    const SE = require('./signingEvidence');
+    const sF = await SE.filterAndRank(pool, social, athlete);
+    const nF = await SE.filterAndRank(pool, national, athlete);
+    social = sF.kept; national = nF.kept;
+    evidenceRefused.push(...sF.refused, ...nF.refused);
+    if (evidenceRefused.length) {
+      console.log(`[scout/evidence] athlete=${athlete.id} kept ${social.length} social, ${national.length} national; refused ${evidenceRefused.length}: `
+        + evidenceRefused.slice(0, 6).map((r) => `${r.brand} (${r.why.slice(0, 60)})`).join('; '));
+    }
+  }
+
   // ── A CANDIDATE THAT CANNOT SUCCEED DOES NOT GET A SLOT ──────────────────
   // Jeremiah Wilkinson: twelve attempts, all social or national, nine rejected
   // as "already holding 1 program application, which is the cap". The cap was
@@ -765,7 +784,7 @@ async function assembleSlate(pool, ctx) {
     }
     if (faults.length) reason = EMPTY.FAULT;
     return { picks: [], laneCounts: {}, emptyReason: reason, emptyText: EMPTY_TEXT[reason],
-      signalCount: signals.size, localExhausted: local.exhausted, lanes, dropped, faults };
+      signalCount: signals.size, localExhausted: local.exhausted, lanes, dropped, faults, evidenceRefused };
   }
 
   // ── A BUSINESS THAT HAS DONE THIS BEFORE IS THE BETTER TARGET ────────────
@@ -825,6 +844,9 @@ async function assembleSlate(pool, ctx) {
     if (c.lane === 'local') fit += 6;          // proximity is real, and modest
     if (c.pool === 'shown') fit += 4;          // a scan already thought so
     if (sig) fit += sig.weight;
+    // A social or national brand that cleared the signing-evidence bar: a
+    // program to apply to, DTC / growth stage, the athlete's own sport.
+    if (c.lane !== 'local' && Number.isFinite(c.evidenceScore) && c.evidenceScore > 0) fit += c.evidenceScore;
     const nilFlags = BF.flagsFrom(flagIndex, c);
     fit += BF.rankBonus(nilFlags);
 
@@ -1086,7 +1108,7 @@ async function assembleSlate(pool, ctx) {
 
   const laneCounts = picks.reduce((m, p) => { m[p.lane] = (m[p.lane] || 0) + 1; return m; }, {});
   const out = {
-    picks, laneCounts, emptyReason: null, emptyText: null, lanes, dropped, shape, faults,
+    picks, laneCounts, emptyReason: null, emptyText: null, lanes, dropped, shape, faults, evidenceRefused,
     signalCount: signals.size,
     boosted: picks.filter((p) => p.sponsorSignal).length,
     collapsed,

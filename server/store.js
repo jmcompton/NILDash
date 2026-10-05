@@ -1877,6 +1877,11 @@ async function init() {
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS angle TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS angle_key TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS category_key TEXT`).catch(() => {});
+  // The brand's size band (local | small | growth | national | incumbent) and
+  // the evidence it signs athletes like this one (services/signingEvidence),
+  // so reply rate can be read by band.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS size_band TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS signing_evidence JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS ask TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ`).catch(() => {});
 
