@@ -453,8 +453,20 @@ async function loadProgramBrandTally(pool, agentId) {
 // would run the local lane against a town the Scout refuses to search. Both are
 // resolved here, once, together.
 async function localContextFor(ath) {
-  const profile = athleteProfile(ath);
-  const r = await regionForAthleteAsync(ath);
+  let profile = athleteProfile(ath);
+  let r = await regionForAthleteAsync(ath);
+  // ── IS THE MARKET WHERE THE SCHOOL IS? ────────────────────────────────────
+  // A market from the name rules is checked against the school's actual
+  // location (services/schoolMarketCheck) before it is used. A geocoded one
+  // already came from the school's own address. Wrong by more than 60 km: the
+  // school's own town replaces it, everywhere, from now on.
+  const _school = (ath && ath.data && ath.data.school) || (ath && ath.school) || '';
+  if (!r.geocoded && profile.hasLocalMarket && profile.market && _school) {
+    try {
+      const v = await require('../services/schoolMarketCheck').checkAndCorrect(store.pool, _school, profile.market);
+      if (v.corrected) { profile = athleteProfile(ath); r = { ...r, region: profile.market || v.market }; }
+    } catch (e) { console.warn('[queue] school market check failed for ' + _school + ': ' + e.message); }
+  }
   if (r.geocoded && r.region) {
     profile.market = r.region;
     profile.marketKey = canonicalRegionOf(r.region);
@@ -2534,6 +2546,8 @@ async function restartCardClock(pool, agentId) {
 
 async function run(opts = {}) {
   const pool = store.pool;
+  // Every school market corrected so far, before any athlete is resolved.
+  await require('../services/schoolMarketCheck').load(pool);
   const agents = opts.agentId
     // signature_text / scheduling_url travel with the agent so fillAgent can read
     // them once rather than querying per business.

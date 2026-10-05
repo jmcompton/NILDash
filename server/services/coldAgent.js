@@ -65,6 +65,7 @@ const DEFAULTS = {
   excludeEmails: [],            // never these, whatever the rules say
   excludeNames: [],
   holdEmails: [],               // handled by the admin personally, never by this agent
+  signName: '',                 // the sign-off name; empty = the admin account's name
 };
 
 // OUR OWN PEOPLE, by name and by address. The settings add to this list.
@@ -128,6 +129,7 @@ function clampSettings(s) {
     excludeEmails: (Array.isArray(s.excludeEmails) ? s.excludeEmails : []).map(lc).filter(Boolean).slice(0, 200),
     excludeNames: (Array.isArray(s.excludeNames) ? s.excludeNames : []).map(norm).filter(Boolean).slice(0, 200),
     holdEmails: (Array.isArray(s.holdEmails) ? s.holdEmails : []).map(lc).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).slice(0, 500),
+    signName: String(s.signName || '').replace(/[^A-Za-z .'-]/g, '').trim().slice(0, 60),
   };
   // Finished before 7am Central, whatever is typed: the deadline is the last
   // moment a new person is started, and it is never later than 6:59.
@@ -277,8 +279,9 @@ Email: ${u.email}${freeMail ? ' (a personal address)' : ` (domain ${domain})`}
 Agency on file: ${u.agency_name || '(none)'}${u.agency_website ? `\nAgency website: ${u.agency_website}` : ''}
 
 Find, from public sources only: their agency, their role, roughly how many athletes they represent, the sports and level (college / pro), where they are based, anything public and recent (last 6 months) worth a one-line mention, and up to 3 athletes publicly listed on their agency's roster with each athlete's school and sport. Also name one college near where they are based.
+firmFact: the single most specific public fact about their firm, as one plain third-person sentence in the source's own terms (numbers, sport, level), e.g. "Second Wind Pro has represented more than 30 college football players and negotiated over $750,000 in NIL opportunities." null if no source states one.
 Return ONLY JSON:
-{"agency":null,"role":null,"rosterSize":null,"sports":[],"level":null,"basedIn":{"city":null,"state":null},"recent":null,"rosterAthletes":[{"name":"","school":"","sport":""}],"nearbySchool":null,"sources":[]}
+{"agency":null,"role":null,"rosterSize":null,"sports":[],"level":null,"basedIn":{"city":null,"state":null},"firmFact":null,"recent":null,"rosterAthletes":[{"name":"","school":"","sport":""}],"nearbySchool":null,"sources":[]}
 Use null or [] for anything you cannot find with a source. Never guess a name.`;
   try {
     const msg = await scanMeter.label({ site: 'cold-agent.research', agentId: SANDBOX_AGENT, brand: u.email },
@@ -299,7 +302,15 @@ Use null or [] for anything you cannot find with a source. Never guess a name.`;
 // one from their agency's public roster; else a college near them.
 async function demoSubject(pool, u, found) {
   const job = require('../jobs/outreachQueue');
-  const ok = (row) => { try { const p = job.athleteProfile(row); return !!(p && p.hasLocalMarket); } catch (_) { return false; } };
+  // A school the name rules place, or one the Places lookup can (the demo
+  // itself resolves it with localContextFor, which checks it against where the
+  // school actually is).
+  const SG = require('./schoolGeocode');
+  const ok = (row) => {
+    try { const p = job.athleteProfile(row); if (p && p.hasLocalMarket) return true; } catch (_) { /* fall through */ }
+    const sch = (row && row.data && row.data.school) || (row && row.school) || '';
+    return !!(sch && SG.usable(sch));
+  };
   if (Number(u.athletes) > 0) {
     const own = (await pool.query(
       `SELECT id, data, data->>'name' AS name, data->>'school' AS school, data->>'hometown' AS hometown
@@ -368,10 +379,41 @@ const BANNED = [
   /\bsupercharge/i, /\bseamless/i, /\bexcited to\b/i, /\breach(ing)? out\b/i, /\bwe noticed\b/i, /\bour records\b/i,
 ];
 
-function checkEmail(subject, body, names) {
+// The numbers a fact carries, as their leading digits: "$750,000" and "$750k"
+// are both 750; "30+" is 30.
+function numbersIn(text) {
+  return (String(text || '').match(/\d[\d,.]*/g) || [])
+    .map((n) => n.replace(/[,.]\d{3}\b/g, '').replace(/[,.]$/, '').replace(/\D.*$/, ''))
+    .filter((n) => n && n.length >= 2);
+}
+// WHAT THE RESEARCH FOUND ABOUT THEIR FIRM HAS TO BE IN THE EMAIL. Warmth is
+// specificity about them; a draft that had the fact and opened with us is
+// refused. "Uses it" means it carries the firm's name or one of the fact's
+// numbers.
+function usesFirmFact(body, research) {
+  const fact = research && research.firmFact;
+  if (!fact) return true;
+  const b = String(body || '').toLowerCase();
+  if (numbersIn(fact).some((n) => b.includes(n))) return true;
+  const firm = String((research && research.agency) || '').toLowerCase().replace(/\b(llc|inc|group|agency|management|mgmt|sports|the)\b/g, ' ').replace(/[^a-z0-9 ]/g, ' ').trim();
+  const head = firm.split(/\s+/).filter((t) => t.length >= 3).slice(0, 2).join(' ');
+  return !!head && b.includes(head);
+}
+function checkEmail(subject, body, names, research) {
   const problems = [];
   const all = `${subject}\n${body}`;
   for (const re of BANNED) if (re.test(all)) problems.push('uses a phrase it may not: ' + re.source);
+  // The demo ran minutes before the draft, not overnight.
+  if (/\b(last night|yesterday|overnight)\b/i.test(all)) problems.push('says the run was last night; it ran this morning');
+  if (research !== undefined && !usesFirmFact(body, research)) problems.push('the research found something about their firm and the email does not use it');
+  // NEVER INVENT A FACT ABOUT THEM. Every number outside the business lines
+  // must be one the research found.
+  if (research !== undefined) {
+    const known = new Set(numbersIn([research && research.firmFact, research && research.recent, research && research.rosterSize].filter(Boolean).join(' ')));
+    const prose = String(body || '').split('\n').filter((l) => !/^\s*-\s/.test(l)).join('\n');
+    const invented = numbersIn(prose).filter((n) => !known.has(n));
+    if (invented.length) problems.push(`states a number the research did not find (${invented.join(', ')})`);
+  }
   const words = body.split(/\s+/).filter(Boolean).length;
   if (words > 170) problems.push(`too long (${words} words)`);
   const named = names.filter((n) => body.includes(n));
@@ -393,64 +435,77 @@ function bizLine(c) {
 
 // The fallback, and the shape the model is asked to keep: a greeting, one
 // line on what was run, the businesses, one small ask, the name.
-function templateEmail({ u, subject: subj, cards, senderFirst, touchNo }) {
-  const hi = firstName(u.name) ? `Hi ${firstName(u.name)},` : 'Hi,';
+function whenRan(now) {
+  return centralNow(now).hour < 12 ? 'this morning' : 'today';
+}
+function senderBlock(senderFull) { return `${senderFull}\nNILDash`; }
+
+// The fallback, and the shape the writer is held to: them first (the firm
+// fact, only if research found one), then what the night found, one line on
+// what it is, one small ask, a full name.
+function templateEmail({ u, subject: subj, cards, senderFull, touchNo, research, now }) {
+  const first = firstName(u.name);
   const n = cards.length;
-  const word = ['None', 'One', 'Two', 'Three', 'Four', 'Five'][n] || String(n);
-  const what = `${word} businesses that fit, and the person to talk to at each:`;
-  let ran;
-  if (subj.kind === 'their athlete') ran = `I ran ${subj.name}'s market last night${subj.school ? ` around ${subj.school}` : ''}.`;
-  else if (subj.name) ran = `I ran a market last night for ${subj.name}${subj.school ? ` at ${subj.school}` : ''}.`;
-  else ran = `I ran a market last night around ${subj.school}.`;
-  if (touchNo > 1) ran = ran.replace(/^I ran /, 'I ran another one: ');
-  const ask = Number(u.athletes) > 0
-    ? 'That is one athlete, one night. Log in and look, or reply and I will set up the rest of your roster for you.'
-    : 'Reply with your roster and I will add your athletes for you, or log in and add one and it runs tonight.';
-  const lines = [hi, '', `${ran} ${what}`, '', ...cards.map(bizLine), '', ask, '', senderFirst];
+  const word = ['No', 'One', 'Two', 'Three', 'Four', 'Five'][n] || String(n);
+  const forWhom = subj.kind === 'their athlete' ? `${subj.name}${subj.school ? ` at ${subj.school}` : ''}`
+    : subj.name ? `${subj.name}${subj.school ? ` at ${subj.school}` : ''}`
+      : `${subj.sport ? 'a ' + String(subj.sport).toLowerCase() + ' player' : 'an athlete'} at ${subj.school}`;
+  const fact = research && research.firmFact ? String(research.firmFact).trim().replace(/([^.])$/, '$1.') : null;
+  const lines = [first ? `${first},` : 'Hi,', ''];
+  if (fact) lines.push(fact, '');
+  lines.push(`Here's what our agent turned up ${whenRan(now)}${touchNo > 1 ? ' on another market' : ''} for ${forWhom}. ${word} local businesses, each with a named person and a way to reach them:`, '');
+  lines.push(...cards.map(bizLine), '');
+  lines.push('That runs every night for every athlete on a roster, and it is waiting in the morning.', '');
+  lines.push(Number(u.athletes) > 0
+    ? "Log in to see yours, or send me the rest of your roster and I'll load them in myself today."
+    : "Send me your roster and I'll load them in myself today.");
+  lines.push('', senderBlock(senderFull));
   const subject = subj.name ? `${n} businesses for ${subj.name}` : `${n} businesses near ${subj.school}`;
   return { subject, body: lines.join('\n') };
 }
 
 async function writeEmail(u, ctx, deps = {}) {
-  const { cards, subject: subj, research: found, touchNo, senderFirst } = ctx;
+  const { cards, subject: subj, research: found, touchNo, senderFull } = ctx;
   const names = cards.map((c) => c.brandName);
+  const R = found || {};
   if (deps.write) {
     const w = await deps.write(u, ctx);
-    return { ...w, problems: checkEmail(w.subject, w.body, names), by: 'injected' };
+    return { ...w, problems: checkEmail(w.subject, w.body, names, R), by: 'injected' };
   }
-  const base = templateEmail({ u, subject: subj, cards, senderFirst, touchNo });
+  const base = templateEmail({ u, subject: subj, cards, senderFull, touchNo, research: R });
   try {
     const ai = require('../ai');
     const scanMeter = require('../scanMeter');
     const facts = {
-      to: { firstName: firstName(u.name), agency: (found && found.agency) || u.agency_name || null, recent: (found && found.recent) || null },
+      to: { firstName: firstName(u.name), firm: R.agency || u.agency_name || null, firmFact: R.firmFact || null, recent: R.recent || null },
       athlete: { name: subj.name, school: subj.school, sport: subj.sport, whose: subj.kind },
       businesses: cards.map((c) => ({ name: c.brandName, person: c.contactName, title: c.contactTitle || null, why: c.why || null })),
-      hasAthletesOnFile: Number(u.athletes) > 0, touchNo, sender: senderFirst,
+      hasAthletesOnFile: Number(u.athletes) > 0, touchNo, ranWhen: whenRan(), signOff: senderBlock(senderFull),
     };
-    const prompt = `Write a short email from ${senderFirst}, who runs NILDash, to one of our account holders. Last night we ran a real market for an athlete and found the businesses below.
-FACTS (use only these): ${JSON.stringify(facts)}
-Rules:
-- Lead with the businesses: list each by name with the person to talk to, one per line starting "- ".
-- Under 120 words. Plain, direct, first person, like ${senderFirst} typed it himself. No marketing language.
-- One small ask: ${facts.hasAthletesOnFile ? 'log in and look, or reply and he will set up the rest of the roster for them' : 'reply with their roster and he will add the athletes for them, or log in and add one'}.
-- Never mention how long it has been, when they signed up, or that they have not used it. Never say following up, checking in, reaching out, hope this finds you.
-- At most one short clause from "recent" if it is genuinely relevant; otherwise leave it out.
-- Sign off with just "${senderFirst}".
+    const prompt = `Write a short email from ${senderFull} at NILDash to one of our account holders. ${facts.ranWhen === 'this morning' ? 'This morning' : 'Today'} our agent ran a real market for an athlete and found the businesses below.
+FACTS (use only these; never add a fact about them or their firm): ${JSON.stringify(facts)}
+Shape, in this order:
+1. "${facts.to.firstName || 'Hi'}," on its own line.
+2. ${facts.to.firmFact ? 'One or two short sentences built on firmFact, in your own words, keeping its specifics (numbers, sport, level). That is the opening: them, not us.' : 'No opening line about them: there is no fact to use. Go straight to the businesses.'}
+3. One sentence: what our agent turned up ${facts.ranWhen} and for whom, then the businesses, one per line starting "- " as "Business: Person, Title".
+4. One sentence: it runs every night for every athlete on a roster and is waiting in the morning.
+5. One small ask: ${facts.hasAthletesOnFile ? 'log in to see theirs, or send the rest of the roster and he will load them himself today' : 'send their roster and he will load them himself today'}.
+6. The sign-off exactly: ${JSON.stringify(facts.signOff)}
+Rules: under 120 words. Every line says something specific or it is cut; no pleasantries and no filler sentences ("worth a conversation", "real people in your region"). Never say how long it has been or anything about their usage. Never say last night. No marketing language.
 Return ONLY JSON: {"subject":"under 8 words, names the athlete or the school","body":"the email text with \\n line breaks"}`;
     const raw = await scanMeter.label({ site: 'cold-agent.write', agentId: SANDBOX_AGENT, brand: u.email },
       () => ai.oneShot(prompt, 'You write short, plain, personal emails. You return strict JSON.', 700, undefined, { prose: true }));
     const m = String(raw || '').match(/\{[\s\S]*\}/);
     const j = m ? JSON.parse(m[0]) : null;
     if (j && j.subject && j.body) {
-      const problems = checkEmail(j.subject, j.body, names);
+      const problems = checkEmail(j.subject, j.body, names, R);
       if (!problems.length) return { subject: String(j.subject).trim(), body: String(j.body).trim(), problems: [], by: 'writer' };
-      return { ...base, problems: checkEmail(base.subject, base.body, names), by: 'template', writerProblems: problems };
+      return { ...base, problems: checkEmail(base.subject, base.body, names, R), by: 'template', writerProblems: problems };
     }
   } catch (e) {
-    return { ...base, problems: checkEmail(base.subject, base.body, names), by: 'template', writerError: String(e.message || e).slice(0, 200) };
+    return { ...base, problems: checkEmail(base.subject, base.body, names, R), by: 'template', writerError: String(e.message || e).slice(0, 200) };
   }
-  return { ...base, problems: checkEmail(base.subject, base.body, names), by: 'template' };
+  return { ...base, problems: checkEmail(base.subject, base.body, names, R), by: 'template' };
 }
 
 async function adminUser(pool) {
@@ -460,7 +515,10 @@ async function adminUser(pool) {
 // ── ONE PERSON ─────────────────────────────────────────────────────────────
 async function prepare(pool, u, { runId, deps = {} } = {}) {
   const admin = await adminUser(pool);
-  const senderFirst = deps.senderFirst || firstName(admin && admin.name) || 'John Mark';
+  const settings = await getSettings(pool);
+  // A FULL NAME, so a person who signed up months ago knows who is writing.
+  const senderFull = deps.senderFull || settings.signName || String((admin && admin.name) || '').trim() || 'John Compton';
+  const senderFirst = firstName(senderFull) || 'John';
   const found = await research(u, deps);
   const subj = await demoSubject(pool, u, found);
   // ── NO DEMO, NO EMAIL ────────────────────────────────────────────────────
@@ -485,7 +543,7 @@ async function prepare(pool, u, { runId, deps = {} } = {}) {
     return noDemo(`the demo night for ${subj.name || subj.school} found ${cards.length} business${cards.length === 1 ? '' : 'es'} with a named person and a way to reach them, out of ${demo.tried || 0} tried (an email needs ${MIN_DEMO_CARDS})`, demoInfo, cards);
   }
   const touchNo = Number(u.touches || 0) + 1;
-  const mail = await writeEmail(u, { cards, subject: subj, research: found, touchNo, senderFirst }, deps);
+  const mail = await writeEmail(u, { cards, subject: subj, research: found, touchNo, senderFirst, senderFull }, deps);
   if (mail.problems && mail.problems.length) return { ok: false, why: 'the email failed its own checks: ' + mail.problems.join('; ') };
   const id = 'cold_' + crypto.randomBytes(8).toString('hex');
   await pool.query(
@@ -596,7 +654,7 @@ async function approve(pool, draftId, { subject, body } = {}, deps = {}) {
   const subj = (typeof subject === 'string' && subject.trim()) ? subject.trim() : d.subject;
   const text = (typeof body === 'string' && body.trim()) ? body.trim() : d.body_text;
   const names = (await pool.query(`SELECT brand_name FROM cold_demo_cards WHERE draft_id = $1`, [draftId])).rows.map((r) => r.brand_name);
-  const problems = checkEmail(subj, text, names);
+  const problems = checkEmail(subj, text, names, d.research || {});
   if (problems.length) return { ok: false, status: 400, error: 'The email fails its checks: ' + problems.join('; ') };
   const claim = await pool.query(
     `UPDATE cold_drafts SET status = 'sending', send_claimed_at = NOW(), decided_at = NOW(), subject = $2, body_text = $3
@@ -744,5 +802,5 @@ module.exports = {
   runDemo, usable, checkEmail, templateEmail, writeEmail, prepare, runOnce, detectReplies, approve, sendOne, skip, mark,
   listDrafts, listRuns, centralNow, dueAt, pastDeadline, tick, start,
   SANDBOX_AGENT, SYSTEM, MAX_TOUCHES, GAP_DAYS, ACTIVE_DAYS, DORMANT_DAYS, PAYING, DEFAULTS, INTERNAL_NAMES, FOOTER_WHY,
-  loginProblem, heldFor, MIN_DEMO_CARDS, NO_DEMO_RETRY_DAYS, HELD_PARTNERS,
+  loginProblem, heldFor, MIN_DEMO_CARDS, NO_DEMO_RETRY_DAYS, HELD_PARTNERS, usesFirmFact, numbersIn, whenRan,
 };

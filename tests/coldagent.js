@@ -176,8 +176,9 @@ async function main() {
   const sent = [];
   const deps = {
     onlyIds: [ID('g2')],
-    research: async () => ({ agency: 'Lowe Management', role: 'Founder', rosterSize: 12, sports: ['Tennis'], rosterAthletes: [], recent: null }),
-    write: async (u, ctx) => CA.templateEmail({ u, subject: ctx.subject, cards: ctx.cards, senderFirst: 'John Mark', touchNo: ctx.touchNo }),
+    research: async () => ({ agency: 'Lowe Management', role: 'Founder', rosterSize: 12, sports: ['Tennis'], rosterAthletes: [], recent: null,
+      firmFact: 'Lowe Management has represented more than 40 college tennis players since 2019.' }),
+    write: async (u, ctx) => CA.templateEmail({ u, subject: ctx.subject, cards: ctx.cards, senderFull: ctx.senderFull, touchNo: ctx.touchNo, research: ctx.research }),
     send: async (m) => { sent.push(m); return { providerMessageId: 'fake-1' }; },
     awaitSend: true,
   };
@@ -254,6 +255,25 @@ async function main() {
   await CA.mark(P(), ID('g1new'), 'replied');
   const g1n = CA.classify((await CA.candidates(P())).find((u) => u.id === ID('g1new')), S);
   ok('"they replied" stops the touches', !g1n.group && /replied/.test(g1n.why), g1n);
+
+  // ── 6b. WARMTH IS SPECIFICITY ABOUT THEM ─────────────────────────────────
+  OUT.push('', '-- them first, a full name, no filler --');
+  const lines = d.body_text.split('\n').filter((l) => l.trim());
+  ok('the email opens with what the research found about their firm, after the name', /^Kim,$/.test(lines[0]) && /Lowe Management has represented more than 40 college tennis players/.test(lines[1]), lines.slice(0, 3));
+  ok('  signed with a full name and NILDash', /\nJohn Mark Compton\nNILDash$/.test(d.body_text), d.body_text.slice(-40));
+  ok('  says this morning or today, never last night', /turned up (this morning|today)/.test(d.body_text) && !/last night/i.test(d.body_text));
+  ok('  no filler line', !/worth a conversation|real people in (your|their) region/i.test(d.body_text));
+  const fact = { agency: 'Second Wind Pro', firmFact: 'Second Wind Pro has represented more than 30 college football players and negotiated over $750,000 in NIL opportunities.' };
+  const biz = ['A Biz', 'B Biz', 'C Biz'];
+  const list = '- A Biz: Dana\n- B Biz: Lee\n- C Biz: Jo';
+  ok('REFUSED when the research found something about their firm and the draft does not use it',
+    CA.checkEmail('x', `Jeff,\n\n${list}\n\nJohn Compton\nNILDash`, biz, fact).some((p) => /does not use it/.test(p)));
+  ok('  accepted when it does ("$750k" is the fact\'s $750,000)', CA.checkEmail('x', `Jeff,\n\nSecond Wind has done over $750k in NIL for college football players.\n\n${list}\n\nJohn Compton\nNILDash`, biz, fact).length === 0,
+    CA.checkEmail('x', `Jeff,\n\nSecond Wind has done over $750k in NIL for college football players.\n\n${list}\n\nJohn Compton\nNILDash`, biz, fact));
+  ok('  with nothing found, opening with the businesses is fine', CA.checkEmail('x', `Jeff,\n\n${list}\n\nJohn Compton\nNILDash`, biz, {}).length === 0);
+  ok('NEVER INVENTS A FACT: a number the research did not find is refused', CA.checkEmail('x', `Jeff,\n\nSecond Wind has 45 athletes.\n\n${list}`, biz, fact).some((p) => /did not find \(45\)/.test(p)));
+  ok('  "last night" is refused: the run was minutes ago', CA.checkEmail('x', `Jeff,\n\nSecond Wind, 30 players. I ran it last night.\n\n${list}`, biz, fact).some((p) => /last night/.test(p)));
+  ok('the banned phrase list is unchanged', CA.checkEmail('x', `Jeff,\n\nSecond Wind, 30 players. Just checking in.\n\n${list}`, biz, fact).some((p) => /phrase it may not/.test(p)));
 
   // ── 7. THE EMAIL'S OWN RULES ─────────────────────────────────────────────
   OUT.push('', '-- the message --');

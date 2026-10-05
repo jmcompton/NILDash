@@ -648,8 +648,42 @@ function emailNoteOf(ladder) {
   return 'Email not offered: ' + parts.join('; ');
 }
 
+// ── THE ADDRESS HAS TO BE THE PERSON'S ─────────────────────────────────────
+// The card names the person the pitch opens to (greetRowOf) and used to take
+// the FIRST sendable address on the ladder, whoever it belonged to. A Domino's
+// card read "Greg Neichter, owner" with austin.mitchell@dominos.com: a name
+// from one source and somebody else's mailbox from another, stitched into one
+// contact. An email to Austin opening "Hi Greg" is wrong twice.
+//
+// So the address is accepted only when it is that person's: on their own row,
+// on a row with the same name, or an address that carries their first or last
+// name (a published or pattern-built "gneichter@"). An address that names
+// nobody, or names someone else, is not attributed to them; the card goes to a
+// DM or a call instead, or is dropped.
+function _nameTokens(name) {
+  return String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z\s'-]/g, ' ').split(/[\s'-]+/).filter((t) => t.length >= 3);
+}
+function _sameName(a, b) {
+  const ta = _nameTokens(a), tb = _nameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  return ta[0] === tb[0] && ta[ta.length - 1] === tb[tb.length - 1];
+}
+function addressIsTheirs(email, name) {
+  const local = String(email || '').toLowerCase().split('@')[0].replace(/[^a-z]/g, '');
+  const toks = _nameTokens(name);
+  if (!local || !toks.length) return false;
+  return toks.some((t) => local.includes(t));
+}
 function inboxOf(ladder) {
-  const hit = emailRowsOf(ladder)[0];
+  const rows = emailRowsOf(ladder);
+  if (!rows.length) return null;
+  const person = greetRowOf(ladder) || namedRows(ladder)[0] || null;
+  const hit = !person
+    ? rows[0]
+    : rows.find((r) => r.row === person
+        || (r.row && r.row.name && _sameName(r.row.name, person.name))
+        || addressIsTheirs(r.email, person.name));
   if (!hit) return null;
   // `kind` is the PROVENANCE now, not a label. It used to read
   // `row.kind || row.label`, neither of which tier 3 sets, so every email card
@@ -1237,7 +1271,7 @@ module.exports = {
   restrictedFor, RESTRICTED_AT_FILL,
   markFilling, unmarkFilling, isFilling, fillingIds, fillingSince,
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
-  inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor, routeOf, genericRowsOf,
+  inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, addressIsTheirs, channelFor, subjectFor, routeOf, genericRowsOf,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
   workedOutNote, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD, WIDEN_PER_ATHLETE_USD,
   ATHLETE_TIME_CEILING_MS, ATHLETE_COST_CEILING_USD, LADDER,

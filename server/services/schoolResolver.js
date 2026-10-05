@@ -378,6 +378,32 @@ function core(s) {
   return base.split(/\s+/).filter((t) => t && !_isInstitutionWord(t)).join(' ').trim();
 }
 
+// ── THE KIND OF INSTITUTION IS PART OF THE NAME ───────────────────────────
+// core() throws away "University" and "College", which is right for "Eastern
+// Kentucky University" against "Eastern Kentucky" and wrong when both names
+// carry one and they differ: "Columbia University" (New York) and "Columbia
+// College" (Missouri) both cored to "columbia", and the New York school's
+// athletes -- and a cold-agent demo -- got mid-Missouri businesses. "College
+// of Charleston" (SC) became "University of Charleston" (WV) the same way.
+// So a core match also needs the kinds to agree when both names state one.
+const KIND_WORDS = ['university', 'college', 'institute', 'academy'];
+function kindsOf(s) {
+  const out = new Set();
+  for (const t of normalize(splitParenthetical(String(s || '')).name).split(/\s+/)) {
+    if (t === 'univ') { out.add('university'); continue; }
+    if (t.length < 6) continue;
+    const k = KIND_WORDS.find((w) => w === t || levenshtein(t, w) <= 2);
+    if (k) out.add(k);
+  }
+  return out;
+}
+function kindsAgree(a, b) {
+  const ka = kindsOf(a), kb = kindsOf(b);
+  if (!ka.size || !kb.size) return true;
+  for (const k of ka) if (kb.has(k)) return true;
+  return false;
+}
+
 function levenshtein(a, b) {
   const m = a.length, n = b.length;
   if (!m) return n; if (!n) return m;
@@ -434,6 +460,15 @@ function isIdentityLike(s) {
 // opts.map lets a test supply its own list. opts.lookup is the shipped exact
 // lookup, injected so this module can be exercised without ai.js.
 function resolveSchool(raw, opts = {}) {
+  // A SCHOOL WHOSE MARKET WAS CHECKED AGAINST ITS ACTUAL LOCATION AND FOUND
+  // WRONG (services/schoolMarketCheck) answers with where it really is, on
+  // every path. Not for a caller passing its own map (a test).
+  if (!opts.map && !opts.lookup) {
+    try {
+      const o = require('./schoolMarketCheck').overrideFor(raw);
+      if (o) return { city: o.city, state: o.state, matched: String(raw || '').trim(), method: 'located', confidence: 1 };
+    } catch (_) { /* no corrections loaded: the name rules alone */ }
+  }
   // The note comes off the name first. "Maryland (incoming; Class of 2026
   // recruit)" is Maryland; the parenthetical is an agent's aside, not part of
   // the school. A parenthetical that names a STATE is kept as a hint instead,
@@ -453,7 +488,7 @@ function resolveSchool(raw, opts = {}) {
     const hits = [];
     for (const k of Object.keys(extra)) {
       const bare = splitParenthetical(k);
-      if (core(k) === c || core(bare.name) === c) hits.push({ name: k, loc: extra[k], keyState: bare.stateHint || null });
+      if ((core(k) === c || core(bare.name) === c) && kindsAgree(name, bare.name)) hits.push({ name: k, loc: extra[k], keyState: bare.stateHint || null });
     }
     if (!hits.length) return null;
     // A key that is the input exactly (parenthetical and all, or a bare key
@@ -538,7 +573,7 @@ function resolveSchool(raw, opts = {}) {
     if (loc && loc.city) cands.push({ name, loc });
   }
   const inputCore = core(input);
-  let exactCore = cands.filter((c) => core(c.name) === inputCore || core(splitParenthetical(c.name).name) === inputCore);
+  let exactCore = cands.filter((c) => (core(c.name) === inputCore || core(splitParenthetical(c.name).name) === inputCore) && kindsAgree(input, c.name));
   // A state hint from the parenthetical narrows, and never invents: with the
   // hint, only a candidate in that state can answer here.
   if (stateHint) exactCore = exactCore.filter((c) => ok(c.loc));
@@ -553,7 +588,7 @@ function resolveSchool(raw, opts = {}) {
   // 5. Fuzzy, with a floor and a margin. This is what catches "Virgina Tech".
   // With a state hint the pool is that state's schools only; an empty pool is
   // null, not a school somewhere else.
-  const pool = stateHint ? cands.filter((c) => ok(c.loc)) : cands;
+  const pool = (stateHint ? cands.filter((c) => ok(c.loc)) : cands).filter((c) => kindsAgree(input, c.name));
   const scored = pool.map((c) => ({ ...c, s: similarity(inputCore, core(c.name)) }))
     .sort((a, b) => b.s - a.s);
   const best = scored[0];
@@ -588,10 +623,10 @@ function candidatesFor(raw, opts = {}) {
   };
   for (const k of Object.keys(extra)) {
     const bare = splitParenthetical(k);
-    if (core(k) === c || core(bare.name) === c) push(k, extra[k]);
+    if ((core(k) === c || core(bare.name) === c) && kindsAgree(input, bare.name)) push(k, extra[k]);
   }
   for (const k of (opts.mapNames || SHIPPED_NAMES)) {
-    if (core(k) === c) push(k, exact(k));
+    if (core(k) === c && kindsAgree(input, k)) push(k, exact(k));
   }
   return out;
 }
@@ -614,6 +649,6 @@ module.exports = {
   resolveSchool, normalize, core, similarity, levenshtein,
   EXTRA_SCHOOLS, ALIASES, MIN_CONFIDENCE, MIN_MARGIN, TYPO_MIN_CORE, MARKET_FLOOR,
   GENERIC, isIdentityLike, SHIPPED_NAMES, splitParenthetical, US_STATES,
-  INSTITUTION_WORDS, stateCode, sameState,
+  INSTITUTION_WORDS, stateCode, sameState, kindsOf, kindsAgree,
   learn, unlearn, learnedNames, candidatesFor, _resetLearnedForTests,
 };

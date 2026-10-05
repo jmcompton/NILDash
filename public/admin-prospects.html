@@ -55,6 +55,7 @@ Nothing is sent until you approve it. Max 3 touches per person, 10 days apart; a
     <label>Starts (Central) <input type="time" id="s-start"></label>
     <label>Last start (Central) <input type="time" id="s-dead"></label>
     <label><input type="checkbox" id="s-weekdays"> Weekdays only</label>
+    <label>Signed <input type="text" id="s-sign" style="width:150px" placeholder="your account name"></label>
     <button onclick="saveSettings()">Save</button>
     <span id="s-msg" class="small"></span>
   </div>
@@ -109,6 +110,7 @@ async function loadSettings() {
   document.getElementById('s-start').value = hhmm(s.startHour, s.startMinute);
   document.getElementById('s-dead').value = hhmm(s.deadlineHour, s.deadlineMinute);
   document.getElementById('s-weekdays').checked = !!s.weekdaysOnly;
+  document.getElementById('s-sign').value = s.signName || '';
   document.getElementById('s-hold').value = (s.holdEmails || []).join('\n');
 }
 async function saveHold() {
@@ -121,7 +123,7 @@ async function saveSettings() {
   var st = document.getElementById('s-start').value.split(':'), dl = document.getElementById('s-dead').value.split(':');
   var s = await api('POST', '/settings', { enabled: document.getElementById('s-enabled').checked, perRun: Number(document.getElementById('s-per').value),
     startHour: Number(st[0]), startMinute: Number(st[1]), deadlineHour: Number(dl[0]), deadlineMinute: Number(dl[1]),
-    weekdaysOnly: document.getElementById('s-weekdays').checked });
+    weekdaysOnly: document.getElementById('s-weekdays').checked, signName: document.getElementById('s-sign').value });
   document.getElementById('s-msg').textContent = s.error ? 'Not saved: ' + s.error : 'Saved. Runs ' + (s.enabled ? hhmm(s.startHour, s.startMinute) + ' to ' + hhmm(s.deadlineHour, s.deadlineMinute) + ' Central, ' + s.perRun + ' people' : 'off');
   loadSettings(); loadPick();
 }

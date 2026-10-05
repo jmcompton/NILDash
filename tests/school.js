@@ -143,9 +143,20 @@ ok('  so the transposed suffix now resolves',
   R.resolveSchool('Arizona State Univeristy'));
 ok('  and a correctly spelled one is unchanged',
   R.core('Arizona State University') === 'arizona state');
-for (const v of ['Auburn Universty', 'Auburn Univercity', 'Auburn Collge']) {
+for (const v of ['Auburn Universty', 'Auburn Univercity']) {
   ok(`  "${v}" resolves too`, (R.resolveSchool(v) || {}).city === 'Auburn', R.resolveSchool(v));
 }
+// ── THE KIND OF INSTITUTION HAS TO AGREE ──────────────────────────────────
+// "Columbia University" (New York) cored to "columbia" and matched "Columbia
+// College" (Missouri): a New York prospect's demo, and any athlete there, got
+// mid-Missouri businesses. When both names say what they are and it differs,
+// it is not the same school; the name goes to the Places lookup instead, which
+// finds the campus. That includes a typo of the wrong kind ("Auburn Collge").
+ok('"Columbia University" is NOT Columbia College, Missouri', (R.resolveSchool('Columbia University') || {}).state !== 'MO', R.resolveSchool('Columbia University'));
+ok('"College of Charleston" is NOT the University of Charleston, West Virginia', (R.resolveSchool('College of Charleston') || {}).state !== 'WV', R.resolveSchool('College of Charleston'));
+ok('  the University of Charleston still is', (R.resolveSchool('University of Charleston') || {}).state === 'WV');
+ok('  "Auburn Collge" (the wrong kind) is left to the Places lookup, not guessed', R.resolveSchool('Auburn Collge') === null);
+ok('  a name with no kind still matches one that has one ("Eastern Kentucky")', (R.resolveSchool('Eastern Kentucky') || {}).city === 'Richmond');
 
 // Parentheticals are notes, not names.
 for (const v of ['Maryland (incoming; Class of 2026 recruit)',

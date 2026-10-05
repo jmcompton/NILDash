@@ -1284,6 +1284,17 @@
       "status": "TEXT DEFAULT 'auto'",
       "uses": "INTEGER DEFAULT 1"
     },
+    "school_market_overrides": {
+      "city": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "km": "NUMERIC",
+      "market": "TEXT",
+      "school": "TEXT",
+      "school_address": "TEXT",
+      "school_key": "TEXT",
+      "state": "TEXT",
+      "was_market": "TEXT"
+    },
     "send_request_timings": {
       "agent_id": "TEXT",
       "at": "TIMESTAMPTZ DEFAULT NOW()",

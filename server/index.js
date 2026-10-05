@@ -5355,6 +5355,17 @@ const ADMIN_SCRIPTS = {
   // Read-only; no arguments.
   //   /api/admin/scripts/send-status?text=1
   'send-status': { file: 'scripts/send-status.js', args: () => [] },
+  // Every athlete's school, the market it resolves to, and the markets their
+  // cards were actually built in: anyone pitched to another town's businesses
+  // (the Columbia University -> Columbia, Missouri bug). Free by default;
+  // verify=1 locates each named school with Places; apply=1 saves corrections.
+  //   /api/admin/scripts/school-market-audit?text=1   (&verify=1, &apply=1)
+  // Cards whose email does not carry the named person's name (the Greg
+  // Neichter / austin.mitchell@ stitch): on screens now, approved, and sent in
+  // the last 30 days. Read-only.
+  //   /api/admin/scripts/contact-mismatch-audit?text=1
+  'contact-mismatch-audit': { file: 'scripts/contact-mismatch-audit.js', args: () => [] },
+  'school-market-audit': { file: 'scripts/school-market-audit.js', args: (q) => [].concat(q.verify === '1' ? ['--verify'] : [], q.verify === '1' && q.apply === '1' ? ['--apply'] : []) },
   // One agent's sends: which path each took (Approve or the editor's Send),
   // the click, approval, claim and send times with the gaps, failures, and any
   // business that got more than one email from the account. Read-only.
@@ -15315,6 +15326,11 @@ try {
 // The cold agent: weekday mornings, before 7am Central, a few of our own
 // account holders get a real demo night and a drafted email that waits for the
 // admin's Approve (services/coldAgent). Count and schedule are settings.
+// School markets corrected against where the school actually is
+// (services/schoolMarketCheck): loaded once the tables exist, read by the
+// resolver on every path.
+setTimeout(() => require('./services/schoolMarketCheck').load(store.pool)
+  .then((n) => n && console.log(`[school-market] ${n} corrected school market(s) loaded`)), 20 * 1000).unref?.();
 try {
   require('./services/coldAgent').start(store.pool);
 } catch (e) {
