@@ -170,8 +170,12 @@ function lines(email, opts = {}) {
   const addr = mailingAddress();
   if (!addr) { const e = new Error(problem()); e.code = 'CANSPAM_UNCONFIGURED'; throw e; }
   const who = String((opts && opts.senderName) || '').trim();
+  // opts.why: a sender whose reader is not a business (the cold agent writes
+  // to our own account holders) says its own true reason. Still required:
+  // nothing ships without a why, an unsubscribe and the address.
+  const ownWhy = String((opts && opts.why) || '').trim();
   return {
-    why: who
+    why: ownWhy ? ownWhy : who
       ? `You received this message because ${who} is working with an athlete near your business.`
       : 'You received this message because an athlete we represent is looking for local partners near your business.',
     url: unsubscribeUrl(email),

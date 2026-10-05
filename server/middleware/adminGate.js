@@ -44,6 +44,6 @@ function makeAdminGate({ getUser, adminEmail, isFounderEmail }) {
 // express.static would otherwise hand to anyone (they are redirected to the
 // gated routes that serve them).
 const PREFIXES = ['/admin', '/api/admin'];
-const STATIC_PAGES = { '/admin.html': '/admin', '/admin-connections.html': '/admin/connections' };
+const STATIC_PAGES = { '/admin.html': '/admin', '/admin-connections.html': '/admin/connections', '/admin-prospects.html': '/admin/prospects' };
 
 module.exports = { makeAdminGate, PREFIXES, STATIC_PAGES };

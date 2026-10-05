@@ -11991,6 +11991,67 @@ app.get('/admin', async (req, res) => {
   if (!user || user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
   res.sendFile(path.join(__dirname, '..', 'public', 'admin.html'));
 });
+// ── THE COLD AGENT (services/coldAgent): our own pipeline, admin only ─────────
+// The page, and its API. Every route is under /admin or /api/admin, so the
+// admin gate covers it; each also checks ADMIN_EMAIL like /admin does.
+const _coldAdmin = async (req, res, next) => {
+  const user = await store.getUser(req.session.userId).catch(() => null);
+  if (!user || String(user.email).toLowerCase() !== String(ADMIN_EMAIL).toLowerCase()) {
+    return req.originalUrl.startsWith('/api/') ? res.status(403).json({ error: 'Forbidden' }) : res.status(403).send('Forbidden');
+  }
+  next();
+};
+app.get('/admin/prospects', _coldAdmin, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'admin-prospects.html')));
+app.get('/api/admin/cold-agent/drafts', _coldAdmin, async (req, res) => {
+  try { res.json({ drafts: await require('./services/coldAgent').listDrafts(store.pool, { status: req.query.status || null }) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/admin/cold-agent/runs', _coldAdmin, async (req, res) => {
+  try { res.json({ runs: await require('./services/coldAgent').listRuns(store.pool, 20) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Who the next run would pick, and why everyone else is not picked. Spends nothing.
+app.get('/api/admin/cold-agent/pick', _coldAdmin, async (req, res) => {
+  try {
+    const CA = require('./services/coldAgent');
+    const s = await CA.getSettings(store.pool);
+    const p = await CA.pick(store.pool, { settings: s, limit: 50 });
+    res.json({ perRun: s.perRun, eligible: p.eligible, next: p.picked.slice(0, s.perRun).map((u) => ({ id: u.id, name: u.name, email: u.email, group: u.group, why: u.groupWhy, athletes: u.athletes, touches: u.touches, lastLogin: u.last_login, signedUp: u.created_at })),
+      later: p.picked.slice(s.perRun).map((u) => ({ name: u.name, email: u.email, group: u.group })), notPicked: p.skipped });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/admin/cold-agent/settings', _coldAdmin, async (req, res) => {
+  try { res.json(await require('./services/coldAgent').getSettings(store.pool)); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/cold-agent/settings', _coldAdmin, async (req, res) => {
+  try { res.json(await require('./services/coldAgent').saveSettings(store.pool, req.body || {})); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// A run now, in the background (it takes minutes: one demo night per person).
+app.post('/api/admin/cold-agent/run', _coldAdmin, async (req, res) => {
+  const CA = require('./services/coldAgent');
+  const limit = parseInt(req.query.limit, 10);
+  CA.runOnce(store.pool, { trigger: 'manual', limit: Number.isFinite(limit) ? Math.min(10, Math.max(1, limit)) : undefined })
+    .then((r) => console.log('[cold-agent] manual run:', r.note || r.error))
+    .catch((e) => console.error('[cold-agent] manual run failed:', e.message));
+  res.json({ ok: true, started: true, note: 'running; drafts appear on this page as each person finishes' });
+});
+app.post('/api/admin/cold-agent/drafts/:id/approve', _coldAdmin, async (req, res) => {
+  try {
+    const r = await require('./services/coldAgent').approve(store.pool, req.params.id, req.body || {});
+    res.status(r.ok ? 200 : (r.status || 400)).json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/cold-agent/drafts/:id/skip', _coldAdmin, async (req, res) => {
+  try { res.json(await require('./services/coldAgent').skip(store.pool, req.params.id, (req.body || {}).note)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/cold-agent/prospects/:userId/mark', _coldAdmin, async (req, res) => {
+  try {
+    const r = await require('./services/coldAgent').mark(store.pool, req.params.userId, (req.body || {}).as);
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── /admin/inbound ────────────────────────────────────────────────────────────
 // The last 20 inbound webhook payloads, matched or not. This exists because the
 // Railway database is not reachable from a laptop: without a page, "did the
@@ -15245,6 +15306,15 @@ try {
   require('./jobs/closerRelease').start();
 } catch (e) {
   console.error('[closer] release queue failed to start:', e.message);
+}
+
+// The cold agent: weekday mornings, before 7am Central, a few of our own
+// account holders get a real demo night and a drafted email that waits for the
+// admin's Approve (services/coldAgent). Count and schedule are settings.
+try {
+  require('./services/coldAgent').start(store.pool);
+} catch (e) {
+  console.error('[cold-agent] failed to start:', e.message);
 }
 
 // GET /api/digest/unsubscribe: public, no auth. The link in the email.

@@ -184,7 +184,9 @@ async function main() {
     for (let i = 0; i < 120; i++) { fin = await outState(homeOk.brand); if (/Sent \d/.test(fin || '')) break; await sleep(1000); }
     ok('  and Sent, with the time, without a refresh', /Sent \d/.test(fin || '') && navs.length === 0, { fin, navs });
     let failRow = null;
-    for (let i = 0; i < 120; i++) { failRow = await outState(homeBad.brand); if (/Send failed/.test(failRow || '')) break; await sleep(1000); }
+    // The queue spaces one mailbox's sends 20-50s apart, and a provider error
+    // can be retried before it is called a failure: allow for both.
+    for (let i = 0; i < 240; i++) { failRow = await outState(homeBad.brand); if (/Send failed/.test(failRow || '')) break; await sleep(1000); }
     ok('a send that fails after the button returned says so on the card, with the reason', /Send failed/.test(failRow || '') && /refused/.test(failRow || ''), failRow);
     ok('  no script error on Home', !errs.length, errs);
 

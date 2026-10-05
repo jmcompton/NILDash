@@ -1496,6 +1496,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         let pperson = null;
         // The same once-per-night rule as the local lane: a program brand
         // re-drawn for this athlete tonight is not searched for a name again.
+        // ctx.skipBrand (a caller's exclusion, e.g. the cold agent's demo
+        // never shows a business any account is working): not researched,
+        // not spent on.
+        if (ctx.skipBrand && ctx.skipBrand(cand.brand_name)) {
+          tried.push({ brand: cand.brand_name, result: 'skipped', reason: 'excluded by the caller', lane: cand.lane, places: { found: false }, risk: 'normal' });
+          continue;
+        }
         if (!(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
           say(`${cand.brand_name}: skipped, already researched for ${athleteName} tonight`);
           tried.push({ brand: cand.brand_name, result: 'skipped', reason: Claims.RESEARCHED_TONIGHT_REASON, lane: cand.lane, places: { found: false }, risk: 'normal' });
@@ -1591,6 +1598,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         pcard.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
         pcard.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
         if (dry) {
+          // A dry run hands the card it would have queued to the caller.
+          if (ctx.onCard) { try { await ctx.onCard({ ...pcard, slot }); } catch (_) { /* the caller's problem */ } }
           say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`);
           if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
           placed = true; filled++; channels.push(pcard.channel); break;
@@ -1660,6 +1669,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // ONCE PER BUSINESS PER ATHLETE PER NIGHT. A second pass tonight (a
       // resume, an on-demand fill, a refill that re-drew the same name) does
       // not research it again: the first pass's answer is on the run row.
+      if (ctx.skipBrand && ctx.skipBrand(cand.brand_name)) {
+        tried.push({ brand: cand.brand_name, result: 'skipped', reason: 'excluded by the caller', lane: cand.lane, places: facts, risk: pre.risk });
+        continue;
+      }
       if (!(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
         say(`${cand.brand_name}: skipped, already researched for ${athleteName} tonight`);
         tried.push({ brand: cand.brand_name, result: 'skipped', reason: Claims.RESEARCHED_TONIGHT_REASON, lane: cand.lane, places: facts, risk: pre.risk });
@@ -2052,7 +2065,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         card.thin = cand.thin === true;
         card.thinNote = card.thin ? Scout.THIN_NOTE : null;
       }
-      if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; channels.push(card.channel); break; }
+      if (dry) {
+        // A dry run hands the card it would have queued to the caller.
+        if (ctx.onCard) { try { await ctx.onCard({ ...card, slot }); } catch (_) { /* the caller's problem */ } }
+        say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; channels.push(card.channel); break;
+      }
       if (!(await slotStillOpen(pool, athleteId, slot))) {
         say(`slot ${slot}: taken by another fill while the writer ran; ${card.brandName} not offered`);
         loseSlot(cand.brand_name, slot, card.lane, pitch);

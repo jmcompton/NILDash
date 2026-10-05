@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cold Agent · NILDash Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a09;color:#f0ede6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px 24px;max-width:1100px;margin:0 auto}
+a{color:#C8F135}
+a.back{color:rgba(240,237,230,0.4);text-decoration:none;font-size:11px;display:inline-block;margin-bottom:20px}
+h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.sub{font-size:12px;color:rgba(240,237,230,0.5);margin-bottom:20px;line-height:1.5}
+.box{background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+label{font-size:12px;color:rgba(240,237,230,0.6);display:flex;gap:6px;align-items:center}
+input[type=number],input[type=time]{background:#0a0a09;border:1px solid rgba(255,255,255,0.15);color:#f0ede6;border-radius:6px;padding:5px 8px;font-size:12px;width:72px;color-scheme:dark}
+input[type=time]{width:112px}
+input[type=text],textarea{background:#0a0a09;border:1px solid rgba(255,255,255,0.15);color:#f0ede6;border-radius:6px;padding:8px 10px;font-size:13px;width:100%;font-family:inherit}
+textarea{min-height:190px;line-height:1.5}
+button{font-size:12px;padding:7px 14px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#1a1a18;color:#f0ede6;cursor:pointer;font-weight:600}
+button.go{background:#84CC16;color:#000;border-color:#84CC16}
+button:disabled{opacity:.5;cursor:default}
+.tabs{display:flex;gap:6px;margin:6px 0 14px}
+.tabs button[aria-pressed=true]{background:#C8F135;color:#000;border-color:#C8F135}
+.card{background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px;margin-bottom:14px}
+.who{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.name{font-size:16px;font-weight:700}
+.meta{font-size:12px;color:rgba(240,237,230,0.55);margin-top:3px;line-height:1.5}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid rgba(200,241,53,.4);color:#C8F135;margin-right:6px}
+.state{font-size:12px;font-weight:700}
+.state.sent{color:#4ade80}.state.failed,.state.skipped{color:#f87171}.state.sending{color:#60a5fa}
+h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:rgba(240,237,230,0.45);margin:14px 0 6px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+td,th{padding:6px 8px;border-top:1px solid rgba(255,255,255,0.06);text-align:left;vertical-align:top}
+th{color:rgba(240,237,230,0.45);font-weight:600;border-top:none}
+.err{color:#f87171;font-size:12px;margin-top:8px}
+.ok{color:#4ade80;font-size:12px;margin-top:8px}
+.runs td{color:rgba(240,237,230,0.75)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.small{font-size:11px;color:rgba(240,237,230,0.45)}
+@media (max-width:640px){body{padding:20px 16px}}
+</style>
+</head>
+<body>
+<a href="/admin" class="back">← Admin</a>
+<h1>Cold agent</h1>
+<p class="sub">Our own account holders who are not getting value yet, each with a real demo night run for them and an email that leads with what it found.
+Nothing is sent until you approve it. Max 3 touches per person, 10 days apart; anyone who logged in this week, pays, is suppressed or replied is never picked.</p>
+
+<div class="box">
+  <div class="row">
+    <label><input type="checkbox" id="s-enabled"> Runs on schedule</label>
+    <label>People per run <input type="number" id="s-per" min="0" max="10"></label>
+    <label>Starts (Central) <input type="time" id="s-start"></label>
+    <label>Last start (Central) <input type="time" id="s-dead"></label>
+    <label><input type="checkbox" id="s-weekdays"> Weekdays only</label>
+    <button onclick="saveSettings()">Save</button>
+    <span id="s-msg" class="small"></span>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button class="go" id="run-now" onclick="runNow()">Run now</button>
+    <span class="small" id="next-up">Loading who is next…</span>
+  </div>
+</div>
+
+<div class="box">
+  <h3 style="margin-top:0">Runs</h3>
+  <table class="runs"><tbody id="runs"><tr><td>Loading…</td></tr></tbody></table>
+</div>
+
+<div class="tabs" role="group" aria-label="Show">
+  <button aria-pressed="true" data-s="pending" onclick="show('pending', this)">Waiting for you</button>
+  <button aria-pressed="false" data-s="sent" onclick="show('sent', this)">Sent</button>
+  <button aria-pressed="false" data-s="" onclick="show('', this)">Everything</button>
+</div>
+<div id="drafts"><div class="box">Loading…</div></div>
+
+<script>
+var STATE = { status: 'pending', drafts: [], poll: null };
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function when(d) { if (!d) return 'never'; try { return new Date(d).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (_) { return String(d); } }
+function day(d) { if (!d) return 'never'; try { return new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return String(d); } }
+async function api(method, path, body) {
+  var r = await fetch('/api/admin/cold-agent' + path, { method: method, credentials: 'same-origin',
+    headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  var j = await r.json().catch(function () { return {}; });
+  if (!r.ok && !j.error) j.error = 'HTTP ' + r.status;
+  j._status = r.status;
+  return j;
+}
+function hhmm(h, m) { return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); }
+
+async function loadSettings() {
+  var s = await api('GET', '/settings');
+  document.getElementById('s-enabled').checked = !!s.enabled;
+  document.getElementById('s-per').value = s.perRun;
+  document.getElementById('s-start').value = hhmm(s.startHour, s.startMinute);
+  document.getElementById('s-dead').value = hhmm(s.deadlineHour, s.deadlineMinute);
+  document.getElementById('s-weekdays').checked = !!s.weekdaysOnly;
+}
+async function saveSettings() {
+  var st = document.getElementById('s-start').value.split(':'), dl = document.getElementById('s-dead').value.split(':');
+  var s = await api('POST', '/settings', { enabled: document.getElementById('s-enabled').checked, perRun: Number(document.getElementById('s-per').value),
+    startHour: Number(st[0]), startMinute: Number(st[1]), deadlineHour: Number(dl[0]), deadlineMinute: Number(dl[1]),
+    weekdaysOnly: document.getElementById('s-weekdays').checked });
+  document.getElementById('s-msg').textContent = s.error ? 'Not saved: ' + s.error : 'Saved. Runs ' + (s.enabled ? hhmm(s.startHour, s.startMinute) + ' to ' + hhmm(s.deadlineHour, s.deadlineMinute) + ' Central, ' + s.perRun + ' people' : 'off');
+  loadSettings(); loadPick();
+}
+async function loadPick() {
+  var p = await api('GET', '/pick');
+  var el = document.getElementById('next-up');
+  if (p.error) { el.textContent = 'Could not read who is next: ' + p.error; return; }
+  // Each name can be dropped BEFORE a demo is paid for: one of our own people
+  // the name rules missed, or someone you would rather not write to.
+  if (!p.eligible) { el.textContent = 'Nobody is eligible right now.'; return; }
+  el.innerHTML = 'Next run: ' + (p.next || []).map(function (u) {
+    return '<span title="' + esc(u.email + ' · ' + u.why) + '">' + esc(u.name || u.email) + ' (group ' + esc(u.group) + ')</span>'
+      + ' <a href="#" class="small" onclick="markAs(\'' + esc(u.id) + '\', \'exclude\'); return false;">never contact</a>';
+  }).join(', ') + '. ' + esc(p.eligible) + ' eligible in all.';
+}
+async function runNow() {
+  var b = document.getElementById('run-now'); b.disabled = true; b.textContent = 'Running…';
+  var r = await api('POST', '/run');
+  b.textContent = r.error ? 'Run now' : 'Started';
+  await loadRuns();
+  if (r.error) { b.disabled = false; alert('Could not start: ' + r.error); return; }
+  setTimeout(function () { b.disabled = false; b.textContent = 'Run now'; }, 15000);
+  startPoll(15000);
+}
+async function loadRuns() {
+  var r = await api('GET', '/runs');
+  var rows = (r.runs || []).map(function (x) {
+    return '<tr><td style="white-space:nowrap">' + esc(when(x.started_at)) + '</td><td>' + esc(x.trigger) + '</td><td style="white-space:nowrap">'
+      + (x.finished_at ? esc(x.drafted + ' of ' + x.picked) : 'running…') + '</td><td>' + esc(x.note || '') + '</td></tr>';
+  }).join('');
+  document.getElementById('runs').innerHTML = rows || '<tr><td>No runs yet.</td></tr>';
+}
+
+function show(status, btn) {
+  STATE.status = status;
+  document.querySelectorAll('.tabs button').forEach(function (b) { b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'); });
+  loadDrafts();
+}
+async function loadDrafts() {
+  var r = await api('GET', '/drafts' + (STATE.status ? '?status=' + encodeURIComponent(STATE.status) : ''));
+  STATE.drafts = r.drafts || [];
+  var el = document.getElementById('drafts');
+  if (r.error) { el.innerHTML = '<div class="box err">Could not load: ' + esc(r.error) + '</div>'; return; }
+  if (!STATE.drafts.length) { el.innerHTML = '<div class="box small">' + (STATE.status === 'pending' ? 'Nothing waiting for you.' : 'Nothing here yet.') + '</div>'; return; }
+  el.innerHTML = STATE.drafts.map(card).join('');
+  if (STATE.drafts.some(function (d) { return d.status === 'sending'; })) startPoll(3000);
+}
+function card(d) {
+  var demo = d.demo || {}, ath = demo.athlete || {}, res = d.research || {};
+  var biz = (d.businesses || []).map(function (b) {
+    var reach = [b.email, b.phone, b.instagram ? '@' + String(b.instagram).replace(/^@/, '') : null].filter(Boolean).join(' · ');
+    return '<tr><td><b>' + esc(b.brand_name) + '</b>' + (b.category ? '<div class="small">' + esc(b.category) + '</div>' : '') + '</td><td>' + esc(b.contact_name || '') + (b.contact_title ? '<div class="small">' + esc(b.contact_title) + '</div>' : '')
+      + '</td><td>' + esc(reach) + '</td><td class="small">' + esc(b.why || '') + '</td></tr>';
+  }).join('');
+  var pending = d.status === 'pending';
+  var state = d.status === 'pending' ? '' : '<span class="state ' + esc(d.status) + '">' + esc(d.status === 'sending' ? 'Sending…' : d.status === 'sent' ? 'Sent ' + when(d.sent_at) : d.status === 'failed' ? 'Send failed' : 'Skipped') + '</span>';
+  var known = [res.agency || d.agency_name, res.role, res.rosterSize ? '~' + res.rosterSize + ' athletes' : null, res.basedIn && res.basedIn.city ? res.basedIn.city + (res.basedIn.state ? ', ' + res.basedIn.state : '') : null].filter(Boolean).join(' · ');
+  return '<div class="card" id="d-' + esc(d.id) + '">'
+    + '<div class="who"><div><div class="name">' + esc(d.name || d.email) + '</div>'
+    + '<div class="meta">' + esc(d.email) + (known ? ' · ' + esc(known) : '') + '</div>'
+    + '<div class="meta"><span class="badge">Group ' + esc(d.grp) + '</span>' + esc(d.why || '') + '</div>'
+    + '<div class="meta">Touch ' + esc(d.touch_no) + ' of 3 · touches sent so far: ' + esc(d.touches) + ' · last contacted: ' + esc(when(d.last_touch_at)) + ' · last login: ' + esc(day(d.last_login)) + ' · signed up: ' + esc(day(d.signed_up)) + '</div>'
+    + (res.recent ? '<div class="meta">Recent: ' + esc(res.recent) + '</div>' : '')
+    + '</div><div>' + state + '</div></div>'
+    + '<h3>The demo night: ' + esc(ath.name || ('an athlete at ' + (ath.school || '?'))) + (ath.school && ath.name ? ' · ' + esc(ath.school) : '') + (ath.sport ? ' · ' + esc(ath.sport) : '') + ' <span class="small">(' + esc(ath.kind || '') + ', ' + esc(demo.tried || 0) + ' businesses tried)</span></h3>'
+    + '<table><thead><tr><th>Business</th><th>Person</th><th>Reach</th><th>Why</th></tr></thead><tbody>' + biz + '</tbody></table>'
+    + '<h3>The email</h3>'
+    + (pending
+      ? '<input type="text" id="sub-' + esc(d.id) + '" value="' + esc(d.subject) + '" aria-label="Subject"><textarea id="body-' + esc(d.id) + '" aria-label="Email" style="margin-top:8px">' + esc(d.body_text) + '</textarea>'
+        + '<div class="small" style="margin-top:4px">Sent from your mailbox, with the unsubscribe footer added.</div>'
+      : '<div class="meta"><b>' + esc(d.subject) + '</b></div><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.5;margin-top:6px">' + esc(d.body_text) + '</pre>')
+    + (d.send_error ? '<div class="err">' + esc(d.send_error) + '</div>' : '') + (d.status_note && d.status !== 'sent' ? '<div class="err">' + esc(d.status_note) + '</div>' : '')
+    + '<div class="actions">'
+    + (pending ? '<button class="go" onclick="approve(\'' + esc(d.id) + '\', this)">Approve and send</button><button onclick="skipDraft(\'' + esc(d.id) + '\', this)">Skip</button>' : '')
+    + '<button onclick="markAs(\'' + esc(d.user_id) + '\', \'replied\')">They replied</button>'
+    + '<button onclick="markAs(\'' + esc(d.user_id) + '\', \'no\')">They said no</button>'
+    + '<button onclick="markAs(\'' + esc(d.user_id) + '\', \'bounced\')">Bounced</button>'
+    + '<button onclick="markAs(\'' + esc(d.user_id) + '\', \'exclude\')">Never contact</button>'
+    + '</div><div class="msg" id="m-' + esc(d.id) + '"></div></div>';
+}
+var _inflight = {};
+async function approve(id, btn) {
+  if (_inflight[id]) return;
+  _inflight[id] = true; btn.disabled = true; btn.textContent = 'Sending…';
+  var r = await api('POST', '/drafts/' + encodeURIComponent(id) + '/approve', {
+    subject: document.getElementById('sub-' + id).value, body: document.getElementById('body-' + id).value });
+  var m = document.getElementById('m-' + id);
+  if (r.error) { delete _inflight[id]; btn.disabled = false; btn.textContent = 'Approve and send'; m.className = 'err'; m.textContent = r.error; if (r.state === 'skipped') loadDrafts(); return; }
+  m.className = 'ok'; m.textContent = 'Sending from your mailbox…';
+  startPoll(2000);
+}
+async function skipDraft(id, btn) {
+  btn.disabled = true;
+  await api('POST', '/drafts/' + encodeURIComponent(id) + '/skip', {});
+  loadDrafts(); loadPick();
+}
+async function markAs(userId, as) {
+  var words = { replied: 'Stop all touches: they replied?', no: 'They said no: never email them again, from anything?', bounced: 'Bounced: never email this address again, from anything?', exclude: 'Never pick this person again?' };
+  if (!confirm(words[as])) return;
+  var r = await api('POST', '/prospects/' + encodeURIComponent(userId) + '/mark', { as: as });
+  if (r.error) alert(r.error);
+  loadDrafts(); loadPick();
+}
+// While anything is sending (or a run is going), look again until it settles.
+function startPoll(ms) {
+  clearTimeout(STATE.poll);
+  STATE.poll = setTimeout(async function () {
+    var keep = STATE.status === 'pending' ? null : STATE.status;
+    var all = await api('GET', '/drafts');
+    var byId = {}; (all.drafts || []).forEach(function (d) { byId[d.id] = d; });
+    // THE CARD TURNS OVER IN PLACE: Sent with the time, or the failure and
+    // its reason. It stays on the page until the next load, so the result is
+    // seen rather than the card just vanishing from "Waiting for you".
+    Object.keys(_inflight).forEach(function (id) {
+      var d = byId[id]; var m = document.getElementById('m-' + id);
+      if (!d || !m) return;
+      var acts = document.querySelector('#d-' + CSS.escape(id) + ' .actions');
+      if (d.status === 'sent') {
+        delete _inflight[id]; m.className = 'ok'; m.textContent = 'Sent ' + when(d.sent_at) + '.';
+        if (acts) acts.querySelectorAll('button.go, button[onclick^="skipDraft"]').forEach(function (b) { b.remove(); });
+      }
+      if (d.status === 'failed') {
+        delete _inflight[id]; m.className = 'err'; m.textContent = d.send_error || 'The send failed.';
+        var b = acts && acts.querySelector('button.go'); if (b) { b.disabled = true; b.textContent = 'Not sent'; }
+      }
+    });
+    await loadRuns();
+    var stillSending = (all.drafts || []).some(function (d) { return d.status === 'sending'; });
+    var running = false;
+    try { running = /running…/.test(document.getElementById('runs').innerText); } catch (_) {}
+    // New drafts arrive while a run is going; that is the only reload.
+    if (running) loadDrafts();
+    if (stillSending || Object.keys(_inflight).length || running) startPoll(ms);
+  }, ms);
+}
+loadSettings(); loadPick(); loadRuns(); loadDrafts();
+</script>
+</body>
+</html>
