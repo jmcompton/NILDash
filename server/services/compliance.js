@@ -264,6 +264,8 @@ function classifyBusiness(brandName, evidence) {
     const col = require('./notASponsor').detect(brandName, {
       types, primaryType: evidence && evidence.primaryType, primaryTypeDisplayName: described || null,
       category: evidence && evidence.category,
+      // The address it would go to: a .edu one is a university department.
+      email: evidence && evidence.email, website: evidence && evidence.website,
     });
     if (col) {
       const c = CATEGORY_BY_KEY[col.key];

@@ -77,9 +77,22 @@ const NONCONSUMER_DESC = /\b(news|media|publisher|broadcast|radio|television|uni
 
 // evidence: { category, types[], primaryType, primaryTypeDisplayName }
 // -> null, or { key: 'collective'|'not-a-sponsor', kind, why, needsCategory }
+// A UNIVERSITY DEPARTMENT IS NOT A SPONSOR, same as a collective: "UNH PAWS
+// Veterinary Clinic" reached a card with colsa.dean@unh.edu, a dean's office.
+// The evidence is the address: a .edu mailbox or website is the school's.
+function eduDomain(x) {
+  const s = String(x || '').trim().toLowerCase();
+  const host = s.includes('@') ? s.split('@').pop() : s.replace(/^[a-z]+:\/\//, '').split('/')[0];
+  return /(^|\.)[a-z0-9-]+\.edu$/.test(host.replace(/^www\./, '')) ? host.replace(/^www\./, '') : null;
+}
 function detect(name, evidence) {
   const col = COL.detect(name, evidence);
   if (col) return { key: 'collective', ...col };
+  {
+    const ev = evidence || {};
+    const edu = eduDomain(ev.email) || eduDomain(ev.website);
+    if (edu) return { key: 'not-a-sponsor', kind: 'university-department', why: `${edu} is a university's own address: a university department, not a business that buys endorsements`, needsCategory: false };
+  }
   const n = fold(name);
   if (!n) return null;
   const e = evidence || {};
@@ -125,4 +138,4 @@ function detect(name, evidence) {
   return null;
 }
 
-module.exports = { detect, knownNames, PHRASES, MEDIA, MASCOTS };
+module.exports = { detect, knownNames, PHRASES, MEDIA, MASCOTS, eduDomain };

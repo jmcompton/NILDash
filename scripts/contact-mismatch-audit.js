@@ -54,14 +54,35 @@ async function main() {
        AND (q.state IN ('queued', 'sending') OR l.sent_at > NOW() - INTERVAL '30 days')
      ORDER BY u.name, q.created_at DESC`)).rows;
   const bad = rows.map((r) => ({ ...r, kind: Q.addressKind(r.email, r.contact_name, r.brand_name) })).filter((r) => r.kind !== 'theirs');
-  const onScreen = bad.filter((r) => r.state === 'queued' && !r.sent_at && !r.approved_at && r.log_status === 'draft');
+  const onScreenAll = bad.filter((r) => r.state === 'queued' && !r.sent_at && !r.approved_at && r.log_status === 'draft');
   const going = bad.filter((r) => r.approved_at && !r.sent_at && !r.cadence_stopped_at);
   const sent = bad.filter((r) => r.sent_at);
   const label = (k) => (k === 'other-person' ? 'DIFFERENT PERSON' : 'generic inbox');
 
   console.log(`CONTACT MISMATCH  ${new Date().toISOString()}  ${rows.length} cards with a named person and an email; ${bad.length} not tied together${APPLY ? '  -- APPLYING' : '  -- report only; &apply=1 fixes sections 1 and 2'}\n`);
 
+  // The withdrawals are decided first, so a card that is withdrawn (a
+  // university department, a figurehead) is not also converted in section 1.
+  const ONS = require(ROOT + 'server/services/ownerNameSearch.js');
+  const NAS = require(ROOT + 'server/services/notASponsor.js');
+  const heads = (await P.query(`
+    SELECT q.id, q.brand_name, q.contact_name, q.contact_title, q.source_note, q.market_key, q.outreach_log_id,
+           COALESCE(l.sent_to_email, q.email) AS email, u.name AS agent, a.data->>'name' AS athlete
+      FROM outreach_queue q JOIN users u ON u.id = q.agent_id LEFT JOIN athletes a ON a.id = q.athlete_id
+      LEFT JOIN outreach_logs l ON l.id = q.outreach_log_id
+     WHERE q.state = 'queued' AND q.contact_name IS NOT NULL`)).rows
+    .map((r) => {
+      const edu = NAS.detect(r.brand_name, { email: r.email });
+      if (edu && edu.kind === 'university-department') return { ...r, why: edu.why, kind: 'UNIVERSITY DEPARTMENT' };
+      const t = r.contact_title ? ONS.titleProblem(r.contact_title, { brand: r.brand_name, city: (r.market_key || '').split(',')[0] }) : null;
+      if (!t) return r;
+      return { ...r, why: t, kind: /parent company/.test(t) ? 'CHAIN / CORPORATE PARENT' : 'NEVER A SIGNER (emeritus, board, school leadership)' };
+    })
+    .filter((r) => r.why);
+  const withdrawIds = new Set(heads.map((r) => r.id));
+
   // ── 1. ON SCREENS ──
+  const onScreen = onScreenAll.filter((r) => !withdrawIds.has(r.id));
   const plan = { call: 0, dm: 0, withdrawn: 0, greeting: 0 };
   console.log(`1. ON AN AGENT'S SCREEN NOW, NOT APPROVED: ${onScreen.length}`);
   for (const r of onScreen) {
@@ -102,17 +123,10 @@ async function main() {
   // location (ownerNameSearch.titleProblem with the chain context): Ernest
   // Garcia III for Carvana Tempe. Nobody we can re-find instantly, so the card
   // is withdrawn and the slot fills again tonight.
-  const ONS = require(ROOT + 'server/services/ownerNameSearch.js');
-  const heads = (await P.query(`
-    SELECT q.id, q.brand_name, q.contact_name, q.contact_title, q.source_note, q.market_key, q.outreach_log_id,
-           u.name AS agent, a.data->>'name' AS athlete
-      FROM outreach_queue q JOIN users u ON u.id = q.agent_id LEFT JOIN athletes a ON a.id = q.athlete_id
-     WHERE q.state = 'queued' AND q.contact_name IS NOT NULL AND q.contact_title IS NOT NULL`)).rows
-    .map((r) => ({ ...r, why: ONS.titleProblem(r.contact_title, { brand: r.brand_name, city: (r.market_key || '').split(',')[0] }) }))
-    .filter((r) => r.why);
-  console.log(`1b. A PARENT COMPANY'S LEADERSHIP NAMED FOR A LOCAL LOCATION, ON SCREENS NOW: ${heads.length}`);
+  console.log(`1b. WITHDRAWN FROM SCREENS: a chain's or corporate parent's leadership, someone who never signs, or a university department: ${heads.length}`);
   for (const r of heads) {
-    console.log(`   ${r.brand_name}: "${r.contact_name}", ${r.contact_title}  (${r.athlete || '?'}, agent ${r.agent})  -> WITHDRAW`);
+    console.log(`   [${r.kind}] ${r.brand_name}: "${r.contact_name}", ${r.contact_title || 'no title'} <${r.email || ''}>  (${r.athlete || '?'}, agent ${r.agent})  -> WITHDRAW`);
+    console.log(`      ${r.why}`);
     if (APPLY) {
       await P.query(`UPDATE outreach_queue SET state = 'expired', expired_at = NOW(), outcome = $2, outcome_at = NOW(), updated_at = NOW() WHERE id = $1 AND state = 'queued'`,
         [r.id, 'withdrawn: ' + r.why]);

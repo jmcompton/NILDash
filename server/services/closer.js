@@ -703,7 +703,9 @@ async function complianceGate(pool, log, opts = {}) {
   let result = await compliance.evaluate(pool, {
     stateRule, stateCode,
     brandName: log.brand_name,
-    evidence: log.places_evidence || null,
+    // The address it is going to rides with the Places record, so a .edu
+    // mailbox (a university department) is refused at the send too.
+    evidence: { ...(log.places_evidence || {}), email: log.sent_to_email || null },
     dob: log.dob || null,
     over18,
     // Carried so the gate can tell "this athlete has no birthday on file" from

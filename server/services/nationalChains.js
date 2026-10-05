@@ -58,4 +58,35 @@ function isNationalChain(name) {
   return _lc.some((c) => n.indexOf(c) !== -1);
 }
 
-module.exports = { NATIONAL_CHAINS, isNationalChain };
+// ── IS THIS BUSINESS ACTUALLY A CHAIN OR FRANCHISE LOCATION? ───────────────
+// For decisions about WHO to pitch (ownerNameSearch.titleProblem): a founder
+// or CEO at a chain location is the parent company's, at a one-location studio
+// they are the person we want. So this needs real evidence, not resemblance:
+//   - the business name STARTS with a known chain or franchisor, as whole words
+//   - not the substring scan above, which matches "Ross Family Dentistry"
+//   - not an affiliate brand whose locations are independently owned
+//     (CrossFit, YMCA): their founder IS the local owner
+//   - not a list entry too ambiguous to be evidence (ross, gap, target ...)
+const FRANCHISORS = [
+  'healthsource', 'la colombe', 'carvana', 'the joint chiropractic', 'massage envy', 'hand & stone', 'hand and stone',
+  'club pilates', 'pure barre', 'corepower yoga', 'yogasix', 'yoga six', 'stretchlab', 'cyclebar', 'rumble boxing',
+  'title boxing club', '9round', 'mathnasium', 'kumon', 'sylvan learning', 'huntington learning', 'code ninjas',
+  'domino', 'papa john', 'pizza hut', 'little caesars', 'marco\'s pizza', 'jet\'s pizza', 'hungry howie',
+  'nike', 'adidas', 'under armour', 'gatorade', 'red bull', 'sweetgreen', 'cava', 'crumbl', 'insomnia cookies',
+  'tropical smoothie cafe', 'playa bowls', 'nothing bundt cakes', 'kona ice', 'the ups store', 'sport clips',
+  'drybar', 'amazing lash', 'hammer & nails', 'restore hyper wellness', 'iv drip', 'hydration room',
+];
+const NOT_EVIDENCE = new Set(['crossfit', 'ymca', 'ross', 'gap', 'target', 'at home', 'heb', 'h-e-b', 'kohl', 'macy', 'dillard',
+  'journeys', 'dsw', 'cvs', 'kfc', 'ihop', 'f45', 'midas', 'aldi', 'ulta', 'heb', 'denny', 'wendy', 'arby', 'culver', 'hardee', 'outback']);
+const _starts = [...new Set(_lc.filter((c) => !NOT_EVIDENCE.has(c)).concat(FRANCHISORS))];
+function _esc(x) { return x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function isChainLocation(name) {
+  const n = String(name || '').toLowerCase().replace(/[’']/g, "'").trim();
+  if (!n) return null;
+  for (const c of _starts) {
+    if (new RegExp('^(the\\s+)?' + _esc(c) + "('s|s)?\\b").test(n)) return c;
+  }
+  return null;
+}
+
+module.exports = { NATIONAL_CHAINS, isNationalChain, isChainLocation, FRANCHISORS };

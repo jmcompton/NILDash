@@ -97,27 +97,24 @@ const TOP_EXEC = /\b(ceo|chief executive|president|chair(man|woman|person)?|co-?
 //   the owner of a corner shop does not appear.
 const PARENT_EXEC = /\b(ceo|chief executive|chair(man|woman|person)?|co-?founder|founder|president|managing director|general partner|executive chairman)\b/i;
 const LOCATION_SCOPED = /\b(franchise(e|\s+owner|\s+partner)?|owner[\/ -]operator|operator|general manager|store manager|branch manager|location manager|clinic director|office manager|area|regional|district|market)\b/i;
-const CORPORATE = /\b(franchising|franchise system|franchisor|corporate|corporation|holdings|brands|worldwide|international|global|nationwide|headquarters)\b/i;
+const CORPORATE = /\b(franchising|franchise system|franchisor|corporate office|headquarters|worldwide)\b/i;
 const FIGUREHEAD_SOURCE = /\b(wikipedia\.org|forbes\.com|bloomberg\.com|crunchbase\.com|businessinsider\.com|nytimes\.com|wsj\.com|fortune\.com|cnbc\.com|inc\.com|entrepreneur\.com|fastcompany\.com|theorg\.com|zoominfo\.com|craft\.co)\b/i;
-function chainLocation({ brand, city, title, sourceUrl } = {}) {
-  const b = String(brand || '').toLowerCase();
-  const c = String(city || '').split(',')[0].trim().toLowerCase();
-  if (b && require('./nationalChains').isNationalChain(b)) return 'a national chain';
-  // The town AFTER a brand ("Carvana Tempe", "HealthSource of Tempe",
-  // "Orangetheory - Tempe"): a location. The town first ("Tempe Tattoo") is a
-  // local business named for its town.
-  if (c.length >= 4) {
-    const esc = c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const m = b.match(new RegExp('^(.*?)\\s*(?:\\bof\\b|\\bin\\b|\\bat\\b|-|–|,)?\\s*' + esc + '(?:\\s+(?:location|store|clinic|office))?\\s*$'));
-    if (m && m[1].replace(/[^a-z]/g, '').length >= 3) return `a location named for ${city}`;
-  }
-  if (CORPORATE.test(String(title || ''))) return 'a title naming the corporate parent';
-  if (FIGUREHEAD_SOURCE.test(String(sourceUrl || ''))) return 'a person found on a public-figure page';
+// Real evidence only. A one-location studio's founder is the target however
+// long their title is; a guess from how a name looks is not evidence.
+function chainLocation({ brand, title } = {}) {
+  const hit = require('./nationalChains').isChainLocation(brand);
+  if (hit) return `${brand} is a ${hit} location`;
+  if (CORPORATE.test(String(title || ''))) return 'the title names the corporate parent';
   return null;
 }
 function titleProblem(title, opts = {}) {
   const t = String(title || '').trim();
-  if (NEVER_TITLE.test(t)) return `"${t}" is not someone who signs an athlete deal (emeritus, retired, a board seat or a school's leadership)`;
+  // THE OWNER WHO ALSO COACHES IS STILL THE OWNER. "Coach" is here for a
+  // school's staff; "Founder & Coach" of a martial arts gym, or the owner of a
+  // yoga studio who is also a health coach, is exactly who we want.
+  const ownsIt = /\b(co-?)?(owner|founder|proprietor)\b/i.test(t) && !/\b(emerit(us|a)|retired|former|ex-)\b/i.test(t);
+  const never = NEVER_TITLE.test(t) && !(ownsIt && !NEVER_TITLE.test(t.replace(/\b(head |assistant |health |life |yoga |pilates |fitness |personal |strength |wellness |swim |dance |martial arts |tennis |golf |running |nutrition )?coach(es|ing)?\b/gi, '')));
+  if (never) return `"${t}" is not someone who signs an athlete deal (emeritus, retired, a board seat or a school's leadership)`;
   // "Owner" at a franchise location is the franchisee; only a title that also
   // names the corporate parent is refused.
   const ownerTitle = /\b(co-?)?owner\b/i.test(t) && !CORPORATE.test(t);

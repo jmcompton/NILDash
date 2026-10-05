@@ -1816,6 +1816,19 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         for (const u of ev.undeliverable) say(`${cand.brand_name}: ${u.email} is undeliverable (${u.reason}); not offered as an email`);
         for (const u of ev.unverified) say(`${cand.brand_name}: ${u.email} could not be checked (${u.reason}); offered, marked unverified`);
       } catch (e) { say(`${cand.brand_name}: email check failed (${e.message}); addresses left unverified`); }
+      // ── A UNIVERSITY DEPARTMENT IS NOT A SPONSOR ────────────────────────
+      // Known only now, from the address: "UNH PAWS Veterinary Clinic" with
+      // colsa.dean@unh.edu is a dean's office (services/notASponsor). Same rule
+      // as a collective: not a card.
+      {
+        const _ib = Q.inboxOf(ladder);
+        const _nas = require('../services/notASponsor').detect(cand.brand_name, { email: _ib && _ib.email, website: out.website || null });
+        if (_nas && _nas.kind === 'university-department') {
+          say(`${cand.brand_name}: ${_nas.why}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', reason: _nas.why, lane: cand.lane, places: facts, risk: pre.risk });
+          continue;
+        }
+      }
       const ig = { instagram: out.instagram || null, instagramScope: out.instagramScope || null };
       // DECIDED BEFORE THE WRITER RUNS, because the writer is told the channel and
       // writes differently for one. buildCard reaches the same answer from the
