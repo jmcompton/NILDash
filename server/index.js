@@ -5369,6 +5369,9 @@ const ADMIN_SCRIPTS = {
   // Every business contacted or beyond, by agent, with what happened next;
   // every reply, decline and logged deal anywhere. Read-only.
   'real-outcomes': { file: 'scripts/real-outcomes.js', args: () => [] },
+  // Every first email in the lookback and what the follow-up pass will do
+  // with it: due, waiting on the agent, or stopped and why. Read-only.
+  'follow-up-plan': { file: 'scripts/follow-up-plan.js', args: () => [] },
   'lane-band-report': { file: 'scripts/lane-band-report.js', args: (q) => ['--days', String(Math.max(1, Math.min(365, parseInt(q.days, 10) || 42)))] },
   // Every athlete's school, the market it resolves to, and the markets their
   // cards were actually built in: anyone pitched to another town's businesses
@@ -10817,6 +10820,7 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
     // replies it could ever see were emailed ones that came back through the
     // Resend webhook. A close implies a reply, so it stamps the same field.
     const replied = outcome === 'replied' || outcome === 'closed' || outcome === 'declined';
+    const stopsFollowUps = outcome !== 'no_reply';
     const r = await store.pool.query(
       `UPDATE outreach_queue
           SET outcome = $3, outcome_at = NOW(), updated_at = NOW(),
@@ -10825,6 +10829,12 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
       [req.params.id, req.session.userId, outcome, replied]);
     const card = r.rows[0];
     if (!card) return res.status(404).json({ error: 'Card not found' });
+    // ANY ANSWER ENDS THE SEQUENCE. Replied, no, signed or dead: every unsent
+    // follow-up on this card's thread stops now (services/followUps).
+    if (stopsFollowUps && card.outreach_log_id) {
+      const lg = (await store.pool.query(`SELECT id, agent_id, parent_id FROM outreach_logs WHERE id = $1`, [card.outreach_log_id]).catch(() => ({ rows: [] }))).rows[0];
+      if (lg) await require('./services/suppression').stopCadence(store.pool, lg, outcome === 'dead' ? 'the agent marked it dead' : 'the agent marked it ' + outcome).catch(() => {});
+    }
     // The ledger, by STATE and not only by outcome. Writing outcome alone left
     // state on 'contacted' forever, which is why every reader looking for
     // 'responded' or 'closed' matched nothing.
@@ -10846,6 +10856,11 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
           source: 'outreach_queue',
         });
       } catch (e) { console.error('[queue/outcome] pipeline write failed:', e.message); }
+    } else if (outcome === 'dead') {
+      await store.advanceBrandEngagement(card.athlete_id, {
+        state: 'dead', agentId: card.agent_id, brandKey: card.brand_key, brandName: card.brand_name,
+        lane: card.lane || null, outcome: 'dead', source: 'queue_outcome',
+      });
     } else if (outcome === 'declined') {
       // THEY ANSWERED, AND IT WAS NO. A reply in the ledger (responded), with
       // the no as its outcome; the Pipeline is not moved, because there is no

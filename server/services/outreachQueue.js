@@ -95,7 +95,8 @@ const WAITING_AFTER_DAYS = 3;
 //   declined  they answered no (a reply, and an outcome)
 //   closed    a deal was signed -- set by services/dealLog, which asks the value
 //   no_reply  nothing came back
-const OUTCOMES = ['no_reply', 'replied', 'declined', 'closed'];
+//   dead      the agent stops it: no more follow-ups, the business is done
+const OUTCOMES = ['no_reply', 'replied', 'declined', 'closed', 'dead'];
 
 // ── FIVE A NIGHT, AS INTENDED ────────────────────────────────────────────────
 // This was 1, and it was the whole reason a night produced one card per athlete.

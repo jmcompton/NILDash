@@ -2019,6 +2019,17 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-sentstate.replied{color:#60a5fa;border-color:rgba(96,165,250,.35)}
 .hq-sentstate.signed{color:#84CC16;border-color:rgba(132,204,22,.45);background:rgba(132,204,22,.12);font-weight:700}
 .hq-sentstate.declined{color:var(--muted,#9a9a8e)}
+.hq-since{margin:0 0 12px;font-size:14px;color:var(--text,#fff)}
+.hq-since b{color:var(--accent,#C8F135)}
+.hq-replies{margin:0 0 18px;display:flex;flex-direction:column;gap:10px}
+.hq-reply{border:1px solid rgba(200,241,53,.45);background:rgba(200,241,53,.06);border-radius:12px;padding:12px 14px}
+.hq-reply-h{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px}
+.hq-reply-h b{color:var(--text,#fff)}
+.hq-reply-h span{color:var(--muted,#9a9a8e)}
+.hq-reply-t{margin:8px 0 10px;font-size:13.5px;line-height:1.5;color:var(--text,#fff);white-space:pre-wrap;max-height:9.5em;overflow:auto}
+.hq-reply-b{display:flex;gap:6px;flex-wrap:wrap}
+.hq-fu{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(96,165,250,.14);color:#60a5fa;margin-left:6px}
+.hq-hist{margin:2px 0 0;font-size:11.5px;color:var(--muted,#9a9a8e)}
 @media (max-width:560px){ .hq-outstate{width:auto} .hq-outwhy{margin-left:17px} }
 .hq-mail dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0 0 12px}
 .hq-mail dt{color:var(--dim,#63635a);font-size:12px;text-transform:uppercase;
@@ -2114,6 +2125,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
              Stays until the item is marked done -- by either side. -->
         <div id="home-pinned" hidden style="margin-bottom:14px"></div>
         <div id="home-needs-fix" hidden style="margin-bottom:14px"></div>
+        <div id="home-news"></div>
         <div id="home-tabs" class="hq-tabs" role="tablist" aria-label="Athletes"></div>
         <div id="home-panel"></div>
         <div id="home-bar" class="hq-bar" hidden>
@@ -20984,6 +20996,8 @@ async function hqLoad(athleteId) {
 
 function hqRender() {
   var d = HQ.data; if (!d) return;
+  var news = document.getElementById('home-news');
+  if (news) news.innerHTML = hqNewsHtml(d);
   var tabs = document.getElementById('home-tabs');
   var panel = document.getElementById('home-panel');
   var bar = document.getElementById('home-bar');
@@ -21365,6 +21379,47 @@ function hqOutboxHtml(d) {
     }).join('') + '</div>';
 }
 
+// ── WHAT HAPPENED SINCE YESTERDAY, AND EVERY REPLY, FIRST ──────────────────
+// The top of the morning: one plain line of what changed, then every reply
+// not yet dealt with, across the roster, with what they said. A reply is the
+// only reason anyone comes back, so it is never one click away.
+function hqNewsHtml(d) {
+  var s = d.sinceYesterday || {};
+  var bits = [];
+  if (s.replied) bits.push('<b>' + s.replied + ' business' + (s.replied === 1 ? '' : 'es') + ' replied</b>');
+  if (s.signed) bits.push('<b>' + s.signed + ' deal' + (s.signed === 1 ? '' : 's') + ' signed</b>');
+  if (s.sent) bits.push(s.sent + ' email' + (s.sent === 1 ? '' : 's') + ' went out');
+  if (s.followUpsReady) bits.push(s.followUpsReady + ' follow-up' + (s.followUpsReady === 1 ? '' : 's') + ' ready to approve');
+  var line = '<p class="hq-since">Since yesterday: ' + (bits.length ? bits.join(' &middot; ') : 'no replies yet') + '.'
+    + (!s.replied && (d.replies || []).length ? ' ' + d.replies.length + ' earlier repl' + (d.replies.length === 1 ? 'y is' : 'ies are') + ' still waiting on you.' : '') + '</p>';
+  var reps = (d.replies || []).map(function (r) {
+    var when = r.repliedAt ? new Date(r.repliedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+    return '<div class="hq-reply">'
+      + '<div class="hq-reply-h"><b>' + hqEscape(r.business || 'A business') + ' replied</b>'
+      + '<span>' + [r.athlete ? 'for ' + hqEscape(r.athlete) : null, r.from ? hqEscape(r.from) : null, when ? hqEscape(when) : null].filter(Boolean).join(' &middot; ') + '</span></div>'
+      + '<div class="hq-reply-t">' + (r.text ? hqEscape(r.text) : '<i>Their reply is in your mailbox; the text was not captured.</i>') + '</div>'
+      + '<div class="hq-reply-b">'
+      + (r.cardId ? '<button class="hq-mark deal" onclick="hqReplyDeal(' + Number(r.cardId) + ',\'' + hqEscape(r.athleteId) + '\')">Deal signed</button>'
+        + '<button class="hq-mark" onclick="hqReplyNo(this,' + Number(r.cardId) + ')">Not interested</button>' : '')
+      + '<button class="hq-mark" onclick="hqReplyHandled(this,\'' + hqEscape(r.logId) + '\')">Handled</button>'
+      + '</div></div>';
+  }).join('');
+  return line + (reps ? '<div class="hq-replies">' + reps + '</div>' : '');
+}
+async function hqReplyHandled(btn, logId) {
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(logId) + '/reply-handled', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ handled: true }) });
+    if (!r.ok) { showToast('Could not save: error ' + r.status); if (btn) btn.disabled = false; return; }
+    hqLoad(HQ.selected);
+  } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }
+}
+function hqReplyNo(btn, cardId) { hqSentMark(btn, cardId, 'declined'); }
+async function hqReplyDeal(cardId, athleteId) {
+  var r = (HQ.data.replies || []).find(function (x) { return x.cardId === cardId; });
+  dealSignedOpen(athleteId, r ? r.business : '', null, cardId);
+}
+
 // ── SENT, AND WHAT HAPPENED ────────────────────────────────────────────────
 // Every card that went out for this athlete in the last 90 days. One tap to
 // record what came back: they replied, not interested, or a deal was signed
@@ -21385,9 +21440,11 @@ function hqSentHtml(d) {
         if (r.dealId) btns = '<button class="hq-mark" onclick="hqSentUndo(' + Number(r.dealId) + ')">Undo</button>';
       } else {
         if (r.outcome === 'replied') state = '<span class="hq-sentstate replied">Replied</span>';
+        else if (r.outcome === 'dead') state = '<span class="hq-sentstate declined">Stopped</span>';
         else if (r.outcome === 'declined') state = '<span class="hq-sentstate declined">Not interested</span>';
         if (r.outcome !== 'replied' && r.outcome !== 'declined') btns += '<button class="hq-mark" onclick="hqSentMark(this,' + Number(r.id) + ',\'replied\')">They replied</button>';
         if (r.outcome !== 'declined') btns += '<button class="hq-mark" onclick="hqSentMark(this,' + Number(r.id) + ',\'declined\')">Not interested</button>';
+        if (r.outcome === 'waiting' || r.outcome === 'no_reply') btns += '<button class="hq-mark" title="No more follow-ups to this business" onclick="hqSentMark(this,' + Number(r.id) + ',\'dead\')">Stop follow-ups</button>';
         btns += '<button class="hq-mark deal" onclick="hqSentDeal(' + Number(r.id) + ')">Deal signed</button>';
       }
       var when = r.sentAt ? new Date(r.sentAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
@@ -21396,7 +21453,9 @@ function hqSentHtml(d) {
         + '<span class="hq-rowtxt"><span class="hq-rowbiz">' + hqEscape(r.business || 'A business') + '</span>'
         + '<span class="hq-rowwho">' + [r.contact, CH[r.channel] || r.channel, when ? 'sent ' + when : null].filter(Boolean).map(hqEscape).join(' &middot; ') + '</span></span>'
         + '<span class="hq-rowbtns">' + state + btns + '</span>'
-        + '</div></div>';
+        + '</div>'
+        + ((r.history || []).length ? '<p class="hq-hist" style="margin:-6px 14px 10px">' + r.history.map(hqEscape).join(' &middot; ') + '</p>' : '')
+        + '</div>';
     }).join('') + '</div>';
 }
 async function hqSentMark(btn, id, outcome) {
@@ -21404,7 +21463,7 @@ async function hqSentMark(btn, id, outcome) {
   try {
     var r = await fetch(API_BASE + '/api/agent/outreach-queue/' + id + '/outcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ outcome: outcome }) });
     if (!r.ok) { var e = await r.json().catch(function () { return {}; }); showToast(e.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
-    showToast(outcome === 'declined' ? 'Marked not interested' : 'Marked replied');
+    showToast(outcome === 'declined' ? 'Marked not interested' : outcome === 'dead' ? 'No more follow-ups to this business' : 'Marked replied');
     hqLoad(HQ.selected);
   } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }
 }
@@ -21449,8 +21508,11 @@ function hqRenderCard(c, i) {
   var head = '<div class="hq-rowhead" onclick="hqRowClick(event, ' + i + ')">'
     + '<button class="hq-rowtoggle" type="button" aria-expanded="' + open + '" aria-controls="' + xId + '">'
     + '<span class="hq-chev" aria-hidden="true">&#9654;</span>'
-    + '<span class="hq-rowtxt"><span class="hq-rowbiz">' + hqEscape(c.business) + '</span>'
-    + '<span class="hq-rowwho">' + hqEscape(c.contact || '') + '</span></span>'
+    + '<span class="hq-rowtxt"><span class="hq-rowbiz">' + hqEscape(c.business)
+    + (c.followUp ? '<span class="hq-fu">' + (c.followUp.last ? 'Last follow-up' : 'Follow-up ' + c.followUp.n + ' of ' + c.followUp.of) + '</span>' : '') + '</span>'
+    + '<span class="hq-rowwho">' + hqEscape(c.contact || '') + '</span>'
+    + (c.followUp && (c.followUp.history || []).length ? '<span class="hq-hist">' + c.followUp.history.map(hqEscape).join(' &middot; ') + '</span>' : '')
+    + '</span>'
     + '</button>'
     + '<span class="hq-chan ' + ch.cls + '">' + hqEscape(ch.label) + '</span>'
     + '<span class="hq-rowbtns">'

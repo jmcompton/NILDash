@@ -38,10 +38,12 @@ const A = require('./actionable');
 // fortnight, each landing in the same window, stopping the moment they answer.
 // The gaps widen: someone who ignored two is not going to be won by a third
 // arriving the next morning.
+// Each gap is from the touch before it (services/followUps.GAP_DAYS): touch 2
+// four days after the first, touch 3 seven days after touch 2.
 const CADENCE = [
   { touch: 1, afterDays: 0 },
   { touch: 2, afterDays: 4 },
-  { touch: 3, afterDays: 9 },
+  { touch: 3, afterDays: 7 },
 ];
 const MAX_TOUCHES = CADENCE.length;
 
@@ -873,6 +875,18 @@ async function releaseDue(pool, opts = {}) {
       out.held++; out.detail.push({ id: log.id, result: 'stopped', why: 'replied first' });
       continue;
     }
+    // A FOLLOW-UP ASKS THE WHOLE THREAD. A reply lands on whichever touch it
+    // answered, never on this unsent row, so its own replied_at says nothing.
+    // Replied anywhere on the thread or in the mailbox, marked dead, signed,
+    // suppressed, or three touches already out: it stops here.
+    if (Number(log.touch_no || 1) > 1) {
+      const why = await require('./followUps').stopForSend(pool, log).catch((e) => 'could not check the thread: ' + e.message);
+      if (why) {
+        await stop(pool, log, why);
+        out.held++; out.detail.push({ id: log.id, result: 'stopped', why });
+        continue;
+      }
+    }
     const sup = await suppression.isSuppressed(pool, log.sent_to_email || log.to_email);
     if (sup.suppressed) {
       await stop(pool, log, sup.reason);
@@ -1052,30 +1066,21 @@ async function stop(pool, log, reason) {
 }
 
 // ── The next touch ───────────────────────────────────────────────────────────
-// Written as a draft at send time so it is visible in tomorrow's batch and the
-// agent can uncheck it. NOT auto-sent -- it goes through the same one decision.
+// ── NO LONGER WRITES A DRAFT ────────────────────────────────────────────────
+// It wrote touch 2 here, at send time, with an EMPTY body nothing ever filled,
+// and a created_at the 7-day draft expiry counted from -- so touch 3 (due at
+// +9 days) expired before it was due, every time. No follow-up ever reached a
+// business. services/followUps writes each touch when it is due, with its
+// body, from the hourly poller. This now only says when the next one is due.
 async function scheduleNextTouch(pool, log, opts = {}) {
   const touch = Number(log.touch_no || 1);
   if (touch >= MAX_TOUCHES) return null;
   const next = CADENCE.find((c) => c.touch === touch + 1);
   if (!next) return null;
-
   const root = log.parent_id || log.id;
   const id = `${root}-t${next.touch}`;
   const dueAt = new Date((opts.now ? new Date(opts.now) : new Date()).getTime()
     + next.afterDays * 86400000);
-
-  await pool.query(
-    `INSERT INTO outreach_logs
-       (id, agent_id, athlete_id, brand_name, brand_key, contact_id, enrichment_id,
-        subject, body_html, status, touch_no, parent_id, sent_to_email,
-        angle, angle_key, category_key, next_follow_up_at, source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10,$11,$12,$13,$14,$15,$16,'closer-cadence')
-     ON CONFLICT (id) DO NOTHING`,
-    [id, log.agent_id, log.athlete_id, log.brand_name, log.brand_key, log.contact_id,
-     log.enrichment_id, followUpSubject(log.subject, next.touch), null, next.touch, root,
-     log.sent_to_email, log.angle, log.angle_key, log.category_key, dueAt]
-  ).catch((e) => console.error('[closer] could not queue the next touch:', e.message));
   return { id, touch: next.touch, dueAt };
 }
 

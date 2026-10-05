@@ -143,7 +143,7 @@ class BadId extends Error {
 function emailSql(full, athleteScoped) {
   const cols = full
     ? `l.id, l.athlete_id, l.brand_name, l.created_at, l.sent_to_email,
-       l.subject, l.body_html, l.edited_before_approval,
+       l.subject, l.body_html, l.edited_before_approval, l.touch_no, l.parent_id,
        e.website,
        c.contact_name, c.contact_title, c.why, c.instagram, c.instagram_scope,
        c.phone, c.phone_ask_for, c.email_note, m.reasoning`
@@ -197,6 +197,9 @@ function normEmail(r) {
     toEmail: r.sent_to_email ? String(r.sent_to_email).trim().toLowerCase() : null,
     subject: r.subject || null, bodyHtml: r.body_html || null,
     edited: !!r.edited_before_approval,
+    // A FOLLOW-UP (services/followUps): touch 2 or 3 on a thread whose first
+    // email went out. Ranked first, and the card says which one it is.
+    touch: Number(r.touch_no || 1), parentId: r.parent_id || null,
     contactName: r.contact_name || null, contactTitle: r.contact_title || null,
     why: r.why || null, reasoning: r.reasoning || null,
     // Carried, not used for routing. This card is an email; these are what the
@@ -357,6 +360,9 @@ function hasReason(c) {
 
 function rankKey(c, now) {
   return [
+    // A follow-up first: the business has already heard from us once, it is
+    // due today, and it costs the agent one click.
+    Number(c.touch || 1) > 1 ? 0 : 1,
     isStarved(c, now) ? 0 : 1,
     -reachScore(c),
     -hasReason(c),

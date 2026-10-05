@@ -59,15 +59,26 @@ function stopPoller() {
  * Call this when an email reply is detected by the email sync service.
  * Updates outreach_logs and logs a workflow event.
  */
-async function markReplied(outreachLogId, repliedAt) {
+async function markReplied(outreachLogId, repliedAt, opts = {}) {
+  // opts.text / from / subject: what the reply said, when it was matched from
+  // a connected mailbox (services/followUps.detectMailboxReplies). Kept only
+  // where nothing better was captured already.
   await pool.query(
-    `UPDATE outreach_logs SET replied_at=$1, status='replied', updated_at=NOW() WHERE id=$2`,
-    [repliedAt || new Date(), outreachLogId]
+    `UPDATE outreach_logs SET replied_at=$1, status='replied', updated_at=NOW(),
+            reply_text = COALESCE(reply_text, $3), reply_from = COALESCE(reply_from, $4),
+            reply_subject = COALESCE(reply_subject, $5)
+      WHERE id=$2`,
+    [repliedAt || new Date(), outreachLogId, opts.text ? String(opts.text).slice(0, 20000) : null,
+      opts.from || null, opts.subject || null]
   );
 
   const r = await pool.query('SELECT * FROM outreach_logs WHERE id=$1', [outreachLogId]);
   const log = r.rows[0];
   if (log) {
+    // A REPLY STOPS THE SEQUENCE, at once. This stamped the reply and left
+    // the next follow-up live: a business that answered could still be sent
+    // "Re: ..." the following week. Every unsent touch on this thread stops.
+    await require('./suppression').stopCadence(pool, log, 'they replied').catch(() => {});
     logEvent(null, log.agent_id, 'reply_received', {
       outreachId: outreachLogId, brand: log.brand_name, athleteId: log.athlete_id,
       // The angle that earned the reply. Without this the learning loop can only
@@ -123,6 +134,11 @@ async function getFollowUpsDue(agentId) {
 // ── Internal ──────────────────────────────────────────────────────────────────
 
 async function runFollowUpCheck() {
+  // THE FOLLOW-UPS (services/followUps): match replies from connected
+  // mailboxes, then write each follow-up that is due, as a draft card in the
+  // agent's morning queue. Nothing here sends.
+  try { await require('./followUps').run(pool); }
+  catch (e) { console.error('[followUpAutomation] follow-ups failed:', e.message); }
   // Get all sent outreach with no reply, older than 4 days
   const day4Cutoff = new Date(Date.now() - FOLLOW_UP_DAY_1 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -135,7 +151,9 @@ async function runFollowUpCheck() {
     [day4Cutoff]
   );
 
-  for (const outreach of r.rows) {
+  // The day-4 / day-7 activity events, first touches only (follow-ups are
+  // services/followUps now).
+  for (const outreach of r.rows.filter((x) => !x.parent_id && Number(x.touch_no || 1) === 1)) {
     await processFollowUp(outreach).catch(e =>
       console.error('[followUpAutomation] processFollowUp error:', e.message)
     );

@@ -246,6 +246,20 @@ async function check(pool, { email, subject, system, now, agentId, refId } = {})
     if (same.rows.length) {
       return { ok: false, kind: 'same-subject', reason: `"${String(subject || '').trim()}" was already sent to ${addr}` };
     }
+    // ── DONE FOR 90 DAYS ─────────────────────────────────────────────────
+    // Three touches and no answer: that business is left alone for 90 days,
+    // by every agent and every athlete. Follow-ups inside a thread are not
+    // a new approach and are governed by services/followUps.
+    if (system !== 'follow-up') {
+      const rested = await pool.query(
+        `SELECT sent_at FROM outreach_logs
+          WHERE LOWER(sent_to_email) = $1 AND touch_no >= 3 AND sent_at > $2::timestamptz - INTERVAL '90 days'
+            AND replied_at IS NULL ORDER BY sent_at DESC LIMIT 1`, [addr, at]);
+      if (rested.rows.length) {
+        const until = new Date(new Date(rested.rows[0].sent_at).getTime() + 90 * 86400000);
+        return { ok: false, kind: 'rest', reason: `${addr} had three emails and no reply; it rests until ${until.toISOString().slice(0, 10)}` };
+      }
+    }
     const recent = await lastSend(pool, addr, { now: at, refId });
     if (recent && (at.getTime() - new Date(recent.sentAt).getTime()) < WINDOW_DAYS * 86400000) {
       const retryAfter = new Date(new Date(recent.sentAt).getTime() + WINDOW_DAYS * 86400000);

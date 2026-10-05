@@ -457,7 +457,8 @@ async function buildHome(pool, agentId, opts = {}) {
   // after its day, so it is where the outcome gets recorded -- a reply read in
   // the agent's own mailbox, a yes on the phone, a deal signed by text.
   const sentRows = selected ? await q('sent',
-    `SELECT q.id, q.brand_name, q.brand_key, q.contact_name, q.channel, q.sent_via,
+    `SELECT q.id, q.brand_name, q.brand_key, q.contact_name, q.channel, q.sent_via, q.outreach_log_id,
+            COALESCE(l.parent_id, l.id) AS thread_root,
             COALESCE(q.sent_at, q.updated_at) AS sent_at, q.outcome, q.outcome_at,
             COALESCE(q.replied_at, l.replied_at) AS replied_at, d.id AS deal_id, d.deal_value
        FROM outreach_queue q
@@ -480,11 +481,75 @@ async function buildHome(pool, agentId, opts = {}) {
     // One word for the row: signed > declined > replied > waiting.
     outcome: r.deal_id || r.outcome === 'closed' ? 'signed'
       : r.outcome === 'declined' ? 'declined'
+      : r.outcome === 'dead' ? 'dead'
       : (r.outcome === 'replied' || r.replied_at) ? 'replied'
       : r.outcome === 'no_reply' ? 'no_reply' : 'waiting',
     dealId: r.deal_id || null,
     dealValue: r.deal_value != null ? Number(r.deal_value) : null,
+    threadRoot: r.thread_root || null,
+    history: [],
   }));
+
+  // ── EVERY CARD CARRIES ITS HISTORY ────────────────────────────────────────
+  // "Sent Sep 12 · no reply · Follow-up 1 sent Sep 16 · Replied Sep 18", for
+  // the sent list and for every follow-up card on the page. One read for all
+  // the threads on the page.
+  const FUP = require('./followUps');
+  const threadIds = new Set(sent.map((x) => x.threadRoot).filter(Boolean));
+  for (const c of cards) if (c.touch > 1 && c.parentId) threadIds.add(c.parentId);
+  const threads = new Map();
+  if (threadIds.size) {
+    const rows = await q('threads',
+      `SELECT id, parent_id, touch_no, sent_at, replied_at, cadence_stopped_at, cadence_stop_reason, status
+         FROM outreach_logs WHERE agent_id = $1 AND (id = ANY($2::text[]) OR parent_id = ANY($2::text[]))
+        ORDER BY COALESCE(touch_no, 1)`, [agentId, [...threadIds]]);
+    for (const row of rows) {
+      const k = row.parent_id || row.id;
+      if (!threads.has(k)) threads.set(k, []);
+      threads.get(k).push(row);
+    }
+  }
+  for (const x of sent) x.history = x.threadRoot && threads.has(x.threadRoot) ? FUP.historyOf(threads.get(x.threadRoot)) : [];
+  const historyFor = (root) => (threads.has(root) ? FUP.historyOf(threads.get(root)) : []);
+
+  // ── REPLIES GO TO THE TOP ─────────────────────────────────────────────────
+  // Every reply this agent has not dealt with, across the whole roster, with
+  // what they said. Not buried in an inbox tab: a reply is the only reason
+  // anyone comes back, and two of them sat unnoticed. Cleared by "Handled"
+  // (outreach_logs.reply_handled_at), by a deal, or by "Not interested".
+  const replyRows = await q('replies',
+    `SELECT l.id, l.athlete_id, l.brand_name, l.replied_at, l.reply_from, l.reply_subject, l.reply_text,
+            a.data->>'name' AS athlete_name, qc.id AS card_id, qc.outcome
+       FROM outreach_logs l
+       JOIN athletes a ON a.id = l.athlete_id
+       LEFT JOIN LATERAL (SELECT q.id, q.outcome FROM outreach_queue q
+                           WHERE q.agent_id = l.agent_id AND q.athlete_id = l.athlete_id
+                             AND (q.outreach_log_id = l.id OR q.outreach_log_id = l.parent_id OR LOWER(q.brand_name) = LOWER(l.brand_name))
+                           ORDER BY (q.outreach_log_id = COALESCE(l.parent_id, l.id)) DESC, q.id DESC LIMIT 1) qc ON TRUE
+      WHERE l.agent_id = $1 AND l.replied_at IS NOT NULL AND l.reply_handled_at IS NULL
+        AND COALESCE(qc.outcome, '') NOT IN ('closed', 'declined', 'dead')
+      ORDER BY l.replied_at DESC LIMIT 20`, [agentId]);
+  const replies = replyRows.map((r) => ({
+    logId: r.id, cardId: r.card_id || null,
+    athleteId: r.athlete_id, athlete: r.athlete_name || null,
+    business: r.brand_name || null, from: r.reply_from || null, subject: r.reply_subject || null,
+    text: r.reply_text ? String(r.reply_text).replace(/\r/g, '').trim().slice(0, 1200) : null,
+    repliedAt: r.replied_at,
+  }));
+
+  // ── SINCE YESTERDAY, PLAINLY ──────────────────────────────────────────────
+  const since = (await q('since',
+    `SELECT
+       (SELECT COUNT(DISTINCT LOWER(brand_name))::int FROM outreach_logs WHERE agent_id = $1 AND replied_at > NOW() - INTERVAL '24 hours') AS replied,
+       (SELECT COUNT(*)::int FROM outreach_logs WHERE agent_id = $1 AND sent_at > NOW() - INTERVAL '24 hours') AS sent,
+       (SELECT COUNT(*)::int FROM outreach_logs l WHERE ${A.EMAIL_WHERE} AND COALESCE(l.touch_no, 1) > 1) AS followups_ready,
+       (SELECT COUNT(*)::int FROM deal_outcomes WHERE agent_id = $1 AND closed_at > NOW() - INTERVAL '24 hours') AS signed`,
+    [agentId]))[0] || {};
+  const sinceYesterday = {
+    replied: Number(since.replied) || 0, sent: Number(since.sent) || 0,
+    followUpsReady: Number(since.followups_ready) || 0, signed: Number(since.signed) || 0,
+    unhandledReplies: replies.length,
+  };
 
   // What every email card's From row shows: the mailbox it will actually send
   // from (emailStore.sendingMailbox, the send's own choice), or that there is
@@ -498,6 +563,10 @@ async function buildHome(pool, agentId, opts = {}) {
     outbox,
     // Sent in the last 90 days, and what came of each (see above).
     sent,
+    // Replies not yet dealt with, roster-wide, newest first; and the line at
+    // the top of the morning.
+    replies,
+    sinceYesterday,
     // The tab count MATCHES THE SCREEN. Showing 63 on a tab that renders five
     // is the same defect as the shift report's two counts of one pile. The true
     // backlog is reported separately, per athlete, and said in words below the
@@ -613,6 +682,8 @@ async function buildHome(pool, agentId, opts = {}) {
         card.handleIsBrand = c.instagramScope === 'brand';
         card.phone = c.phone || null;
         card.askFor = c.phoneAskFor || c.contactName || null;
+        // A FOLLOW-UP SAYS SO, with the thread so far (filled in below).
+        if (c.touch > 1 && c.parentId) card.followUp = { n: c.touch - 1, of: 2, last: c.touch >= 3, history: historyFor(c.parentId) };
       } else if (c.channel === 'dm') {
         // The message, editable, and the handle the button opens. The same two
         // things the Outreach tab has had all along -- moved here so the agent

@@ -182,12 +182,16 @@ async function main() {
 
   // ── THE CADENCE ──────────────────────────────────────────────────────────
   ok('the cadence is three touches, not one and not five', C.MAX_TOUCHES === 3, C.MAX_TOUCHES);
-  ok('  spaced over a fortnight, widening',
-    C.CADENCE[1].afterDays === 4 && C.CADENCE[2].afterDays === 9, C.CADENCE);
+  ok('  four days, then seven more: each gap from the touch before it',
+    C.CADENCE[1].afterDays === 4 && C.CADENCE[2].afterDays === 7, C.CADENCE);
+  // Written when due by services/followUps, not at send time. The send clock
+  // is pinned to TUE for the test.
+  await P.query(`UPDATE outreach_logs SET sent_at = $2 WHERE agent_id = $1 AND sent_at IS NOT NULL AND COALESCE(touch_no, 1) = 1`, [AG, new Date(TUE)]);
+  await require(REPO + 'server/services/followUps.js').run(P, { agentId: AG, now: new Date(TUE + 5 * 86400000) });
   const followUps = (await P.query(
     `SELECT id, touch_no, parent_id, status FROM outreach_logs
       WHERE agent_id=$1 AND touch_no = 2`, [AG])).rows;
-  ok('a sent message queues its next touch', followUps.length > 0, followUps.length);
+  ok('a sent message gets its next touch once it is due', followUps.length > 0, followUps.length);
   ok('  as a DRAFT, so it goes through the same one decision',
     followUps.every((f) => f.status === 'draft'), followUps[0]);
   ok('  linked to the thread root', followUps.every((f) => !!f.parent_id), followUps[0]);

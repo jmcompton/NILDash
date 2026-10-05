@@ -730,6 +730,11 @@
       "report": "JSONB",
       "started_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "feature_flags": {
+      "key": "TEXT",
+      "on_value": "BOOLEAN DEFAULT FALSE",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "growth_outreach_log": {
       "id": "SERIAL",
       "prospect_id": "INTEGER REFERENCES growth_prospects(id) ON DELETE CASCADE",

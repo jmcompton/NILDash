@@ -105,8 +105,16 @@ const TUE = Date.parse('2026-08-25T15:00:00Z');
   await dueAll(TUE);
   const r1 = await release(TUE);
   ok('  and releases', r1.sent === 1, r1);
+  // TOUCH 2 IS WRITTEN WHEN IT IS DUE, with its body (services/followUps),
+  // not at send time with none. The send clock is pinned to TUE for the test.
+  ok('nothing is written at send time (an empty follow-up was the bug)', !(await P.query(`SELECT 1 FROM outreach_logs WHERE parent_id='sr-d1' AND touch_no=2`)).rows.length);
+  await P.query(`UPDATE outreach_logs SET sent_at = $2 WHERE id = $1`, ['sr-d1', new Date(TUE)]);
+  const FUP = require(REPO + 'server/services/followUps.js');
+  const notYet = await FUP.run(P, { agentId: AG, now: new Date(TUE + DAY) });
+  ok('  nor the next morning: it is not due', !notYet.written.some((w) => w.id === 'sr-d1-t2'), notYet);
+  await FUP.run(P, { agentId: AG, now: new Date(TUE + 4 * DAY + 60000) });
   const t2 = (await P.query(`SELECT * FROM outreach_logs WHERE parent_id='sr-d1' AND touch_no=2`)).rows[0];
-  ok('touch 2 is written when touch 1 sends', !!t2, t2);
+  ok('touch 2 is written four days on, with a body', !!t2 && !!t2.body_html, t2);
   ok('  due four days later', !!t2 && Math.abs(new Date(t2.next_follow_up_at).getTime() - (TUE + 4 * DAY)) < 60000, t2 && t2.next_follow_up_at);
   ok('  with a Re: subject', !!t2 && t2.subject === 'Re: Quick idea for Mazur Motors', t2 && t2.subject);
   const batchNext = await C.buildBatch(P, AG, { now: TUE + DAY });
