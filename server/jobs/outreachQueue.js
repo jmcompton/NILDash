@@ -788,7 +788,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   {
     const _sch = ctx.athleteRow && ctx.athleteRow.school;
     const _amb = _sch ? require('../services/schoolResolver').ambiguity(_sch, { state: ctx.athleteRow.state }) : null;
-    if (_amb && _amb.candidates) {
+    // ...unless the market it already resolved to is producing for them
+    // (services/schoolKeep): those keep running.
+    if (_amb && _amb.candidates && !require('../services/schoolKeep').keepFor(athleteId)) {
       return { filled: 0, open: 0, tried: [], ambiguousSchool: _amb.candidates,
         note: `"${_sch}" is more than one school (${_amb.candidates.map((c) => c.name).join(', ')}); no cards until the agent picks which on Home` };
     }
@@ -2562,8 +2564,10 @@ async function restartCardClock(pool, agentId) {
 
 async function run(opts = {}) {
   const pool = store.pool;
-  // Every school market corrected so far, before any athlete is resolved.
+  // Every school market corrected so far, before any athlete is resolved; and
+  // which ambiguous names are already producing and keep running.
   await require('../services/schoolMarketCheck').load(pool);
+  await require('../services/schoolKeep').load(pool);
   const agents = opts.agentId
     // signature_text / scheduling_url travel with the agent so fillAgent can read
     // them once rather than querying per business.

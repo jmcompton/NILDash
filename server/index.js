@@ -15330,7 +15330,9 @@ try {
 // (services/schoolMarketCheck): loaded once the tables exist, read by the
 // resolver on every path.
 setTimeout(() => require('./services/schoolMarketCheck').load(store.pool)
-  .then((n) => n && console.log(`[school-market] ${n} corrected school market(s) loaded`)), 20 * 1000).unref?.();
+  .then((n) => n && console.log(`[school-market] ${n} corrected school market(s) loaded`))
+  .then(() => require('./services/schoolKeep').load(store.pool))
+  .then((n) => n && console.log(`[school-keep] ${n} athlete(s) with an ambiguous school kept on the market they already produce in`)), 20 * 1000).unref?.();
 try {
   require('./services/coldAgent').start(store.pool);
 } catch (e) {
@@ -17548,6 +17550,16 @@ app.post('/api/agent/athletes/:id/apply-fix', requireAuth, async (req, res) => {
     if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
     res.json(r);
   } catch (e) { console.error('[apply-fix]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// The passive "which school is this?" note, dismissed for an athlete who is
+// already producing on the market their school name resolved to.
+app.post('/api/agent/athletes/:id/dismiss-school-question', requireAuth, async (req, res) => {
+  try {
+    const r = await require('./services/schoolKeep').dismiss(store.pool, req.session.userId, req.params.id);
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // GET /api/agent/home-notices — read-time home feed: kits first viewed today

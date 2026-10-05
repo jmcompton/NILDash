@@ -29,6 +29,8 @@ async function main() {
   const P = store.pool;
   const SMC = require(ROOT + 'server/services/schoolMarketCheck.js');
   await SMC.load(P);
+  const SK = require(ROOT + 'server/services/schoolKeep.js');
+  await SK.load(P);
   const job = require(ROOT + 'server/jobs/outreachQueue.js');
   let canon = (x) => String(x || '').trim().toLowerCase();
   try { canon = require(ROOT + 'server/services/regionKey').canonicalRegion || canon; } catch (_) {}
@@ -87,12 +89,16 @@ async function main() {
   // cards until the agent picks on Home.
   const R = require(ROOT + 'server/services/schoolResolver.js');
   const amb = out.map((x) => ({ ...x, amb: R.ambiguity(x.school, { state: x.data && x.data.state }) })).filter((x) => x.amb && x.amb.candidates);
-  console.log(`\n2b. NOW ASKED "WHICH SCHOOL IS THIS?" ON HOME, NO CARDS UNTIL PICKED: ${amb.length}`);
-  for (const x of amb) {
+  const stopped = amb.filter((x) => !SK.keepFor(x.id)), kept = amb.filter((x) => SK.keepFor(x.id));
+  const line = (x) => {
     const cm = x.cards.map((c) => `${c.market_key} x${c.n}`).join(', ') || 'no cards in 30 days';
-    console.log(`   "${x.school}"  ${x.name}, agent ${x.agent} <${x.agent_email}>  -- cards so far: ${cm}`);
+    console.log(`   "${x.school}"  ${x.name}, agent ${x.agent} <${x.agent_email}>  -- cards: ${cm}`);
     console.log(`      could be: ${x.amb.candidates.map((c) => `${c.name} (${c.city}, ${c.state})`).join('; ')}`);
-  }
+  };
+  console.log(`\n2b. AMBIGUOUS SCHOOL, NO WORKING MARKET: STOPPED, asked on Home, no cards until picked: ${stopped.length}`);
+  stopped.forEach(line);
+  console.log(`\n2c. AMBIGUOUS SCHOOL, ALREADY PRODUCING: KEPT RUNNING on that market, asked passively (dismissible): ${kept.length}`);
+  for (const x of kept) { line(x); console.log(`      kept on ${SK.keepFor(x.id).market}`); }
 
   const none = out.filter((x) => !x.market && !(R.ambiguity(x.school, { state: x.data && x.data.state }) || {}).candidates);
   console.log(`\n3. NO MARKET YET (the nightly will look the school up with Places): ${none.length}`);

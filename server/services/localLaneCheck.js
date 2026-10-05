@@ -49,8 +49,16 @@ function problemFor(row, opts = {}) {
   // until they do.
   const amb = require('./schoolResolver').ambiguity(school, { state: d.state });
   if (amb && amb.candidates) {
-    return { code: 'ambiguous-school', text: `Which school is this? "${school}" could be ${amb.candidates.length} schools, so ${name} gets no cards until you pick.`,
-      choices: amb.candidates.map((c) => ({ school: c.name, label: `${c.name} (${c.city}, ${c.state})` })) };
+    const choices = amb.candidates.map((c) => ({ school: c.name, label: `${c.name} (${c.city}, ${c.state})` }));
+    // ALREADY PRODUCING: keep running, ask passively, let them dismiss it.
+    const SK = require('./schoolKeep');
+    const k = SK.keepFor(row && row.id);
+    if (k) {
+      if (SK.dismissed(row && row.id)) return null;
+      return { code: 'ambiguous-school-passive', dismissible: true,
+        text: `Which school is "${school}"? ${name} is getting ${k.market} businesses, which may be right. Pick to confirm, or dismiss.`, choices };
+    }
+    return { code: 'ambiguous-school', text: `Which school is this? "${school}" could be ${amb.candidates.length} schools, so ${name} gets no cards until you pick.`, choices };
   }
   if (opts.noMarketLastNight) return { code: 'unresolved', text: `We could not find where "${school}" is, so ${name} got no local businesses last night. Check the school name.` };
   return null;
@@ -78,7 +86,7 @@ async function applyFix(pool, agentId, athleteId, opts = {}) {
   if (!a) return { ok: false, status: 404, error: 'Athlete not found' };
   const p = problemFor(a);
   // The agent's pick, and only one of the schools offered.
-  if (p && p.code === 'ambiguous-school') {
+  if (p && (p.code === 'ambiguous-school' || p.code === 'ambiguous-school-passive')) {
     const pick = (p.choices || []).find((c) => c.school === opts.choice);
     if (!pick) return { ok: false, status: 400, error: 'Pick one of the schools listed.' };
     await pool.query(`UPDATE athletes SET data = data || $3::jsonb, updated_at = NOW() WHERE id = $1 AND agent_id = $2`,

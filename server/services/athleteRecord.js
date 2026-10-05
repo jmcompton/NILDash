@@ -76,6 +76,7 @@ function resolveAthlete(row, opts = {}) {
     const cs = cityStateFrom(city);
     if (cs.city) { schoolCity = cs.city; schoolState = cs.state; marketSource = 'pro-city'; }
   }
+  let _keptAmbiguous = false;
   if (school && typeof opts.schoolLocation === 'function') {
     let loc = null;
     try { loc = opts.schoolLocation(school); } catch (_) { loc = null; }
@@ -86,6 +87,16 @@ function resolveAthlete(row, opts = {}) {
         const amb = require('./schoolResolver').ambiguity(school, { state: d.state });
         if (amb && amb.narrowed) loc = { city: amb.narrowed.city, state: amb.narrowed.state };
       } catch (_) { /* the name alone */ }
+    }
+    // AN AMBIGUOUS NAME THAT IS ALREADY WORKING KEEPS ITS MARKET: the one it
+    // resolved to before the stop has produced cards for this athlete
+    // (services/schoolKeep). Home asks passively instead of stopping them.
+    if (!loc) {
+      const _id = (row && row.id) || d.id;
+      try {
+        const k = _id ? require('./schoolKeep').keepFor(_id) : null;
+        if (k) { loc = { city: k.city, state: k.state, method: 'kept-producing' }; _keptAmbiguous = true; }
+      } catch (_) { /* nothing kept */ }
     }
     if (loc && loc.city) {
       schoolCity = _str(loc.city); schoolState = _str(loc.state);
@@ -163,6 +174,8 @@ function resolveAthlete(row, opts = {}) {
     try { _amb = require('./schoolResolver').ambiguity(rec.school, { state: d && d.state }); } catch (_) { _amb = null; }
   }
   rec.schoolAmbiguous = !!(_amb && _amb.candidates);
+  // Kept running on the market it already works in; Home asks, passively.
+  rec.schoolAskPassive = _keptAmbiguous;
   rec.localLaneNote = isPro
     ? (!rec.city ? 'No city on file for this pro, so the local lane has no town to work in.' : null)
     : rec.schoolAmbiguous

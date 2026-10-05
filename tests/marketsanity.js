@@ -130,6 +130,33 @@ async function main() {
   const form = await SF.findSchool('Miami', { instantOnly: true });
   ok('the add-athlete form asks too, at the keyboard', form.status === 'ambiguous' && form.options.length === 2, form);
 
+  // ── 5. NEVER BLOCK AN ATHLETE WHO IS ALREADY PRODUCING ──────────────────
+  OUT.push('', '-- already producing: keep running, ask passively --');
+  const SK = require(REPO + 'server/services/schoolKeep.js');
+  await P.query(`DELETE FROM outreach_queue WHERE agent_id = 'ms-agent2'`); await P.query(`DELETE FROM athletes WHERE agent_id = 'ms-agent2'`);
+  await P.query(`DELETE FROM school_question_dismissed WHERE agent_id = 'ms-agent2'`).catch(() => {}); await P.query(`DELETE FROM users WHERE id = 'ms-agent2'`);
+  await P.query(`INSERT INTO users (id,name,email,password,role) VALUES ('ms-agent2','Ms Two','ms2@ms.test','x','agent')`);
+  await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ('ms-jasper','ms-agent2','{"name":"Jasper Johnson","school":"Kentucky"}'),
+                 ('ms-marcus','ms-agent2','{"name":"Marcus Johnson","school":"Kentucky"}')`);
+  for (let i = 0; i < 5; i++) await P.query(`INSERT INTO outreach_queue (agent_id,athlete_id,slot,brand_key,brand_name,channel,state,market_key) VALUES ('ms-agent2','ms-jasper',$1,$2,$2,'call','queued','lexington, ky')`, [i + 1, 'Lex Biz ' + i]);
+  ok('the keep list loads: Jasper (5 cards in Lexington) is kept, Marcus (none) is not', (await SK.load(P)) >= 1 && SK.keepFor('ms-jasper') && SK.keepFor('ms-jasper').market === 'Lexington, KY' && !SK.keepFor('ms-marcus'), SK.keepFor('ms-jasper'));
+  const AR = require(REPO + 'server/services/athleteRecord.js');
+  const jas = AR.resolveAthlete({ id: 'ms-jasper', data: { name: 'Jasper Johnson', school: 'Kentucky' } }, { schoolLocation: R.resolveSchool });
+  ok('"Kentucky", already producing in Lexington: keeps that market, keeps running', jas.hasLocalMarket && /lexington/i.test(jas.market) && jas.schoolAskPassive && !jas.localLaneNote, jas);
+  const jf = await job.fillAthlete(P, { agentId: 'ms-agent2', athleteId: 'ms-jasper', athleteName: 'Jasper Johnson', agentFirstName: '', athleteRow: { name: 'Jasper Johnson', school: 'Kentucky' }, dryRun: true });
+  ok('  the night is not stopped for him (it gets past the school check)', !jf.ambiguousSchool, jf);
+  const mf = await job.fillAthlete(P, { agentId: 'ms-agent2', athleteId: 'ms-marcus', athleteName: 'Marcus Johnson', agentFirstName: 'Sam', athleteRow: { name: 'Marcus Johnson', school: 'Kentucky' }, dryRun: true });
+  ok('"Kentucky" with no working market: hard stop, no cards', mf.ambiguousSchool && mf.filled === 0, mf);
+  const probs = await LLC.forAgent(P, 'ms-agent2');
+  const pj = probs.find((x) => x.athleteId === 'ms-jasper'), pm = probs.find((x) => x.athleteId === 'ms-marcus');
+  ok('Home: Jasper gets a passive, dismissible note naming the market he is getting', pj && pj.code === 'ambiguous-school-passive' && pj.dismissible && /Lexington, KY/.test(pj.text) && pj.choices.length >= 2, pj);
+  ok('  Marcus gets the hard question', pm && pm.code === 'ambiguous-school' && !pm.dismissible, pm);
+  ok('  dismissing it hides it for good', (await SK.dismiss(P, 'ms-agent2', 'ms-jasper')).ok && !(await LLC.forAgent(P, 'ms-agent2')).some((x) => x.athleteId === 'ms-jasper')
+    && (await SK.load(P)) >= 1 && !(await LLC.forAgent(P, 'ms-agent2')).some((x) => x.athleteId === 'ms-jasper'));
+  await P.query(`DELETE FROM outreach_queue WHERE agent_id = 'ms-agent2'`); await P.query(`DELETE FROM athletes WHERE agent_id = 'ms-agent2'`);
+  await P.query(`DELETE FROM school_question_dismissed WHERE agent_id = 'ms-agent2'`); await P.query(`DELETE FROM users WHERE id = 'ms-agent2'`);
+  SK._reset();
+
   OUT.push('', 'failures: ' + F);
   console.log(OUT.join('\n'));
   try { await store.pool.end(); } catch (_) {}

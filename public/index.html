@@ -11909,11 +11909,20 @@ async function loadNeedsFix() {
         <span style="flex:1;font-size:12.5px;color:var(--text);line-height:1.45">${esc(a.text)}</span>
         ${a.fix ? `<button class="btn btn-primary btn-sm" style="white-space:nowrap;font-size:11px" onclick="applyNeedsFix('${esc(a.athleteId)}', this)">${esc(a.fixLabel || 'Fix')}</button>` : ''}
         ${a.choices ? `<span style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end">${a.choices.map((c) => `<button class="btn btn-primary btn-sm" style="white-space:nowrap;font-size:11px" data-choice="${esc(c.school)}" onclick="applyNeedsFix('${esc(a.athleteId)}', this, this.dataset.choice)">${esc(c.label)}</button>`).join('')}</span>` : ''}
+        ${a.dismissible ? `<button class="btn btn-ghost btn-sm" style="white-space:nowrap;font-size:11px" onclick="dismissSchoolQuestion('${esc(a.athleteId)}', this)">Dismiss</button>` : ''}
         <button class="btn btn-ghost btn-sm" style="white-space:nowrap;font-size:11px" onclick="editAthlete('${esc(a.athleteId)}')">Edit</button>
       </div>`).join('')}
     </div>`;
     host.hidden = false;
   } catch (e) { host.hidden = true; }
+}
+async function dismissSchoolQuestion(id, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/athletes/${encodeURIComponent(id)}/dismiss-school-question`, { method: 'POST', credentials: 'include' });
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).error) || 'Could not dismiss');
+    loadNeedsFix();
+  } catch (e) { showToast(e.message); if (btn) btn.disabled = false; }
 }
 async function applyNeedsFix(id, btn, choice) {
   const was = btn ? btn.textContent : '';

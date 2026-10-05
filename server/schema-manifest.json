@@ -1295,6 +1295,12 @@
       "state": "TEXT",
       "was_market": "TEXT"
     },
+    "school_question_dismissed": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "dismissed_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "school": "TEXT"
+    },
     "send_request_timings": {
       "agent_id": "TEXT",
       "at": "TIMESTAMPTZ DEFAULT NOW()",

@@ -546,7 +546,7 @@ function resolveSchool(raw, opts = {}) {
       if (o) return { city: o.city, state: o.state, matched: String(raw || '').trim(), method: 'located', confidence: 1 };
     } catch (_) { /* no corrections loaded: the name rules alone */ }
   }
-  {
+  if (!opts.ignoreAmbiguity) {
     const amb = ambiguity(raw, opts);
     if (amb && amb.narrowed) return { city: amb.narrowed.city, state: amb.narrowed.state, matched: amb.narrowed.name, method: 'narrowed', confidence: 1 };
     if (amb) return null;
