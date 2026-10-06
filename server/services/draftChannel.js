@@ -67,8 +67,14 @@ async function refusalFor(pool, id) {
     : 'No email address for this business, so this email cannot be sent, and there is no phone or Instagram to use instead.';
 }
 
-// The first sentences of an email, short enough for an Instagram DM.
-function dmFromEmail(subject, bodyHtml) {
+// The first sentences of an email, short enough for an Instagram DM, opening
+// "Hi <first name>," as every card must (outreachQueue.cardNameProblem).
+function dmFromEmail(subject, bodyHtml, contactName) {
+  const first = String(contactName || '').trim().split(/\s+/)[0];
+  const core = dmCore(bodyHtml);
+  return first ? `Hi ${first},\n\n${core}` : core;
+}
+function dmCore(bodyHtml) {
   const text = String(bodyHtml || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
   const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -93,19 +99,24 @@ async function convert(pool, scope = {}) {
   const rest = drafts.filter((id) => !filled.has(id));
   for (const id of rest) {
     const r = (await pool.query(
-      `SELECT l.id, l.subject, l.body_html, l.brand_name, q.id AS qid, q.phone, q.instagram, q.dm_text, q.state
+      `SELECT l.id, l.subject, l.body_html, l.brand_name, q.id AS qid, q.phone, q.instagram, q.dm_text, q.state, q.contact_name
          FROM outreach_logs l
-         LEFT JOIN LATERAL (SELECT id, phone, instagram, dm_text, state FROM outreach_queue q2 WHERE q2.athlete_id = l.athlete_id AND q2.state = 'queued'
+         LEFT JOIN LATERAL (SELECT id, phone, instagram, dm_text, state, contact_name FROM outreach_queue q2 WHERE q2.athlete_id = l.athlete_id AND q2.state = 'queued'
                               AND (q2.outreach_log_id = l.id OR LOWER(q2.brand_name) = LOWER(l.brand_name))
                             ORDER BY (q2.outreach_log_id = l.id) DESC, q2.created_at DESC LIMIT 1) q ON TRUE
         WHERE l.id = $1`, [id])).rows[0];
     if (!r) continue;
     const channel = r.qid ? CHN.channelOf({ phone: r.phone, instagram: r.instagram }) : null;
     if (!channel) { res.none++; continue; }   // stays off the page; approve refuses it
+    // The card a queue row must be (outreachQueue.cardNameProblem): a real
+    // named person, and a DM that opens with their first name.
+    const dmText = channel === 'dm' ? (String(r.dm_text || '').trim() || dmFromEmail(r.subject, r.body_html, r.contact_name)) : null;
+    const problem = require('./outreachQueue').cardNameProblem({ channel, contactName: r.contact_name, brandName: r.brand_name, dmText });
+    if (problem) { res.none++; continue; }
     await pool.query(
       `UPDATE outreach_queue SET channel = $2, dm_text = CASE WHEN $2 = 'dm' THEN COALESCE(NULLIF(dm_text, ''), $3) ELSE dm_text END,
               outreach_log_id = NULL, updated_at = NOW()
-        WHERE id = $1`, [r.qid, channel, channel === 'dm' ? dmFromEmail(r.subject, r.body_html) : null]);
+        WHERE id = $1`, [r.qid, channel, dmText]);
     await pool.query(`UPDATE outreach_logs SET cadence_stopped_at = NOW(), cadence_stop_reason = $2, updated_at = NOW() WHERE id = $1 AND cadence_stopped_at IS NULL`,
       [id, `no email address: it is a ${channel === 'call' ? 'call' : 'DM'} card now`]);
     res[channel]++;

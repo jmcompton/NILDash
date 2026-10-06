@@ -60,7 +60,9 @@ async function lookupOnce(row) {
   const ladder = CL.buildContactLadder(res, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, brand: row.brand_name });
   const inbox = OQ.inboxOf(ladder);
   const phone = (ladder && ladder.mainLine && ladder.mainLine.phone) || (res && res.businessPhone) || null;
-  return { email: inbox ? inbox.email : null, phone, instagram: (res && res.instagram) || null, costUsd: 0.075 };
+  // The person, so a call or DM card has someone to ask for (insertCard's rule).
+  const person = (Array.isArray(res && res.contacts) ? res.contacts : []).find((c) => c && c.name) || null;
+  return { email: inbox ? inbox.email : null, phone, instagram: (res && res.instagram) || null, contactName: person ? person.name : null, costUsd: 0.075 };
 }
 
 async function run(pool, opts = {}) {
@@ -94,6 +96,7 @@ async function run(pool, opts = {}) {
           out.lookups++; out.lookupUsd += Number(f.costUsd) || 0;
           if (CHN.hasEmail(f.email) && !(await suppression.isSuppressed(pool, f.email).catch(() => ({}))).suppressed) { email = f.email.toLowerCase(); from = 'one contact lookup'; }
           phone = phone || f.phone || null; instagram = instagram || f.instagram || null;
+          if (!r.contact_name && f.contactName) r.contact_name = f.contactName;
           res.lookedUp = true;
         } catch (e) { res.lookupError = e.message; }
       } else res.wouldLookUp = true;
@@ -116,15 +119,17 @@ async function run(pool, opts = {}) {
           res.newId = newId;
         }
       } else if (channel) {
+        // THROUGH insertCard, the one door every queue card uses: a real named
+        // person, a DM that opens with their name, no placeholder, no duplicate.
+        const OQJ = require('../jobs/outreachQueue');
         const slot = ((await pool.query(`SELECT COALESCE(MAX(slot), 0)::int AS s FROM outreach_queue WHERE athlete_id = $1`, [r.athlete_id])).rows[0].s || 0) + 1;
-        const q = await pool.query(
-          `INSERT INTO outreach_queue (agent_id, athlete_id, slot, brand_key, brand_name, channel, state, why, contact_name, phone, instagram, dm_text, source_note, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,'queued',$7,$8,$9,$10,$11,$12,NOW()) RETURNING id`,
-          [r.agent_id, r.athlete_id, slot, r.brand_key || ('name:' + String(r.brand_name || '').toLowerCase()), r.brand_name, channel,
-            r.card_why || null, r.contact_name || null, channel === 'call' ? phone : null, channel === 'dm' ? instagram : instagram,
-            channel === 'dm' ? DC.dmFromEmail(r.subject, r.body_html) : null,
-            `Approved on ${String(r.approved_at).slice(0, 10)} as an email that could not be sent (${r.why}); no email address found on ${today}.`]);
-        res.queueId = q.rows[0].id;
+        const card = { brandKey: r.brand_key || null, brandName: r.brand_name, channel, why: r.card_why || null, contactName: r.contact_name || null,
+          phone: channel === 'call' ? phone : null, phoneAskFor: channel === 'call' ? (r.contact_name || null) : null, instagram: instagram || null,
+          dmText: channel === 'dm' ? DC.dmFromEmail(r.subject, r.body_html, r.contact_name) : null, lane: 'local',
+          sourceNote: `Approved on ${String(r.approved_at && new Date(r.approved_at).toISOString()).slice(0, 10)} as an email that could not be sent (${r.why}); no email address found on ${today}.` };
+        const wrote = await OQJ.insertCard(pool, { agentId: r.agent_id, athleteId: r.athlete_id, slot, card });
+        if (wrote) res.queueId = (await pool.query(`SELECT id FROM outreach_queue WHERE athlete_id = $1 AND slot = $2 AND state = 'queued'`, [r.athlete_id, slot])).rows[0].id;
+        else { res.becomes = 'nothing to reach'; res.phone = null; res.instagram = null; res.note = `a ${channel} card could not be written: ${require('./outreachQueue').cardNameProblem(card) || 'already queued for this athlete'}`; }
       }
       // 3. The old row, closed: it leaves the morning alert for good.
       await pool.query(
@@ -175,7 +180,7 @@ function format(out, home) {
     if (r.agent !== agent) { agent = r.agent; L.push(`AGENT ${agent}`); }
     L.push(`  ${String(r.athlete || '?').padEnd(18)} ${String(r.brand || '').slice(0, 34).padEnd(34)} was: ${String(r.was).slice(0, 34).padEnd(34)} -> ${r.becomes}`
       + (r.to ? ` (${r.to}, from ${r.from})` : r.phone ? ` (${r.phone})` : r.instagram ? ` (@${String(r.instagram).replace(/^@/, '')})` : '')
-      + (r.closed ? '; old row closed' : '') + (r.lookupError ? `; lookup failed: ${r.lookupError}` : ''));
+      + (r.closed ? '; old row closed' : '') + (r.note ? `; ${r.note}` : '') + (r.lookupError ? `; lookup failed: ${r.lookupError}` : ''));
   }
   if (home && home.ok) {
     L.push('', `WHAT ${home.agent} (${home.name || ''}) HAS NOW${out.apply ? '' : ' (before applying)'}:`);

@@ -46,6 +46,7 @@ async function main() {
   await old('bl-5', 'Nowhere Shop', null, 'no address to send to');
   await old('bl-6', 'Bounced Bar', 'gone@bounced.test', null);
   await require(REPO + 'server/services/suppression.js').suppress(P, 'gone@bounced.test', { reason: 'hard bounce', kind: 'bounce' });
+  await old('bl-8', 'Nameless Gym', null, 'no address to send to');
   await old('bl-7', 'Later Day', null, 'no address to send to');
   await P.query(`UPDATE outreach_logs SET approved_at = '2026-09-25 15:00:00-05' WHERE id = 'bl-7'`);
 
@@ -53,21 +54,22 @@ async function main() {
   const lookup = async (r) => {
     looked.push(r.brand_name);
     if (r.brand_name === 'Findable Bakery') return { email: 'hello@findable.test', phone: null, instagram: null, costUsd: 0.075 };
-    if (r.brand_name === 'Gram Only Studio') return { email: null, phone: null, instagram: 'gramonly', costUsd: 0.075 };
+    if (r.brand_name === 'Gram Only Studio') return { email: null, phone: null, instagram: 'gramonly', contactName: 'Gina Park', costUsd: 0.075 };
+    if (r.brand_name === 'Nameless Gym') return { email: null, phone: '205-555-0999', instagram: null, contactName: null, costUsd: 0.075 };
     return { email: null, phone: null, instagram: null, costUsd: 0.075 };
   };
 
   // ── DRY RUN ───────────────────────────────────────────────────────────────
   const dry = await B.run(P, { date: '2026-09-23', lookup });
-  ok('the dry run finds the day\'s rows and only them', dry.rows === 6 && !dry.results.some((r) => r.brand === 'Later Day'), dry.results.map((r) => r.brand));
-  ok('  changes nothing and looks nothing up', looked.length === 0 && (await P.query(`SELECT COUNT(*)::int n FROM outreach_logs WHERE agent_id = $1 AND status = 'approved'`, [AG])).rows[0].n === 7
+  ok('the dry run finds the day\'s rows and only them', dry.rows === 7 && !dry.results.some((r) => r.brand === 'Later Day'), dry.results.map((r) => r.brand));
+  ok('  changes nothing and looks nothing up', looked.length === 0 && (await P.query(`SELECT COUNT(*)::int n FROM outreach_logs WHERE agent_id = $1 AND status = 'approved'`, [AG])).rows[0].n === 8
     && /^DRY RUN/.test(B.format(dry)), B.format(dry));
 
   // ── APPLY ─────────────────────────────────────────────────────────────────
   const out = await B.run(P, { date: '2026-09-23', apply: true, lookup, today: '2026-10-06' });
   const by = Object.fromEntries(out.results.map((r) => [r.brand, r]));
-  ok('LOOKED UP ONCE, only where there was no sendable address', looked.sort().join() === ['Bounced Bar', 'Findable Bakery', 'Gram Only Studio', 'Nowhere Shop', 'Phone Only Grill'].sort().join()
-    && out.lookups === 5, looked);
+  ok('LOOKED UP ONCE, only where there was no sendable address', looked.sort().join() === ['Bounced Bar', 'Findable Bakery', 'Gram Only Studio', 'Nameless Gym', 'Nowhere Shop', 'Phone Only Grill'].sort().join()
+    && out.lookups === 6, looked);
   const drafts = (await P.query(`SELECT * FROM outreach_logs WHERE agent_id = $1 AND status = 'draft'`, [AG])).rows;
   const fresh = (b) => drafts.find((d) => d.brand_name === b);
   ok('AN ADDRESS ON THE ROW -> a fresh draft dated today, unapproved, the same email', fresh('Had Address Co') && fresh('Had Address Co').sent_to_email === 'owner@hadaddress.test'
@@ -77,7 +79,10 @@ async function main() {
   const q = (await P.query(`SELECT * FROM outreach_queue WHERE agent_id = $1 AND state = 'queued'`, [AG])).rows;
   const qc = (b) => q.find((x) => x.brand_name === b);
   ok('NO ADDRESS, A PHONE -> a call card', qc('Phone Only Grill') && qc('Phone Only Grill').channel === 'call' && qc('Phone Only Grill').phone === '205-555-0123', qc('Phone Only Grill'));
-  ok('NO ADDRESS, A HANDLE -> a DM card with the message', qc('Gram Only Studio') && qc('Gram Only Studio').channel === 'dm' && /close to campus/.test(qc('Gram Only Studio').dm_text), qc('Gram Only Studio'));
+  ok('NO ADDRESS, A HANDLE -> a DM card with the message, opening with the person\'s name', qc('Gram Only Studio') && qc('Gram Only Studio').channel === 'dm'
+    && /^Hi Gina,/.test(qc('Gram Only Studio').dm_text) && /close to campus/.test(qc('Gram Only Studio').dm_text), qc('Gram Only Studio'));
+  ok('  no named person: no card, through the same rule as every card (insertCard), and the report says why', by['Nameless Gym'].becomes === 'nothing to reach'
+    && !qc('Nameless Gym') && /could not be written: /.test(by['Nameless Gym'].note || ''), by['Nameless Gym']);
   ok('A BOUNCED ADDRESS IS NOT SENT TO AGAIN; nothing else found -> no card, said so', by['Bounced Bar'].becomes === 'nothing to reach' && !fresh('Bounced Bar') && !qc('Bounced Bar')
     && by['Nowhere Shop'].becomes === 'nothing to reach', [by['Bounced Bar'], by['Nowhere Shop']]);
   const closed = (await P.query(`SELECT id, status, cadence_stop_reason FROM outreach_logs WHERE id LIKE 'bl-%' ORDER BY id`)).rows;
