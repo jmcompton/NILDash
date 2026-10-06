@@ -194,6 +194,10 @@ function splitStatements(sql) {
 }
 async function ensureTables(pool) {
   for (const s of splitStatements(fs.readFileSync(MIGRATION, 'utf8'))) await pool.query(s);
+  // The card's rung (local, local-wide, social) and, for a social brand, the
+  // program page to apply through.
+  await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS lane TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS program_url TEXT`).catch(() => {});
   await require('./campusQuality').ensureColumns(pool).catch(() => {});
 }
 
@@ -216,13 +220,22 @@ async function discover(pool, { university, marketKey, places, radiusM }) {
   const built = await P.buildMarketPoolFromPlaces(university.location, { source: 'team-scan', ...(radiusM ? { radiusM } : {}) });
   if (!built.ok) return { ok: false, reason: built.reason || 'places_failed', placesCalls: built.placesCalls || 0 };
   const center = built.geocoded || null;
+  const st = await storeCandidates(pool, marketKey, center, built.candidates || []);
+  return { ok: true, found: (built.candidates || []).length, kept: st.kept - st.blocked.length, blocked: st.blocked, duplicates: st.duplicates, placesCalls: built.placesCalls || 0, center };
+}
+
+// Candidates (placesMarket shape) into the university pool: blocked ones kept
+// and marked, one row per name, upserted. Used by the ring discovery above and
+// by the cell-by-cell discovery (campusDiscovery). Returns { kept, blocked,
+// duplicates, inserted } (inserted: names that were not in the pool before).
+async function storeCandidates(pool, marketKey, center, candidates) {
   // A BLOCKED BUSINESS IS KEPT IN THE POOL, MARKED. It used to be dropped here,
   // which meant a business the block learned about later (a new marker) was
   // already in the pool unmarked and stayed there. Now every row carries
   // blocked_reason, recheckPool re-decides it on every scan, and the slate
   // never reads a blocked row.
   const kept = [], blocked = [];
-  for (const c of built.candidates || []) {
+  for (const c of candidates) {
     const b = blockedFor(c);
     if (b) blocked.push({ name: c.name, ...b });
     const withD = { ...c, distance_m: distanceM(center, c) };
@@ -243,6 +256,9 @@ async function discover(pool, { university, marketKey, places, radiusM }) {
       + duplicates.slice(0, 10).map((d) => `"${d.brand}" (${d.kept.address} over ${d.dropped.address})`).join('; '));
   }
   kept.length = 0; kept.push(...dd.rows);
+  const before = kept.length ? new Set((await pool.query(`SELECT brand FROM university_market_seen WHERE market_key = $1 AND brand = ANY($2::text[])`,
+    [marketKey, kept.map((c) => c.name)])).rows.map((r) => r.brand)) : new Set();
+  const inserted = kept.filter((c) => !before.has(c.name)).map((c) => ({ brand: c.name, blocked: c.blocked_reason || null }));
   if (kept.length) {
     await pool.query(
       `INSERT INTO university_market_seen
@@ -271,7 +287,7 @@ async function discover(pool, { university, marketKey, places, radiusM }) {
         kept.map((c) => c.fit), kept.map((c) => JSON.stringify(c.fit_reasons)),
         kept.map((c) => c.primary_type || null), kept.map((c) => c.primary_type_label || null), kept.map((c) => c.blocked_reason || null)]);
   }
-  return { ok: true, found: (built.candidates || []).length, kept: kept.length - blocked.length, blocked, duplicates, placesCalls: built.placesCalls || 0, center };
+  return { kept: kept.length, blocked, duplicates, inserted };
 }
 
 // ── RE-DECIDE THE BLOCK FOR EVERY ROW IN THE POOL ───────────────────────────
@@ -320,7 +336,11 @@ const PITCH_FIT_MIN = 10;
 // no contact row holds it yet); a resolved-unreachable one is out; and the
 // contact is resolved only for the business picked, one at a time
 // (writePitch), so the money goes on the businesses worth pitching.
-async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [], limit = 10 }) {
+// onFile: true  only businesses whose named contact is already on file (the
+//               'local' rung: costs the email and nothing else)
+//         false only businesses still needing a lookup ('local-wide')
+//         null  both, on-file first (the default, and every caller before the ladder)
+async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [], limit = 10, onFile = null }) {
   const team = (await pool.query(`SELECT id, name, sport FROM university_teams WHERE id = $1`, [teamId])).rows[0];
   const rows = (await pool.query(
     `SELECT * FROM (
@@ -350,6 +370,7 @@ async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [],
     }
   }
   const picks = rows.filter((r) => Number(r.fit_score) >= PITCH_FIT_MIN)
+    .filter((r) => onFile === null || onFile === undefined || (onFile ? !!r.reachable : !r.reachable))
     // A NAMED CONTACT ALREADY ON FILE FIRST. The build resolved them; using
     // one costs the email and nothing else. A business still needing a
     // lookup ($0.10-0.24) is pitched only when no resolved one fits the team.
@@ -360,6 +381,50 @@ async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [],
       || ((b.deal_priority || 0) - (a.deal_priority || 0)) || (b.fit_score - a.fit_score)
       || ((a.distance_m == null ? 1e12 : a.distance_m) - (b.distance_m == null ? 1e12 : b.distance_m)) || String(a.brand_name).localeCompare(String(b.brand_name)))
     .slice(0, limit);
+  return { picks };
+}
+
+// ── THE SOCIAL RUNG: BRANDS THAT SIGN ATHLETES AT THIS LEVEL ───────────────
+// university_social_brands (campusBuild.socialList: the social index, filtered
+// to programs that take a small following, verified in the last 12 months,
+// never an incumbent). A brand is offered to a team when:
+//   its sports include the team's, or it names none ('all')
+//   no card to it for THIS team in the last PITCH_REST_DAYS
+//   no one on staff has touched it (the CRM rule, as for a business)
+//   fewer than SOCIAL_BRAND_NIGHTLY_MAX teams already have it tonight: the
+//     agent side's rule (outreachQueue.PROGRAM_BRAND_NIGHTLY_MAX), because
+//     seventeen asks landing at one brand in one night reads as spam
+// Ranked: a brand that names the team's sport, then the newest proof, then a
+// per-team order so two teams do not draw the same list top-down.
+// National is never a university rung.
+const SOCIAL_PER_TEAM = parseInt(process.env.UNIVERSITY_SOCIAL_PER_TEAM, 10) >= 0 && process.env.UNIVERSITY_SOCIAL_PER_TEAM !== undefined
+  ? parseInt(process.env.UNIVERSITY_SOCIAL_PER_TEAM, 10) : 1;
+const SOCIAL_BRAND_NIGHTLY_MAX = parseInt(process.env.UNIVERSITY_SOCIAL_BRAND_MAX, 10) || 2;
+async function socialSlate(pool, { universityId, teamId, exclude = [], limit = 10, night }) {
+  const team = (await pool.query(`SELECT id, name, sport FROM university_teams WHERE id = $1`, [teamId])).rows[0];
+  if (!team) return { picks: [] };
+  const rows = (await pool.query(
+    `SELECT s.* FROM university_social_brands s
+      WHERE s.university_id = $1
+        AND NOT EXISTS (SELECT 1 FROM university_drafts d WHERE d.university_id = $1 AND d.team_id = $2 AND d.brand_name = s.brand AND d.kind = 'pitch'
+                          AND d.created_at > NOW() - make_interval(days => $3))
+        AND NOT EXISTS (SELECT 1 FROM university_crm r WHERE r.university_id = $1 AND r.brand = s.brand AND (r.stage <> 'not_contacted' OR r.notes IS NOT NULL))
+        AND NOT EXISTS (SELECT 1 FROM university_touches t WHERE t.university_id = $1 AND t.brand = s.brand)
+        AND (SELECT COUNT(*) FROM university_drafts d WHERE d.university_id = $1 AND d.brand_name = s.brand AND d.kind = 'pitch' AND d.night = $4::date) < $5
+        AND NOT (lower(s.brand) = ANY($6::text[]))`,
+    [universityId, teamId, PITCH_REST_DAYS, night, SOCIAL_BRAND_NIGHTLY_MAX, exclude.map((x) => String(x).toLowerCase())]).catch(() => ({ rows: [] }))).rows;
+  const sport = String(team.sport || team.name || '').toLowerCase();
+  const named = (b) => (b.sports || []).map((x) => String(x).toLowerCase().trim()).filter((x) => x && x !== 'all' && x !== 'any');
+  const fits = (b) => { const n = named(b); return !n.length || n.some((x) => sport.includes(x) || x.includes(sport)); };
+  const h = (x) => crypto.createHash('md5').update(teamId + '|' + x).digest().readUInt32BE(0);
+  const picks = rows.filter(fits)
+    .sort((a, b) => ((named(b).length ? 1 : 0) - (named(a).length ? 1 : 0))
+      || (new Date(b.proof_date || 0) - new Date(a.proof_date || 0)) || (h(a.brand) - h(b.brand)))
+    .slice(0, limit)
+    .map((b) => ({ social: true, brand_name: b.brand, category: b.category || 'brand', primary_type_label: null, types: [],
+      program_url: b.program_url, website: b.website, offer: b.offer, evidence: b.evidence, reachable: true,
+      fit_score: named(b).length ? 30 : 20, fit_why: `${b.brand} runs an athlete program${named(b).length ? ` for ${named(b).join(', ')}` : ' open to every sport'}`
+        + (b.offer ? `: ${String(b.offer).slice(0, 160)}` : ''), deal_bucket: 'social' }));
   return { picks };
 }
 
@@ -394,15 +459,35 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   if (marketKey) out.poolRecheck = await recheckPool(pool, marketKey);
 
   const subject = Scout.teamSubject({ team, university, marketKey });
-  const nextSlate = (exclude, n) => (pitchMode
-    ? pitchSlate(pool, { universityId, teamId, marketKey, exclude, limit: n })
-    : Scout.assembleSlate(pool, { subject, limit: n, exclude }));
+  const night = deps.night || new Date().toISOString().slice(0, 10);
+  // ── THE LADDER (pitch mode), the agent side's, for a team ─────────────────
+  //   local          a named contact already on file (the email, nothing else)
+  //                  -- up to five less the social seat
+  //   social         SOCIAL_PER_TEAM brand(s) from the social index
+  //   local          the rest from file, if social came up empty
+  //   local-wide     businesses still needing a contact, looked up one at a time
+  //   places-refresh new ground (deps.refresh: campusDiscovery, the night's
+  //                  discovery pot), then local-wide again on what it found
+  // No national rung: a university is never pitched to national brands.
+  // Without deps.ladder === false. deps.ladder false: the old single slate.
+  const ladder = pitchMode && deps.ladder !== false;
+  const LADDER = ['local', 'social', 'local', 'local-wide', 'places-refresh', 'local-wide'];
+  let li = 0;
+  const socialSeats = ladder ? (deps.socialPerTeam != null ? Number(deps.socialPerTeam) : SOCIAL_PER_TEAM) : 0;
+  const socialOpen = socialSeats > 0 && (await socialSlate(pool, { universityId, teamId, limit: 1, night })).picks.length > 0;
+  const rungNow = () => (ladder ? LADDER[li] : null);
+  const nextSlate = (exclude, n) => {
+    if (!pitchMode) return Scout.assembleSlate(pool, { subject, limit: n, exclude });
+    const r = rungNow();
+    if (r === 'social') return socialSlate(pool, { universityId, teamId, exclude, limit: n, night });
+    if (r === 'places-refresh') return { picks: [] };
+    return pitchSlate(pool, { universityId, teamId, marketKey, exclude, limit: n, onFile: r === 'local' ? true : r === 'local-wide' ? false : null });
+  };
   const slate = pitchMode ? await nextSlate([], limit * 2) : await Scout.assembleSlate(pool, { subject, limit });
   const sender = pitchMode ? (deps.sender || await require('./campusMarket').defaultSender(pool, universityId)) : null;
   out.slate = { emptyReason: slate.emptyReason, emptyText: slate.emptyText, lanes: slate.lanes, shape: slate.shape };
 
   const used = new Set();
-  const night = new Date().toISOString().slice(0, 10);
   // A category over its share of tonight's cards waits; it is used only when
   // nothing else is left, so the share shapes the night and never shorts it.
   let relaxShare = false;
@@ -416,20 +501,21 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       `INSERT INTO university_research_claims (team_id, brand_key, night) VALUES ($1,$2,$3)
        ON CONFLICT DO NOTHING RETURNING 1`, [team.id, brandKey, night]);
     if (!claim.rowCount) { out.skipped.push({ brand: c.brand_name, why: 'already researched for this team tonight' }); return false; }
-    // One card per business per night across the department's teams.
-    const other = (await pool.query(`SELECT 1 FROM university_drafts WHERE university_id = $1 AND brand_name = $2 AND kind = 'pitch' AND night = $3`,
+    // One card per business per night across the department's teams. A social
+    // brand's limit is its own (SOCIAL_BRAND_NIGHTLY_MAX, in socialSlate).
+    const other = c.social ? 0 : (await pool.query(`SELECT 1 FROM university_drafts WHERE university_id = $1 AND brand_name = $2 AND kind = 'pitch' AND night = $3`,
       [university.id, c.brand_name, night])).rowCount;
     if (other) { out.skipped.push({ brand: c.brand_name, why: 'already a card for another team tonight' }); return false; }
     // NO CATEGORY OVER ITS SHARE OF TONIGHT'S CARDS (campusQuality.SHARE_CAP).
     const share = deps.nightShare && deps.nightShare.catCap ? deps.nightShare : null;
     const bucket = c.deal_bucket || 'other';
-    if (share && !relaxShare && (share.catCount[bucket] || 0) >= share.catCap) {
+    if (share && !c.social && !relaxShare && (share.catCount[bucket] || 0) >= share.catCap) {
       await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
       heldForShare.push(c);
       return false;
     }
     // THE CONTACT, FOR THIS BUSINESS ONLY, NOW THAT IT IS PICKED.
-    if (!c.reachable) {
+    if (!c.reachable && !c.social) {
       const est = require('./campusContacts').perBusinessUsd('high', false).metered;
       if (cost() + est + Qs.USD_PER_AI_CALL > COST_CEILING_USD + 1e-9) {
         await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
@@ -450,7 +536,8 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
         instagram: o.instagram, athlete_history_note: o.athlete_history_note || c.athlete_history_note });
     }
     asks++;
-    const w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender }, { ai: deps.ai });
+    const w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender,
+      ...(c.social ? { program: { url: c.program_url, offer: c.offer } } : {}) }, { ai: deps.ai });
     if (!w.ok) {
       await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
       const fault = /^model:/.test(String(w.error || ''));
@@ -466,27 +553,33 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     }
     await pool.query(
       `INSERT INTO university_brand_engagement (university_id, team_id, brand_key, brand_name, place_id, lane, state, first_shown_at, last_shown_at)
-       VALUES ($1,$2,$3,$4,$5,'local','shown',NOW(),NOW())
+       VALUES ($1,$2,$3,$4,$5,$6,'shown',NOW(),NOW())
        ON CONFLICT (team_id, brand_key) DO UPDATE SET last_shown_at = NOW(), updated_at = NOW()`,
-      [university.id, team.id, brandKey, c.brand_name, c.place_id || null]);
+      [university.id, team.id, brandKey, c.brand_name, c.place_id || null, c.social ? 'social' : 'local']);
     const id = 'udraft_' + crypto.randomBytes(8).toString('hex');
     await pool.query(
       `INSERT INTO university_drafts (id, university_id, team_id, brand_key, brand_name, place_id, subject, body, model, status, kind, why,
-          contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, night)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval','pitch',$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+          contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, night, lane, program_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval','pitch',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
       [id, university.id, team.id, brandKey, c.brand_name, c.place_id || null, w.subject, w.body, w.model, c.fit_why || null,
         c.contact_name || null, c.contact_title || null, c.email || null, c.phone || null, c.instagram || null,
-        sender ? String(sender.userId) : null, sender ? sender.email : null, night]);
-    if (share) share.catCount[bucket] = (share.catCount[bucket] || 0) + 1;
+        sender ? String(sender.userId) : null, sender ? sender.email : null, night, c.social ? 'social' : (c.fromFile ? 'local' : 'local-wide'),
+        c.social ? (c.program_url || c.website || null) : null]);
+    if (share && !c.social) share.catCount[bucket] = (share.catCount[bucket] || 0) + 1;
+    if (c.social) socialHeld++; else if (c.fromFile) fromFileHeld++; else lookedUpHeld++;
     out.drafts.push({ id, brand: c.brand_name, contact: c.contact_name, email: c.email || null, phone: c.phone || null, instagram: c.instagram || null,
-      why: c.fit_why || null, subject: w.subject, body: w.body, status: 'awaiting_approval', retried: w.retried });
+      why: c.fit_why || null, subject: w.subject, body: w.body, status: 'awaiting_approval', retried: w.retried,
+      lane: c.social ? 'social' : (c.fromFile ? 'local' : 'local-wide'), programUrl: c.social ? (c.program_url || null) : null });
     return true;
   };
 
   // One business: an ask written (true), or the reason it was not (false).
   const handle = async (c) => {
-    const identity = BI.identitiesOf(c, { market: marketKey })[0];
-    const brandKey = c.place_id ? 'place:' + c.place_id : (identity ? identity.key : Scout.normBrand(c.brand_name));
+    const identity = c.social ? null : BI.identitiesOf(c, { market: marketKey })[0];
+    const brandKey = c.social ? 'social:' + Scout.normBrand(c.brand_name)
+      : c.place_id ? 'place:' + c.place_id : (identity ? identity.key : Scout.normBrand(c.brand_name));
+    // Whether the card's contact was on file before tonight (the reserve) or bought for it.
+    if (pitchMode && !c.social && c.fromFile === undefined) c.fromFile = !!c.reachable;
     const item = pitchMode ? null : pickItem(c.category || c.businessCategory, items, used);
     // THE LAST CHECK, at the ask. The slate never reads a blocked row, so this
     // should never fire; if it does, the ask is not written and it says so.
@@ -500,7 +593,8 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       kindLabel: c.primary_type_label || null, address: c.address,
       distance_m: c.distance_m, rating: c.rating, user_ratings_total: c.user_ratings_total,
       fit: Number(c.fitHint) || (pitchMode ? Number(c.fit_score) || null : null), fitReasons: c.fit_reasons || (pitchMode && c.fit_why ? [c.fit_why] : []),
-      slateFit: c.fit, item, evidence: c.athlete_history_note || null };
+      slateFit: c.fit, item, evidence: c.athlete_history_note || (c.social ? c.evidence || null : null) };
+    if (c.social) pick.kindLabel = `${c.category && c.category !== 'brand' ? c.category + ' ' : ''}brand with an athlete program`;
     out.picks.push(pick);
     if (pitchMode) return writePitch(c, pick, brandKey);
     if (!item) { out.skipped.push({ brand: c.brand_name, why: 'the team has no available inventory item to ask for' }); noItem = true; return false; }
@@ -583,10 +677,15 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   const cost = () => asks * Qs.USD_PER_AI_CALL + resolveUsd;
   const have = () => (write ? out.drafts.length : out.picks.filter((p) => p.item || pitchMode).length);
   let resolveUsd = 0, contactsResolved = 0, contactsReachable = 0;
+  let socialHeld = 0, fromFileHeld = 0, lookedUpHeld = 0;
+  let refreshUsd = 0, refreshFound = 0;
+  // How many this rung may hold: the first local rung leaves the social seat.
+  const rungLimit = () => (ladder && li === 0 && socialOpen ? Math.max(0, limit - socialSeats)
+    : ladder && rungNow() === 'social' ? Math.min(limit, have() + Math.max(0, socialSeats - socialHeld)) : limit);
   let picks = slate.picks;
   for (;;) {
     for (const c of picks) {
-      if (have() >= limit) break;
+      if (have() >= rungLimit()) break;
       if (Date.now() - t0 > TIME_CEILING_MS) { stop = 'time'; break; }
       if (cost() + Qs.USD_PER_AI_CALL > COST_CEILING_USD + 1e-9) { stop = 'cost'; break; }
       const k = Scout.normBrand(c.brand_name);
@@ -599,15 +698,46 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       if (!pitchMode && noItem && items.every((it) => used.has(it.id))) { stop = 'inventory'; break; }
     }
     if (stop || have() >= limit) break;
+    // THE LADDER: a rung that is full or empty hands over to the next.
+    if (ladder && have() >= rungLimit()) {
+      li++;
+      if (li >= LADDER.length) { stop = 'ladder'; break; }
+      if (rungs[rungs.length - 1] !== rungNow()) rungs.push(rungNow());
+      picks = (await nextSlate([...triedNames], limit * 2)).picks || [];
+      picks = picks.filter((c) => !triedKeys.has(Scout.normBrand(c.brand_name)));
+      continue;
+    }
     const next = await nextSlate([...triedNames], limit * 2);
     picks = (next.picks || []).filter((c) => !triedKeys.has(Scout.normBrand(c.brand_name)));
     if (picks.length) continue;
     // Nothing else left: the businesses that waited for their category's
     // share are used now rather than leave the team short.
-    if (heldForShare.length && !relaxShare) {
+    // On the ladder: once the contacts on file are used up, before a cent goes
+    // on lookups (a held card from file costs the email; a bought one ~$0.30).
+    if (heldForShare.length && !relaxShare && (!ladder || (rungNow() === 'local' && li > 0) || rungNow() === 'local-wide')) {
       relaxShare = true;
       picks = heldForShare.splice(0);
       for (const c of picks) triedKeys.delete(Scout.normBrand(c.brand_name));
+      continue;
+    }
+    if (ladder) {
+      // This rung has nothing more: the next one.
+      li++;
+      if (li >= LADDER.length) { stop = 'ladder'; break; }
+      if (rungs[rungs.length - 1] !== rungNow()) rungs.push(rungNow());
+      if (rungNow() === 'places-refresh') {
+        // New ground, from the night's discovery pot (campusNightly). The
+        // businesses it finds are in the pool for the local-wide rung next.
+        if (typeof deps.refresh === 'function') {
+          const d = await deps.refresh({ team, have: have(), limit }).catch((e) => ({ ok: false, error: e.message, usd: 0 }));
+          refreshUsd += Number(d && d.usd) || 0; refreshFound += Number(d && d.newUsable) || 0;
+          if (d && d.capped) { stop = 'night-cap'; break; }
+        }
+        if (marketKey) await recheckPool(pool, marketKey);
+        li++;
+        if (rungs[rungs.length - 1] !== rungNow()) rungs.push(rungNow());
+      }
+      picks = ((await nextSlate([...triedNames], limit * 2)).picks || []).filter((c) => !triedKeys.has(Scout.normBrand(c.brand_name)));
       continue;
     }
     const nextRing = MP.RADII[ringIdx + 1];
@@ -634,6 +764,10 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   const held = have();
   out.loop = { stop: stop || (held >= limit ? 'floor' : null), candidates, candidatesToFloor: toFloor, rungs,
     held, floor: limit, elapsedMs: Date.now() - t0, costUsd: Math.round(cost() * 1000) / 1000, placesCalls,
+    // Where tonight's money went, and where the cards came from.
+    writeUsd: Math.round(asks * Qs.USD_PER_AI_CALL * 1000) / 1000, contactUsd: Math.round(resolveUsd * 1000) / 1000,
+    refreshUsd: Math.round(refreshUsd * 1000) / 1000, refreshFound,
+    byLane: { local: fromFileHeld, 'local-wide': lookedUpHeld, social: socialHeld },
     // Pitch mode: contacts looked up for the businesses picked, and how many
     // of those had a named, reachable person.
     contactsResolved, contactsReachable };
@@ -644,5 +778,5 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   return out;
 }
 
-module.exports = { runTeamScan, pitchSlate, PITCH_REST_DAYS, discover, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
+module.exports = { runTeamScan, pitchSlate, socialSlate, SOCIAL_PER_TEAM, SOCIAL_BRAND_NIGHTLY_MAX, PITCH_REST_DAYS, discover, storeCandidates, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
   BLOCKED_KEYS, PAYDAY_MARKERS, CATEGORY_FIT, MIGRATION };

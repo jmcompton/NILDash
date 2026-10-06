@@ -7371,6 +7371,7 @@ app.get('/api/admin/university-status/:universityId', requireAuth, requireCampus
     else if (holder && holder.stale) L.push(`\nA STALE LOCK (${holder.label}, no sign of life since ${String(holder.beatAt).slice(0, 19)}): the next job takes it over`);
     if (v.lastBuild) L.push('\n' + CB.formatBuild(v.lastBuild));
     const CN = require('./services/campusNightly');
+    if (v.lastNight) L.push('\n' + CN.formatNight(v.lastNight));
     const est = await CN.estimate(store.pool, id).catch(() => null);
     if (est && est.ok) L.push('\n' + CN.formatEstimate(est));
     if (imp && imp.summary) {

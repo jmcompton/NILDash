@@ -80,6 +80,51 @@ function formatFunnel(f) {
     + `${f.minimumTooHigh} minimum above a ${LEVEL_REACH.toLocaleString()}-follower athlete, ${f.noSportMatch} no sport match, ${f.incumbent} household incumbents, ${f.blocked} blocked; kept ${f.kept}`;
 }
 
+// ── BUY NAMED CONTACTS, BEST BUSINESSES FIRST ───────────────────────────────
+// For businesses in the pool with no contact looked up yet, inside DRIVE_KM:
+// the kinds most likely to do an athlete deal first (deal_priority), then fit,
+// then the nearest. No lookup is spent on a category that already holds its
+// 15% share of the contactable list. A lookup is started only when the budget
+// covers a dear one. Used by the build and, every night, by the university
+// night after its cards (campusNightly: the reserve for tomorrow).
+// opts: { budgetUsd, ai, stopAtReachable (stop once this many are found) }
+async function buyContacts(pool, uni, opts = {}) {
+  const CC = require('./campusContacts');
+  const TS = require('./teamScan');
+  const QC = require('./campusQuality');
+  await QC.ensureColumns(pool);
+  await QC.scorePool(pool, uni.marketKey);
+  await CC.seedRows(pool, uni);
+  const budget = Number(opts.budgetUsd) || 0;
+  const todo = (await pool.query(
+    `SELECT c.brand, c.place_id, COALESCE(m.deal_bucket, 'other') AS bucket FROM university_contacts c
+       JOIN university_market_seen m ON m.market_key = c.market_key AND m.brand = c.brand
+      WHERE c.university_id = $1 AND m.blocked_reason IS NULL AND (c.status IS NULL OR c.status = 'pending')
+        AND (m.distance_m IS NULL OR m.distance_m <= $2)
+      ORDER BY m.deal_priority DESC NULLS LAST, m.fit DESC NULLS LAST, m.distance_m ASC NULLS LAST`, [uni.id, DRIVE_KM * 1000])).rows;
+  const have = {};
+  for (const r of (await pool.query(`SELECT COALESCE(m.deal_bucket, 'other') AS bucket, COUNT(*)::int n FROM university_contacts c
+       JOIN university_market_seen m ON m.market_key = c.market_key AND m.brand = c.brand AND m.blocked_reason IS NULL
+      WHERE c.university_id = $1 AND c.reachable GROUP BY 1`, [uni.id])).rows) have[r.bucket] = r.n;
+  const totalHave = () => Object.values(have).reduce((a, b) => a + b, 0);
+  const shareFull = (b) => (have[b] || 0) >= Math.max(3, Math.ceil(QC.SHARE_CAP * Math.max(20, totalHave())));
+  const city = TS.cityOf(uni.location) || uni.location;
+  let contactUsd = 0, resolved = 0, reachable = 0, stoppedFor = null, skippedForShare = 0;
+  const found = [];
+  const perLookup = CC.perBusinessUsd('high', false).metered;
+  for (const row of todo) {
+    if (shareFull(row.bucket)) { skippedForShare++; continue; }
+    if (opts.stopAtReachable && reachable >= opts.stopAtReachable) { stoppedFor = 'enough'; break; }
+    if (contactUsd + perLookup > budget + 1e-9) { stoppedFor = 'budget'; break; }
+    const r = await CC.resolveAndStore(pool, uni.id, row, { city, ai: opts.ai, history: false, marketKey: uni.marketKey });
+    contactUsd += r.costUsd || 0; resolved++;
+    if (r.reachable) { reachable++; found.push({ brand: row.brand, bucket: row.bucket }); have[row.bucket] = (have[row.bucket] || 0) + 1; }
+  }
+  if (!stoppedFor && resolved + skippedForShare >= todo.length) stoppedFor = todo.length ? 'none left' : 'nothing to look up';
+  return { contactUsd: Math.round(contactUsd * 1000) / 1000, resolved, reachable, found, stoppedFor, skippedForShare,
+    left: Math.max(0, todo.length - resolved - skippedForShare), pending: todo.length };
+}
+
 // ── THE BUILD ───────────────────────────────────────────────────────────────
 async function build(pool, universityId, opts = {}) {
   const CP = require('./campusPool');
@@ -118,30 +163,8 @@ async function build(pool, universityId, opts = {}) {
   // 3. Named decision makers inside driving distance, to the cap: the kinds of
   //    business most likely to do an athlete deal first, and no lookup spent
   //    on a category that already holds its 15% share of the contactable list.
-  await CC.seedRows(pool, uni);
-  const todo = (await pool.query(
-    `SELECT c.brand, c.place_id, COALESCE(m.deal_bucket, 'other') AS bucket FROM university_contacts c
-       JOIN university_market_seen m ON m.market_key = c.market_key AND m.brand = c.brand
-      WHERE c.university_id = $1 AND m.blocked_reason IS NULL AND (c.status IS NULL OR c.status = 'pending')
-        AND (m.distance_m IS NULL OR m.distance_m <= $2)
-      ORDER BY m.deal_priority DESC NULLS LAST, m.fit DESC NULLS LAST, m.distance_m ASC NULLS LAST`, [uni.id, DRIVE_KM * 1000])).rows;
-  const have = {};
-  for (const r of (await pool.query(`SELECT COALESCE(m.deal_bucket, 'other') AS bucket, COUNT(*)::int n FROM university_contacts c
-       JOIN university_market_seen m ON m.market_key = c.market_key AND m.brand = c.brand AND m.blocked_reason IS NULL
-      WHERE c.university_id = $1 AND c.reachable GROUP BY 1`, [uni.id])).rows) have[r.bucket] = r.n;
-  const totalHave = () => Object.values(have).reduce((a, b) => a + b, 0);
-  const shareFull = (b) => (have[b] || 0) >= Math.max(3, Math.ceil(QC.SHARE_CAP * Math.max(20, totalHave())));
-  const city = TS.cityOf(uni.location) || uni.location;
-  let contactUsd = 0, resolved = 0, reachable = 0, stoppedFor = null, skippedForShare = 0;
-  const perLookup = CC.perBusinessUsd('high', false).metered;
-  for (const row of todo) {
-    if (shareFull(row.bucket)) { skippedForShare++; continue; }
-    // A lookup is bought only when the cap can cover a dear one.
-    if (placesUsd + contactUsd + perLookup > budget) { stoppedFor = 'budget'; break; }
-    const r = await CC.resolveAndStore(pool, uni.id, row, { city, ai: opts.ai, history: false, marketKey: uni.marketKey });
-    contactUsd += r.costUsd || 0; resolved++;
-    if (r.reachable) { reachable++; have[row.bucket] = (have[row.bucket] || 0) + 1; }
-  }
+  const bought = await buyContacts(pool, uni, { budgetUsd: budget - placesUsd, ai: opts.ai });
+  const { contactUsd, resolved, reachable, stoppedFor, skippedForShare } = bought;
   // The passes again for what the lookups just found, then the 15% cap.
   await passes();
   const cap = await QC.ensureCapped(pool, uni, { force: true });
@@ -154,7 +177,7 @@ async function build(pool, universityId, opts = {}) {
     spentUsd: r2(placesUsd + contactUsd), placesUsd: r2(placesUsd), contactUsd: r2(contactUsd),
     placesCalls: (deep && deep.placesCalls) || 0, poolSteps: (deep && deep.steps) || [], poolError: deep && !deep.ok ? deep.error : null,
     newlyBlocked: (re && Array.isArray(re.newlyBlocked) ? re.newlyBlocked.length : Number(re && re.newlyBlocked) || 0), blockedTotal: (re && Number(re.blocked)) || 0,
-    contactsTried: resolved, contactsFound: reachable, contactsLeft: todo.length - resolved - skippedForShare, stoppedFor, skippedForShare,
+    contactsTried: resolved, contactsFound: reachable, contactsLeft: bought.left, stoppedFor, skippedForShare,
     contactable: cap.contactable, listed: cap.listed, heldForShare: cap.held, histogram: hist,
     withdrawn: withdrawn.map((w) => ({ brand: w.brand, why: w.why, detail: w.detail })),
     withdrawnByWhy: withdrawn.reduce((o, w) => { o[w.why] = (o[w.why] || 0) + 1; return o; }, {}),
@@ -234,10 +257,17 @@ async function verify(pool, universityId) {
   if (teams && !found && lastBuild) failures.push('0 local businesses after a build');
   if (found && !named && lastBuild) failures.push('0 local businesses with a named contact');
   if (lastBuild && !social) failures.push('0 social brands: ' + (lastBuild.summary && lastBuild.summary.socialFunnel ? formatFunnel(lastBuild.summary.socialFunnel) : 'rebuild to see why'));
+  // THE RUNWAY: named contacts unused and ready for tomorrow, in nights at the
+  // current card rate. Under three nights is a failure: the night is spending
+  // the list faster than it is finding it.
+  const CN = require('./campusNightly');
+  const runway = teams && found ? await CN.runway(pool, uni.id).catch(() => null) : null;
+  if (runway && runway.failing) failures.push(`runway ${runway.nights} nights: ${runway.available} named contacts unused for ${runway.perNight} cards a night from file (under ${runway.failNights} nights)`);
   return { ok: true, university: uni.name, id: uni.id, location: uni.location, marketKey: uni.marketKey,
     center: row.lat != null ? { lat: row.lat, lng: row.lng } : null,
     teams, athletes, businessesFound: found, businessesBlocked: blocked, businessesWithNamedContact: named, contactableBeforeShareCap: contactable, socialBrands: social,
-    cardsLatestNight: cards, cardsAllTime: cardsAll, staff,
+    cardsLatestNight: cards, cardsAllTime: cardsAll, staff, runway,
+    namedContactsUnused: runway ? runway.available : null, runwayNights: runway ? runway.nights : null,
     lastBuild: lastBuild && lastBuild.summary, lastNight: lastNight && lastNight.summary,
     nightlyReady: !!(teams && found), needs, failures };
 }
@@ -252,12 +282,15 @@ function formatVerify(v) {
   L.push(`  with a named contact           ${v.businessesWithNamedContact}${v.contactableBeforeShareCap !== v.businessesWithNamedContact ? `   (${v.contactableBeforeShareCap} before the 15% category cap)` : ''}`);
   L.push(`  social brands at this level    ${v.socialBrands}`);
   L.push(`  cards, latest night            ${v.cardsLatestNight}   (all time ${v.cardsAllTime})`);
+  if (v.runway) L.push(`  named contacts unused          ${v.runway.available}   ready for tomorrow`,
+    `  runway                         ${v.runway.nights == null ? '-' : v.runway.nights + ' nights'}   at ${v.runway.perNight} cards a night from file (${v.runway.rateFrom})${v.runway.failing ? '   UNDER ' + v.runway.failNights + ' NIGHTS' : ''}`);
   L.push(`  staff accounts                 ${v.staff}`);
   if (v.lastBuild) L.push(`  last build spent               $${v.lastBuild.spentUsd} of $${v.lastBuild.budgetUsd} (Places $${v.lastBuild.placesUsd}, contacts $${v.lastBuild.contactUsd})${v.lastBuild.stoppedFor ? ', stopped at the cap' : ''}`);
-  if (v.lastNight) L.push(`  last night                     ${v.lastNight.cards} of ${v.lastNight.target} cards, $${v.lastNight.costUsd}`);
+  if (v.lastNight) L.push(`  last night                     ${v.lastNight.cards} of ${v.lastNight.target} cards, $${v.lastNight.costUsd}`
+    + (v.lastNight.spend ? ` (writing $${v.lastNight.spend.writingUsd}, discovery $${v.lastNight.spend.discoveryUsd}, contacts $${v.lastNight.spend.contactsUsd})` : ''));
   if (v.failures && v.failures.length) L.push('  FAILED:\n' + v.failures.map((n) => '    - ' + n).join('\n'));
   L.push(v.needs.length ? '  STILL NEEDS:\n' + v.needs.map((n) => '    - ' + n).join('\n') : (v.failures && v.failures.length ? '  the nightly will still fill local cards' : '  ready: the nightly will fill its cards'));
   return L.join('\n');
 }
 
-module.exports = { build, formatBuild, socialList, formatFunnel, verify, formatVerify, ensureTables, DRIVE_KM, LEVEL_REACH, BUILD_RINGS };
+module.exports = { build, buyContacts, formatBuild, socialList, formatFunnel, verify, formatVerify, ensureTables, DRIVE_KM, LEVEL_REACH, BUILD_RINGS };

@@ -241,6 +241,69 @@ async function recordBuild(row) {
   }
 }
 
+// ONE PLACE, KEPT OR DROPPED. OPERATIONAL only, >= MIN_RATINGS reviews, never
+// a no-local-authority corporate brand or a collective; chains flagged, not
+// dropped. Returns the candidate, or { drop: 'closed'|'thin'|'corporate'|'collective' }.
+function toCandidate(r, type) {
+  if (r.business_status && r.business_status !== 'OPERATIONAL') return { drop: 'closed' };
+  const ratings = Number(r.user_ratings_total) || 0;
+  if (ratings < MIN_RATINGS) return { drop: 'thin' };
+  if (isNoLocalAuthority(r.name)) return { drop: 'corporate' };
+  // A COLLECTIVE PAYS ATHLETES; it never enters a market pool (services/
+  // collectives: the named list, collective-only phrases, and the word
+  // "collective" unless Google says it is a consumer business).
+  if (require('./notASponsor').detect(r.name, { types: r.types, primaryType: r.primary_type, primaryTypeDisplayName: r.primary_type_label })) return { drop: 'collective' };
+  const loc = (r.geometry && r.geometry.location) || {};
+  return {
+    // Exact shape the market cache stores:
+    name: r.name,
+    website: null,                       // nearby has no website; lookupPlace fills later
+    category: categoryFor(r, type),
+    email: null,
+    evidence: null,                      // scorer writes the rationale, not discovery
+    franchise: false,                    // Places can't assert a locally-owned franchise
+    market: 'school',
+    // Places extras (pass through the JSONB cache):
+    chain: isNationalChain(r.name),
+    place_id: r.place_id,
+    types: Array.isArray(r.types) ? r.types : [],
+    primary_type: r.primary_type || null,
+    primary_type_label: r.primary_type_label || null,
+    address: r.vicinity || r.formatted_address || null,
+    lat: loc.lat != null ? loc.lat : null,
+    lng: loc.lng != null ? loc.lng : null,
+    rating: r.rating != null ? r.rating : null,
+    user_ratings_total: ratings,
+    business_status: r.business_status || 'OPERATIONAL',
+    price_level: r.price_level != null ? r.price_level : null,
+  };
+}
+
+// ── ONE CELL, ONE SEARCH (services/campusDiscovery) ─────────────────────────
+// The incremental discovery asks Google about one small piece of ground at a
+// time, so nothing is ever asked twice. Each is exactly ONE request:
+//   nearbyCell  searchNearby, one type, a circle
+//   textCell    searchText, a search term, a rectangle (searchText restricts
+//               to rectangles only)
+// Returns { ok, results (legacy shape), saturated (came back full), calls: 1, error }.
+async function nearbyCell({ center, radiusM, type }, opts = {}) {
+  const apiKey = (opts.apiKey || process.env.GOOGLE_PLACES_API_KEY || '').trim();
+  if (!apiKey) return { ok: false, results: [], calls: 0, error: 'no_api_key: GOOGLE_PLACES_API_KEY is not set' };
+  const r = await _nearby(center, radiusM, type, apiKey, opts);
+  return { ok: r.ok, results: r.results, saturated: r.results.length >= MAX_PER_CALL, calls: 1, error: r.error || null };
+}
+async function textCell({ center, radiusM, term }, opts = {}) {
+  const apiKey = (opts.apiKey || process.env.GOOGLE_PLACES_API_KEY || '').trim();
+  if (!apiKey) return { ok: false, results: [], calls: 0, error: 'no_api_key: GOOGLE_PLACES_API_KEY is not set' };
+  const lo = _offset(center, -radiusM, -radiusM), hi = _offset(center, radiusM, radiusM);
+  const r = await _post(SEARCH_TEXT_URL, { textQuery: term, pageSize: MAX_PER_CALL,
+    locationRestriction: { rectangle: { low: { latitude: lo.lat, longitude: lo.lng }, high: { latitude: hi.lat, longitude: hi.lng } } } },
+  apiKey, NEARBY_MASK, opts);
+  if (!r.ok) return { ok: false, results: [], calls: 1, error: _fail(r) };
+  const results = (r.body.places || []).map(_legacyShape);
+  return { ok: true, results, saturated: results.length >= MAX_PER_CALL, calls: 1, error: null };
+}
+
 // Build the full school-market pool from Places. Returns:
 // { ok, candidates, placesCalls, ms, poolBeforeFilter, geocoded, reason? }
 // `school` is anything Places can find: a school name or a street address.
@@ -312,42 +375,13 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
   let dropClosed = 0, dropThin = 0, dropCorporate = 0, dropCollective = 0, chains = 0;
   const candidates = [];
   for (const { r, type } of byId.values()) {
-    if (r.business_status && r.business_status !== 'OPERATIONAL') { dropClosed++; continue; }
-    const ratings = Number(r.user_ratings_total) || 0;
-    if (ratings < MIN_RATINGS) { dropThin++; continue; }
-    if (isNoLocalAuthority(r.name)) { dropCorporate++; continue; }
-    // A COLLECTIVE PAYS ATHLETES; it never enters a market pool (services/
-    // collectives: the named list, collective-only phrases, and the word
-    // "collective" unless Google says it is a consumer business).
-    if (require('./notASponsor').detect(r.name, { types: r.types, primaryType: r.primary_type, primaryTypeDisplayName: r.primary_type_label })) {
-      dropCollective++; continue;
-    }
-    const chain = isNationalChain(r.name);
-    if (chain) chains++;
-    const loc = (r.geometry && r.geometry.location) || {};
-    candidates.push({
-      // Exact shape the market cache stores:
-      name: r.name,
-      website: null,                       // nearby has no website; lookupPlace fills later
-      category: categoryFor(r, type),
-      email: null,
-      evidence: null,                      // scorer writes the rationale, not discovery
-      franchise: false,                    // Places can't assert a locally-owned franchise
-      market: 'school',
-      // Places extras (pass through the JSONB cache):
-      chain,
-      place_id: r.place_id,
-      types: Array.isArray(r.types) ? r.types : [],
-      primary_type: r.primary_type || null,
-      primary_type_label: r.primary_type_label || null,
-      address: r.vicinity || r.formatted_address || null,
-      lat: loc.lat != null ? loc.lat : null,
-      lng: loc.lng != null ? loc.lng : null,
-      rating: r.rating != null ? r.rating : null,
-      user_ratings_total: ratings,
-      business_status: r.business_status || 'OPERATIONAL',
-      price_level: r.price_level != null ? r.price_level : null,
-    });
+    const c = toCandidate(r, type);
+    if (c.drop === 'closed') { dropClosed++; continue; }
+    if (c.drop === 'thin') { dropThin++; continue; }
+    if (c.drop === 'corporate') { dropCorporate++; continue; }
+    if (c.drop === 'collective') { dropCollective++; continue; }
+    if (c.chain) chains++;
+    candidates.push(c);
   }
 
   const ms = Date.now() - t0;
@@ -359,5 +393,5 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
   { failedCalls, saturatedTypes, warning: errors.length ? `partial: ${errors.length} type(s) failed, e.g. ${errors[0]}` : null });
 }
 
-module.exports = { categoryFor, buildMarketPoolFromPlaces, geocodeSchool, recordBuild, NEARBY_TYPES, TYPE_CATEGORY,
+module.exports = { categoryFor, buildMarketPoolFromPlaces, geocodeSchool, recordBuild, NEARBY_TYPES, TYPE_CATEGORY, toCandidate, nearbyCell, textCell, MIN_RATINGS,
   RADIUS_M, MAX_PER_CALL, SEARCH_NEARBY_URL, SEARCH_TEXT_URL, NEARBY_MASK, _legacyShape };

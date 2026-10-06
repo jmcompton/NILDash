@@ -58,10 +58,14 @@ function milesFrom(m) {
 //                 (ctx.athlete: the name and facts THEY typed). The department
 //                 facilitates NIL for its athletes, so NIL language is allowed
 //                 here and only here; no other person may be named.
-function kindOf(ctx) { return ctx.athlete ? 'athlete' : ctx.item ? 'ask' : 'pitch'; }
+//   program       the social rung (campusNightly): a brand that runs an
+//                 athlete program (the social index), asked to partner with
+//                 the TEAM. Its program is about athletes, so the words
+//                 ambassador and NIL may appear; no athlete is ever named.
+function kindOf(ctx) { return ctx.athlete ? 'athlete' : ctx.item ? 'ask' : ctx.program ? 'program' : 'pitch'; }
 
 // The facts the model sees. Deliberately small, and nothing about any person.
-function facts({ university, team, business, item, athlete }) {
+function facts({ university, team, business, item, athlete, program }) {
   const lines = [
     `DEPARTMENT: ${university.name} Athletics`,
     `TEAM: ${team.name}${team.sport ? ` (${team.sport})` : ''}${team.season ? `, ${team.season} season` : ''}`,
@@ -79,6 +83,8 @@ function facts({ university, team, business, item, athlete }) {
     business.evidence ? `WHAT WE KNOW THEY DO LOCALLY: ${business.evidence}` : null,
     item ? `THE ASK: ${item.name}, ${money(item.price_cents)}` : null,
     athlete ? `ATHLETE (the only person you may name): ${athlete.name}${athlete.facts ? ` -- ${athlete.facts}` : ''}` : null,
+    program && program.offer ? `THEIR ATHLETE PROGRAM: ${program.offer}` : null,
+    program && program.url ? `PROGRAM PAGE: ${program.url}` : null,
   ];
   return lines.filter(Boolean).join('\n');
 }
@@ -111,6 +117,23 @@ function buildPitchPrompt(ctx, kind, retryBecause) {
 - Never build the reason on a coincidence: a shared word, a name, a theme, a mascot, a colour or a pun. If the only true reasons are that they are nearby and games bring people past them, say that plainly and stop.
 - Never invent a fact that is not above. No prices, no dollar amounts.
 - End with one short line asking for a short call or a reply.`;
+  if (kind === 'program') {
+    return `${facts(ctx)}
+
+Write a short email from the athletic department to this brand, which runs an athlete program (above). Ask whether they would partner with the ${ctx.team.name} program as a team: for example, opening their program to the whole team at once, or backing the team's season. Say why this brand and this team, from the facts above only (what they make, who their program is for, the sport).
+- Never name or describe any student athlete, coach or staff member.
+- Never invent a fact that is not above: no follower counts, no results, no records.
+- 60 to 130 words. Plain sentences, no bullet points, no headings.
+- Do NOT write a greeting or a sign-off; they are added for you.
+- Never build the reason on a coincidence: a shared word, a name, a theme, a mascot, a colour or a pun.
+- No prices, no dollar amounts.
+- End with one short line asking for a short call or a reply.
+${retryBecause ? `\nYour last draft was rejected: ${retryBecause}. Fix that.\n` : ''}
+Output exactly:
+SUBJECT: <subject line>
+BODY:
+<body>`;
+  }
   const what = kind === 'athlete'
     ? `Write a short email from the athletic department introducing ${ctx.athlete.name} for a name, image and likeness (NIL) partnership with this business: for example a few social posts or an appearance at the business. Use only the athlete facts above. Name no other person.`
     : `Write a short email from the athletic department asking whether this business would like to support the ${ctx.team.name} program as a local partner this season. The support goes to the program (the season, travel, equipment), never to a person. Never name or describe any student athlete, coach or staff member. Never use the words NIL, endorsement or influencer.`;
@@ -169,7 +192,7 @@ function checkPitch(parsed, ctx, kind) {
   const text = parsed.subject + '\n' + body;
   if (/\$\s?\d/.test(body)) return { ok: false, why: 'it names a price; this message has none' };
   if (kind === 'pitch' && /\bNIL\b|\bendorse(ment|s)?\b|\binfluencer/i.test(text)) return { ok: false, why: 'it uses NIL, endorsement or influencer language' };
-  if (kind === 'pitch' && (ROLE_THEN_NAME.test(body) || JERSEY.test(body))) return { ok: false, why: 'it names or identifies a person on the team' };
+  if ((kind === 'pitch' || kind === 'program') && (ROLE_THEN_NAME.test(body) || JERSEY.test(body))) return { ok: false, why: 'it names or identifies a person on the team' };
   if (kind === 'athlete') {
     const allowed = String(ctx.athlete.name || '').toLowerCase();
     const m = body.match(ROLE_THEN_NAME);

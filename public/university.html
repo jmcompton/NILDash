@@ -737,9 +737,12 @@ function leadCard(d){
   const mailto = d.contact_email ? `mailto:${encodeURIComponent(d.contact_email)}?subject=${encodeURIComponent(d.subject || "")}&body=${encodeURIComponent(d.body || "")}` : "";
   const done = d.sent_at || (d.stage && d.stage !== "not_contacted");
   return `<div class="lead">
-    <div class="biz">${esc(d.brand_name)}</div>
-    <div class="who">${d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No named contact yet</span>`}</div>
-    ${reachLine({ email:d.contact_email, phone:d.contact_phone, instagram:d.contact_instagram })}
+    <div class="biz">${esc(d.brand_name)}${d.lane === "social" ? ` <span class="chip">BRAND PROGRAM</span>` : ""}</div>
+    ${d.lane === "social"
+      ? `<div class="who"><span>A brand that runs an athlete program. Reach them through their program page.</span></div>
+         ${d.program_url ? `<div class="reach"><a href="${esc(d.program_url)}" target="_blank" rel="noopener">Program page</a></div>` : ""}`
+      : `<div class="who">${d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No named contact yet</span>`}</div>
+    ${reachLine({ email:d.contact_email, phone:d.contact_phone, instagram:d.contact_instagram })}`}
     ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
     <details><summary>Read the email</summary><pre>${esc(d.subject ? "Subject: " + d.subject + "\n\n" : "")}${esc(d.body || "")}</pre></details>
     <div class="toolrow">

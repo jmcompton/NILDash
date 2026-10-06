@@ -200,33 +200,63 @@ async function main() {
   ok('short of five: the night says so, by team, with where it stopped', r2.cards === 0 && r2.short.length === 2 && r2.short.every((x) => x.stop === 'ladder' && x.rungs.includes('local')), r2.short);
   const faults = (await P.query(`SELECT reason FROM service_faults WHERE service = 'nightly-floor' AND context LIKE 'teamScan crm:%' ORDER BY at DESC LIMIT 5`).catch(() => ({ rows: [] }))).rows;
   ok('  and an ourFault nightly-floor alert names the team and the rungs', faults.some((f) => /Crm Test College Women's Basketball: 0 of 5 cards/.test(f.reason) && /rungs tried: local/.test(f.reason)), faults);
-  // ── 4a. NO PLACES AT NIGHT, AND ONE HARD $5 CAP FOR THE WHOLE NIGHT ─────
-  OUT.push('', '-- no Places at night, one hard cap for the night --');
-  // Nothing reachable, so both teams run out of businesses. The night reads
-  // the built list and never pays for a Places sweep of the campus.
+  // ── 4a. NO RING SWEEPS AT NIGHT: NEW GROUND, ONE SQUARE AT A TIME ──────
+  OUT.push('', '-- the night finds new ground, never the same ground twice; one hard $5 cap --');
+  // Nothing reachable, so both teams climb the whole ladder. The old full
+  // campus re-sweep (a Places build per ring) is never called by the night.
   const builds = [];
   const places = { buildMarketPoolFromPlaces: async (loc, o) => { builds.push(o.radiusM || 0); return { ok: true, candidates: [], placesCalls: 3, geocoded: null }; } };
-  const MPm = require(REPO + 'server/services/marketPools.js');
-  const r0 = await CN.runNight(P, A, { ai, places, resolveContacts: false, night: '2026-10-06b', nightCapUsd: 20 });
-  ok('THE NIGHT MAKES NO PLACES CALL: it reads the business list the build made', builds.length === 0 && r0.placesCalls === 0 && r0.placesUsd === 0, { builds, r0 });
-  ok('  and the night cap is hard at $5, whatever is asked for', r0.nightCapUsd === 5 && CN.NIGHT_CAP_USD <= 5 && CN.NIGHT_HARD_CAP_USD === 5, r0.nightCapUsd);
-  ok('  the projection is printed and stored on the run before it spends', r0.projected && r0.projected.ok && r0.projected.placesUsd === 0, r0.projected);
-  // Asked for explicitly (an admin widening the list), Places is still shared:
-  // the campus once for every team, each wider ring once.
-  const rn = await CN.runNight(P, A, { ai, places, resolveContacts: false, night: '2026-10-07', discoverPool: true });
-  ok('when Places is asked for, the campus is built once for every team, and each wider ring once', builds.filter((x) => x === 0).length === 1
-    && new Set(builds).size === builds.length && builds.length === MPm.RADII.length, builds);
-  ok('  and the night reports its Places spend inside its total', rn.placesCalls === builds.length * 3 && rn.costUsd >= rn.placesUsd && rn.nightCapUsd === CN.NIGHT_CAP_USD, rn);
-  builds.length = 0;
-  const rc = await CN.runNight(P, A, { ai, places, resolveContacts: false, night: '2026-10-08', nightCapUsd: 0.3, discoverPool: true });
-  ok('a night cap holds across teams: the first team cannot afford a ring, the second does not start',
-    rc.costUsd <= 0.3 && builds.length === 1 && rc.perTeam.every((t) => t.stop === 'night-cap') && rc.perTeam[1].costUsd === 0, { builds, rc: rc.perTeam });
-  ok('  the team that goes first turns over night by night', rn.perTeam[0].teamId !== rc.perTeam[0].teamId, [rn.perTeam[0].teamId, rc.perTeam[0].teamId]);
+  // The cell search, faked: each search returns two new businesses of what it
+  // asked for, inside the square, and records exactly what was asked.
+  const asked = [];
+  let seq = 0;
+  const cellPlace = (what, c) => ({ place_id: 'cell-' + (++seq), name: `Found ${what} ${seq}`, types: [what === 'gym' ? 'gym' : 'restaurant'],
+    primary_type: what === 'gym' ? 'gym' : 'restaurant', primary_type_label: null, vicinity: `${seq} Cell St`, geometry: { location: { lat: c.lat, lng: c.lng } },
+    rating: 4.6, user_ratings_total: 80, business_status: 'OPERATIONAL' });
+  const discoveryPlaces = {
+    geocodeSchool: async () => ({ coords: { lat: 33.8, lng: -118.0 }, calls: 1 }),
+    nearbyCell: async ({ center, radiusM, type }) => { asked.push(`type:${type}@${center.lat.toFixed(5)},${center.lng.toFixed(5)}`); return { ok: true, results: [cellPlace(type, center), cellPlace(type, center)], saturated: false, calls: 1 }; },
+    textCell: async ({ center, term }) => { asked.push(`term:${term}@${center.lat.toFixed(5)},${center.lng.toFixed(5)}`); return { ok: true, results: [cellPlace(term, center)], saturated: false, calls: 1 }; },
+  };
+  const ownerAi = {
+    deepContactCtx: (o) => ({ ...o }),
+    getBrandContacts: async (brand) => (/^Found/.test(brand) ? { contacts: [{ name: 'Nora Vance', title: 'Owner', email: `nora.${String(brand).split(' ').pop()}@found.test`, source: 'site' }], addressLadder: {} } : { contacts: [], addressLadder: {} }),
+    webSearchJson: async () => ({ text: '{"name": null}', citations: [] }),
+  };
+  const r0 = await CN.runNight(P, A, { ai, places, discoveryPlaces, contactsAi: ownerAi, night: '2026-10-09', nightCapUsd: 20 });
+  ok('THE NIGHT NEVER RE-SWEEPS THE CAMPUS: no ring build', builds.length === 0, builds);
+  ok('  and the night cap is hard at $5, whatever is asked for', r0.nightCapUsd === 5 && CN.NIGHT_CAP_USD <= 5 && CN.NIGHT_HARD_CAP_USD === 5 && r0.costUsd <= 5, r0.nightCapUsd);
+  ok('  the projection is printed and stored on the run before it spends', r0.projected && r0.projected.ok && r0.projected.discoveryUsd > 0, r0.projected);
+  ok('A TEAM WITH NOTHING ON FILE CLIMBS THE LADDER: local, social, local-wide, places-refresh, and gets its cards from the new ground',
+    r0.perTeam.some((t) => (t.rungs || []).includes('places-refresh')) && r0.perTeam[0].rungs[0] === 'local' && r0.byLane['local-wide'] > 0 && r0.cards > 0, r0.perTeam);
+  ok('  the new ground is searched square by square and written down', r0.discovery.searches > 0 && r0.discovery.newBusinesses > 0
+    && (await P.query(`SELECT COUNT(*)::int n FROM university_discovery_cells WHERE market_key = $1`, [MKA])).rows[0].n === r0.discovery.searches, r0.discovery);
+  ok('  the spend is split: writing, discovery, contacts, and adds up to the total', r0.spend && Math.abs(r0.spend.writingUsd + r0.spend.discoveryUsd + r0.spend.contactsUsd + r0.spend.placesRingsUsd - r0.costUsd) < 0.01
+    && r0.spend.discoveryUsd > 0 && r0.spend.writingUsd > 0, r0.spend);
+  ok('  and the discovery stays inside its pot', r0.spend.discoveryUsd <= CN.DISCOVERY_USD + 1e-9, r0.spend);
+  const r1 = await CN.runNight(P, A, { ai, places, discoveryPlaces, contactsAi: ownerAi, night: '2026-10-07' });
+  ok('THE NEXT NIGHT NEVER ASKS THE SAME QUESTION TWICE: no square searched for the same thing again', asked.length > 0 && new Set(asked).size === asked.length && r1.discovery.searches > 0,
+    { asked: asked.length, distinct: new Set(asked).size, dup: asked.filter((x, i) => asked.indexOf(x) !== i) });
+  const CD = require(REPO + 'server/services/campusDiscovery.js');
+  const centre = { lat: 33.8, lng: -118.0 };
+  const top = CD.squares(centre, 25)[0];
+  const full = new Map([[`type:gym@${top.key}`, { cell_key: `type:gym@${top.key}`, kind: 'type', what: 'gym', band: 0, saturated: true, new_usable: 5, searched_at: new Date() }]]);
+  const fr = CD.frontier(centre, 25, full);
+  ok('  a square that came back full is searched again as its four quarters, never as itself', !fr.some((x) => x.key === `type:gym@${top.key}`)
+    && fr.filter((x) => x.what === 'gym' && x.key.startsWith(`type:gym@${top.key}/`)).length === 4, fr.filter((x) => x.what === 'gym').slice(0, 6).map((x) => x.key));
+  ok('  the inner band first, and the likeliest sponsors first within it', fr[0].sq.band === 0 && fr[0].priority === 10);
+  const rc = await CN.runNight(P, A, { ai, places, discoveryPlaces, contactsAi: ownerAi, night: '2026-10-08', nightCapUsd: 0.3 });
+  ok('a lower cap holds across the whole night, discovery included', rc.costUsd <= 0.3 + 1e-9, { cost: rc.costUsd, spend: rc.spend });
+  ok('  the team that goes first turns over night by night', r1.perTeam[0].teamId !== rc.perTeam[0].teamId, [r1.perTeam[0].teamId, rc.perTeam[0].teamId]);
+  await P.query(`DELETE FROM university_contacts WHERE university_id = $1 AND brand LIKE 'Found %'`, [A]);
+  await P.query(`DELETE FROM university_drafts WHERE university_id = $1 AND brand_name LIKE 'Found %'`, [A]);
+  await P.query(`DELETE FROM university_market_seen WHERE market_key = $1 AND brand LIKE 'Found %'`, [MKA]);
+  await P.query(`DELETE FROM university_discovery_cells WHERE market_key = $1`, [MKA]);
   const due = await CN.universitiesDue(P);
   ok('the scheduler runs a department with teams and a business list, contacts on file or not', due.includes(A) && due.includes(B), due);
   const est = await CN.estimate(P, A);
-  ok('the estimate spends nothing, prices no Places, splits the cards into contact-on-file and lookup-needed, and never exceeds the cap',
-    est.ok && est.teams === 2 && est.cards === 10 && est.placesUsd === 0 && est.cardsFromFile + est.lookupsNeeded === est.cards
+  ok('the estimate spends nothing, prices discovery as its pot, splits the cards into social, contact-on-file and lookup-needed, and never exceeds the cap',
+    est.ok && est.teams === 2 && est.cards === 10 && est.discoveryUsd === CN.DISCOVERY_USD && est.socialCards + est.cardsFromFile + est.lookupsNeeded === est.cards
     && est.totalUsd[1] <= est.nightCapUsd && est.nightCapUsd <= 5 && /HARD CAP: \$5\.00/.test(CN.formatEstimate(est)), est);
 
   // Put the contacts back for the sections that follow.

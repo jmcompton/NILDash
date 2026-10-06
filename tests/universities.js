@@ -365,8 +365,11 @@ const aiStub = {
   // ── 5c. THE NIGHT: HARD $5, NO PLACES, THE PROJECTION FIRST ─────────────
   OUT.push('', '-- the night: projected, capped at $5 --');
   const est = await CN.estimate(P, UID);
-  ok('the projection: 3 teams x 5 cards, the named contacts on file first, lookups only for the rest, no Places', est.ok && est.cards === 15 && est.cardsFromFile === 3
-    && est.lookupsNeeded === 12 && est.placesUsd === 0 && est.totalUsd[1] <= 5 && est.nightCapUsd === 5, est);
+  ok('the projection: 3 teams x 5 cards, a social seat a team (one brand, two teams at most), the named contacts on file, lookups only for the rest',
+    est.ok && est.cards === 15 && est.socialCards === 2 && est.cardsFromFile === 3 && est.lookupsNeeded === 10 && est.discoveryUsd === CN.DISCOVERY_USD
+    && est.totalUsd[1] <= 5 && est.nightCapUsd === 5, est);
+  ok('  with what a named contact costs here, the reserve before and after, and the runway', est.perNamedUsd > 0 && est.reserveNow === 3 && Number.isFinite(est.runwayNightsNow)
+    && /RUNWAY: /.test(CN.formatEstimate(est)) && /PROJECTED: \$\d+\.\d\d -- writing \$/.test(CN.formatEstimate(est)), CN.formatEstimate(est));
   ok('  printed', /TONIGHT FOR UT Cypress College: 3 teams x 5 cards = 15 cards/.test(CN.formatEstimate(est)) && /HARD CAP: \$5\.00/.test(CN.formatEstimate(est)), CN.formatEstimate(est));
   const stTxt = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   ok('  and on the status page, before the run', /CN\.formatEstimate\(est\)/.test(stTxt));
