@@ -7231,7 +7231,11 @@ app.post('/api/admin/university-users', requireAuth, requireCampusAdmin, async (
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-const _uniJobs = new Map();   // universityId -> the step running now
+// ONE JOB PER UNIVERSITY, ON A LOCK THAT EXPIRES (services/universityJobs):
+// a row every process sees, beaten every minute, free after 20 minutes
+// without a beat. The in-memory Map it replaces stuck at "already running"
+// after a crash or a deploy, with nothing running.
+const UJ = require('./services/universityJobs');
 async function _uniStep(universityId, kind, fn) {
   const run = (await store.pool.query(`INSERT INTO university_market_runs (university_id, kind, summary) VALUES ($1,$2,$3) RETURNING id`,
     [universityId, kind, { started: true }])).rows[0].id;
@@ -7240,15 +7244,30 @@ async function _uniStep(universityId, kind, fn) {
   await store.pool.query(`UPDATE university_market_runs SET finished_at = NOW(), summary = $2 WHERE id = $1`, [run, r]).catch(() => {});
   return r;
 }
-function _uniBackground(req, res, label, work) {
+async function _uniBackground(req, res, label, work) {
   const id = String((req.body || {}).universityId || '').trim();
   if (!id) return res.status(400).json({ ok: false, error: 'universityId is required' });
-  if (_uniJobs.has(id)) return res.status(409).json({ ok: false, error: `${id} is already running: ${_uniJobs.get(id)}` });
-  _uniJobs.set(id, label);
-  (async () => { try { await work(id); } finally { _uniJobs.delete(id); } })()
+  const got = await UJ.acquire(store.pool, id, label).catch((e) => ({ ok: false, error: e.message }));
+  if (!got.ok) {
+    const h = got.holder;
+    return res.status(409).json({ ok: false, error: got.error || `${id} is already running: ${h && h.label} (started ${h && String(h.startedAt).slice(0, 19)}, last sign of life ${h && String(h.beatAt).slice(0, 19)}; a lock with no sign of life for ${Math.round(UJ.STALE_MS / 60000)} minutes frees itself, or POST /api/admin/university-unlock)` });
+  }
+  const t = setInterval(() => UJ.beat(store.pool, id), UJ.HEARTBEAT_MS);
+  if (t.unref) t.unref();
+  (async () => { try { await work(id, (l) => UJ.beat(store.pool, id, l)); } finally { clearInterval(t); await UJ.release(store.pool, id); } })()
     .catch((e) => console.error(`[university] ${label} for ${id} failed:`, e.message));
   res.json({ ok: true, started: label, status: `/api/admin/university-status/${encodeURIComponent(id)}?text=1` });
 }
+app.post('/api/admin/university-unlock', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const id = String((req.body || {}).universityId || '').trim();
+    if (!id) return res.status(400).json({ ok: false, error: 'universityId is required' });
+    const was = await UJ.status(store.pool, id);
+    await UJ.release(store.pool, id);
+    console.log(`[university] lock for ${id} cleared by hand (was: ${was ? was.label : 'none'})`);
+    res.json({ ok: true, cleared: was });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 const _uniImport = (id, siteUrl) => _uniStep(id, 'roster-import', () => require('./services/universityRosterImport').importRosters(store.pool, { universityId: id, siteUrl }));
 const _uniBuild = (id, budgetUsd) => _uniStep(id, 'build-request', () => require('./services/campusBuild').build(store.pool, id, { budgetUsd: Math.min(50, Number(budgetUsd) || 12) }));
 const _uniNight = (id) => require('./services/campusNightly').runNight(store.pool, id);
@@ -7265,10 +7284,10 @@ app.post('/api/admin/university-nightly', requireAuth, requireCampusAdmin, (req,
 });
 app.post('/api/admin/university-bootstrap', requireAuth, requireCampusAdmin, (req, res) => {
   const { siteUrl, budgetUsd } = req.body || {};
-  _uniBackground(req, res, 'bootstrap', async (id) => {
-    if (siteUrl) { _uniJobs.set(id, 'bootstrap: roster import'); const r = await _uniImport(id, siteUrl); if (!r.ok) return; }
-    _uniJobs.set(id, 'bootstrap: business build'); const b = await _uniBuild(id, budgetUsd); if (!b.localFound) return;   // a social failure is reported, and local cards still run
-    _uniJobs.set(id, 'bootstrap: nightly'); await _uniNight(id);
+  _uniBackground(req, res, 'bootstrap', async (id, step) => {
+    if (siteUrl) { await step('bootstrap: roster import'); const r = await _uniImport(id, siteUrl); if (!r.ok) return; }
+    await step('bootstrap: business build'); const b = await _uniBuild(id, budgetUsd); if (!b.localFound) return;   // a social failure is reported, and local cards still run
+    await step('bootstrap: nightly'); await _uniNight(id);
   });
 });
 app.get('/api/admin/universities', requireAuth, requireCampusAdmin, async (req, res) => {
@@ -7289,10 +7308,13 @@ app.get('/api/admin/university-status/:universityId', requireAuth, requireCampus
     const v = await CB.verify(store.pool, id);
     const last = async (kind) => ((await store.pool.query(`SELECT summary, started_at, finished_at FROM university_market_runs WHERE university_id = $1 AND kind = $2 ORDER BY id DESC LIMIT 1`, [id, kind]).catch(() => ({ rows: [] }))).rows[0] || null);
     const imp = await last('roster-import');
-    const out = { ...v, running: _uniJobs.get(id) || null, rosterImport: imp };
+    const holder = await UJ.status(store.pool, id).catch(() => null);
+    const out = { ...v, running: holder && !holder.stale ? holder.label : null, lock: holder, rosterImport: imp };
     if (req.query.text !== '1') return res.json(out);
     const L = [CB.formatVerify(v)];
-    if (out.running) L.push(`\nRUNNING NOW: ${out.running}`);
+    if (out.running) L.push(`\nRUNNING NOW: ${out.running} (last sign of life ${String(holder.beatAt).slice(0, 19)})`);
+    else if (holder && holder.stale) L.push(`\nA STALE LOCK (${holder.label}, no sign of life since ${String(holder.beatAt).slice(0, 19)}): the next job takes it over`);
+    if (v.lastBuild) L.push('\n' + CB.formatBuild(v.lastBuild));
     const CN = require('./services/campusNightly');
     const est = await CN.estimate(store.pool, id).catch(() => null);
     if (est && est.ok) L.push('\n' + CN.formatEstimate(est));

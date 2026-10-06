@@ -47,6 +47,16 @@ const NATIONAL_CHAINS = [
   're/max', 'keller williams', 'coldwell banker', 'century 21', 'exp realty',
   // Misc
   'ups store', 'fedex office', 'orkin', 'terminix', 'servpro', 'stanley steemer',
+  // Added after Cypress (2026-10): a store manager at a national chain cannot
+  // sign an NIL deal. Sporting goods, auto parts, insurance storefronts,
+  // med-spa and dental chains, wireless, rental, entertainment chains.
+  'big 5', 'hibbett', 'modell', 'sports authority',
+  'autozone', 'o\'reilly auto', 'advance auto', 'napa auto', 'pep boys', 'car-x', 'monro',
+  'freeway insurance', 'confie', 'kemper', 'mercury insurance', 'aaa insurance', 'h&r block', 'jackson hewitt', 'liberty tax',
+  'laseraway', 'ideal image', 'aspen dental', 'western dental', 'bright now', 'coast dental', 'castle dental', 'gentle dental', 'kaiser permanente',
+  'verizon', 't-mobile', 'at&t store', 'cricket wireless', 'metro by t-mobile', 'boost mobile', 'mattress firm',
+  'enterprise rent', 'hertz', 'u-haul', 'public storage', 'extra space storage',
+  '24 hour fitness', 'eos fitness', 'chuck e. cheese', 'dave & buster', 'round1', 'main event', 'sky zone', 'urban air', 'boot barn', 'skechers',
 ];
 
 const _lc = NATIONAL_CHAINS.map((s) => String(s).toLowerCase());

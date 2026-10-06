@@ -41,6 +41,9 @@ const SORTS = {
   name: 'm.brand', distance: 'm.distance_m', category: 'm.category', rating: 'm.rating', reviews: 'm.user_ratings_total',
   stage: `array_position(ARRAY['not_contacted','contacted','replied','in_talks','deal_signed','declined','do_not_contact'], COALESCE(r.stage,'not_contacted'))`,
   last_touch: 'r.last_touch_at', contact: 'c.reachable', fit: 'fit_score',
+  // How likely the kind of business is to do an athlete deal (campusQuality),
+  // contactable first, a category over its 15% share after, then nearest.
+  priority: 'm.deal_priority',
 };
 
 function parseFilters(q) {
@@ -54,7 +57,7 @@ function parseFilters(q) {
     history: q.history === '1' || q.history === 'true',
     team: String(q.team || '').trim() || null,
     stages: list(q.stage).filter((s) => STAGES.includes(s)),
-    sort: SORTS[q.sort] ? q.sort : (q.team ? 'fit' : 'distance'),
+    sort: SORTS[q.sort] ? q.sort : (q.team ? 'fit' : 'priority'),
     dir: String(q.dir || '').toLowerCase() === 'desc' ? 'DESC' : (String(q.dir || '').toLowerCase() === 'asc' ? 'ASC' : null),
     limit: Math.min(5000, Math.max(1, parseInt(q.limit, 10) || 100)),
     offset: Math.max(0, parseInt(q.offset, 10) || 0),
@@ -62,6 +65,7 @@ function parseFilters(q) {
 }
 
 async function search(pool, universityId, query) {
+  await require('./campusQuality').ensureColumns(pool).catch(() => {});
   const u = await universityFor(pool, universityId);
   if (!u) return { ok: false, error: 'no university' };
   const f = parseFilters(query || {});
@@ -82,7 +86,7 @@ async function search(pool, universityId, query) {
               (SELECT x->>'why' FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = ${t}) AS fit_why`;
     where.push(`COALESCE((SELECT (x->>'score')::int FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = ${t}), ${FIT_MIN}) >= ${FIT_MIN}`);
   }
-  const dir = f.dir || (['fit', 'rating', 'reviews', 'last_touch', 'contact'].includes(f.sort) ? 'DESC' : 'ASC');
+  const dir = f.dir || (['fit', 'rating', 'reviews', 'last_touch', 'contact', 'priority'].includes(f.sort) ? 'DESC' : 'ASC');
   const base = `FROM university_market_seen m
       LEFT JOIN university_contacts c ON c.university_id = $1 AND c.brand = m.brand
       LEFT JOIN university_crm r ON r.university_id = $1 AND r.brand = m.brand
@@ -90,11 +94,14 @@ async function search(pool, universityId, query) {
   const total = (await pool.query(`SELECT COUNT(*)::int n ${base}`, args)).rows[0].n;
   const rows = (await pool.query(
     `SELECT * FROM (SELECT m.brand, m.category, m.primary_type_label, m.address, m.distance_m, m.rating, m.user_ratings_total, m.place_id,
+            m.deal_priority, m.deal_bucket, c.held_reason,
             c.contact_name, c.contact_title, c.email, c.phone, c.instagram, c.website, c.facebook, c.linkedin,
             COALESCE(c.reachable, FALSE) AS reachable, COALESCE(c.status, 'pending') AS contact_status, c.athlete_history, c.athlete_history_note, c.team_fit,
             COALESCE(r.stage, 'not_contacted') AS stage, r.last_touch_at, r.last_touch_by, r.notes, ${fitSel}
        ${base}) z
-     ORDER BY ${SORTS[f.sort].replace(/^[mcr]\./, '').replace(/COALESCE\(r\.stage,'not_contacted'\)/, 'stage')} ${dir} NULLS LAST, brand ASC
+     ORDER BY ${f.sort === 'priority'
+      ? `(CASE WHEN reachable AND held_reason IS NULL THEN 0 WHEN reachable THEN 1 ELSE 2 END), deal_priority ${dir} NULLS LAST, distance_m ASC NULLS LAST`
+      : `${SORTS[f.sort].replace(/^[mcr]\./, '').replace(/COALESCE\(r\.stage,'not_contacted'\)/, 'stage')} ${dir} NULLS LAST`}, brand ASC
      LIMIT ${f.limit} OFFSET ${f.offset}`, args)).rows;
   return { ok: true, total, filters: f, rows: rows.map(present) };
 }

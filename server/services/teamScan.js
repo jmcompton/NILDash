@@ -86,7 +86,10 @@ function blockedFor(c) {
   const inc = require('./signingEvidence').incumbent(name);
   if (inc) return { key: 'national brand', why: `a household incumbent (${inc}), not a local sponsor` };
   const NC = require('./nationalChains');
-  const chain = NC.isChainLocation(name) || NC.isNationalChain(name);
+  // Start-of-name, whole words only (isChainLocation). The substring scan
+  // (isNationalChain) read "Hertzberg Family Dental" as Hertz and "Ross
+  // Family Dentistry" as Ross: never used to withdraw.
+  const chain = NC.isChainLocation(name);
   if (chain) return { key: 'national brand', why: `a national chain location (${chain})` };
   if (/\b(high school|middle school|elementary( school)?|junior high|preparatory school|prep school|school district|unified school|academy charter|charter school|isd)\b/i.test(String(name || ''))) {
     return { key: 'not-a-sponsor', why: 'a school, not a sponsor' };
@@ -191,6 +194,7 @@ function splitStatements(sql) {
 }
 async function ensureTables(pool) {
   for (const s of splitStatements(fs.readFileSync(MIGRATION, 'utf8'))) await pool.query(s);
+  await require('./campusQuality').ensureColumns(pool).catch(() => {});
 }
 
 // The city a campus is in, from its address ("9200 Valley View St, Cypress, CA
@@ -281,6 +285,10 @@ async function recheckPool(pool, marketKey, opts = {}) {
   const newlyBlocked = [], cleared = [];
   for (const r of rows) {
     const b = blockedFor({ name: r.brand, types: r.types || [], primary_type: r.primary_type, primary_type_label: r.primary_type_label });
+    // A row withdrawn by the build's own passes (a duplicate, a chain's
+    // corporate address: services/campusQuality) is not something the name
+    // check can see; it stays withdrawn unless the name check blocks it too.
+    if (!b && String(r.blocked_reason || '').startsWith('withdrawn: ')) continue;
     const reason = b ? `${b.key}: ${b.why}` : null;
     if (reason === r.blocked_reason) continue;
     if (!opts.dryRun) await pool.query(`UPDATE university_market_seen SET blocked_reason = $3 WHERE market_key = $1 AND brand = $2`, [marketKey, r.brand, reason]);
@@ -319,6 +327,7 @@ async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [],
        SELECT m.brand AS brand_name, m.place_id, m.types, m.category, m.primary_type, m.primary_type_label, m.address, m.distance_m,
               m.rating, m.user_ratings_total, c.contact_name, c.contact_title, c.email, c.phone, c.instagram, c.athlete_history_note,
               COALESCE(c.reachable, FALSE) AS reachable, COALESCE(c.status, 'pending') AS contact_status, c.attempts,
+              COALESCE(m.deal_priority, 5) AS deal_priority, COALESCE(m.deal_bucket, 'other') AS deal_bucket, c.held_reason,
               (SELECT (x->>'score')::int FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_score,
               (SELECT x->>'why' FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_why
          FROM university_market_seen m
@@ -345,7 +354,10 @@ async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [],
     // one costs the email and nothing else. A business still needing a
     // lookup ($0.10-0.24) is pitched only when no resolved one fits the team.
     // Within each, best fit, then the nearest.
-    .sort((a, b) => ((b.reachable ? 1 : 0) - (a.reachable ? 1 : 0)) || (b.fit_score - a.fit_score)
+    // Over its category's 15% share of the contactable list (held_reason,
+    // campusQuality): still pitchable, after every business that is not.
+    .sort((a, b) => ((b.reachable ? 1 : 0) - (a.reachable ? 1 : 0)) || ((a.held_reason ? 1 : 0) - (b.held_reason ? 1 : 0))
+      || ((b.deal_priority || 0) - (a.deal_priority || 0)) || (b.fit_score - a.fit_score)
       || ((a.distance_m == null ? 1e12 : a.distance_m) - (b.distance_m == null ? 1e12 : b.distance_m)) || String(a.brand_name).localeCompare(String(b.brand_name)))
     .slice(0, limit);
   return { picks };
@@ -391,6 +403,10 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
 
   const used = new Set();
   const night = new Date().toISOString().slice(0, 10);
+  // A category over its share of tonight's cards waits; it is used only when
+  // nothing else is left, so the share shapes the night and never shorts it.
+  let relaxShare = false;
+  const heldForShare = [];
   let noItem = false;
   // PITCH MODE: one business, a pitch written to its named human (true), or
   // the reason it was not (false).
@@ -404,6 +420,14 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     const other = (await pool.query(`SELECT 1 FROM university_drafts WHERE university_id = $1 AND brand_name = $2 AND kind = 'pitch' AND night = $3`,
       [university.id, c.brand_name, night])).rowCount;
     if (other) { out.skipped.push({ brand: c.brand_name, why: 'already a card for another team tonight' }); return false; }
+    // NO CATEGORY OVER ITS SHARE OF TONIGHT'S CARDS (campusQuality.SHARE_CAP).
+    const share = deps.nightShare && deps.nightShare.catCap ? deps.nightShare : null;
+    const bucket = c.deal_bucket || 'other';
+    if (share && !relaxShare && (share.catCount[bucket] || 0) >= share.catCap) {
+      await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
+      heldForShare.push(c);
+      return false;
+    }
     // THE CONTACT, FOR THIS BUSINESS ONLY, NOW THAT IT IS PICKED.
     if (!c.reachable) {
       const est = require('./campusContacts').perBusinessUsd('high', false).metered;
@@ -453,6 +477,7 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       [id, university.id, team.id, brandKey, c.brand_name, c.place_id || null, w.subject, w.body, w.model, c.fit_why || null,
         c.contact_name || null, c.contact_title || null, c.email || null, c.phone || null, c.instagram || null,
         sender ? String(sender.userId) : null, sender ? sender.email : null, night]);
+    if (share) share.catCount[bucket] = (share.catCount[bucket] || 0) + 1;
     out.drafts.push({ id, brand: c.brand_name, contact: c.contact_name, email: c.email || null, phone: c.phone || null, instagram: c.instagram || null,
       why: c.fit_why || null, subject: w.subject, body: w.body, status: 'awaiting_approval', retried: w.retried });
     return true;
@@ -577,6 +602,14 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     const next = await nextSlate([...triedNames], limit * 2);
     picks = (next.picks || []).filter((c) => !triedKeys.has(Scout.normBrand(c.brand_name)));
     if (picks.length) continue;
+    // Nothing else left: the businesses that waited for their category's
+    // share are used now rather than leave the team short.
+    if (heldForShare.length && !relaxShare) {
+      relaxShare = true;
+      picks = heldForShare.splice(0);
+      for (const c of picks) triedKeys.delete(Scout.normBrand(c.brand_name));
+      continue;
+    }
     const nextRing = MP.RADII[ringIdx + 1];
     if (discoverPool && nextRing && university.location) {
       ringIdx++;

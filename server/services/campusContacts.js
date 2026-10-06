@@ -69,7 +69,11 @@ function teamFit(business, teams) {
 // ── ONE BUSINESS ────────────────────────────────────────────────────────────
 function pickPerson(res) {
   const ONS = require('./ownerNameSearch');
-  const people = (res && res.contacts || []).filter((c) => c && c.name && ONS.looksLikePerson(c.name) && c.affiliationScope !== 'corporate');
+  const QC = require('./campusQuality');
+  // Never a sponsored athlete, a spokesperson or a creative as "the decision
+  // maker" (Daniel Suarez at Freeway Insurance, a videographer at a cafe).
+  const people = (res && res.contacts || []).filter((c) => c && c.name && ONS.looksLikePerson(c.name) && c.affiliationScope !== 'corporate'
+    && !QC.refusedName(c.name) && !QC.refusedTitle(c.title));
   const rank = (c) => (c.email ? 4 : 0) + (c.phone ? 2 : 0) + (/owner|founder|president|ceo|general manager|gm\b|marketing/i.test(c.title || '') ? 1 : 0)
     + (c.confidence === 'high' ? 1 : 0);
   return people.sort((a, b) => rank(b) - rank(a))[0] || null;
@@ -98,8 +102,13 @@ async function resolveOne(row, ctx) {
     }
   }
   const ladder = (res && res.addressLadder) || {};
-  const email = (person && person.email) || (ladder.email && (ladder.kind === 'person' || ladder.kind === 'personal' || ladder.kind === 'role') ? ladder.email : null)
+  const anyEmail = (person && person.email) || (ladder.email && (ladder.kind === 'person' || ladder.kind === 'personal' || ladder.kind === 'role') ? ladder.email : null)
     || (res && res.personalInbox) || (res && res.genericInbox) || null;
+  // A SHARED INBOX IS NOT THE PERSON (campusQuality.isGenericInbox): kept
+  // apart as generic_email, never shown beside their name, never "reachable".
+  const QCq = require('./campusQuality');
+  const email = anyEmail && !QCq.isGenericInbox(anyEmail) ? anyEmail : null;
+  const genericEmail = anyEmail && QCq.isGenericInbox(anyEmail) ? anyEmail : null;
   const emailSource = person && person.email ? (person.emailSource || person.source || 'ladder') : email ? (ladder.label || 'inbox') : null;
   const phone = (person && person.phone) || (res && res.businessPhone) || null;
   const instagram = res && res.instagram ? String(res.instagram).replace(/^@/, '') : null;
@@ -124,7 +133,9 @@ async function resolveOne(row, ctx) {
     email, email_source: emailSource, phone, instagram, website: (res && (res.website || res.websiteResolved)) || null,
     facebook: urlLike(/facebook\.com/i), linkedin: (person && person.linkedinUrl) || urlLike(/linkedin\.com/i),
     sources: sources.concat(all.map((c) => c.source).filter(Boolean)).filter((v, i, a) => a.indexOf(v) === i),
-    athlete_history: history, athlete_history_note: historyNote,
+    athlete_history: history, athlete_history_note: historyNote, generic_email: genericEmail,
+    // A named person AND a way to reach them: a direct address, a phone, or
+    // the Instagram DM. A shared inbox (info@, customercare@) is not.
     reachable: !!(person && person.name && (email || phone || instagram)),
   };
 }
@@ -205,6 +216,7 @@ async function seedRows(pool, u) {
 // the businesses it has already picked as worth pitching.
 // -> { reachable, costUsd, error, out }
 async function resolveAndStore(pool, universityId, row, opts = {}) {
+  await require('./campusQuality').ensureColumns(pool);
   const scanMeter = require('../scanMeter');
   const Q = require('./outreachQueue');
   // The row exists for a business the bulk run seeded; the team night may
@@ -229,11 +241,12 @@ async function resolveAndStore(pool, universityId, row, opts = {}) {
   await pool.query(
     `UPDATE university_contacts SET contact_name = $3, contact_title = $4, email = $5, email_source = $6, phone = $7, instagram = $8,
        website = $9, facebook = $10, linkedin = $11, sources = $12::jsonb, athlete_history = $13, athlete_history_note = $14,
-       reachable = $15, status = $16, last_error = NULL, attempts = attempts + 1, cost_usd = cost_usd + $17, resolved_at = NOW(), updated_at = NOW()
+       reachable = $15, status = $16, last_error = NULL, attempts = attempts + 1, cost_usd = cost_usd + $17, resolved_at = NOW(), updated_at = NOW(),
+       generic_email = $18, withdrawn_reason = NULL
      WHERE university_id = $1 AND brand = $2`,
     [universityId, row.brand, out.contact_name, out.contact_title, out.email, out.email_source, out.phone, out.instagram, out.website,
       out.facebook, out.linkedin, JSON.stringify(out.sources || []), out.athlete_history, out.athlete_history_note, out.reachable,
-      out.reachable ? 'reachable' : 'unreachable', c]);
+      out.reachable ? 'reachable' : 'unreachable', c, out.generic_email || null]);
   return { reachable: !!out.reachable, costUsd: c, error: null, out };
 }
 

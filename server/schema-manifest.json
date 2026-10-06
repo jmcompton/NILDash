@@ -1531,6 +1531,12 @@
       "university_id": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "university_jobs": {
+      "beat_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "label": "TEXT",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "university_id": "TEXT"
+    },
     "university_social_brands": {
       "brand": "TEXT",
       "category": "TEXT",

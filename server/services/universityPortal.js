@@ -31,6 +31,17 @@ async function listTeams(pool, universityId) {
       ORDER BY CASE t.season WHEN 'Fall' THEN 1 WHEN 'Winter' THEN 2 WHEN 'Spring' THEN 3 ELSE 4 END,
                t.created_at, t.id`, [universityId])).rows
     .map((t) => ({ ...t, inventory_cents: Number(t.inventory_cents) }));
+  // THE ATHLETES ON FILE, NOT A STORED GUESS. roster_size on a seeded team is
+  // the demo figure (scripts/seed-cypress, from athletics.html); the
+  // athletes are the rows the roster import wrote. Once a university has any,
+  // every team's roster is its count of those (a team with none says 0), so
+  // the portal's tiles and /api/admin/university-status agree.
+  const counts = (await pool.query(
+    `SELECT data->>'teamId' AS team_id, COUNT(*)::int n FROM university_athletes WHERE university_id = $1 GROUP BY 1`, [universityId]).catch(() => ({ rows: [] }))).rows;
+  if (counts.length) {
+    const by = new Map(counts.map((c) => [c.team_id, c.n]));
+    for (const t of teams) { t.roster_size_stated = t.roster_size; t.roster_size = by.get(t.id) || 0; t.athletes_on_file = by.get(t.id) || 0; }
+  }
   return { university, teams };
 }
 

@@ -215,6 +215,98 @@ const aiStub = {
   ok('an empty university (Samford\'s shape: "Birmingham, AL", no teams) says exactly what it still needs', e.ok && !e.nightlyReady
     && e.needs.some((n) => /campus street address/.test(n)) && e.needs.some((n) => /roster-import/.test(n)) && e.needs.some((n) => /business-build/.test(n)) && e.needs.some((n) => /create-university-user/.test(n)), e.needs);
 
+  // ── 5a. THE LIST IS WORTH MORE THAN A PLACES SCRAPE ──────────────────────
+  OUT.push('', '-- quality: categories, chains, decision makers, inboxes, duplicates --');
+  const QC = require(REPO + 'server/services/campusQuality.js');
+  const QU = 'univ-ut-q', QM = 'qtown, ca';
+  const qclean = async () => {
+    await P.query(`DELETE FROM university_contacts WHERE university_id = $1`, [QU]).catch(() => {});
+    await P.query(`DELETE FROM university_market_seen WHERE market_key = $1`, [QM]).catch(() => {});
+    await P.query(`DELETE FROM university_market_runs WHERE university_id = $1`, [QU]).catch(() => {});
+    await P.query(`DELETE FROM university_social_brands WHERE university_id = $1`, [QU]).catch(() => {});
+    await P.query(`DELETE FROM universities WHERE id = $1`, [QU]).catch(() => {});
+  };
+  await qclean();
+  await QC.ensureColumns(P);
+  await P.query(`INSERT INTO universities (id, name, location) VALUES ($1, 'UT Quality College', '1 Main St, Qtown, CA')`, [QU]);
+  const biz = async (brand, category, contact = {}, extra = {}) => {
+    await P.query(`INSERT INTO university_market_seen (market_key, brand, place_id, category, types, address, distance_m, fit)
+                   VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)`, [QM, brand, extra.place || ('q-' + brand.replace(/\W+/g, '')), category, JSON.stringify([category]), extra.address || (brand + ' Rd, Qtown, CA'), 1500, extra.fit || 50]);
+    if (contact.name !== undefined) {
+      await P.query(`INSERT INTO university_contacts (university_id, market_key, brand, contact_name, contact_title, email, phone, website, reachable, status)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE,'reachable')`, [QU, QM, brand, contact.name, contact.title || 'Owner', contact.email || null, contact.phone || null, contact.website || null]);
+    }
+  };
+  for (let i = 0; i < 10; i++) await biz(`Q Smile Dental ${i}`, 'dentist', { name: `Dee Dentist${i}`, phone: '714-555-01' + String(i).padStart(2, '0') });
+  for (let i = 0; i < 3; i++) await biz(`Q Iron Gym ${i}`, 'gym', { name: `Gus Gymowner${i}`, email: `gus${i}@qgym${i}.com` });
+  for (let i = 0; i < 3; i++) await biz(`Q Taqueria ${i}`, 'restaurant', { name: `Rosa Cook${i}`, email: `rosa${i}@qtaco${i}.com` });
+  for (let i = 0; i < 2; i++) await biz(`Q Auto Group ${i}`, 'car_dealer', { name: `Al Dealer${i}`, email: `al${i}@qauto${i}.com` });
+  await biz('Q Smoothie Spot', 'cafe', { name: 'Sam Blend', email: 'sam@qsmoothie.com' });
+  await biz('Big 5 Sporting Goods', 'sporting_goods_store', { name: 'Jeffrey McCargar', title: 'Store Manager', phone: '714-555-0901' });
+  await biz('Corner Parts', 'store', { name: 'Bill Martin', title: 'Manager', email: 'bill.m@autozone.com' });
+  await biz('Freeway Insurance', 'insurance_agency', { name: 'Daniel Suarez', title: 'NASCAR driver, sponsorship partner (state filing)', email: 'customercare@confie.com' });
+  await biz('Speedy Insure', 'insurance_agency', { name: 'Dan Driver', title: 'NASCAR driver, sponsorship partner (state filing)', phone: '714-555-0902' });
+  await biz('Seven Brew Cafe', 'cafe', { name: 'Christian Soriano', title: 'Director, Videographer', email: 'christian@sevenbrew.com' });
+  await biz('Home Run Park', 'amusement_park', { name: 'Hal Park', title: 'Owner', email: 'info@homerunpark.com' });
+  await biz('7 Leaves Cafe Qtown', 'cafe', { name: 'Tina Tran', title: 'Owner', email: 'customercare@7leavescafe.com', phone: '714-555-0903', website: 'https://www.7leavescafe.com/' }, { fit: 60 });
+  await biz('7 Leaves Cafe', 'cafe', { name: 'Tina Tran', title: 'Owner', email: 'customercare@7leavescafe.com', website: '7leavescafe.com' }, { fit: 40 });
+  const qb = await CB.build(P, QU, { budgetUsd: 3, places: { buildMarketPoolFromPlaces: async () => ({ ok: true, candidates: [], placesCalls: 0, geocoded: null }) }, ai: aiStub });
+  const why = qb.withdrawnByWhy || {};
+  const wdr = (brand) => (qb.withdrawn || []).find((w) => w.brand === brand);
+  ok('NATIONAL CHAINS: Big 5 and Freeway Insurance withdrawn by name', wdr('Big 5 Sporting Goods') && /national brand/.test(wdr('Big 5 Sporting Goods').why) && wdr('Freeway Insurance') && /national brand/.test(wdr('Freeway Insurance').why), qb.withdrawn);
+  ok('  and a business whose contact is at a chain\'s corporate address (bill.m@autozone.com)', wdr('Corner Parts') && /corporate address/.test(wdr('Corner Parts').why), wdr('Corner Parts'));
+  ok('A SPONSORED ATHLETE IS NEVER THE DECISION MAKER (the NASCAR driver), nor a videographer', wdr('Speedy Insure') && wdr('Speedy Insure').why === 'not a decision maker'
+    && wdr('Seven Brew Cafe') && wdr('Seven Brew Cafe').why === 'not a decision maker', [wdr('Speedy Insure'), wdr('Seven Brew Cafe')]);
+  ok('A SHARED INBOX IS NOT A PERSON: info@ with no phone is no named contact', wdr('Home Run Park') && wdr('Home Run Park').why === 'shared inbox only', wdr('Home Run Park'));
+  const leaves = (await P.query(`SELECT brand, email, generic_email, reachable FROM university_contacts WHERE university_id = $1 AND brand LIKE '7 Leaves%'`, [QU])).rows;
+  const kept7 = leaves.find((x) => x.brand === '7 Leaves Cafe Qtown');
+  ok('  a shared inbox with a phone: reached by phone, the inbox moved off the person\'s name', kept7 && kept7.reachable && kept7.email === null && kept7.generic_email === 'customercare@7leavescafe.com', leaves);
+  ok('DUPLICATES: "7 Leaves Cafe" and "7 Leaves Cafe Qtown" (one website) are one business', (qb.withdrawn || []).some((w) => w.brand === '7 Leaves Cafe' && w.why === 'duplicate')
+    && !(qb.withdrawn || []).some((w) => w.brand === '7 Leaves Cafe Qtown')
+    && /^withdrawn: duplicate of 7 Leaves Cafe Qtown/.test((await P.query(`SELECT blocked_reason FROM university_market_seen WHERE market_key = $1 AND brand = '7 Leaves Cafe'`, [QM])).rows[0].blocked_reason), qb.withdrawn);
+  ok('  a withdrawn business is reported once, for its first reason', (qb.withdrawn || []).filter((w) => w.brand === 'Freeway Insurance').length === 1);
+  ok('  the dedupe keys: Place ID, then website domain, then name + address', QC.normName('7 Leaves Cafe Cypress', 'Cypress, CA') === QC.normName('7 Leaves Cafe', 'Cypress, CA') && QC.domainOf('https://www.7leavescafe.com/') === QC.domainOf('customercare@7leavescafe.com'));
+  const hist = qb.histogram || [];
+  const listed = hist.reduce((a, r) => a + r.listed, 0);
+  const dent = hist.find((r) => r.bucket === 'dentist') || { listed: 0, contactable: 0 };
+  ok('NO CATEGORY OVER 15%: 10 contactable dentists cut to their share (never banned: some stay; a short list lets any category keep 2)', dent.contactable === 10 && dent.listed >= 1
+    && hist.every((r) => r.listed <= Math.max(2, Math.floor(0.15 * listed))), hist);
+  const big = QC.capList(Array.from({ length: 58 }, (_, i) => ({ brand: 'b' + i, fit: 50, ...(i < 18 ? { bucket: 'dentist', priority: 3 } : i < 26 ? { bucket: 'auto', priority: 8 }
+    : { bucket: 'c' + (i % 8), priority: 7 }) })));
+  const bc = big.list.reduce((o, r) => { o[r.bucket] = (o[r.bucket] || 0) + 1; return o; }, {});
+  ok('  Cypress\'s shape (58 contactable, 18 dentists, 8 dealers): every category at or under 15% of the list', Object.values(bc).every((n) => n / big.list.length <= 0.15 + 1e-9) && bc.dentist >= 1, { listed: big.list.length, bc });
+  ok('  held, not deleted: the over-share dentists keep their contact, marked held', (await P.query(`SELECT COUNT(*)::int n FROM university_contacts WHERE university_id = $1 AND reachable AND held_reason LIKE 'dentist is over 15%%'`, [QU])).rows[0].n === 10 - dent.listed);
+  ok('  the build prints the histogram, the withdrawals by reason, contactable and the social funnel', /CATEGORY HISTOGRAM/.test(CB.formatBuild(qb)) && /WITHDRAWN this build: \d+ \(/.test(CB.formatBuild(qb))
+    && /CONTACTABLE: \d+ businesses/.test(CB.formatBuild(qb)) && /SOCIAL: \d+ brands\. \d+ in the social index/.test(CB.formatBuild(qb)), CB.formatBuild(qb));
+  const qv = await CB.verify(P, QU);
+  ok('  status counts only listed, reachable, not-withdrawn businesses as "with a named contact"', qv.businessesWithNamedContact === listed && qv.contactableBeforeShareCap === hist.reduce((a, r) => a + r.contactable, 0), qv);
+  ok('categories ranked by how likely to do an athlete deal: gyms, food, apparel, auto, barbers over dentists and clinics', QC.bucketOf({ category: 'gym' }).priority > QC.bucketOf({ category: 'dentist' }).priority
+    && QC.bucketOf({ category: 'restaurant' }).priority > QC.bucketOf({ category: 'medical clinic' }).priority && QC.bucketOf({ types: ['car_dealer'] }).priority > QC.bucketOf({ category: 'dentist' }).priority);
+  const CM = require(REPO + 'server/services/campusMarket.js');
+  const srch = await CM.search(P, QU, { contact: '1', limit: 5 });
+  ok('  the portal\'s list leads with them: default order is deal likelihood, the held rows after', srch.ok && srch.filters.sort === 'priority' && !srch.rows.slice(0, 5).some((x) => /Dental/.test(x.brand)), srch.rows.map((x) => x.brand));
+  // The contact ladder itself never pairs a name with a shared inbox, nor picks the sponsored athlete.
+  const CC = require(REPO + 'server/services/campusContacts.js');
+  const ro = await CC.resolveOne({ brand: 'Q Test' }, { city: 'Qtown, CA', history: false, ai: { deepContactCtx: () => ({}), webSearchJson: async () => ({ text: '{}' }),
+    getBrandContacts: async () => ({ contacts: [{ name: 'Daniel Suarez', title: 'NASCAR driver, sponsorship partner', email: 'dan@x.com' }, { name: 'Pat Kowalski', title: 'Owner', source: 'site' }], genericInbox: 'info@qtest.com' }) } });
+  ok('  the ladder skips the driver, takes the owner, and an info@ alone does not make them reachable', ro.contact_name === 'Pat Kowalski' && ro.email === null && ro.generic_email === 'info@qtest.com' && ro.reachable === false, ro);
+  await qclean();
+
+  // ── 5a-2. THE TILE AND THE LOCK ─────────────────────────────────────────
+  OUT.push('', '-- the athletes tile, the lock --');
+  const lt = await require(REPO + 'server/services/universityPortal.js').listTeams(P, UID);
+  ok('the portal\'s athletes tile sums the athletes on file (7), not a stored roster guess', lt.teams.reduce((a, t) => a + (t.roster_size || 0), 0) === 7, lt.teams.map((t) => [t.name, t.roster_size, t.roster_size_stated]));
+  const UJ = require(REPO + 'server/services/universityJobs.js');
+  await UJ.release(P, UID);
+  const l1 = await UJ.acquire(P, UID, 'business build');
+  const l2 = await UJ.acquire(P, UID, 'business build');
+  ok('one job at a time per university', l1.ok && !l2.ok && l2.holder && l2.holder.label === 'business build', { l1, l2 });
+  await P.query(`UPDATE university_jobs SET beat_at = NOW() - INTERVAL '2 hours' WHERE university_id = $1`, [UID]);
+  const l3 = await UJ.acquire(P, UID, 'business build');
+  ok('  a crashed job\'s lock (no sign of life for 20 minutes) frees itself', l3.ok, l3);
+  await UJ.release(P, UID);
+  ok('  and it can be cleared by hand', !(await UJ.status(P, UID)) && /app\.post\('\/api\/admin\/university-unlock', requireAuth, requireCampusAdmin/.test(fs.readFileSync(REPO + 'server/index.js', 'utf8')));
+
   // ── 5b. ZERO ON EITHER SIDE IS A FAILURE ────────────────────────────────
   OUT.push('', '-- zero local or zero social is a failure --');
   await P.query(`DELETE FROM university_social_brands WHERE university_id = $1`, [UID]);

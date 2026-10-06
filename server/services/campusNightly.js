@@ -94,7 +94,14 @@ async function runNight(pool, universityId, deps = {}) {
     const Q = require('./outreachQueue');
     const nightCap = Math.min(NIGHT_HARD_CAP_USD, Number(deps.nightCapUsd) > 0 ? Number(deps.nightCapUsd) : NIGHT_CAP_USD);
     let teamSpend = 0;
-    const shared = { built: false, rings: new Set(), placesCalls: 0 };
+    // No category over 15% of tonight's cards (services/campusQuality); a
+    // short night still lets any category have two.
+    const QC = require('./campusQuality');
+    await QC.ensureColumns(pool).catch(() => {});
+    // The 15% category cap re-applied to the contactable list before picking.
+    await QC.applyShareCap(pool, { id: universityId }).catch((e) => console.error('[campus-nightly] share cap:', e.message));
+    const shared = { built: false, rings: new Set(), placesCalls: 0, catCount: {},
+      catCap: Math.max(2, Math.floor(QC.SHARE_CAP * teams.length * PER_TEAM)) };
     const spent = () => teamSpend + shared.placesCalls * Q.USD_PER_PLACES_REQUEST;
     shared.canWiden = () => nightCap - spent() >= RING_WORST_USD;
     for (const t of teams) {
