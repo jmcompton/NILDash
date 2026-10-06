@@ -1531,6 +1531,26 @@
       "university_id": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "university_discovery_cells": {
+      "band": "INTEGER",
+      "cell_key": "TEXT",
+      "error": "TEXT",
+      "kept": "INTEGER DEFAULT 0",
+      "kind": "TEXT",
+      "lat": "DOUBLE PRECISION",
+      "lng": "DOUBLE PRECISION",
+      "market_key": "TEXT",
+      "new_businesses": "INTEGER DEFAULT 0",
+      "new_usable": "INTEGER DEFAULT 0",
+      "night": "DATE",
+      "ok": "BOOLEAN",
+      "places_calls": "INTEGER DEFAULT 1",
+      "returned": "INTEGER DEFAULT 0",
+      "saturated": "BOOLEAN DEFAULT FALSE",
+      "searched_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "size_km": "REAL",
+      "what": "TEXT"
+    },
     "university_jobs": {
       "beat_at": "TIMESTAMPTZ DEFAULT NOW()",
       "label": "TEXT",
