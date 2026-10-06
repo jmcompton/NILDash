@@ -198,6 +198,10 @@ async function ensureTables(pool) {
   // program page to apply through.
   await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS lane TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS program_url TEXT`).catch(() => {});
+  // How the card reaches someone (services/cardChannel).
+  await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS channel TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS best_time TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS talking_points JSONB`).catch(() => {});
   await require('./campusQuality').ensureColumns(pool).catch(() => {});
 }
 
@@ -535,9 +539,27 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       Object.assign(c, { reachable: true, contact_name: o.contact_name, contact_title: o.contact_title, email: o.email, phone: o.phone,
         instagram: o.instagram, athlete_history_note: o.athlete_history_note || c.athlete_history_note });
     }
-    asks++;
-    const w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender,
-      ...(c.social ? { program: { url: c.program_url, offer: c.offer } } : {}) }, { ai: deps.ai });
+    // HOW THIS CARD REACHES SOMEONE (services/cardChannel). No email address,
+    // no email: a phone is a call card (talking points, no email body), an
+    // Instagram handle alone is a DM, and nothing at all is no card.
+    const CHN = require('./cardChannel');
+    const channel = CHN.channelOf({ email: c.email, phone: c.phone, instagram: c.instagram, programUrl: c.social ? (c.program_url || c.website) : null, social: c.social });
+    if (!channel) {
+      await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
+      out.skipped.push({ brand: c.brand_name, why: 'no email, phone or Instagram for the person: no way to reach them', stage: 'owner' });
+      return false;
+    }
+    let w, points = null, best = null;
+    if (channel === 'call') {
+      best = CHN.bestTime([c.deal_bucket, c.primary_type, c.category].filter(Boolean).join(' '));
+      points = CHN.talkingPoints({ who: [sender && sender.name, `${university.name} Athletics`].filter(Boolean).join(', '), subject: `the ${team.name} program`,
+        business: c.brand_name, why: c.fit_why, miles: c.distance_m != null ? Number(c.distance_m) / 1609.34 : null });
+      w = { ok: true, subject: `Call ${c.brand_name}`, body: CHN.callText({ contactName: c.contact_name, phone: c.phone, best, points }), model: null };
+    } else {
+      asks++;
+      w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: channel === 'dm',
+        ...(c.social ? { program: { url: c.program_url, offer: c.offer } } : {}) }, { ai: deps.ai });
+    }
     if (!w.ok) {
       await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
       const fault = /^model:/.test(String(w.error || ''));
@@ -559,17 +581,19 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     const id = 'udraft_' + crypto.randomBytes(8).toString('hex');
     await pool.query(
       `INSERT INTO university_drafts (id, university_id, team_id, brand_key, brand_name, place_id, subject, body, model, status, kind, why,
-          contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, night, lane, program_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval','pitch',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+          contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, night, lane, program_url,
+          channel, best_time, talking_points)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval','pitch',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb)`,
       [id, university.id, team.id, brandKey, c.brand_name, c.place_id || null, w.subject, w.body, w.model, c.fit_why || null,
         c.contact_name || null, c.contact_title || null, c.email || null, c.phone || null, c.instagram || null,
         sender ? String(sender.userId) : null, sender ? sender.email : null, night, c.social ? 'social' : (c.fromFile ? 'local' : 'local-wide'),
-        c.social ? (c.program_url || c.website || null) : null]);
+        c.social ? (c.program_url || c.website || null) : null, channel, best, points ? JSON.stringify(points) : null]);
     if (share && !c.social) share.catCount[bucket] = (share.catCount[bucket] || 0) + 1;
     if (c.social) socialHeld++; else if (c.fromFile) fromFileHeld++; else lookedUpHeld++;
     out.drafts.push({ id, brand: c.brand_name, contact: c.contact_name, email: c.email || null, phone: c.phone || null, instagram: c.instagram || null,
       why: c.fit_why || null, subject: w.subject, body: w.body, status: 'awaiting_approval', retried: w.retried,
-      lane: c.social ? 'social' : (c.fromFile ? 'local' : 'local-wide'), programUrl: c.social ? (c.program_url || null) : null });
+      lane: c.social ? 'social' : (c.fromFile ? 'local' : 'local-wide'), programUrl: c.social ? (c.program_url || null) : null,
+      channel, bestTime: best, talkingPoints: points });
     return true;
   };
 

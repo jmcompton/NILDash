@@ -118,6 +118,7 @@ main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 .lead .biz{font-family:var(--display);font-size:17px;font-weight:700}
 .lead .who{font-size:13.5px;color:var(--text)}
 .lead .who span{color:var(--muted)}
+.lead ol.points{margin:6px 0 0;padding-left:20px;font-size:13px;line-height:1.5}
 .lead .reach{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted)}
 .lead .reach a{color:var(--lime);text-decoration:none}
 .lead .why{font-size:13.5px;color:var(--muted);line-height:1.5}
@@ -735,24 +736,58 @@ function reachLine(c){
   if (c.website) bits.push(`<a href="${esc(c.website)}" target="_blank" rel="noopener">website</a>`);
   return bits.length ? `<div class="reach">${bits.join("")}</div>` : `<div class="reach">No direct contact yet: call or visit</div>`;
 }
+/* ONE CARD, ONE WAY TO REACH SOMEONE (services/cardChannel).
+   email    the email, Open in email, Copy, Mark contacted
+   call     who, the number, the best time, three talking points; Mark called.
+            There is no email on a call card: there is no address to send it to.
+   dm       the message and a Copy button, the Instagram link; Mark sent.
+   program  a brand's athlete program: the message, Copy, the page; Mark applied. */
+const CH_DONE = { email:"Mark contacted", call:"Mark called", dm:"Mark sent", program:"Mark applied" };
+const CH_CHIP = { call:"CALL", dm:"INSTAGRAM DM", program:"BRAND PROGRAM" };
 function leadCard(d){
-  const mailto = d.contact_email ? `mailto:${encodeURIComponent(d.contact_email)}?subject=${encodeURIComponent(d.subject || "")}&body=${encodeURIComponent(d.body || "")}` : "";
+  const ch = d.channel || (d.contact_email ? "email" : "");
   const done = d.sent_at || (d.stage && d.stage !== "not_contacted");
+  const who = d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No named contact</span>`;
+  const handle = String(d.contact_instagram || "").replace(/^@/,"");
+  const doneBtn = done ? `<span class="chip green">${esc(stageLabel(d.stage || "contacted").toUpperCase())}</span>`
+    : (CH_DONE[ch] ? `<button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-channel="${esc(ch)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">${CH_DONE[ch]}</button>` : "");
+  let main = "", tools = "";
+  if (ch === "email"){
+    const mailto = `mailto:${encodeURIComponent(d.contact_email)}?subject=${encodeURIComponent(d.subject || "")}&body=${encodeURIComponent(d.body || "")}`;
+    main = `<div class="who">${who}</div>${reachLine({ email:d.contact_email, phone:d.contact_phone, instagram:d.contact_instagram })}
+      ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
+      <details><summary>Read the email</summary><pre>${esc(d.subject ? "Subject: " + d.subject + "\n\n" : "")}${esc(d.body || "")}</pre></details>`;
+    tools = `<a class="btn go sm" href="${mailto}" data-sent="${esc(d.id)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Open in email</a>
+      <button type="button" class="btn ghost sm" data-copy="${esc(d.id)}">Copy email</button>`;
+  } else if (ch === "call"){
+    const pts = Array.isArray(d.talking_points) ? d.talking_points : [];
+    main = `<div class="who">${who}</div>
+      <div class="reach"><a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a></div>
+      ${d.best_time ? `<div class="why"><b>Best time:</b> ${esc(d.best_time)}</div>` : ""}
+      <ol class="points">${pts.map(p => `<li>${esc(p)}</li>`).join("")}</ol>
+      <div class="why" style="opacity:.75">No email address for this person, so this is a call, not an email.</div>`;
+    tools = `<a class="btn go sm" href="tel:${esc(d.contact_phone)}">Call</a>`;
+  } else if (ch === "dm"){
+    main = `<div class="who">${who}</div>
+      <div class="reach"><a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a></div>
+      ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
+      <pre>${esc(d.body || "")}</pre>
+      <div class="why" style="opacity:.75">No email address for this person: send this as an Instagram message.</div>`;
+    tools = `<button type="button" class="btn go sm" data-copytext="${esc(d.body || "")}">Copy message</button>
+      <a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a>`;
+  } else if (ch === "program"){
+    main = `<div class="who"><span>A brand that runs an athlete program. Reach them through their program page.</span></div>
+      ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
+      <details><summary>Read the message</summary><pre>${esc(d.body || "")}</pre></details>`;
+    tools = `${d.program_url ? `<a class="btn go sm" href="${esc(d.program_url)}" target="_blank" rel="noopener">Program page</a>` : ""}
+      <button type="button" class="btn ghost sm" data-copytext="${esc(d.body || "")}">Copy message</button>`;
+  } else {
+    main = `<div class="who">${who}</div><div class="reach">No email, phone or Instagram on file: nothing to send yet.</div>`;
+  }
   return `<div class="lead">
-    <div class="biz">${esc(d.brand_name)}${d.lane === "social" ? ` <span class="chip">BRAND PROGRAM</span>` : ""}</div>
-    ${d.lane === "social"
-      ? `<div class="who"><span>A brand that runs an athlete program. Reach them through their program page.</span></div>
-         ${d.program_url ? `<div class="reach"><a href="${esc(d.program_url)}" target="_blank" rel="noopener">Program page</a></div>` : ""}`
-      : `<div class="who">${d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No named contact yet</span>`}</div>
-    ${reachLine({ email:d.contact_email, phone:d.contact_phone, instagram:d.contact_instagram })}`}
-    ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
-    <details><summary>Read the email</summary><pre>${esc(d.subject ? "Subject: " + d.subject + "\n\n" : "")}${esc(d.body || "")}</pre></details>
-    <div class="toolrow">
-      ${mailto ? `<a class="btn go sm" href="${mailto}" data-sent="${esc(d.id)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Open in email</a>` : ""}
-      <button type="button" class="btn ghost sm" data-copy="${esc(d.id)}">Copy email</button>
-      ${done ? `<span class="chip green">${esc(stageLabel(d.stage || "contacted").toUpperCase())}</span>`
-        : `<button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Mark contacted</button>`}
-    </div>
+    <div class="biz">${esc(d.brand_name)}${CH_CHIP[ch] ? ` <span class="chip">${CH_CHIP[ch]}</span>` : ""}</div>
+    ${main}
+    <div class="toolrow">${tools}${doneBtn}</div>
   </div>`;
 }
 function vHome(){
@@ -877,12 +912,21 @@ async function writePitch(brand, ack){
   }
   if (!r.ok || !b.ok){ toast(b.error ? "Could not write it: " + b.error : "Could not write it. Try again in a minute."); return; }
   const d = b.draft;
-  showModal(`<h3 style="margin:0 0 6px">${esc(brand)}</h3>
-    <p class="lede">${d.contact && d.contact.name ? `To ${esc(d.contact.name)}${d.to ? ` &lt;${esc(d.to)}&gt;` : ""}` : (d.to ? esc(d.to) : "No email address yet: call or visit")}</p>
-    <pre>${esc("Subject: " + d.subject + "\n\n" + d.body)}</pre>
+  const c = d.contact || {};
+  const handle = String(c.instagram || "").replace(/^@/,"");
+  const head = d.channel === "call" ? `Call ${esc(c.name || "the owner")} at <a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>${d.bestTime ? `. Best time: ${esc(d.bestTime)}` : ""}. There is no email address for this person.`
+    : d.channel === "dm" ? `${esc(c.name || "")} on Instagram: <a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a>. There is no email address for this person.`
+    : (c.name ? `To ${esc(c.name)} &lt;${esc(d.to)}&gt;` : esc(d.to || ""));
+  const text = d.channel === "email" ? "Subject: " + d.subject + "\n\n" + d.body : d.body;
+  showModal(`<h3 style="margin:0 0 6px">${esc(brand)}${d.channel !== "email" ? ` <span class="chip">${d.channel === "call" ? "CALL" : "INSTAGRAM DM"}</span>` : ""}</h3>
+    <p class="lede">${head}</p>
+    <pre>${esc(text)}</pre>
     <div class="toolrow" style="margin-top:12px">
-      ${d.mailto ? `<a class="btn go sm" href="${esc(d.mailto)}" data-sent="${esc(d.id)}" data-brand="${esc(brand)}" data-team="${esc(teamId)}">Open in email</a>` : ""}
-      <button type="button" class="btn ghost sm" data-copytext="${esc("Subject: " + d.subject + "\n\n" + d.body)}">Copy email</button>
+      ${d.channel === "email" && d.mailto ? `<a class="btn go sm" href="${esc(d.mailto)}" data-sent="${esc(d.id)}" data-brand="${esc(brand)}" data-team="${esc(teamId)}">Open in email</a>` : ""}
+      ${d.channel === "call" ? `<a class="btn go sm" href="tel:${esc(c.phone)}">Call</a>` : ""}
+      ${d.channel === "dm" ? `<a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a>` : ""}
+      ${d.channel !== "call" ? `<button type="button" class="btn ghost sm" data-copytext="${esc(text)}">${d.channel === "email" ? "Copy email" : "Copy message"}</button>` : ""}
+      <button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-channel="${esc(d.channel)}" data-brand="${esc(brand)}" data-team="${esc(teamId)}">${CH_DONE[d.channel] || "Mark contacted"}</button>
       <button type="button" class="btn ghost sm" data-close>Close</button>
     </div>`);
 }
@@ -900,9 +944,11 @@ function closeModal(){ const m = $("modal"); if (m) m.remove(); }
 
 /* "Mark contacted" and "Open in email" both record a touch, which moves the
    business to Contacted for the whole staff. */
-async function markContacted(brand, teamId, draftId){
+const TOUCH = { email:["email","Sent the NILDash email"], call:["phone","Called (NILDash call card)"], dm:["instagram","Sent the NILDash Instagram message"], program:["other","Applied through the brand's program page"] };
+async function markContacted(brand, teamId, draftId, channel){
+  const [ch, summary] = TOUCH[channel || "email"] || TOUCH.email;
   await fetch("/api/university/market/business/touch", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ brand, channel:"email", direction:"out", summary:"Sent the NILDash email", stage:"contacted", teamId: teamId || null, draftId: draftId || null }) }).catch(() => {});
+    body: JSON.stringify({ brand, channel: ch, direction:"out", summary, stage:"contacted", teamId: teamId || null, draftId: draftId || null }) }).catch(() => {});
   const d = CARDS.find(x => x.id === draftId); if (d){ d.stage = "contacted"; d.sent_at = new Date().toISOString(); }
 }
 
@@ -1003,7 +1049,7 @@ document.addEventListener("click", e => {
   const copy = (txt) => { try { navigator.clipboard.writeText(txt); toast("Copied. Paste it into your email."); } catch (_) { toast("Select the text and copy it."); } };
   if (t.dataset.copy !== undefined){ const d = CARDS.find(x => x.id === t.dataset.copy); if (d) copy((d.subject ? "Subject: " + d.subject + "\n\n" : "") + (d.body || "")); return }
   if (t.dataset.copytext !== undefined){ copy(t.dataset.copytext); return }
-  if (t.dataset.mark !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.mark).then(() => { toast("Marked contacted for your whole staff."); paint(); }); return }
+  if (t.dataset.mark !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.mark, t.dataset.channel).then(() => { toast("Marked for your whole staff."); paint(); }); return }
   if (t.dataset.sent !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.sent).then(() => { if (view === "home") paint(); }); return }   /* the mailto opens as usual */
   if (t.dataset.pitch !== undefined){ writePitch(t.dataset.pitch); return }
   if (t.dataset.pickteam !== undefined){ if (window._pickTeam) window._pickTeam(t.dataset.pickteam); return }

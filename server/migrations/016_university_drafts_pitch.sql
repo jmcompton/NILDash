@@ -26,6 +26,11 @@ ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
 -- The card's rung (local, local-wide, social), and a social brand's program page.
 ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS lane TEXT;
 ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS program_url TEXT;
+-- How the card reaches someone (services/cardChannel): email, call, dm, program.
+-- A call card carries the best time and three talking points and no email.
+ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS channel TEXT;
+ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS best_time TEXT;
+ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS talking_points JSONB;
 CREATE INDEX IF NOT EXISTS university_drafts_night_idx ON university_drafts (university_id, night);
 -- Staff title, for the sign-off (users is shared, so it is kept here, keyed by user).
 CREATE TABLE IF NOT EXISTS university_staff (

@@ -357,6 +357,11 @@ async function buildHome(pool, agentId, opts = {}) {
         // gate still holds; the cards simply arrive as they were.
         errs.push('addressing: ' + e.message);
       }
+      // NO ADDRESS AFTER THAT, NO EMAIL CARD (services/draftChannel). A draft
+      // with no address whose card has a phone or a handle becomes that call
+      // or DM card, rather than being hidden as an email nobody can send.
+      try { await require('./draftChannel').convert(pool, { agentId, athleteId: selected }); }
+      catch (e) { errs.push('channels: ' + e.message); }
     }
   }
 
@@ -395,6 +400,9 @@ async function buildHome(pool, agentId, opts = {}) {
   }
 
   const who = athletes.find((a) => a.id === selected) || null;
+  // For a call card's talking points: who is calling, about whom.
+  const athleteName = who ? who.name : null;
+  const agentName = ((await pool.query(`SELECT name FROM users WHERE id = $1`, [agentId]).catch(() => ({ rows: [] }))).rows[0] || {}).name || null;
 
   // THE ONLY BLOCKING LINE ON THE PAGE, and only when it blocks. The compliance
   // gate needs a date of birth to decide anything, so without one nothing for
@@ -698,12 +706,19 @@ async function buildHome(pool, agentId, opts = {}) {
         // something the agent is about to paste into a box with a limit.
         card.mediaKit = null;
       } else if (c.channel === 'call') {
-        // v1 IS THIN AND SAYS SO. A number, who to ask for, and the reason --
-        // no script, because there is no call_script column and nothing writes
-        // one. Scoped and deliberately cut rather than faked with a template.
+        // A CALL CARD: who, the number, the best time to call, three talking
+        // points (services/cardChannel: from the card's own reason, nothing
+        // invented). No email body. Its button marks it called.
+        const CHN = require('./cardChannel');
         card.phone = c.phone || null;
         card.askFor = c.phoneAskFor || c.contactName || null;
         card.mediaKit = null;
+        card.bestTime = (() => { try { return require('./contactLadder').callWindowFor(c.businessCategory || c.business_category || ''); } catch (_) { return null; } })()
+          || CHN.bestTime(c.businessCategory || c.brand_name);
+        const ath = athleteName || 'the athlete';
+        card.talkingPoints = CHN.talkingPoints({ who: agentName ? `${agentName}, ${ath}'s agent` : `${ath}'s agent`, subject: ath,
+          business: c.brand_name, why: c.why || c.reasoning,
+          ask: `would ${c.brand_name} work with ${ath} on a few posts or an appearance? If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.` });
       }
       return card;
     }),

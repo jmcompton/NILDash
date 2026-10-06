@@ -134,8 +134,17 @@ async function collect(pool, { now } = {}) {
   const ov = await q(`SELECT COALESCE(send_hold_reason, send_error, 'no reason recorded') AS why, COUNT(*)::int AS n
       FROM outreach_logs WHERE status = 'approved' AND sent_at IS NULL
         AND scheduled_send_at IS NOT NULL AND scheduled_send_at < NOW() - INTERVAL '2 hours'
+        -- A STOPPED ROW IS NOT LATE, IT IS DEAD: it will never send. It is
+        -- reported once below, the morning after it stopped, and not again
+        -- every morning forever (the 40 rows of 2026-09-23 were).
+        AND cadence_stopped_at IS NULL
       GROUP BY 1 ORDER BY n DESC LIMIT 6`, [], []);
   out.overdueSends = { total: ov.reduce((t, r) => t + r.n, 0), reasons: ov };
+  const st = await q(`SELECT COALESCE(cadence_stop_reason, 'stopped') AS why, COUNT(*)::int AS n
+      FROM outreach_logs WHERE status = 'approved' AND sent_at IS NULL
+        AND cadence_stopped_at > NOW() - INTERVAL '24 hours'
+      GROUP BY 1 ORDER BY n DESC LIMIT 6`, [], []);
+  out.stoppedApproved = { total: st.reduce((t, r) => t + r.n, 0), reasons: st };
   // Every one of our failures in the last day, by service (services/ourFault).
   out.faults24h = await q(`SELECT service, SUM(1 + COALESCE(suppressed, 0))::int AS n, MAX(at) AS last,
       (ARRAY_AGG(reason ORDER BY (kind = 'billing') DESC, at DESC))[1] AS reason, BOOL_OR(kind = 'billing') AS billing
@@ -262,6 +271,10 @@ function render(r) {
   if (r.digests && (r.digests.failed || r.digests.stuck || r.digests.held)) {
     lines.push(`AGENT DIGESTS for ${r.runDate}: ${r.digests.sent} sent, ${r.digests.failed} failed, ${r.digests.stuck} stuck, ${r.digests.held} held by NIGHTLY_DIGEST_ALLOWLIST`
       + (r.digests.failReason ? `. First failure: ${r.digests.failReason}` : ''), '');
+  }
+  if (r.stoppedApproved && r.stoppedApproved.total) {
+    lines.push(`APPROVED EMAILS STOPPED IN THE LAST DAY (they will not send; reported once): ${r.stoppedApproved.total}`);
+    for (const x of r.stoppedApproved.reasons) lines.push(`  ${String(x.n).padStart(4)}x  ${String(x.why).slice(0, 160)}`);
   }
   if (r.overdueSends && r.overdueSends.total) {
     lines.push(`APPROVED EMAILS NOT SENT, more than 2 hours late: ${r.overdueSends.total}`);

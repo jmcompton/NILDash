@@ -241,6 +241,21 @@ async function verify(pool, universityId) {
   const social = await one(`SELECT COUNT(*)::int n FROM university_social_brands WHERE university_id = $1`, [uni.id]);
   const cards = await one(`SELECT COUNT(*)::int n FROM university_drafts WHERE university_id = $1 AND kind = 'pitch'
                              AND night = (SELECT MAX(night) FROM university_drafts WHERE university_id = $1 AND night IS NOT NULL)`, [uni.id]);
+  // HOW THE LATEST NIGHT'S CARDS REACH SOMEONE (services/cardChannel): an
+  // email address, a phone only (a call card), Instagram only (a DM), a
+  // brand's program page, or nothing at all.
+  const CHN = require('./cardChannel');
+  const latest = (await pool.query(`SELECT channel, lane, contact_email, contact_phone, contact_instagram, program_url FROM university_drafts
+                                      WHERE university_id = $1 AND kind = 'pitch' AND night = (SELECT MAX(night) FROM university_drafts WHERE university_id = $1 AND night IS NOT NULL)`,
+  [uni.id]).catch(() => pool.query(`SELECT NULL AS channel, NULL AS lane, contact_email, contact_phone, contact_instagram, NULL AS program_url FROM university_drafts
+                                      WHERE university_id = $1 AND kind = 'pitch' AND night = (SELECT MAX(night) FROM university_drafts WHERE university_id = $1 AND night IS NOT NULL)`, [uni.id])
+    .catch(() => ({ rows: [] })))).rows;
+  const cardsByChannel = { email: 0, call: 0, dm: 0, program: 0, none: 0 };
+  for (const d of latest) {
+    const ch = d.channel || CHN.channelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
+      programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social' });
+    cardsByChannel[ch || 'none']++;
+  }
   const cardsAll = await one(`SELECT COUNT(*)::int n FROM university_drafts WHERE university_id = $1 AND kind = 'pitch'`, [uni.id]);
   const staff = await one(`SELECT COUNT(*)::int n FROM users WHERE university_id = $1 AND role IN ('university','university_admin')`, [uni.id]);
   const lastBuild = (await pool.query(`SELECT summary, finished_at FROM university_market_runs WHERE university_id = $1 AND kind = 'build' ORDER BY id DESC LIMIT 1`, [uni.id]).catch(() => ({ rows: [] }))).rows[0] || null;
@@ -266,7 +281,7 @@ async function verify(pool, universityId) {
   return { ok: true, university: uni.name, id: uni.id, location: uni.location, marketKey: uni.marketKey,
     center: row.lat != null ? { lat: row.lat, lng: row.lng } : null,
     teams, athletes, businessesFound: found, businessesBlocked: blocked, businessesWithNamedContact: named, contactableBeforeShareCap: contactable, socialBrands: social,
-    cardsLatestNight: cards, cardsAllTime: cardsAll, staff, runway,
+    cardsLatestNight: cards, cardsAllTime: cardsAll, cardsByChannel, staff, runway,
     namedContactsUnused: runway ? runway.available : null, runwayNights: runway ? runway.nights : null,
     lastBuild: lastBuild && lastBuild.summary, lastNight: lastNight && lastNight.summary,
     nightlyReady: !!(teams && found), needs, failures };
@@ -282,6 +297,8 @@ function formatVerify(v) {
   L.push(`  with a named contact           ${v.businessesWithNamedContact}${v.contactableBeforeShareCap !== v.businessesWithNamedContact ? `   (${v.contactableBeforeShareCap} before the 15% category cap)` : ''}`);
   L.push(`  social brands at this level    ${v.socialBrands}`);
   L.push(`  cards, latest night            ${v.cardsLatestNight}   (all time ${v.cardsAllTime})`);
+  if (v.cardsByChannel) { const c = v.cardsByChannel; L.push(`    by how they reach someone    ${c.email} with an email, ${c.call} phone only (call cards), ${c.dm} Instagram only (DM cards)`
+    + `${c.program ? `, ${c.program} brand program pages` : ''}${c.none ? `, ${c.none} WITH NO WAY TO REACH ANYONE` : ''}`); }
   if (v.runway) L.push(`  named contacts unused          ${v.runway.available}   ready for tomorrow`,
     `  runway                         ${v.runway.nights == null ? '-' : v.runway.nights + ' nights'}   at ${v.runway.perNight} cards a night from file (${v.runway.rateFrom})${v.runway.failing ? '   UNDER ' + v.runway.failNights + ' NIGHTS' : ''}`);
   L.push(`  staff accounts                 ${v.staff}`);

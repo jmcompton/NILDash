@@ -244,6 +244,9 @@ async function pitchesFor(pool, agentId, opts = {}) {
         AND l.status = 'draft' AND l.approved_at IS NULL AND l.cadence_stopped_at IS NULL
         AND (l.next_follow_up_at IS NULL OR l.next_follow_up_at <= $3)
         AND ($2::text[] IS NULL OR l.athlete_id = ANY($2::text[]))
+        -- NO ADDRESS, NO APPROVE BUTTON (services/cardChannel): a draft with
+        -- nothing to send to is not an email, and approveBatch refuses it.
+        AND COALESCE(l.sent_to_email, '') <> ''
       ORDER BY l.athlete_id, l.created_at ASC`,
     [agentId, only, opts.now ? new Date(opts.now) : new Date()]);
 

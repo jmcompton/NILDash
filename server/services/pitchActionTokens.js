@@ -223,6 +223,9 @@ async function pendingForAthlete(pool, agentId, athleteId) {
         WHERE agent_id = $1 AND athlete_id = $2
           AND status = 'draft' AND approved_at IS NULL AND cadence_stopped_at IS NULL
           AND (next_follow_up_at IS NULL OR next_follow_up_at <= NOW())
+          -- Only what can be sent: a draft with no address is not an email card
+          -- (services/cardChannel), and approveBatch refuses it.
+          AND COALESCE(sent_to_email, '') <> ''
         ORDER BY created_at ASC`, [agentId, athleteId]);
     return r.rows;
   } catch (e) { console.error('[pitchActionTokens] pendingForAthlete:', e.message); return []; }

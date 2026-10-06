@@ -111,6 +111,10 @@ BODY:
 <body>`;
 }
 
+// A DM (ctx.dm): the same message, short enough for Instagram.
+function dmRules(ctx) {
+  return ctx.dm ? `- THIS IS AN INSTAGRAM DIRECT MESSAGE, not an email: 30 to 70 words, two or three short sentences, no subject needed (write SUBJECT: DM).\n` : '';
+}
 function buildPitchPrompt(ctx, kind, retryBecause) {
   const common = `- Do NOT write a greeting or a sign-off; they are added for you.
 - Say why this business, from the facts above only. A real reason is one of: they are close to campus; home games bring students and families past them; or what they do serves players and the people who watch them (training, recovery, health, food after games, banking for students).
@@ -123,8 +127,7 @@ function buildPitchPrompt(ctx, kind, retryBecause) {
 Write a short email from the athletic department to this brand, which runs an athlete program (above). Ask whether they would partner with the ${ctx.team.name} program as a team: for example, opening their program to the whole team at once, or backing the team's season. Say why this brand and this team, from the facts above only (what they make, who their program is for, the sport).
 - Never name or describe any student athlete, coach or staff member.
 - Never invent a fact that is not above: no follower counts, no results, no records.
-- 60 to 130 words. Plain sentences, no bullet points, no headings.
-- Do NOT write a greeting or a sign-off; they are added for you.
+${ctx.dm ? dmRules(ctx) : '- 60 to 130 words. Plain sentences, no bullet points, no headings.\n'}- Do NOT write a greeting or a sign-off; they are added for you.
 - Never build the reason on a coincidence: a shared word, a name, a theme, a mascot, a colour or a pun.
 - No prices, no dollar amounts.
 - End with one short line asking for a short call or a reply.
@@ -140,8 +143,7 @@ BODY:
   return `${facts(ctx)}
 
 ${what}
-- 60 to 130 words. Plain sentences, no bullet points, no headings.
-${common}
+${ctx.dm ? dmRules(ctx) : '- 60 to 130 words. Plain sentences, no bullet points, no headings.\n'}${common}
 ${retryBecause ? `\nYour last draft was rejected: ${retryBecause}. Fix that.\n` : ''}
 Output exactly:
 SUBJECT: <subject line>
@@ -203,6 +205,7 @@ function checkPitch(parsed, ctx, kind) {
   const co = text.match(COINCIDENCE);
   if (co) return { ok: false, why: `it argues from a coincidence ("${co[0]}"); give a true reason or just say they are nearby` };
   const words = body.split(/\s+/).filter(Boolean).length;
+  if (ctx.dm && words > 90) return { ok: false, why: `it is ${words} words; a DM is under 70` };
   if (words > MAX_WORDS) return { ok: false, why: `it is ${words} words; keep it under 130` };
   return { ok: true };
 }
@@ -214,6 +217,8 @@ function compose(parsed, ctx) {
   const first = String(ctx.contactName || '').trim().split(/\s+/)[0];
   const hello = first && /^[A-Z][a-z'-]+$/.test(first) ? `Hi ${first},` : `Hi ${ctx.business.brand_name} team,`;
   const s = ctx.sender;
+  // A DM signs off with a name and the department; no email address.
+  if (ctx.dm) return `${hello}\n\n${parsed.body.trim()}\n\n${[s && s.name, `${ctx.university.name} Athletics`].filter(Boolean).join(', ')}`;
   const signOff = s && s.name
     ? [s.name, s.title, `${ctx.university.name} Athletics`, s.email].filter(Boolean).join('\n')
     : `${ctx.team.name}\n${ctx.university.name} Athletics`;

@@ -962,6 +962,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-tab.paused{opacity:.72}
 .hq-brand{font-size:14.5px;color:#F0EDE6;font-weight:600;line-height:1.35}
 .hq-why{font-size:11.5px;color:#6B7280;line-height:1.5;margin:5px 0 9px}
+.hq-points{margin:6px 0 8px;padding-left:20px;font-size:13px;line-height:1.5}
 .hq-who{font-size:12px;color:#9CA3AF;line-height:1.6}
 .hq-who b{color:#F0EDE6;font-weight:600}
 .hq-note{font-size:10.5px;color:#6B7280;line-height:1.5;margin-top:4px}
@@ -21518,7 +21519,7 @@ function hqRenderCard(c, i) {
     + '<span class="hq-rowbtns">'
     + (HQ.inflight && HQ.inflight[c.id]
       ? '<button class="hm-btn primary" type="button" disabled>Sending&hellip;</button>'
-      : '<button class="hm-btn primary" type="button" onclick="hqRowApprove(' + i + ', this)">Approve</button>')
+      : '<button class="hm-btn primary" type="button" onclick="hqRowApprove(' + i + ', this)">' + hqApproveLabel(c) + '</button>')
     + '<button class="hm-btn ghost" type="button" onclick="hqRowSkip(' + i + ', this)">Skip</button>'
     + '</span></div>'
     // Where a row-level action reports a failure. Outside the fold, so an error
@@ -21650,10 +21651,22 @@ function hqDmBody(c, i) {
 // call_script column on outreach_queue and nothing writes one, so there is no
 // script here -- a templated one would be a sentence we invented presented as
 // something the product prepared.
+// WHAT THE ROW'S MAIN BUTTON DOES, said on it. Approve means send, and only an
+// email card can be sent; a call card is marked called, a DM card marked sent.
+function hqApproveLabel(c) {
+  return c.channel === 'call' ? 'Mark called' : c.channel === 'dm' ? 'Mark sent' : 'Approve';
+}
+
+// A CALL CARD: who, the number, the best time to call, three talking points.
+// No email: there is no address to send one to.
 function hqCallBody(c, i) {
   var tel = String(c.phone || '').replace(/[^0-9+]/g, '');
+  var pts = Array.isArray(c.talkingPoints) ? c.talkingPoints : [];
   return '<p class="hq-who"><b>' + hqEscape(c.phone || 'no number') + '</b>'
     + (c.askFor ? ' <span class="role">&middot; ask for ' + hqEscape(c.askFor) + '</span>' : '') + '</p>'
+    + (c.bestTime ? '<p class="hq-why"><b>Best time:</b> ' + hqEscape(c.bestTime) + '</p>' : '')
+    + (pts.length ? '<ol class="hq-points">' + pts.map(function (p) { return '<li>' + hqEscape(p) + '</li>'; }).join('') + '</ol>' : '')
+    + '<p class="hq-note">No email address for this business, so this is a call, not an email.</p>'
     + '<div class="hq-xbtns">'
     + (tel ? '<a class="hm-btn primary" style="text-decoration:none" href="tel:' + hqEscape(tel) + '">Call</a>' : '')
     + '</div>';
@@ -21731,6 +21744,13 @@ async function hqQueueAction(i, btn, path, body) {
 //          Skip     POST outreach-queue/:id/skip
 function hqRowApprove(i, btn) {
   var c = hqCardAt(i); if (!c) return;
+  // NOTHING TO SEND TO, NOTHING APPROVED. Refused here, with the reason, rather
+  // than accepted and failed later in the send queue where nobody sees it.
+  if (c.channel === 'email' && !c.to) {
+    var st0 = document.getElementById('hq-est-' + i);
+    if (st0) st0.textContent = 'Not approved: there is no email address for this business, so there is nothing to send it to.';
+    return;
+  }
   if (c.channel === 'email') return hqApproveOne(i, btn);
   hqQueueAction(i, btn, 'sent', { via: c.channel === 'dm' ? 'dm' : 'call' });
 }
@@ -21767,6 +21787,7 @@ async function hqApproveOne(i, btn) {
     if (typeof showToast === 'function') {
       showToast(out.scheduled ? 'Sending. It goes out from your mailbox within a minute or two.' : (out.note || 'Not approved'));
     }
+    if (!out.scheduled && out.refused && out.refused.length && st) st.textContent = 'Not approved: ' + out.refused[0].why;
     await hqLoad(HQ.selected);
     delete HQ.inflight[c.id];
   } catch (e) {
@@ -21924,7 +21945,8 @@ async function hqApprove() {
   // would fail the batch outright instead of approving the part that can be
   // approved. Filtering here is not defence in depth for a silent server; the
   // server is loud, and this is the client agreeing with it.
-  var ids = d.cards.filter(function (c) { return c.channel === 'email'; })
+  // And only those with an address: an email card with none cannot be sent.
+  var ids = d.cards.filter(function (c) { return c.channel === 'email' && c.to; })
     .map(function (c) { return c.id; });
   if (!ids.length) return;
   var btn = document.getElementById('home-approve');

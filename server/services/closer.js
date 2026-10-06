@@ -496,6 +496,20 @@ async function approveBatch(pool, agentId, opts = {}) {
   // out top to bottom rather than in whatever order the table returned.
   const pos = new Map(allowed.map((id, i) => [String(id), i]));
   rows.sort((x, y) => (pos.get(String(x.id)) ?? 1e9) - (pos.get(String(y.id)) ?? 1e9));
+  // ── NO ADDRESS, NO APPROVAL (services/draftChannel, cardChannel) ─────────
+  // Approve means send. A draft first takes the address already on file for
+  // it; one that still has none is NOT approved -- it used to be, and died in
+  // the release queue as "no address to send to" with nobody told. It is
+  // refused here with the reason, and becomes the call or DM card behind it.
+  const DC = require('./draftChannel');
+  const addr = await DC.fillAddress(pool, rows.map((r) => String(r.id)));
+  const refused = [];
+  for (const r of rows.filter((x) => !addr.has(String(x.id)))) refused.push({ id: r.id, brand: r.brand_name, why: await DC.refusalFor(pool, r.id) });
+  if (refused.length) {
+    await DC.convert(pool, { agentId, ids: refused.map((x) => String(x.id)) }).catch((e) => console.error('[closer] convert address-less drafts:', e.message));
+    const out = new Set(refused.map((x) => String(x.id)));
+    for (let i = rows.length - 1; i >= 0; i--) if (out.has(String(rows[i].id))) rows.splice(i, 1);
+  }
   for (const r of rows) {
     // DUE NOW. No slot, no window: the release queue picks it up at once and
     // spaces it behind whatever this agent already has going out.
@@ -550,6 +564,10 @@ async function approveBatch(pool, agentId, opts = {}) {
   // cap, or dropped with a reason. scheduled + skipped + overflow + dropped
   // equals what came in, and the note says so in words.
   const bits = [];
+  if (refused.length) {
+    bits.push(`${refused.length} ${refused.length === 1 ? 'has' : 'have'} no email address and ${refused.length === 1 ? 'was' : 'were'} not approved: there is nothing to send ${refused.length === 1 ? 'it' : 'them'} to`
+      + ` (${refused.map((x) => x.brand).slice(0, 5).join(', ')}${refused.length > 5 ? ', ...' : ''})`);
+  }
   if (overflow > 0) {
     bits.push(`${overflow} left for tomorrow: approving them would have gone past tonight's ${guard.cap}-email ceiling`);
   }
@@ -563,7 +581,7 @@ async function approveBatch(pool, agentId, opts = {}) {
   }
   return {
     approved: scheduled, scheduled, skipped: skip.size, overflow,
-    dropped, requested: ids.length, when,
+    dropped, refused, requested: ids.length, when,
     note: bits.length
       ? bits.join('. ').replace(/^./, (ch) => ch.toUpperCase()) + '.'
       : null,

@@ -260,6 +260,28 @@ async function defaultSender(pool, universityId) {
   return first;
 }
 
+// ── A CARD, AS THE PORTAL SHOWS IT (services/cardChannel) ───────────────────
+// Every card says how it reaches someone. Cards written before the channel was
+// stored get it here, from what is on file: an email address makes an email
+// card and nothing else does; a phone alone is a call card, its talking points
+// built from the card's own reason (nothing invented); an Instagram handle
+// alone is a DM; a social brand is a program card. A card with none of them is
+// not shown as something to send.
+function cardForPortal(d, universityName) {
+  const CHN = require('./cardChannel');
+  const channel = d.channel || CHN.channelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
+    programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social' });
+  const out = { ...d, channel, sendable: channel === 'email' };
+  if (channel === 'call' && !d.talking_points) {
+    out.best_time = d.best_time || CHN.bestTime(String(d.why || '') + ' ' + String(d.brand_name || ''));
+    out.talking_points = CHN.talkingPoints({ who: `${universityName} Athletics`, subject: d.team_label ? `the ${d.team_label} program` : 'the athletics program',
+      business: d.brand_name, why: d.why });
+  }
+  // A call card has no email in it; its body is what to say.
+  if (channel === 'call') { out.subject = null; out.body = CHN.callText({ contactName: d.contact_name, phone: d.contact_phone, best: out.best_time, points: out.talking_points }); }
+  return out;
+}
+
 // ── ON-DEMAND PITCH ─────────────────────────────────────────────────────────
 // opts: { brand, teamId, athlete: { name, facts }, acknowledgeHistory, ai }
 async function pitch(pool, universityId, userId, opts) {
@@ -285,21 +307,36 @@ async function pitch(pool, universityId, userId, opts) {
       rating: biz.rating, user_ratings_total: biz.reviews, evidence: biz.athleteHistoryNote },
     athlete: opts.athlete && opts.athlete.name ? { name: String(opts.athlete.name).slice(0, 80), facts: String(opts.athlete.facts || '').slice(0, 400) } : null,
     contactName: biz.contact.name, sender };
-  const w = await TW.writeAsk(ctx, { ai: opts.ai });
+  // No email address, no email (services/cardChannel).
+  const CHN = require('./cardChannel');
+  const channel = CHN.channelOf({ email: biz.contact.email, phone: biz.contact.phone, instagram: biz.contact.instagram });
+  if (!channel) return { ok: false, status: 422, error: 'there is no email, phone or Instagram for anyone at this business yet, so there is no one to reach' };
+  let w, best = null, points = null;
+  if (channel === 'call') {
+    best = CHN.bestTime([biz.category, biz.kind].filter(Boolean).join(' '));
+    points = CHN.talkingPoints({ who: [sender && sender.name, `${u.name} Athletics`].filter(Boolean).join(', '),
+      subject: ctx.athlete ? ctx.athlete.name : `the ${ctx.team.name} program`, business: biz.brand, why: biz.fit && biz.fit.why, miles: biz.miles,
+      ask: ctx.athlete ? `would ${biz.brand} like to work with ${ctx.athlete.name} on a few posts or an appearance? If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.` : null });
+    w = { ok: true, subject: `Call ${biz.brand}`, body: CHN.callText({ contactName: biz.contact.name, phone: biz.contact.phone, best, points }), model: null };
+  } else {
+    w = await TW.writeAsk({ ...ctx, dm: channel === 'dm' }, { ai: opts.ai });
+  }
   if (!w.ok) return { ok: false, status: 502, error: 'could not write it: ' + w.error };
   const id = 'udraft_' + require('crypto').randomBytes(8).toString('hex');
   await pool.query(
     `INSERT INTO university_drafts (id, university_id, team_id, brand_key, brand_name, place_id, subject, body, model, status, kind, athlete_name,
-        contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval',$10,$11,$12,$13,$14,$15,$16,$17,$18,$17)`,
+        contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, created_by, channel, best_time, talking_points)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval',$10,$11,$12,$13,$14,$15,$16,$17,$18,$17,$19,$20,$21::jsonb)`,
     [id, universityId, team ? team.id : null, 'brand:' + biz.brand.toLowerCase(), biz.brand, biz.place_id || null, w.subject, w.body, w.model,
       ctx.athlete ? 'athlete' : 'pitch', ctx.athlete ? ctx.athlete.name : null, biz.contact.name, biz.contact.title, biz.contact.email,
-      biz.contact.phone, biz.contact.instagram, userId, sender && sender.email]);
-  return { ok: true, draft: { id, subject: w.subject, body: w.body, to: biz.contact.email, contact: biz.contact, sender,
-    mailto: biz.contact.email ? `mailto:${encodeURIComponent(biz.contact.email)}?subject=${encodeURIComponent(w.subject)}&body=${encodeURIComponent(w.body)}` : null } };
+      biz.contact.phone, biz.contact.instagram, userId, sender && sender.email, channel, best, points ? JSON.stringify(points) : null]);
+  return { ok: true, draft: { id, channel, bestTime: best, talkingPoints: points, subject: channel === 'call' ? null : w.subject, body: w.body,
+    to: channel === 'email' ? biz.contact.email : null, contact: biz.contact, sender,
+    mailto: channel === 'email' ? `mailto:${encodeURIComponent(biz.contact.email)}?subject=${encodeURIComponent(w.subject)}&body=${encodeURIComponent(w.body)}` : null } };
 }
 
 module.exports = {
+  cardForPortal,
   search, csvOf, detail, history, logTouch, setStage, addDeal, deals, senderFor, defaultSender, pitch, parseFilters, present,
   STAGES, STAGE_LABEL, CHANNELS, FIT_MIN,
 };

@@ -146,6 +146,51 @@ async function main() {
   ok('the portal\'s cards carry the rung and the program page', /d\.lane, d\.program_url/.test(route)
     && /BRAND PROGRAM/.test(require('fs').readFileSync(REPO + 'public/university.html', 'utf8')));
 
+  // ── NO EMAIL ADDRESS, NO EMAIL CARD ─────────────────────────────────────
+  OUT.push('', '-- a card cannot exist without a way to reach someone --');
+  await P.query(`DELETE FROM university_drafts WHERE university_id = $1`, [U]);
+  await P.query(`DELETE FROM university_research_claims WHERE team_id LIKE 'nt:%'`);
+  await P.query(`DELETE FROM university_contacts WHERE university_id = $1`, [U]);
+  await P.query(`DELETE FROM university_social_brands WHERE university_id = $1`, [U]);
+  const reach = [['Mail Gym', 'gym', { email: 'owner@mailgym.test' }], ['Phone Taqueria', 'mexican_restaurant', { phone: '(714) 555-0199' }],
+    ['Gram Barber', 'barber_shop', { instagram: '@grambarber' }], ['Ghost Cafe', 'cafe', {}]];
+  for (const [b, t, c] of reach) {
+    await P.query(`INSERT INTO university_market_seen (market_key, brand, place_id, category, types, primary_type, address, distance_m, fit) VALUES ($1,$2,$3,'local',$4::jsonb,$5,'x',1200,70)
+                   ON CONFLICT (market_key, brand) DO NOTHING`, [MK, b, 'r-' + b, JSON.stringify([t]), t]);
+    await P.query(`INSERT INTO university_contacts (university_id, market_key, brand, place_id, contact_name, contact_title, email, phone, instagram, reachable, status)
+                   VALUES ($1,$2,$3,$4,'Sam Ortiz','Owner',$5,$6,$7,TRUE,'reachable')`, [U, MK, b, 'r-' + b, c.email || null, c.phone || null, c.instagram || null]);
+  }
+  const before = prompts.length;
+  const rr = await TS.runTeamScan(P, { universityId: U, teamId: 'nt:bb', limit: 5, mode: 'pitch', discoverPool: false, deps: { ai, contactsAi, night: '2026-10-11', socialPerTeam: 0 } });
+  const byBrand = Object.fromEntries((await P.query(`SELECT * FROM university_drafts WHERE university_id = $1 AND night = '2026-10-11'`, [U])).rows.map((d) => [d.brand_name, d]));
+  ok('an email address makes an email card', byBrand['Mail Gym'] && byBrand['Mail Gym'].channel === 'email' && /^Hi Sam,/.test(byBrand['Mail Gym'].body), byBrand['Mail Gym']);
+  const call = byBrand['Phone Taqueria'];
+  ok('A PHONE ONLY IS A CALL CARD: the name, the number, the best time, three talking points, and no email body',
+    call && call.channel === 'call' && call.contact_phone === '(714) 555-0199' && /2 to 4 pm/.test(call.best_time)
+    && Array.isArray(call.talking_points) && call.talking_points.length === 3 && /^Who you are: /.test(call.talking_points[0]) && /^The ask: /.test(call.talking_points[2])
+    && !/^Hi /.test(call.body) && /^Call Sam Ortiz at \(714\) 555-0199\./.test(call.body), call);
+  ok('  and no email was written for it: the writer was never asked', !prompts.slice(before).some((p) => /BUSINESS: Phone Taqueria/.test(p)));
+  const dm = byBrand['Gram Barber'];
+  ok('INSTAGRAM ONLY IS A DM CARD: a short message, signed without an email address', dm && dm.channel === 'dm' && prompts.slice(before).some((p) => /BUSINESS: Gram Barber[\s\S]*INSTAGRAM DIRECT MESSAGE/.test(p))
+    && !/@nt\.test|@/.test(String(dm.body).split('\n').pop()), dm);
+  ok('NOTHING TO REACH, NO CARD', !byBrand['Ghost Cafe'], Object.keys(byBrand));
+  const CM = require(REPO + 'server/services/campusMarket.js');
+  const legacy = CM.cardForPortal({ id: 'x', brand_name: 'Old Pizza', contact_name: 'Lee Wu', contact_phone: '(714) 555-0100', contact_email: null,
+    subject: 'Backing the team', body: 'Hi Lee,\n\nan email with nowhere to go', why: 'a restaurant near campus', team_label: 'Softball' }, 'Night Test College');
+  ok('A CARD WRITTEN BEFORE THIS, phone only, is shown as a call card, its email body gone', legacy.channel === 'call' && legacy.subject === null
+    && !/nowhere to go/.test(legacy.body) && legacy.talking_points.length === 3 && /Night Test College Athletics, calling about the Softball program/.test(legacy.talking_points[0]) && legacy.sendable === false, legacy);
+  const vc = await CB.verify(P, U);
+  const nEmail = Object.values(byBrand).filter((d) => d.channel === 'email').length;
+  ok('STATUS COUNTS THE LATEST NIGHT BY HOW IT REACHES SOMEONE', nEmail >= 1 && vc.cardsByChannel.email === nEmail && vc.cardsByChannel.call === 1 && vc.cardsByChannel.dm === 1
+    && vc.cardsByChannel.none === 0 && new RegExp(`${nEmail} with an email, 1 phone only \\(call cards\\), 1 Instagram only \\(DM cards\\)`).test(CB.formatVerify(vc)), { by: vc.cardsByChannel, nEmail });
+  const CHN = require(REPO + 'server/services/cardChannel.js');
+  ok('Approve refuses anything that cannot send, and says why', CHN.canSend({ phone: '714 555 0100' }).ok === false && /call card/.test(CHN.canSend({ phone: '714 555 0100' }).why)
+    && /DM card/.test(CHN.canSend({ instagram: '@x_y' }).why) && CHN.canSend({ email: 'a@b.co' }).ok && !CHN.canSend({}).ok);
+  ok('  the portal renders each channel with its own action, and a call card has no Open in email', (() => {
+    const html = require('fs').readFileSync(REPO + 'public/university.html', 'utf8');
+    return /Mark called/.test(html) && /Copy message/.test(html) && /ch === "call"/.test(html) && /No email address for this person, so this is a call, not an email/.test(html);
+  })());
+
   await clean();
 }
 

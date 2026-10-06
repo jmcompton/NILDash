@@ -109,6 +109,7 @@ function mount(app, { store, requireAuth }) {
   app.post('/api/university/market/pitch', guard, async (req, res) => {
     try {
       const b = req.body || {};
+      await ready();
       const r = await CM.pitch(pool, req.staff.university_id, req.staff.id, { brand: brandOf(req), teamId: b.teamId || null,
         athlete: b.athlete && b.athlete.name ? b.athlete : null, acknowledgeHistory: b.acknowledgeHistory === true });
       if (!r.ok) return res.status(r.status || 400).json(r);
@@ -122,12 +123,14 @@ function mount(app, { store, requireAuth }) {
     const rows = (await pool.query(
       `SELECT d.id, d.team_id, t.name AS team_name, d.brand_name, d.subject, d.body, d.why, d.contact_name, d.contact_title, d.contact_email,
               d.contact_phone, d.contact_instagram, d.sender_email, d.status, d.sent_at, d.created_at, d.night, d.lane, d.program_url,
+              d.channel, d.best_time, d.talking_points, t.name AS team_label,
               COALESCE(r.stage, 'not_contacted') AS stage
          FROM university_drafts d LEFT JOIN university_teams t ON t.id = d.team_id
          LEFT JOIN university_crm r ON r.university_id = d.university_id AND r.brand = d.brand_name
         WHERE d.university_id = $1 AND d.kind = 'pitch' AND d.night = (SELECT MAX(night) FROM university_drafts WHERE university_id = $1 AND night IS NOT NULL)
         ORDER BY t.name, d.created_at`, [req.staff.university_id])).rows;
-    res.json({ cards: rows });
+    const uniName = ((await pool.query(`SELECT name FROM universities WHERE id = $1`, [req.staff.university_id])).rows[0] || {}).name || 'the athletic department';
+    res.json({ cards: rows.map((d) => CM.cardForPortal(d, uniName)) });
     } catch (e) {
       // Loud: a failed read is never an empty morning.
       console.error('[campus/cards]', req.staff.university_id, e.message);
