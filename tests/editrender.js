@@ -123,7 +123,10 @@ R.openOnLoad = openRows();
 R.heights = rows().map(function (r) { return Math.round(r.querySelector('.hq-rowhead').getBoundingClientRect().height); });
 R.everyRowHasApproveAndSkip = rows().every(function (r) {
   var b = r.querySelectorAll('.hq-rowbtns button');
-  return b.length === 2 && b[0].textContent === 'Approve' && b[1].textContent === 'Skip';
+  // The first button says what it does: Approve sends an email; a DM card is
+  // marked sent, a call card marked called (services/cardChannel).
+  var dm = !!r.querySelector('.hq-chan.dm');
+  return b.length === 2 && b[0].textContent === (dm ? 'Mark sent' : 'Approve') && b[1].textContent === 'Skip';
 });
 R.approveRights = rows().map(function (r) { return Math.round(r.querySelectorAll('.hq-rowbtns button')[0].getBoundingClientRect().right); });
 R.approveLefts = rows().map(function (r) { return Math.round(r.querySelectorAll('.hq-rowbtns button')[0].getBoundingClientRect().left); });
@@ -217,7 +220,7 @@ setTimeout(function () {
   check('two rows drew', R.rowCount === 2, R.rowCount);
   check('EVERY ROW STARTS COLLAPSED', R.openOnLoad === 0, R.openOnLoad);
   check('  a collapsed row is about 68px tall', R.heights.every((h) => h >= 64 && h <= 76), JSON.stringify(R.heights));
-  check('every row has Approve then Skip', R.everyRowHasApproveAndSkip === true);
+  check('every row has its action (Approve, or Mark sent on a DM) then Skip', R.everyRowHasApproveAndSkip === true);
   check('  IN THE SAME POSITION ON EVERY ROW', new Set(R.approveRights).size === 1 && new Set(R.approveLefts).size === 1,
     JSON.stringify({ right: R.approveRights, left: R.approveLefts }));
   check('the badge says EMAIL or DM', JSON.stringify(R.badges.slice().sort()) === '["DM","Email"]', JSON.stringify(R.badges));

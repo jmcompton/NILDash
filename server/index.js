@@ -5373,6 +5373,16 @@ const ADMIN_SCRIPTS = {
   // Every business contacted or beyond, by agent, with what happened next;
   // every reply, decline and logged deal anywhere. Read-only.
   'real-outcomes': { file: 'scripts/real-outcomes.js', args: () => [] },
+  // Approved emails that never sent and are too old to send: each re-decided
+  // once (a fresh unapproved draft, a call card, or a DM card) and the old row
+  // closed. Dry run unless apply=1. Never sends or approves anything.
+  'approved-unsent-backlog': { file: 'scripts/approved-unsent-backlog.js', args: (q) => {
+    const a = [];
+    if (q.date) { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(q.date))) throw Object.assign(new Error('date must be YYYY-MM-DD'), { status: 400 }); a.push('--date', String(q.date)); }
+    if (q.agent) a.push('--agent', String(q.agent).slice(0, 200));
+    if (q.apply === '1') a.push('--apply');
+    return a;
+  } },
   // Every first email in the lookback and what the follow-up pass will do
   // with it: due, waiting on the agent, or stopped and why. Read-only.
   'follow-up-plan': { file: 'scripts/follow-up-plan.js', args: () => [] },
