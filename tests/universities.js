@@ -33,6 +33,7 @@ const UA = require(REPO + 'server/services/universityAdmin.js');
 const RI = require(REPO + 'server/services/universityRosterImport.js');
 const CB = require(REPO + 'server/services/campusBuild.js');
 const TS = require(REPO + 'server/services/teamScan.js');
+const CN = require(REPO + 'server/services/campusNightly.js');
 
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g).slice(0, 900) : '')); } };
@@ -98,6 +99,7 @@ const aiStub = {
     await P.query(`DELETE FROM users WHERE email IN ('xavier.ut@cypress.example', 'agent.ut@agency.example')`).catch(() => {});
     await P.query(`DELETE FROM universities WHERE id IN ($1, 'univ-ut-empty')`, [UID]).catch(() => {});
     await P.query(`DELETE FROM social_brands WHERE brand LIKE 'UT Social %'`).catch(() => {});
+    await P.query(`DELETE FROM users WHERE id = 'ut-admin'`).catch(() => {});
   };
   await clean();
   await require(REPO + 'server/services/campusPool.js').ensureTables(P);
@@ -171,9 +173,12 @@ const aiStub = {
   ok('  a real local business is not blocked', ["Joe's Pizza", 'Valley View Dental', 'Iron Works Gym'].every((n) => !TS.blockedFor({ name: n, types: ['restaurant'] })));
   // The social index: one that signs at this level, one too big, one stale, one incumbent.
   const sb = (brand, min, months, extra = {}) => P.query(`INSERT INTO social_brands (brand, category, website, sports, tier_min, tier_max, proof_url, proof_date, tier_stated, active, offer_summary, deal_structure)
-    VALUES ($1,'apparel','https://x.example',$2,$3,$4,'https://x.example/ambassadors',(NOW() - ($5 || ' months')::interval)::date,TRUE,TRUE,'Free gear and a code','cash_code')`,
-  [brand, extra.sports || [], min, min * 20, String(months)]);
-  await sb('UT Social Ambassador', 500, 2);
+    VALUES ($1,'apparel','https://x.example',$2,$3,$4,'https://x.example/ambassadors',(NOW() - ($5 || ' months')::interval)::date,$6,TRUE,'Free gear and a code','cash_code')`,
+  [brand, extra.sports || [], min, min * 20, String(months), extra.stated !== false]);
+  // The common real case: discovery wrote sports ['all'] and the page states
+  // no follower minimum. Both used to drop it (Cypress came back with 0).
+  await sb('UT Social Ambassador', 0, 2, { sports: ['all'], stated: false });
+  await sb('UT Social Golf Only', 0, 2, { sports: ['golf'] });
   await sb('UT Social Only Stars', 50000, 2);
   await sb('UT Social Stale', 500, 18);
   await P.query(`INSERT INTO social_brands (brand, category, sports, tier_min, tier_max, proof_url, proof_date, tier_stated, active, deal_structure) VALUES ('Nike', 'apparel', '{}', 0, 100000, 'https://n.example', CURRENT_DATE, TRUE, TRUE, 'cash_code')`).catch(() => {});
@@ -188,12 +193,16 @@ const aiStub = {
     && !(await P.query(`SELECT 1 FROM university_contacts WHERE university_id = $1 AND brand = 'Far Away Bakery' AND status <> 'pending'`, [UID])).rowCount, named);
   const soc = (await P.query(`SELECT brand FROM university_social_brands WHERE university_id = $1`, [UID])).rows.map((r) => r.brand);
   ok('  social: the brand that signs athletes at this level; not the stars-only one, not the stale one, never Nike', soc.includes('UT Social Ambassador') && !soc.some((x) => /Only Stars|Stale|^Nike$/.test(x)), soc);
+  ok('  sports "all" and a program that states no minimum count (the two filters that emptied Cypress)', soc.includes('UT Social Ambassador') && !soc.includes('UT Social Golf Only'), soc);
+  const fn = b.socialFunnel || {};
+  ok('  the funnel says what each step removed', fn.inIndex >= 5 && fn.staleOver12Months >= 1 && fn.minimumTooHigh >= 1 && fn.noSportMatch >= 1 && fn.incumbent >= 1 && fn.kept >= 1
+    && /in the social index; out: .* kept \d+/.test(CB.formatFunnel(fn)), fn);
+  ok('  a build with local and social is not a failure', b.ok && Array.isArray(b.failures) && !b.failures.length, b.failures);
   const tiny = await CB.build(P, UID, { budgetUsd: 0.01, places: placesStub, ai: aiStub });
   ok('  THE CAP HOLDS: with too little left, no ring is bought and no lookup started', tiny.ok && tiny.spentUsd === 0 && tiny.placesCalls === 0 && tiny.contactsTried === 0, tiny);
 
   // ── 5. THE NIGHT, AND THE NUMBERS ────────────────────────────────────────
   OUT.push('', '-- the nightly and the numbers --');
-  const CN = require(REPO + 'server/services/campusNightly.js');
   await P.query(`INSERT INTO universities (id, name, location) VALUES ('univ-ut-empty', 'UT Empty University', 'Birmingham, AL') ON CONFLICT (id) DO NOTHING`);
   const due = await CN.universitiesDue(P);
   ok('the nightly runs a university with teams and a business list (no staff sign-in needed)', due.includes(UID) && !due.includes('univ-ut-empty'), due);
@@ -206,17 +215,64 @@ const aiStub = {
   ok('an empty university (Samford\'s shape: "Birmingham, AL", no teams) says exactly what it still needs', e.ok && !e.nightlyReady
     && e.needs.some((n) => /campus street address/.test(n)) && e.needs.some((n) => /roster-import/.test(n)) && e.needs.some((n) => /business-build/.test(n)) && e.needs.some((n) => /create-university-user/.test(n)), e.needs);
 
+  // ── 5b. ZERO ON EITHER SIDE IS A FAILURE ────────────────────────────────
+  OUT.push('', '-- zero local or zero social is a failure --');
+  await P.query(`DELETE FROM university_social_brands WHERE university_id = $1`, [UID]);
+  const vz = await CB.verify(P, UID);
+  ok('0 social brands after a build: status says FAILED, with the funnel', vz.failures.some((f) => /^0 social brands: \d+ in the social index/.test(f)) && /FAILED:/.test(CB.formatVerify(vz)), vz.failures);
+  await CB.socialList(P, { id: UID });
+
+  // ── 5c. THE NIGHT: HARD $5, NO PLACES, THE PROJECTION FIRST ─────────────
+  OUT.push('', '-- the night: projected, capped at $5 --');
+  const est = await CN.estimate(P, UID);
+  ok('the projection: 3 teams x 5 cards, the named contacts on file first, lookups only for the rest, no Places', est.ok && est.cards === 15 && est.cardsFromFile === 3
+    && est.lookupsNeeded === 12 && est.placesUsd === 0 && est.totalUsd[1] <= 5 && est.nightCapUsd === 5, est);
+  ok('  printed', /TONIGHT FOR UT Cypress College: 3 teams x 5 cards = 15 cards/.test(CN.formatEstimate(est)) && /HARD CAP: \$5\.00/.test(CN.formatEstimate(est)), CN.formatEstimate(est));
+  const stTxt = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+  ok('  and on the status page, before the run', /CN\.formatEstimate\(est\)/.test(stTxt));
+
+  // ── 5d. THE SWITCHER ─────────────────────────────────────────────────────
+  OUT.push('', '-- the admin views any university, read-only --');
+  const AV = require(REPO + 'server/services/adminView.js');
+  await P.query(`INSERT INTO users (id, name, email, password, role) VALUES ('ut-admin', 'The Admin', 'admin.ut@nildash.example', 'x', 'admin') ON CONFLICT DO NOTHING`);
+  const mw = AV.middleware({ pool: P, adminEmail: 'admin.ut@nildash.example' });
+  const call = (req) => new Promise((resolve) => {
+    const res = { statusCode: 200, status(c) { this.statusCode = c; return this; }, json(b) { resolve({ status: this.statusCode, body: b }); } };
+    mw(req, res, () => resolve({ status: 'next', seen: AV.override(req.session.userId) }));
+  });
+  const badUni = await AV.set(P, { session: {} }, 'univ-nope');
+  ok('choosing a university that does not exist is refused', !badUni.ok);
+  const sess = { userId: 'ut-admin' };
+  const chosen = await AV.set(P, { session: sess }, UID);
+  ok('the admin chooses a university for this session only', chosen.ok && sess.viewUniversityId === UID);
+  const g = await call({ session: sess, method: 'GET' });
+  ok('  every portal read now resolves to it', g.status === 'next' && g.seen === UID, g);
+  const w = await call({ session: sess, method: 'POST' });
+  ok('  and every write is refused: nothing is changed or sent as the school', w.status === 403 && w.body.code === 'ADMIN_VIEW_READ_ONLY', w);
+  const xs = { userId: xu.id, viewUniversityId: 'univ-ut-empty' };
+  const nx = await call({ session: xs, method: 'GET' });
+  ok('  for anyone but the admin it does nothing (and is cleared)', nx.status === 'next' && nx.seen === null && !xs.viewUniversityId, nx);
+  ok('  no account is written: the admin\'s own university_id is untouched', (await P.query(`SELECT university_id FROM users WHERE id = 'ut-admin'`)).rows[0].university_id === null);
+  const campus = fs.readFileSync(REPO + 'server/routes/campus.js', 'utf8');
+  ok('  both resolvers ask it first (the market routes and the teams / inventory routes)', /adminView'\)\.override\(u\.id\)/.test(campus)
+    && /async function resolveSessionUniversity\(userId\) \{\n  \/\/ The admin viewing another university[^\n]*\n  const viewing = require\('\.\/services\/adminView'\)\.override\(userId\);/.test(stTxt)
+    && /app\.use\('\/api\/university', require\('\.\/services\/adminView'\)\.middleware/.test(stTxt));
+  const portal = fs.readFileSync(REPO + 'public/university.html', 'utf8');
+  ok('  the portal says so on every screen, with a way back', /Viewing " \+ name \+ " as admin\. Read-only/.test(portal) && /viewingAsAdmin/.test(portal));
+  await P.query(`DELETE FROM users WHERE id = 'ut-admin'`).catch(() => {});
+
   // ── 6. THE ADMIN PAGE ────────────────────────────────────────────────────
   OUT.push('', '-- the admin page --');
   const adm = fs.readFileSync(REPO + 'public/admin.html', 'utf8');
   ok('/admin has the Universities section: create university, create user (link shown, not emailed), rosters / business list / nightly, status',
     />Universities</.test(adm) && /createUniversity\(\)/.test(adm) && /createUniversityUser\(\)/.test(adm) && /university-roster-import/.test(adm)
-    && /university-business-build/.test(adm) && /university-nightly/.test(adm) && /uniStatus\(\)/.test(adm) && /Not emailed/.test(adm));
+    && /university-business-build/.test(adm) && /university-nightly/.test(adm) && /uniStatus\(\)/.test(adm) && /Not emailed/.test(adm)
+    && /uniView\(\)/.test(adm) && /view-university/.test(adm));
   const scripts = [...adm.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)];
   const broken = scripts.filter((x) => { try { new Function(x[2]); return false; } catch (_) { return true; } });
   ok('  every script on /admin parses (the email-history and suppression panels were swallowed by a broken string)', !broken.length, broken.map((x) => x[2].slice(0, 60)));
   ok('  every route is admin-only', ['create-university', 'create-university-user', 'university-roster-import', 'university-business-build', 'university-nightly', 'university-bootstrap']
-    .every((r) => new RegExp(`app\\.post\\('/api/admin/${r}', requireAuth, requireCampusAdmin`).test(idx)) && /app\.get\('\/api\/admin\/university-status\/:universityId', requireAuth, requireCampusAdmin/.test(idx));
+    .concat(['view-university']).every((r) => new RegExp(`app\\.post\\('/api/admin/${r}', requireAuth, requireCampusAdmin`).test(idx)) && /app\.get\('\/api\/admin\/university-status\/:universityId', requireAuth, requireCampusAdmin/.test(idx));
 
   await clean();
   await P.query(`DELETE FROM users WHERE id = 'ut-agent'`).catch(() => {});

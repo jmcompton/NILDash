@@ -533,7 +533,29 @@ async function load(){
   CARDS = c.status === 200 ? (c.body.cards || []) : [];
   NEAR = { total: all.status === 200 ? all.body.total || 0 : 0, withContact: wc.status === 200 ? wc.body.total || 0 : 0,
     rows: wc.status === 200 ? wc.body.rows || [] : [], failed: all.status !== 200 };
-  shell(); paint();
+  shell(); paint(); adminViewBar();
+}
+
+/* The admin viewing this university (services/adminView): said on every
+   screen, read-only, and one click back. */
+function adminViewBar(){
+  var old = document.getElementById("adminViewBar"); if (old) old.remove();
+  if (!(ME && ME.me && ME.me.viewingAsAdmin)) return;
+  var bar = document.createElement("div");
+  bar.id = "adminViewBar";
+  bar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#fbbf24;color:#000;font:600 13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:8px 16px;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap";
+  var name = (ME.university && ME.university.name) || "this university";
+  bar.textContent = "Viewing " + name + " as admin. Read-only: nothing is changed or sent as the school.";
+  var back = document.createElement("button");
+  back.textContent = "Back to admin";
+  back.style.cssText = "font:700 12px inherit;padding:4px 10px;border-radius:6px;border:1px solid #000;background:#000;color:#fbbf24;cursor:pointer";
+  back.onclick = async function(){
+    try { await fetch("/api/admin/view-university", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ universityId: null }) }); } catch (_) {}
+    location.href = "/admin";
+  };
+  bar.appendChild(back);
+  document.body.appendChild(bar);
+  document.body.style.paddingTop = "40px";
 }
 
 /* ===================== sign in ===================== */

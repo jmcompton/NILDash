@@ -26,6 +26,9 @@ function mount(app, { store, requireAuth }) {
     try {
       const u = (await pool.query(`SELECT id, name, email, role, university_id FROM users WHERE id = $1`, [req.session.userId])).rows[0];
       if (!u) return res.status(401).json({ error: 'Not signed in' });
+      // The admin viewing another university, read-only (services/adminView).
+      const viewing = require('../services/adminView').override(u.id);
+      if (viewing) { u.university_id = viewing; u.viewingAsAdmin = true; }
       if (!['university', 'university_admin', 'admin'].includes(u.role)) return res.status(403).json({ error: 'Department staff only', code: 'UNIVERSITY_ROLE_REQUIRED' });
       if (!u.university_id) return res.status(403).json({ error: 'This account is not linked to a department.', code: 'NO_UNIVERSITY_LINKED' });
       req.staff = u;
@@ -41,7 +44,7 @@ function mount(app, { store, requireAuth }) {
     const sender = await CM.senderFor(pool, req.staff.id);
     const cats = (await pool.query(`SELECT category, COUNT(*)::int n FROM university_market_seen WHERE market_key = $1 AND blocked_reason IS NULL AND category IS NOT NULL
                                      GROUP BY category ORDER BY n DESC`, [u && u.marketKey])).rows;
-    res.json({ me: { id: req.staff.id, name: req.staff.name, email: req.staff.email }, sender,
+    res.json({ me: { id: req.staff.id, name: req.staff.name, email: req.staff.email, viewingAsAdmin: !!req.staff.viewingAsAdmin }, sender,
       university: u && { id: u.id, name: u.name, short_name: u.short_name, location: u.location },
       teams, categories: cats, stages: CM.STAGES.map((s) => ({ key: s, label: CM.STAGE_LABEL[s] })), channels: CM.CHANNELS });
   });

@@ -341,8 +341,11 @@ async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [],
     }
   }
   const picks = rows.filter((r) => Number(r.fit_score) >= PITCH_FIT_MIN)
-    // Best fit first; at equal fit a business already known reachable, then the nearest.
-    .sort((a, b) => (b.fit_score - a.fit_score) || ((b.reachable ? 1 : 0) - (a.reachable ? 1 : 0))
+    // A NAMED CONTACT ALREADY ON FILE FIRST. The build resolved them; using
+    // one costs the email and nothing else. A business still needing a
+    // lookup ($0.10-0.24) is pitched only when no resolved one fits the team.
+    // Within each, best fit, then the nearest.
+    .sort((a, b) => ((b.reachable ? 1 : 0) - (a.reachable ? 1 : 0)) || (b.fit_score - a.fit_score)
       || ((a.distance_m == null ? 1e12 : a.distance_m) - (b.distance_m == null ? 1e12 : b.distance_m)) || String(a.brand_name).localeCompare(String(b.brand_name)))
     .slice(0, limit);
   return { picks };

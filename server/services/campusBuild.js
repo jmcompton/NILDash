@@ -31,35 +31,53 @@ async function ensureTables(pool) {
 }
 
 // ── SOCIAL BRANDS THAT SIGN ATHLETES AT THIS LEVEL ──────────────────────────
+// From the social index (social_brands), a brand counts when:
+//   its program page was verified in the last 12 months (proof_url, proof_date)
+//   it takes a small following: its stated minimum, if it states one, is at
+//     or under LEVEL_REACH. Most ambassador programs state no number
+//     (tier_stated false): that is "open to anyone who applies", not a no.
+//   it fits a team: sports 'all' (what discovery writes when a program names
+//     none) or empty matches every team
+//   never a household incumbent, never anything the campus block refuses
+// The funnel is returned so a 0 says which step emptied it.
 async function socialList(pool, uni) {
   await ensureTables(pool);
   const SE = require('./signingEvidence');
   const TS = require('./teamScan');
-  const sports = (await pool.query(`SELECT DISTINCT LOWER(sport) AS s FROM university_teams WHERE university_id = $1`, [uni.id])).rows.map((r) => r.s).filter(Boolean);
-  const rows = (await pool.query(
-    `SELECT * FROM social_brands
-      WHERE active IS NOT FALSE AND tier_stated = TRUE AND proof_url IS NOT NULL
-        AND proof_date >= (CURRENT_DATE - INTERVAL '12 months')
-        AND COALESCE(tier_min, 0) <= $1
-      ORDER BY proof_date DESC`, [LEVEL_REACH]).catch(() => ({ rows: [] }))).rows;
+  const teamSports = (await pool.query(`SELECT DISTINCT LOWER(COALESCE(sport, name)) AS s FROM university_teams WHERE university_id = $1`, [uni.id])).rows.map((r) => r.s).filter(Boolean);
+  const all = (await pool.query(`SELECT * FROM social_brands`).catch(() => ({ rows: [] }))).rows;
+  const funnel = { inIndex: all.length, inactive: 0, noProgramPage: 0, staleOver12Months: 0, minimumTooHigh: 0, noSportMatch: 0, incumbent: 0, blocked: 0, kept: 0 };
+  const cutoff = Date.now() - 365 * 86400000;
   const kept = [], refused = [];
-  for (const b of rows) {
-    if (SE.incumbent(b.brand)) { refused.push({ brand: b.brand, why: 'household incumbent' }); continue; }
+  for (const b of all) {
+    if (b.active === false) { funnel.inactive++; continue; }
+    if (!b.proof_url) { funnel.noProgramPage++; continue; }
+    if (!b.proof_date || new Date(b.proof_date).getTime() < cutoff) { funnel.staleOver12Months++; continue; }
+    if (b.tier_stated && Number(b.tier_min) > LEVEL_REACH) { funnel.minimumTooHigh++; continue; }
+    const bs = (b.sports || []).map((x) => String(x).toLowerCase().trim()).filter(Boolean);
+    const anySport = !bs.length || bs.includes('all') || bs.includes('any');
+    if (!anySport && teamSports.length && !bs.some((x) => teamSports.some((t) => t.includes(x) || x.includes(t)))) { funnel.noSportMatch++; continue; }
+    if (SE.incumbent(b.brand)) { funnel.incumbent++; refused.push({ brand: b.brand, why: 'household incumbent' }); continue; }
     const blk = TS.blockedFor({ name: b.brand });
-    if (blk) { refused.push({ brand: b.brand, why: blk.key }); continue; }
-    const bs = (b.sports || []).map((s) => String(s).toLowerCase());
-    if (bs.length && sports.length && !bs.some((s) => sports.some((t) => t.includes(s) || s.includes(t)))) continue;
+    if (blk) { funnel.blocked++; refused.push({ brand: b.brand, why: blk.key }); continue; }
     kept.push(b);
   }
+  funnel.kept = kept.length;
   await pool.query(`DELETE FROM university_social_brands WHERE university_id = $1`, [uni.id]);
   for (const b of kept) {
     await pool.query(
       `INSERT INTO university_social_brands (university_id, brand, website, program_url, category, tier_min, tier_max, sports, proof_date, offer, evidence)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (university_id, brand) DO NOTHING`,
       [uni.id, b.brand, b.website, b.proof_url, b.category, b.tier_min, b.tier_max, b.sports || null, b.proof_date, b.offer_summary,
-        `program takes ${b.tier_min || 0}${b.tier_max ? '-' + b.tier_max : '+'} followers, verified ${String(b.proof_date).slice(0, 10)}: ${b.proof_url}`]);
+        `${b.tier_stated ? `program states ${b.tier_min || 0}+ followers` : 'program states no minimum'}, verified ${String(b.proof_date).slice(0, 10)}: ${b.proof_url}`]);
   }
-  return { kept: kept.length, refused };
+  return { kept: kept.length, refused, funnel };
+}
+
+function formatFunnel(f) {
+  if (!f) return '';
+  return `${f.inIndex} in the social index; out: ${f.inactive} inactive, ${f.noProgramPage} no program page, ${f.staleOver12Months} not verified in 12 months, `
+    + `${f.minimumTooHigh} minimum above a ${LEVEL_REACH.toLocaleString()}-follower athlete, ${f.noSportMatch} no sport match, ${f.incumbent} household incumbents, ${f.blocked} blocked; kept ${f.kept}`;
 }
 
 // ── THE BUILD ───────────────────────────────────────────────────────────────
@@ -111,12 +129,21 @@ async function build(pool, universityId, opts = {}) {
     placesCalls: (deep && deep.placesCalls) || 0, poolSteps: (deep && deep.steps) || [], poolError: deep && !deep.ok ? deep.error : null,
     newlyBlocked: (re && Array.isArray(re.newlyBlocked) ? re.newlyBlocked.length : Number(re && re.newlyBlocked) || 0), blockedTotal: (re && Number(re.blocked)) || 0,
     contactsTried: resolved, contactsFound: reachable, contactsLeft: todo.length - resolved, stoppedFor,
-    social: social.kept, socialRefused: social.refused.length, driveKm: DRIVE_KM,
+    social: social.kept, socialRefused: social.refused.length, socialFunnel: social.funnel, driveKm: DRIVE_KM,
   };
+  // LOCAL AND SOCIAL ARE THE WHOLE MODEL. Either at 0 is a failed build, said
+  // as one, with the step that emptied it.
+  summary.failures = [];
+  const localUsable = (await pool.query(`SELECT COUNT(*)::int n FROM university_market_seen WHERE market_key = $1 AND blocked_reason IS NULL`, [uni.marketKey])).rows[0].n;
+  summary.localFound = localUsable;
+  if (!localUsable) summary.failures.push('0 local businesses' + (summary.poolError ? `: ${summary.poolError}` : ''));
+  else if (!reachable && !(await pool.query(`SELECT 1 FROM university_contacts WHERE university_id = $1 AND reachable LIMIT 1`, [uni.id])).rowCount) summary.failures.push('0 local businesses with a named contact');
+  if (!social.kept) summary.failures.push('0 social brands: ' + formatFunnel(social.funnel));
   await pool.query(`UPDATE university_market_runs SET finished_at = NOW(), summary = $2 WHERE id = $1`, [run, summary]);
   console.log(`[campus-build] ${uni.name}: spent $${summary.spentUsd} of $${budget} (Places $${summary.placesUsd}, contacts $${summary.contactUsd}); `
-    + `${reachable} of ${resolved} businesses with a named person; ${social.kept} social brands`);
-  return { ok: true, ...summary };
+    + `${reachable} of ${resolved} businesses with a named person; ${social.kept} social brands`
+    + (summary.failures.length ? `; FAILED: ${summary.failures.join('; ')}` : ''));
+  return { ok: !summary.failures.length, ...summary };
 }
 
 // ── WHAT A UNIVERSITY HAS, AND WHAT IT STILL NEEDS ──────────────────────────
@@ -148,12 +175,17 @@ async function verify(pool, universityId) {
   if (!teams) needs.push('teams and rosters: POST /api/admin/university-roster-import');
   if (!found) needs.push('a business list: POST /api/admin/university-business-build');
   if (!staff) needs.push('a staff account to sign in: POST /api/admin/create-university-user');
+  // A FAILURE, not a gap: local and social are the whole model.
+  const failures = [];
+  if (teams && !found && lastBuild) failures.push('0 local businesses after a build');
+  if (found && !named && lastBuild) failures.push('0 local businesses with a named contact');
+  if (lastBuild && !social) failures.push('0 social brands: ' + (lastBuild.summary && lastBuild.summary.socialFunnel ? formatFunnel(lastBuild.summary.socialFunnel) : 'rebuild to see why'));
   return { ok: true, university: uni.name, id: uni.id, location: uni.location, marketKey: uni.marketKey,
     center: row.lat != null ? { lat: row.lat, lng: row.lng } : null,
     teams, athletes, businessesFound: found, businessesBlocked: blocked, businessesWithNamedContact: named, socialBrands: social,
     cardsLatestNight: cards, cardsAllTime: cardsAll, staff,
     lastBuild: lastBuild && lastBuild.summary, lastNight: lastNight && lastNight.summary,
-    nightlyReady: !!(teams && found), needs };
+    nightlyReady: !!(teams && found), needs, failures };
 }
 
 function formatVerify(v) {
@@ -169,8 +201,9 @@ function formatVerify(v) {
   L.push(`  staff accounts                 ${v.staff}`);
   if (v.lastBuild) L.push(`  last build spent               $${v.lastBuild.spentUsd} of $${v.lastBuild.budgetUsd} (Places $${v.lastBuild.placesUsd}, contacts $${v.lastBuild.contactUsd})${v.lastBuild.stoppedFor ? ', stopped at the cap' : ''}`);
   if (v.lastNight) L.push(`  last night                     ${v.lastNight.cards} of ${v.lastNight.target} cards, $${v.lastNight.costUsd}`);
-  L.push(v.needs.length ? '  STILL NEEDS:\n' + v.needs.map((n) => '    - ' + n).join('\n') : '  ready: the nightly will fill its cards');
+  if (v.failures && v.failures.length) L.push('  FAILED:\n' + v.failures.map((n) => '    - ' + n).join('\n'));
+  L.push(v.needs.length ? '  STILL NEEDS:\n' + v.needs.map((n) => '    - ' + n).join('\n') : (v.failures && v.failures.length ? '  the nightly will still fill local cards' : '  ready: the nightly will fill its cards'));
   return L.join('\n');
 }
 
-module.exports = { build, socialList, verify, formatVerify, ensureTables, DRIVE_KM, LEVEL_REACH, BUILD_RINGS };
+module.exports = { build, socialList, formatFunnel, verify, formatVerify, ensureTables, DRIVE_KM, LEVEL_REACH, BUILD_RINGS };

@@ -452,6 +452,10 @@ app.use(session({
   cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
 }));
 
+// The admin viewing any university's portal, read-only, for this session
+// only (services/adminView). Before every /api/university route.
+app.use('/api/university', require('./services/adminView').middleware({ pool: store.pool, adminEmail: ADMIN_EMAIL }));
+
 // ── CUSTOMERS NEVER SEE A VENDOR'S ERROR (services/customerErrors) ─────────
 // Every /api JSON response except /api/admin: an error, note or reason that
 // names a provider, an HTTP status or a request id is replaced with plain
@@ -7191,16 +7195,7 @@ app.get('/api/admin/campus/:universityId/nightly-estimate', requireAuth, require
     const e = await require('./services/campusNightly').estimate(store.pool, req.params.universityId);
     if (!e.ok) return res.status(404).json(e);
     if (req.query.text !== '1') return res.json(e);
-    const usd = (a) => `$${a[0].toFixed(2)} to $${a[1].toFixed(2)}`;
-    res.type('text/plain').send([
-      `ONE NIGHT FOR ${e.university}: ${e.teams} teams x ${e.perTeamTarget} cards`,
-      `  Places, one build shared by every team: ${e.places.calls[0] === e.places.calls[1] ? e.places.calls[0] : e.places.calls.join(' to ')} calls, ${usd(e.places.usd)}`
-        + (e.places.lastBuild ? ` (the last build of this campus)` : ` (never built: the range of a build)`),
-      `  Each team: ${usd(e.teamUsd)} (contact lookup ${usd(e.perContactLookupUsd)} a business, only for the ones picked; capped at $${e.teamCapUsd.toFixed(2)})`,
-      `  Contacts already on file: ${e.contactsOnFile.reachable} reachable of ${e.contactsOnFile.n}`,
-      `TOTAL: ${usd(e.totalUsd)}`,
-      `CAP FOR THE WHOLE NIGHT, PLACES INCLUDED: $${e.nightCapUsd.toFixed(2)}. Every team's ceiling is the smaller of $${e.teamCapUsd.toFixed(2)} and what the night has left; the night cannot spend more.`,
-    ].join('\n'));
+    res.type('text/plain').send(require('./services/campusNightly').formatEstimate(e) + '\n');
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -7272,13 +7267,20 @@ app.post('/api/admin/university-bootstrap', requireAuth, requireCampusAdmin, (re
   const { siteUrl, budgetUsd } = req.body || {};
   _uniBackground(req, res, 'bootstrap', async (id) => {
     if (siteUrl) { _uniJobs.set(id, 'bootstrap: roster import'); const r = await _uniImport(id, siteUrl); if (!r.ok) return; }
-    _uniJobs.set(id, 'bootstrap: business build'); const b = await _uniBuild(id, budgetUsd); if (!b.ok) return;
+    _uniJobs.set(id, 'bootstrap: business build'); const b = await _uniBuild(id, budgetUsd); if (!b.localFound) return;   // a social failure is reported, and local cards still run
     _uniJobs.set(id, 'bootstrap: nightly'); await _uniNight(id);
   });
 });
 app.get('/api/admin/universities', requireAuth, requireCampusAdmin, async (req, res) => {
   try { res.json({ universities: (await store.pool.query(`SELECT id, name, short_name, location FROM universities ORDER BY name`)).rows }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+// The admin's university switcher (services/adminView): session only, read-only.
+app.post('/api/admin/view-university', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const r = await require('./services/adminView').set(store.pool, req, (req.body || {}).universityId || null);
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 app.get('/api/admin/university-status/:universityId', requireAuth, requireCampusAdmin, async (req, res) => {
   try {
@@ -7291,6 +7293,9 @@ app.get('/api/admin/university-status/:universityId', requireAuth, requireCampus
     if (req.query.text !== '1') return res.json(out);
     const L = [CB.formatVerify(v)];
     if (out.running) L.push(`\nRUNNING NOW: ${out.running}`);
+    const CN = require('./services/campusNightly');
+    const est = await CN.estimate(store.pool, id).catch(() => null);
+    if (est && est.ok) L.push('\n' + CN.formatEstimate(est));
     if (imp && imp.summary) {
       const s = imp.summary;
       L.push(`\nROSTER IMPORT ${imp.finished_at ? String(imp.finished_at).slice(0, 16) : '(running)'}: ${s.ok === false ? 'FAILED: ' + s.error : `${s.teamCount} teams, ${s.athletes} athletes from ${s.site}`}`);
@@ -15694,6 +15699,9 @@ const NILDirectorService          = require('./services/university/NILDirectorSe
 // Admin users may also have it set (e.g. admin linked to Samford for demo).
 // Returns null if no university linked — caller should 400.
 async function resolveSessionUniversity(userId) {
+  // The admin viewing another university (services/adminView), this request only.
+  const viewing = require('./services/adminView').override(userId);
+  if (viewing) return viewing;
   try {
     const r = await store.pool.query(
       'SELECT university_id FROM users WHERE id = $1 LIMIT 1',

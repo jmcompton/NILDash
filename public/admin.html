@@ -106,6 +106,7 @@ a.back:hover{color:#C8F135}
     <button onclick="uniAction('university-nightly')" style="padding:8px 16px;background:#4ade80;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Run the nightly once</button>
     <button onclick="uniAction('university-bootstrap')" style="padding:8px 16px;background:#fbbf24;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">All three, in order</button>
     <button onclick="uniStatus()" style="padding:8px 16px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#f0ede6;cursor:pointer;font-weight:600;font-size:12px">Status</button>
+    <button onclick="uniView()" title="Open this university's portal as the admin: read-only, this session only" style="padding:8px 16px;background:#fbbf24;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">View its portal</button>
   </div>
   <pre id="ur-out" style="margin:0 20px 16px;padding:12px;background:#0a0a09;border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:11px;color:#f0ede6;white-space:pre-wrap;display:none"></pre>
 </div>
@@ -1251,6 +1252,14 @@ async function uniStatus() {
   var r = await fetch('/api/admin/university-status/' + encodeURIComponent(id) + '?text=1', { credentials: 'same-origin' });
   out.textContent = await r.text();
   if (/RUNNING NOW/.test(out.textContent)) setTimeout(uniStatus, 8000);
+}
+// THE SWITCHER: the portal for any university, as the admin, read-only, for
+// this session only. Nothing is written to any account.
+async function uniView() {
+  var id = document.getElementById('ur-uni').value;
+  var j = await _uniPost('view-university', { universityId: id });
+  if (!j.ok) { var out = document.getElementById('ur-out'); out.style.display = 'block'; out.textContent = 'Could not open it: ' + j.error; return; }
+  window.location.href = '/university';
 }
 loadUniversities();
 </script>
