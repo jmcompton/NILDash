@@ -31,7 +31,7 @@ async function fillAddress(pool, ids) {
   const out = new Map();
   if (!ids || !ids.length) return out;
   const rows = (await pool.query(
-    `SELECT l.id, l.sent_to_email, c.email AS contact_email, q.email AS queue_email
+    `SELECT l.id, l.brand_name, l.sent_to_email, c.email AS contact_email, q.email AS queue_email
        FROM outreach_logs l
        LEFT JOIN brand_contacts c ON c.id = l.contact_id
        LEFT JOIN LATERAL (
@@ -41,16 +41,48 @@ async function fillAddress(pool, ids) {
           ORDER BY (q2.outreach_log_id = l.id) DESC, q2.created_at DESC LIMIT 1
        ) q ON TRUE
       WHERE l.id = ANY($1::text[])`, [ids.map(String)]).catch(async () => (await pool.query(
-    `SELECT l.id, l.sent_to_email, NULL AS contact_email, NULL AS queue_email FROM outreach_logs l WHERE l.id = ANY($1::text[])`, [ids.map(String)])))).rows;
+    `SELECT l.id, l.brand_name, l.sent_to_email, NULL AS contact_email, NULL AS queue_email FROM outreach_logs l WHERE l.id = ANY($1::text[])`, [ids.map(String)])))).rows;
   for (const r of rows) {
     const have = norm(r.sent_to_email);
     if (have) { out.set(String(r.id), have); continue; }
-    const found = norm(r.contact_email) || norm(r.queue_email);
+    // THEN OUR OWN ADDRESS CACHE. Three of the 25 "no address to send to" rows
+    // of 2026-09-23 had an address there all along (Central City Toyota's
+    // mmisuraco@, HornsDownShop's info@): nothing asked it.
+    const found = norm(r.contact_email) || norm(r.queue_email) || await cachedAddress(pool, r.brand_name);
     if (!found) continue;
     await pool.query(`UPDATE outreach_logs SET sent_to_email = $2, updated_at = NOW() WHERE id = $1 AND COALESCE(sent_to_email, '') = ''`, [r.id, found]);
     out.set(String(r.id), found);
   }
   return out;
+}
+
+// ── THE ADDRESS CACHE, BOTH LANES ───────────────────────────────────────────
+// siteemail: the address read off the business's own website (draftAddress).
+// contacts:  what a past contact lookup found for this business (the ladder's
+//            address, a named person's, the inbox). Free: no lookup is made.
+// An address that bounced or unsubscribed is not returned.
+async function cachedAddress(pool, brand) {
+  if (!brand) return null;
+  const cand = [];
+  try {
+    const hit = await require('./draftAddress').lookupOne(pool, brand);
+    if (hit && hit.email) cand.push(hit.email);
+  } catch (_) { /* the other lane */ }
+  try {
+    const row = (await pool.query(
+      `SELECT evidence FROM brand_evidence_cache WHERE lane = 'contacts' AND LOWER(brand) = LOWER($1) ORDER BY refreshed_at DESC LIMIT 1`, [brand])).rows[0];
+    const ev = (row && row.evidence) || {};
+    const ladder = ev.addressLadder || {};
+    cand.push(ladder.email, ev.personalInbox, ...(Array.isArray(ev.contacts) ? ev.contacts.map((c) => c && c.email) : []), ev.genericInbox);
+  } catch (_) { /* nothing cached */ }
+  const sup = require('./suppression');
+  for (const e of cand) {
+    const a = norm(e);
+    if (!a) continue;
+    const s = await sup.isSuppressed(pool, a).catch(() => ({ suppressed: true }));
+    if (!s.suppressed) return a;
+  }
+  return null;
 }
 
 // The sentence for a draft that cannot be sent, with its channel if it has one.
@@ -125,4 +157,4 @@ async function convert(pool, scope = {}) {
   return res;
 }
 
-module.exports = { fillAddress, refusalFor, convert, dmFromEmail };
+module.exports = { fillAddress, cachedAddress, refusalFor, convert, dmFromEmail };

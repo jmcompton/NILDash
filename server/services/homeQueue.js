@@ -400,6 +400,9 @@ async function buildHome(pool, agentId, opts = {}) {
   }
 
   const who = athletes.find((a) => a.id === selected) || null;
+  let sendFaults = { count: 0, rows: [] };
+  try { sendFaults = await require('./sendFaults').forAgent(pool, agentId); }
+  catch (e) { errs.push('send faults: ' + e.message); }
   // For a call card's talking points: who is calling, about whom.
   const athleteName = who ? who.name : null;
   const agentName = ((await pool.query(`SELECT name FROM users WHERE id = $1`, [agentId]).catch(() => ({ rows: [] }))).rows[0] || {}).name || null;
@@ -608,6 +611,10 @@ async function buildHome(pool, agentId, opts = {}) {
     // manual exit from a pause that had no exit at all. Moved here rather than
     // deleted with the rest of that block.
     paused,
+    // ── APPROVALS THAT DID NOT SEND (services/sendFaults) ──────────────────
+    // At the top of Home, for every athlete: what was approved and did not
+    // go out, why in plain words, and what to do. Until dismissed or fixed.
+    sendFaults,
     // ── LAST NIGHT'S ANSWER FOR THIS ATHLETE ───────────────────────────────
     // Rendered only on an empty queue, where it is the difference between "we
     // have nothing for you" and "we tried four businesses and none of them

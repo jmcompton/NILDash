@@ -29,9 +29,10 @@ const NO_COPY = new Set(['id', 'status', 'approved_at', 'approved_by', 'schedule
   'created_at', 'updated_at', 'next_follow_up_at', 'parent_id', 'touch_no', 'provider_message_id', 'message_id', 'reply_to', 'replied_at',
   'reply_handled_at', 'opened_at', 'clicked_at', 'bounced_at', 'thread_id', 'edited_before_approval', 'source']);
 
-async function rowsFor(pool, { date, olderThanDays }) {
+async function rowsFor(pool, { date, olderThanDays, agentEmail }) {
   const where = [`l.status = 'approved'`, `l.sent_at IS NULL`];
   const args = [];
+  if (agentEmail) { args.push(String(agentEmail)); where.push(`LOWER(u.email) = LOWER($${args.length})`); }
   if (date) { args.push(date); where.push(`(l.approved_at AT TIME ZONE 'America/Chicago')::date = $${args.length}::date`); }
   else { args.push(String(olderThanDays || 7)); where.push(`l.approved_at < NOW() - ($${args.length} || ' days')::interval`); }
   return (await pool.query(
@@ -85,8 +86,10 @@ async function run(pool, opts = {}) {
       if (!sup.suppressed) { email = onRow; from = 'the address on the row'; } else res.addressRefused = `${onRow}: ${sup.reason}`;
     }
     if (!email) {
-      const cached = await draftAddress.lookupOne(pool, r.brand_name).catch(() => null);
-      if (cached && CHN.hasEmail(cached.email) && !(await suppression.isSuppressed(pool, cached.email).catch(() => ({}))).suppressed) { email = cached.email.toLowerCase(); from = 'the address cache'; }
+      // Our own address cache, both lanes (the website's address, and what a
+      // past contact lookup found), bounced and unsubscribed addresses refused.
+      const cached = await DC.cachedAddress(pool, r.brand_name).catch(() => null);
+      if (cached) { email = cached; from = 'our address cache'; }
     }
     let phone = r.phone || null, instagram = r.instagram_scope === 'brand' ? null : (r.instagram || null);
     if (!email) {
@@ -167,6 +170,14 @@ async function onHome(pool, agentEmail) {
   return { ok: true, agent: u.email, name: u.name, byAthlete: by, approvedWaitingToSend: waiting };
 }
 
+// Every agent the sweep touched, and what each has on Home now.
+async function onHomeAll(pool, out) {
+  const emails = [...new Set(out.results.map((r) => r.agent).filter((x) => /@/.test(String(x))))];
+  const list = [];
+  for (const e of emails) list.push(await onHome(pool, e));
+  return list;
+}
+
 function format(out, home) {
   const L = [];
   L.push(`${out.apply ? 'APPLIED' : 'DRY RUN (nothing changed, nothing looked up; add apply=1 to do it)'}: ${out.rows} approved rows that never sent`);
@@ -182,13 +193,17 @@ function format(out, home) {
       + (r.to ? ` (${r.to}, from ${r.from})` : r.phone ? ` (${r.phone})` : r.instagram ? ` (@${String(r.instagram).replace(/^@/, '')})` : '')
       + (r.closed ? '; old row closed' : '') + (r.note ? `; ${r.note}` : '') + (r.lookupError ? `; lookup failed: ${r.lookupError}` : ''));
   }
-  if (home && home.ok) {
-    L.push('', `WHAT ${home.agent} (${home.name || ''}) HAS NOW${out.apply ? '' : ' (before applying)'}:`);
-    for (const [ath, c] of Object.entries(home.byAthlete)) L.push(`  ${String(ath).padEnd(22)} ${c.email} email cards with an address (${c.emailToday} dated today), ${c.call} call cards, ${c.dm} DM cards`);
-    if (!Object.keys(home.byAthlete).length) L.push('  nothing waiting');
-    L.push(`  approved and still waiting to send: ${home.approvedWaitingToSend}`);
+  for (const h of (Array.isArray(home) ? home : home ? [home] : [])) {
+    if (!h.ok) continue;
+    const mine = out.results.filter((r) => r.agent === h.agent);
+    const got = mine.reduce((o, r) => { o[r.becomes] = (o[r.becomes] || 0) + 1; return o; }, {});
+    L.push('', `WHAT ${h.agent} (${h.name || ''}) ${out.apply ? 'GETS BACK' : 'WOULD GET BACK'}: ${Object.entries(got).map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing'}`);
+    L.push(`  ON HOME NOW${out.apply ? '' : ' (before applying)'}:`);
+    for (const [ath, c] of Object.entries(h.byAthlete)) L.push(`    ${String(ath).padEnd(22)} ${c.email} email cards with an address (${c.emailToday} dated today), ${c.call} call cards, ${c.dm} DM cards`);
+    if (!Object.keys(h.byAthlete).length) L.push('    nothing waiting');
+    L.push(`    approved and still waiting to send: ${h.approvedWaitingToSend}`);
   }
   return L.join('\n');
 }
 
-module.exports = { run, onHome, format, rowsFor, lookupOnce };
+module.exports = { run, onHome, onHomeAll, format, rowsFor, lookupOnce };

@@ -963,6 +963,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-brand{font-size:14.5px;color:#F0EDE6;font-weight:600;line-height:1.35}
 .hq-why{font-size:11.5px;color:#6B7280;line-height:1.5;margin:5px 0 9px}
 .hq-points{margin:6px 0 8px;padding-left:20px;font-size:13px;line-height:1.5}
+.hq-faults{border:1px solid #b45309;background:rgba(180,83,9,.12);border-radius:10px;padding:12px 14px;margin:0 0 12px}
+.hq-faults-h{margin:0 0 6px;color:#F0EDE6}
+.hq-faults ul{margin:0 0 10px;padding-left:18px;font-size:13px;line-height:1.5;color:#d6d3cc}
+.hq-faults li{margin-bottom:6px}
+.hq-fault-fix{color:#fbbf24}
 .hq-who{font-size:12px;color:#9CA3AF;line-height:1.6}
 .hq-who b{color:#F0EDE6;font-weight:600}
 .hq-note{font-size:10.5px;color:#6B7280;line-height:1.5;margin-top:4px}
@@ -20998,7 +21003,7 @@ async function hqLoad(athleteId) {
 function hqRender() {
   var d = HQ.data; if (!d) return;
   var news = document.getElementById('home-news');
-  if (news) news.innerHTML = hqNewsHtml(d);
+  if (news) news.innerHTML = hqFaultsHtml(d) + hqNewsHtml(d);
   var tabs = document.getElementById('home-tabs');
   var panel = document.getElementById('home-panel');
   var bar = document.getElementById('home-bar');
@@ -21384,6 +21389,32 @@ function hqOutboxHtml(d) {
 // The top of the morning: one plain line of what changed, then every reply
 // not yet dealt with, across the roster, with what they said. A reply is the
 // only reason anyone comes back, so it is never one click away.
+// ── APPROVALS THAT DID NOT SEND (services/sendFaults) ───────────────────────
+// First on Home, above everything: "3 approvals did not send. Here is why."
+// Each with its reason in plain words and what to do. Dismissed by the agent
+// once read; gone on its own when the email sends.
+function hqFaultsHtml(d) {
+  var f = d.sendFaults || {};
+  if (!f.count) return '';
+  var rows = (f.rows || []).map(function (r) {
+    return '<li><b>' + hqEscape(r.business || 'A business') + '</b>'
+      + (r.athlete ? ' <span class="role">&middot; for ' + hqEscape(r.athlete) + '</span>' : '')
+      + '<br>' + hqEscape(r.why) + '<br><span class="hq-fault-fix">What to do: ' + hqEscape(r.fix) + '</span></li>';
+  }).join('');
+  return '<div class="hq-faults" role="alert"><p class="hq-faults-h"><b>' + f.count + ' approval' + (f.count === 1 ? '' : 's')
+    + ' did not send.</b> Here is why.</p><ul>' + rows + '</ul>'
+    + '<button class="hm-btn ghost" type="button" onclick="hqFaultsAck(this)">Got it, dismiss</button></div>';
+}
+async function hqFaultsAck(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    var ids = ((HQ.data && HQ.data.sendFaults && HQ.data.sendFaults.rows) || []).map(function (r) { return r.id; });
+    await fetch('/api/agent/send-faults/ack', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids }) });
+    if (HQ.data) HQ.data.sendFaults = { count: 0, rows: [] };
+    hqRender();
+  } catch (e) { if (btn) btn.disabled = false; }
+}
+
 function hqNewsHtml(d) {
   var s = d.sinceYesterday || {};
   var bits = [];

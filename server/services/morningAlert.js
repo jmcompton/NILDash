@@ -145,6 +145,9 @@ async function collect(pool, { now } = {}) {
         AND cadence_stopped_at > NOW() - INTERVAL '24 hours'
       GROUP BY 1 ORDER BY n DESC LIMIT 6`, [], []);
   out.stoppedApproved = { total: st.reduce((t, r) => t + r.n, 0), reasons: st };
+  // APPROVALS THAT DID NOT SEND, by agent (services/sendFaults): every agent
+  // who approved something that did not go out, and how many.
+  out.sendFaults = await require('./sendFaults').byAgentOpen(pool).catch(() => []);
   // Every one of our failures in the last day, by service (services/ourFault).
   out.faults24h = await q(`SELECT service, SUM(1 + COALESCE(suppressed, 0))::int AS n, MAX(at) AS last,
       (ARRAY_AGG(reason ORDER BY (kind = 'billing') DESC, at DESC))[1] AS reason, BOOL_OR(kind = 'billing') AS billing
@@ -192,6 +195,7 @@ async function collect(pool, { now } = {}) {
     + (out.preflightMissing && !(out.readErrors || []).length ? 1 : 0)
     + ((out.digests.failed || out.digests.held || out.digests.stuck) ? 1 : 0)
     + (out.overdueSends.total ? 1 : 0)
+    + ((out.sendFaults || []).length ? 1 : 0)
     + (out.faults24h.length ? 1 : 0)
     + (out.preflight && out.preflight.status === 'failed' ? 1 : 0)
     + out.universityProblems.length
@@ -231,6 +235,7 @@ function render(r) {
   if (r.digests && (r.digests.failed || r.digests.stuck)) bits.push(`${r.digests.failed + r.digests.stuck} digest(s) not sent`);
   if (r.digests && r.digests.held) bits.push(`${r.digests.held} digest(s) held by the allowlist`);
   if (r.overdueSends && r.overdueSends.total) bits.push(`${r.overdueSends.total} approved email(s) not sent`);
+  if (r.sendFaults && r.sendFaults.length) bits.push(`${r.sendFaults.reduce((a, x) => a + x.n, 0)} approval(s) did not send, ${r.sendFaults.length} agent(s)`);
   if ((r.faults24h || []).length) bits.push(`our failures in ${r.faults24h.length} service(s)`);
   if ((r.paymentFailures || []).length) bits.unshift(`PAYMENT FAILURE: ${r.paymentFailures.map((f) => f.service).join(', ')}`);
   const subject = `NILDash alert ${r.runDate}: ${bits.join(', ')}`;
@@ -271,6 +276,10 @@ function render(r) {
   if (r.digests && (r.digests.failed || r.digests.stuck || r.digests.held)) {
     lines.push(`AGENT DIGESTS for ${r.runDate}: ${r.digests.sent} sent, ${r.digests.failed} failed, ${r.digests.stuck} stuck, ${r.digests.held} held by NIGHTLY_DIGEST_ALLOWLIST`
       + (r.digests.failReason ? `. First failure: ${r.digests.failReason}` : ''), '');
+  }
+  if (r.sendFaults && r.sendFaults.length) {
+    lines.push(`APPROVALS THAT DID NOT SEND, by agent (each agent sees these on Home and got one email):`);
+    for (const x of r.sendFaults) lines.push(`  ${String(x.n).padStart(4)}  ${x.name || ''} <${x.email}>${x.ours ? `  (${x.ours} our fault)` : ''}  latest: ${x.latest_kind}`);
   }
   if (r.stoppedApproved && r.stoppedApproved.total) {
     lines.push(`APPROVED EMAILS STOPPED IN THE LAST DAY (they will not send; reported once): ${r.stoppedApproved.total}`);

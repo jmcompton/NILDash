@@ -905,7 +905,23 @@ async function releaseDue(pool, opts = {}) {
         continue;
       }
     }
+    // NO ADDRESS ON THE ROW: look before giving up. The address on file for
+    // this draft (its contact, its card) and our own address cache; the send
+    // path used to stop here without asking either.
+    if (!String(log.sent_to_email || log.to_email || '').trim()) {
+      const got = await require('./draftChannel').fillAddress(pool, [String(log.id)]).catch(() => new Map());
+      if (got.get(String(log.id))) log.sent_to_email = got.get(String(log.id));
+    }
     const sup = await suppression.isSuppressed(pool, log.sent_to_email || log.to_email);
+    // A BOUNCE LIST WE COULD NOT READ IS NOT A BOUNCE. isSuppressed fails
+    // closed (it says suppressed), which is right for sending and wrong for
+    // stopping: a passing database error used to stop the row for good. It is
+    // held and checked again instead.
+    if (sup.suppressed && /could not check/i.test(String(sup.reason || ''))) {
+      await hold(pool, log, sup.reason, new Date(nowMs + RECHECK_CEILING_MS));
+      out.held++; out.detail.push({ id: log.id, result: 'held', why: sup.reason });
+      continue;
+    }
     if (sup.suppressed) {
       await stop(pool, log, sup.reason);
       out.held++; out.detail.push({ id: log.id, result: 'stopped', why: sup.reason });

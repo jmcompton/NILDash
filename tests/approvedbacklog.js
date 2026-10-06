@@ -99,7 +99,10 @@ async function main() {
   const home = await B.onHome(P, 'jabree.bl@belcher.test');
   const m = home.byAthlete['Mataya G'] || {};
   ok('WHAT THE AGENT HAS NOW, by athlete: email cards with an address, call cards, DM cards', home.ok && m.email === 2 && m.emailToday === 2 && m.call === 1 && m.dm === 1, home);
-  ok('  printed', /WHAT jabree\.bl@belcher\.test \(Jabree B\) HAS NOW:/.test(B.format(out, home)) && /Mataya G +2 email cards with an address \(2 dated today\), 1 call cards, 1 DM cards/.test(B.format(out, home)), B.format(out, home));
+  ok('  printed: what the agent gets back, and what is on Home now', /WHAT jabree\.bl@belcher\.test \(Jabree B\) GETS BACK: /.test(B.format(out, home)) && /ON HOME NOW:/.test(B.format(out, home))
+    && /Mataya G +2 email cards with an address \(2 dated today\), 1 call cards, 1 DM cards/.test(B.format(out, home)), B.format(out, home));
+  const all = await B.onHomeAll(P, out);
+  ok('  every agent the sweep touched gets their own report', all.length === 1 && all[0].agent === 'jabree.bl@belcher.test' && /GETS BACK/.test(B.format(out, all)));
   ok('the admin script is registered, dry run unless apply=1', /'approved-unsent-backlog': \{ file: 'scripts\/approved-unsent-backlog\.js'/.test(require('fs').readFileSync(REPO + 'server/index.js', 'utf8')));
   await clean();
 }

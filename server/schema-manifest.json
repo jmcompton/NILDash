@@ -57,6 +57,23 @@
       "applied_at": "TIMESTAMPTZ DEFAULT NOW()",
       "key": "TEXT"
     },
+    "approval_faults": {
+      "acknowledged_at": "TIMESTAMPTZ",
+      "agent_id": "TEXT",
+      "approved_at": "TIMESTAMPTZ",
+      "athlete_id": "TEXT",
+      "brand_name": "TEXT",
+      "detected_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "emailed_at": "TIMESTAMPTZ",
+      "fix": "TEXT",
+      "kind": "TEXT",
+      "log_id": "TEXT",
+      "ours": "BOOLEAN DEFAULT FALSE",
+      "resolution": "TEXT",
+      "resolved_at": "TIMESTAMPTZ",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "why": "TEXT"
+    },
     "assistant_messages": {
       "agent_id": "TEXT",
       "content": "TEXT",

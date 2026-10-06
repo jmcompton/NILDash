@@ -1795,6 +1795,14 @@ app.post('/api/agent/settings/media-kit', requireAuth, async (req, res) => {
   }
 });
 
+// The agent dismisses the "approvals did not send" line once they have read
+// it (services/sendFaults). ids: the ones to dismiss; none: all of them.
+app.post('/api/agent/send-faults/ack', requireAuth, async (req, res) => {
+  try {
+    res.json(await require('./services/sendFaults').acknowledge(store.pool, req.session.userId, (req.body || {}).ids || null));
+  } catch (e) { console.error('[send-faults/ack]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // Wake the release queue: an approved email starts sending now, not at the
 // next tick. Never throws into the route that approved it.
 function kickRelease() {
@@ -5380,6 +5388,8 @@ const ADMIN_SCRIPTS = {
     const a = [];
     if (q.date) { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(q.date))) throw Object.assign(new Error('date must be YYYY-MM-DD'), { status: 400 }); a.push('--date', String(q.date)); }
     if (q.agent) a.push('--agent', String(q.agent).slice(0, 200));
+    if (q.all === '1') a.push('--all');
+    if (q.days) a.push('--older-than-days', String(Math.max(1, Math.min(60, parseInt(q.days, 10) || 3))));
     if (q.apply === '1') a.push('--apply');
     return a;
   } },
@@ -15522,6 +15532,23 @@ try {
   console.log('[preflight] scheduled: 00:30 Central before each nightly run, once a night');
 } catch (e) {
   console.error('[preflight] scheduler failed to start:', e.message);
+}
+
+// ── AN APPROVAL THAT DID NOT SEND IS A FAULT (services/sendFaults) ─────────
+// Every 10 minutes: any approved row not sent within two hours (or stopped
+// for good) becomes a fault with its reason in plain words, shown on the
+// agent's Home, emailed to the agent once, and listed in the morning alert.
+// SEND_FAULTS=off turns it off (it should never need to be).
+if (String(process.env.SEND_FAULTS || 'on').toLowerCase() !== 'off') {
+  try {
+    const SF = require('./services/sendFaults');
+    const sfTick = () => { SF.tick(store.pool).catch((e) => console.error('[send-faults] tick failed:', e.message)); };
+    setTimeout(sfTick, 2 * 60 * 1000);
+    setInterval(sfTick, 10 * 60 * 1000);
+    console.log('[send-faults] scheduled: every 10 min');
+  } catch (e) {
+    console.error('[send-faults] scheduler failed to start:', e.message);
+  }
 }
 
 // ── The morning alert (services/morningAlert) ──────────────────────────────

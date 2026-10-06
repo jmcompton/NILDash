@@ -200,7 +200,7 @@ const FIRST = '<p>Hi Pat,</p><p>Here is something concrete for FU Bakery: two In
   const idx = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   const pg = fs.readFileSync(REPO + 'public/index.html', 'utf8');
   ok('the page renders the replies and the since-yesterday line above the tabs, and the follow-up badge on the card',
-    /<div id="home-news"><\/div>/.test(pg) && /news\.innerHTML = hqNewsHtml\(d\)/.test(pg) && /Follow-up ' \+ c\.followUp\.n \+ ' of '/.test(pg) && /hqReplyHandled\(/.test(pg));
+    /<div id="home-news"><\/div>/.test(pg) && /news\.innerHTML = (hqFaultsHtml\(d\) \+ )?hqNewsHtml\(d\)/.test(pg) && /Follow-up ' \+ c\.followUp\.n \+ ' of '/.test(pg) && /hqReplyHandled\(/.test(pg));
   ok('"Stop follow-ups" on a sent card marks it dead and stops the thread', />Stop follow-ups</.test(pg) && /outcome === 'dead'\) \{[\s\S]{0,300}state: 'dead'/.test(idx) && /stopsFollowUps && card\.outreach_log_id/.test(idx));
   const closerSrc = fs.readFileSync(REPO + 'server/services/closer.js', 'utf8');
   ok('the closer no longer writes empty follow-ups at send time, and asks the whole thread before sending one',
