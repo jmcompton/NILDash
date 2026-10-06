@@ -144,7 +144,7 @@ async function build(pool, universityId, opts = {}) {
   }
   // The passes again for what the lookups just found, then the 15% cap.
   await passes();
-  const cap = await QC.applyShareCap(pool, uni);
+  const cap = await QC.ensureCapped(pool, uni, { force: true });
   const hist = await QC.histogram(pool, uni);
   // 4. Social.
   const social = await socialList(pool, uni);
@@ -208,7 +208,7 @@ async function verify(pool, universityId) {
   const athletes = await one(`SELECT COUNT(*)::int n FROM university_athletes WHERE university_id = $1`, [uni.id]);
   const found = await one(`SELECT COUNT(*)::int n FROM university_market_seen WHERE market_key = $1 AND blocked_reason IS NULL`, [uni.marketKey]);
   const blocked = await one(`SELECT COUNT(*)::int n FROM university_market_seen WHERE market_key = $1 AND blocked_reason IS NOT NULL`, [uni.marketKey]);
-  await require('./campusQuality').ensureColumns(pool).catch(() => {});
+  await require('./campusQuality').ensureCapped(pool, uni).catch(() => {});
   // A named, reachable decision maker: a direct address or a phone, never a
   // shared inbox (campusQuality). "Listed": within its category's 15% share.
   const contactable = await one(`SELECT COUNT(*)::int n FROM university_contacts c JOIN university_market_seen m ON m.market_key = c.market_key AND m.brand = c.brand

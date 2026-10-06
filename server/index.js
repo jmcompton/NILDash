@@ -7301,6 +7301,61 @@ app.post('/api/admin/view-university', requireAuth, requireCampusAdmin, async (r
     res.status(r.ok ? 200 : 400).json(r);
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+// THE 15% CAP, CHECKED END TO END ($0: no Places, no lookups). Re-scores every
+// business's category from Google's type, re-applies the cap, then prints
+// three histograms side by side: what the last build computed, what is stored
+// now, and what /api/university/market/search?contact=1 actually returns.
+//   GET /api/admin/university-categories/:id[?text=1]
+app.get('/api/admin/university-categories/:universityId', requireAuth, requireCampusAdmin, async (req, res) => {
+  try {
+    const pool = store.pool;
+    const QC = require('./services/campusQuality');
+    const CM = require('./services/campusMarket');
+    const uni = await require('./services/campusPool').universityOf(pool, req.params.universityId);
+    if (!uni) return res.status(404).json({ ok: false, error: `No university "${req.params.universityId}".` });
+    await QC.ensureColumns(pool);
+    const before = (await pool.query(`SELECT c.brand, m.deal_bucket FROM university_contacts c JOIN university_market_seen m ON m.market_key = c.market_key AND m.brand = c.brand
+                                       WHERE c.university_id = $1 AND c.reachable AND m.blocked_reason IS NULL`, [uni.id])).rows;
+    const rescored = await QC.scorePool(pool, uni.marketKey);
+    const cap = await QC.ensureCapped(pool, uni, { force: true });
+    const stored = await QC.histogram(pool, uni);
+    const lastBuild = (await pool.query(`SELECT summary, finished_at FROM university_market_runs WHERE university_id = $1 AND kind = 'build' ORDER BY id DESC LIMIT 1`, [uni.id]).catch(() => ({ rows: [] }))).rows[0] || null;
+    const s = await CM.search(pool, uni.id, { contact: '1', limit: 5000 });
+    const searched = {};
+    for (const r of s.rows || []) searched[r.bucket || 'other'] = (searched[r.bucket || 'other'] || 0) + 1;
+    const n = (s.rows || []).length;
+    const moved = {};
+    const nowBucket = new Map((await pool.query(`SELECT brand, deal_bucket FROM university_market_seen WHERE market_key = $1`, [uni.marketKey])).rows.map((r) => [r.brand, r.deal_bucket]));
+    for (const b of before) { const to = nowBucket.get(b.brand); if (b.deal_bucket && to && to !== b.deal_bucket) { const k = `${b.deal_bucket} -> ${to}`; (moved[k] = moved[k] || []).push(b.brand); } }
+    const types = (await pool.query(`SELECT m.deal_bucket AS bucket, COALESCE(m.primary_type, '(none)') AS type, COUNT(*)::int AS n FROM university_contacts c
+                                       JOIN university_market_seen m ON m.market_key = c.market_key AND m.brand = c.brand
+                                      WHERE c.university_id = $1 AND c.reachable AND m.blocked_reason IS NULL GROUP BY 1, 2 ORDER BY 1, 3 DESC`, [uni.id])).rows;
+    const out = { ok: true, university: uni.name, id: uni.id, rescored, contactable: cap && cap.contactable, listed: cap && cap.listed, held: cap && cap.held,
+      buildHistogram: lastBuild && lastBuild.summary ? lastBuild.summary.histogram || null : null, buildAt: lastBuild && lastBuild.finished_at,
+      storedHistogram: stored, searchHistogram: searched, searchCount: n, moved, googleTypes: types,
+      top: (s.rows || []).slice(0, 25).map((r) => ({ brand: r.brand, bucket: r.bucket, kind: r.kind })) };
+    if (req.query.text !== '1') return res.json(out);
+    const pct = (a, b) => (b ? Math.round((100 * a) / b) + '%' : '-');
+    const buildBy = {}; for (const r of out.buildHistogram || []) buildBy[r.bucket] = r;
+    const storedBy = {}; for (const r of stored) storedBy[r.bucket] = r;
+    const buildListed = (out.buildHistogram || []).reduce((a, r) => a + (r.listed || 0), 0);
+    const names = [...new Set([...Object.keys(buildBy), ...Object.keys(storedBy), ...Object.keys(searched)])]
+      .sort((a, b) => (searched[b] || 0) - (searched[a] || 0) || ((storedBy[b] || {}).contactable || 0) - ((storedBy[a] || {}).contactable || 0));
+    const L = [`CATEGORY CAP CHECK: ${uni.name} (${uni.id})`,
+      `Re-scored ${rescored} businesses from Google's type. Contactable ${out.contactable}, listed ${out.listed}, held by the 15% cap ${out.held}.`,
+      `market/search?contact=1 returns ${n}.`, '',
+      `  category                       | last build (${out.buildAt ? String(out.buildAt).slice(0, 16) : 'none'}) listed | stored now: contactable  listed | market/search?contact=1`,
+      ...names.map((k) => `  ${k.padEnd(30)} | ${String(buildBy[k] ? `${buildBy[k].listed} (${pct(buildBy[k].listed, buildListed)})` : '-').padStart(24)} | ${String((storedBy[k] || {}).contactable || 0).padStart(22)} ${String((storedBy[k] || {}).listed || 0).padStart(7)} | ${String(`${searched[k] || 0} (${pct(searched[k] || 0, n)})`).padStart(24)}`)];
+    const over = Object.entries(searched).filter(([k, v]) => n >= 14 && v > Math.max(2, Math.floor(QC.SHARE_CAP * n)));
+    L.push('', over.length ? `OVER 15% IN WHAT SEARCH RETURNS: ${over.map(([k, v]) => `${k} ${v}/${n}`).join(', ')}` : 'Every category in what search returns is at or under 15% (or at the 2-per-category floor).');
+    if (Object.keys(moved).length) { L.push('', 'RE-CATEGORISED BY GOOGLE TYPE (contactable rows):'); for (const [k, v] of Object.entries(moved)) L.push(`  ${k}: ${v.length}  ${v.slice(0, 6).join('; ')}${v.length > 6 ? '; ...' : ''}`); }
+    L.push('', 'GOOGLE PRIMARY TYPES PER CATEGORY (contactable):');
+    let cur = null; for (const t of types) { if (t.bucket !== cur) { cur = t.bucket; L.push(`  ${cur || 'other'}:`); } L.push(`    ${String(t.n).padStart(3)}  ${t.type}`); }
+    L.push('', 'TOP 25 OF market/search?contact=1 (default order):');
+    out.top.forEach((r, i) => L.push(`  ${String(i + 1).padStart(2)}. ${String(r.bucket || 'other').padEnd(22)} ${r.brand}${r.kind ? ` (${r.kind})` : ''}`));
+    res.type('text/plain').send(L.join('\n') + '\n');
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 app.get('/api/admin/university-status/:universityId', requireAuth, requireCampusAdmin, async (req, res) => {
   try {
     const id = req.params.universityId;

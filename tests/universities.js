@@ -292,6 +292,54 @@ const aiStub = {
   ok('  the ladder skips the driver, takes the owner, and an info@ alone does not make them reachable', ro.contact_name === 'Pat Kowalski' && ro.email === null && ro.generic_email === 'info@qtest.com' && ro.reachable === false, ro);
   await qclean();
 
+  // ── 5a-1b. THE CAP ON THE LIST THE PORTAL READS (Cypress in production) ──
+  // 65 contactable, 22 dentists, nothing held: the dentists' names put them in
+  // other categories ("Kids Dental Park" entertainment, "... Market Place"
+  // local retail, "... Dental Spa" salons), so no category crossed 15%, and
+  // market/search?contact=1 never looked at the cap anyway.
+  OUT.push('', '-- the 15% cap on market/search?contact=1 --');
+  const KU = 'univ-ut-cap', KM = 'captown, ca';
+  const kclean = async () => {
+    await P.query(`DELETE FROM university_contacts WHERE university_id = $1`, [KU]).catch(() => {});
+    await P.query(`DELETE FROM university_market_seen WHERE market_key = $1`, [KM]).catch(() => {});
+    await P.query(`DELETE FROM universities WHERE id = $1`, [KU]).catch(() => {});
+  };
+  await kclean();
+  await P.query(`INSERT INTO universities (id, name, location) VALUES ($1, 'UT Cap College', '1 Main St, Captown, CA')`, [KU]);
+  const kb = async (brand, category, primary, bucketStored, i) => {
+    await P.query(`INSERT INTO university_market_seen (market_key, brand, place_id, category, types, primary_type, address, distance_m, fit, deal_bucket, deal_priority)
+                   VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,50,$9,7)`, [KM, brand, 'k-' + i, category, JSON.stringify([primary, 'point_of_interest', 'establishment']), primary, brand + ' Rd, Captown, CA', 1000 + i * 10, bucketStored]);
+    await P.query(`INSERT INTO university_contacts (university_id, market_key, brand, contact_name, contact_title, phone, reachable, status)
+                   VALUES ($1,$2,$3,$4,'Owner',$5,TRUE,'reachable')`, [KU, KM, brand, 'Pat Owner' + i, '714-555-2' + String(i).padStart(3, '0')]);
+  };
+  let ki = 0;
+  const dentNames = ['Kids Dental Park', 'Dentistry at Cypress Market Place', 'Lincoln Ave Dental Spa', 'Parkview Dental Group', 'Pet-Friendly Smiles Dental'];
+  for (let i = 0; i < 22; i++) {
+    const name = dentNames[i] || `Cypress Family Dentistry ${i}`;
+    // What the old name-first rule had stored for them.
+    const old = /Park/.test(name) ? 'entertainment' : /Market|Pet/.test(name) ? 'local retail' : /Spa/.test(name) ? 'barber & salon' : 'dentist';
+    await kb(name, 'health', 'dentist', old, ki++);
+  }
+  const mix = [['restaurant', 'mexican_restaurant', 6], ['coffee', 'cafe', 5], ['apparel', 'clothing_store', 5], ['barber', 'barber_shop', 5], ['sports medicine', 'physiotherapist', 4],
+    ['gym', 'gym', 5], ['auto', 'car_dealer', 5], ['dessert', 'bakery', 4], ['insurance', 'insurance_agency', 4]];
+  for (const [cat, type, n] of mix) for (let i = 0; i < n; i++) await kb(`Cap ${type} ${i}`, cat, type, null, ki++);
+  ok('the bucket comes from Google\'s type, not words in the name: "Kids Dental Park", "... Market Place", "... Dental Spa" are dentists',
+    dentNames.slice(0, 3).every((n) => QC.bucketOf({ brand: n, category: 'health', primary_type: 'dentist', types: ['dentist', 'health'] }).bucket === 'dentist'));
+  const ks = await CM.search(P, KU, { contact: '1', limit: 5000 });
+  const kc = {}; for (const r of ks.rows) kc[r.bucket] = (kc[r.bucket] || 0) + 1;
+  ok('market/search?contact=1 applies the cap itself: dentists at or under 15% of what it returns (was 22 of 65)', ks.ok && ks.rows.length < 65 && (kc.dentist || 0) >= 1 && (kc.dentist || 0) / ks.rows.length <= 0.15 + 1e-9, { n: ks.rows.length, kc });
+  ok('  every category in what search returns is at or under 15%', Object.values(kc).every((n) => n / ks.rows.length <= 0.15 + 1e-9), kc);
+  ok('  and no held row is in it', ks.rows.every((r) => !r.held));
+  const top10 = ks.rows.slice(0, 10).map((r) => r.bucket);
+  ok('  restaurants, coffee, apparel, barbers and sports medicine near the top; dentists not in the top 10',
+    ['restaurant', 'smoothie & coffee', 'apparel & sporting', 'sports medicine'].every((b) => ks.rows.slice(0, 25).some((r) => r.bucket === b))
+    && ks.rows.slice(0, 30).some((r) => r.bucket === 'barber & salon') && !top10.includes('dentist'), ks.rows.slice(0, 30).map((r) => r.bucket + ': ' + r.brand));
+  const kh = await CM.search(P, KU, { contact: '1', held: '1', limit: 5000 });
+  ok('  held=1 still shows the held dentists (held, never deleted), last', kh.rows.length === 65 && kh.rows.slice(-3).every((r) => r.held && r.bucket === 'dentist'), kh.rows.length);
+  const kv = await CB.verify(P, KU);
+  ok('  status agrees with search: businessesWithNamedContact = what search returns, below contactableBeforeShareCap', kv.businessesWithNamedContact === ks.rows.length && kv.contactableBeforeShareCap === 65, kv);
+  await kclean();
+
   // ── 5a-2. THE TILE AND THE LOCK ─────────────────────────────────────────
   OUT.push('', '-- the athletes tile, the lock --');
   const lt = await require(REPO + 'server/services/universityPortal.js').listTeams(P, UID);

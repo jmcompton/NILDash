@@ -99,7 +99,8 @@ async function runNight(pool, universityId, deps = {}) {
     const QC = require('./campusQuality');
     await QC.ensureColumns(pool).catch(() => {});
     // The 15% category cap re-applied to the contactable list before picking.
-    await QC.applyShareCap(pool, { id: universityId }).catch((e) => console.error('[campus-nightly] share cap:', e.message));
+    const capUni = await require('./campusPool').universityOf(pool, universityId).catch(() => null);
+    await QC.ensureCapped(pool, capUni || { id: universityId }, { force: true }).catch((e) => console.error('[campus-nightly] share cap:', e.message));
     const shared = { built: false, rings: new Set(), placesCalls: 0, catCount: {},
       catCap: Math.max(2, Math.floor(QC.SHARE_CAP * teams.length * PER_TEAM)) };
     const spent = () => teamSpend + shared.placesCalls * Q.USD_PER_PLACES_REQUEST;

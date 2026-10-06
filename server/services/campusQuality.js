@@ -41,10 +41,41 @@ const BUCKETS = [
   ['dentist', 3, /dentist|dental|orthodont/],
   ['medical clinic', 3, /doctor|medical|clinic|urgent care|hospital|health|pharmacy|dermatolog|optomet|eye care|pediatric|physician/],
 ];
+// GOOGLE'S TYPE DECIDES FIRST. The name is only read when Google's type says
+// nothing specific: matching names first put "Kids Dental Park" in
+// entertainment, "Dentistry at Cypress Market Place" in local retail and
+// "Lincoln Ave Dental Spa" with the salons, so 22 dentists never formed one
+// category and the 15% cap never had anything to hold.
+const PRIORITY = Object.fromEntries(BUCKETS.map(([n, p]) => [n, p]));
+const TYPE_BUCKET = [
+  [/^(dentist|dental_clinic|orthodontist|endodontist|periodontist|oral_surgeon|dental)/, 'dentist'],
+  [/^(physiotherapist|chiropractor|massage|sports_medicine|physical_therap)/, 'sports medicine'],
+  [/^(doctor|hospital|medical|medical_clinic|medical_lab|urgent_care|pharmacy|drugstore|health|skin_care_clinic|optometrist|dermatologist|pediatrician|wellness_center)/, 'medical clinic'],
+  [/^(gym|fitness_center|yoga_studio|pilates_studio|martial_arts|boxing_gym|sports_club|sports_complex|athletic_field|stadium|swimming_pool)/, 'gym'],
+  [/^(cafe|coffee_shop|juice_shop|tea_house|smoothie|acai_shop)/, 'smoothie & coffee'],
+  [/^(bakery|dessert_shop|dessert_restaurant|ice_cream_shop|donut_shop|candy_store|chocolate_shop|confectionery)/, 'dessert & bakery'],
+  [/(restaurant|^meal_takeaway|^meal_delivery|^fast_food|^food_court|^sandwich_shop|^pizza|^bar_and_grill|^diner|^steak_house|^food$)/, 'restaurant'],
+  [/^(clothing_store|shoe_store|sporting_goods_store|bicycle_store|womens_clothing|mens_clothing)/, 'apparel & sporting'],
+  [/^(hair_care|hair_salon|barber_shop|beauty_salon|nail_salon|spa|tanning_studio|beautician|makeup_artist|tattoo)/, 'barber & salon'],
+  [/^(car_dealer|car_repair|car_wash|auto_parts_store|car_rental|tire_shop|motorcycle_dealer)/, 'auto'],
+  [/^(insurance_agency|bank|real_estate_agency|accounting|lawyer|finance|atm|credit_union)/, 'real estate & insurance & banking'],
+  [/^(bowling_alley|amusement_park|amusement_center|movie_theater|night_club|tourist_attraction|golf_course|video_arcade|escape_room|trampoline|water_park|park$)/, 'entertainment'],
+  [/^(florist|gift_shop|jewelry_store|pet_store|book_store|electronics_store|furniture_store|home_goods_store|hardware_store|department_store|convenience_store|liquor_store|market|store|shopping_mall)/, 'local retail'],
+];
+const GENERIC_TYPES = new Set(['point_of_interest', 'establishment', 'local', 'premise', 'local_business', 'service', 'store']);
 function bucketOf(row) {
-  const text = [row.category, row.primary_type, row.primary_type_label, ...(Array.isArray(row.types) ? row.types : []), row.brand || row.brand_name]
-    .filter(Boolean).join(' ').toLowerCase().replace(/_/g, ' ');
-  for (const [name, p, re] of BUCKETS) if (re.test(text)) return { bucket: name, priority: p };
+  const types = [row.primary_type, ...(Array.isArray(row.types) ? row.types : [])].filter(Boolean).map((t) => String(t).toLowerCase());
+  // 1. Google's primary type, then its other types, specific ones first.
+  for (const t of types.filter((x) => !GENERIC_TYPES.has(x)).concat(types.filter((x) => GENERIC_TYPES.has(x) && x !== 'store'))) {
+    for (const [re, name] of TYPE_BUCKET) if (re.test(t)) return { bucket: name, priority: PRIORITY[name] };
+  }
+  // 2. Google's own description of it ("Dental clinic"), then our category.
+  const described = [row.primary_type_label, row.category].filter(Boolean).join(' ').toLowerCase().replace(/_/g, ' ');
+  for (const [name, p, re] of BUCKETS) if (described && re.test(described)) return { bucket: name, priority: p };
+  // 3. The name, last.
+  const text = String(row.brand || row.brand_name || '').toLowerCase();
+  for (const [name, p, re] of BUCKETS) if (text && re.test(text)) return { bucket: name, priority: p };
+  if (types.includes('store')) return { bucket: 'local retail', priority: PRIORITY['local retail'] };
   return { bucket: 'other', priority: 5 };
 }
 
@@ -120,12 +151,15 @@ async function _ensureColumns(pool) {
 
 // Every row's category bucket and priority, stored for sorting.
 async function scorePool(pool, marketKey) {
-  const rows = (await pool.query(`SELECT brand, category, types, primary_type, primary_type_label FROM university_market_seen WHERE market_key = $1`, [marketKey])).rows;
+  const rows = (await pool.query(`SELECT brand, category, types, primary_type, primary_type_label, deal_bucket, deal_priority FROM university_market_seen WHERE market_key = $1`, [marketKey])).rows;
+  let changed = 0;
   for (const r of rows) {
     const b = bucketOf(r);
+    if (r.deal_bucket === b.bucket && Number(r.deal_priority) === b.priority) continue;
     await pool.query(`UPDATE university_market_seen SET deal_bucket = $3, deal_priority = $4 WHERE market_key = $1 AND brand = $2`, [marketKey, r.brand, b.bucket, b.priority]);
+    changed++;
   }
-  return rows.length;
+  return changed;
 }
 
 // Stored contacts re-judged by today's rules. Returns what was withdrawn, by why.
@@ -237,9 +271,29 @@ async function applyShareCap(pool, uni) {
       WHERE c.university_id = $1 AND c.reachable`, [uni.id])).rows
     .map((r) => { const b = r.deal_bucket ? { bucket: r.deal_bucket, priority: r.deal_priority } : bucketOf(r); return { brand: r.brand, fit: r.fit, bucket: b.bucket, priority: b.priority }; });
   const { list, held } = capList(rows);
-  await pool.query(`UPDATE university_contacts SET held_reason = NULL WHERE university_id = $1`, [uni.id]);
-  for (const h of held) await pool.query(`UPDATE university_contacts SET held_reason = $3 WHERE university_id = $1 AND brand = $2`, [uni.id, h.brand, h.why]);
+  // Only the rows whose state changes are written, so this is cheap enough to
+  // run on every read of the list (search, status), not only after a build.
+  const heldBy = new Map(held.map((h) => [h.brand, h.why]));
+  const now = (await pool.query(`SELECT brand, held_reason FROM university_contacts WHERE university_id = $1 AND (held_reason IS NOT NULL OR reachable)`, [uni.id])).rows;
+  for (const r of now) {
+    const want = heldBy.get(r.brand) || null;
+    if ((r.held_reason || null) !== want) await pool.query(`UPDATE university_contacts SET held_reason = $3 WHERE university_id = $1 AND brand = $2`, [uni.id, r.brand, want]);
+  }
   return { contactable: rows.length, listed: list.length, held: held.length, list, heldRows: held };
+}
+
+// THE CAP ON EVERY READ. It ran only at the end of a build and the start of a
+// night, so a contact found in between was never capped. Search and status
+// call this first; it re-scores buckets (scorePool) at most once a minute per
+// university and applies the cap.
+const _fresh = new Map();
+async function ensureCapped(pool, uni, opts = {}) {
+  const k = uni.id;
+  if (!opts.force && _fresh.has(k) && Date.now() - _fresh.get(k) < 60000) return null;
+  _fresh.set(k, Date.now());
+  await ensureColumns(pool);
+  if (uni.marketKey) await scorePool(pool, uni.marketKey);
+  return applyShareCap(pool, uni);
 }
 
 // The histogram, for the build's printout: found, contactable, listed.
@@ -260,4 +314,4 @@ function formatHistogram(rows) {
 }
 
 module.exports = { SHARE_CAP, BUCKETS, bucketOf, refusedTitle, refusedName, isGenericInbox, chainDomain, domainOf, normName, normAddr, WITHDRAWN,
-  ensureColumns, scorePool, recheckContacts, withdraw, chainsByDomain, dedupe, capList, applyShareCap, histogram, formatHistogram };
+  ensureColumns, scorePool, recheckContacts, withdraw, chainsByDomain, dedupe, capList, applyShareCap, ensureCapped, histogram, formatHistogram };

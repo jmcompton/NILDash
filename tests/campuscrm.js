@@ -90,11 +90,14 @@ async function main() {
   // the rest 6-12 miles. Categories alternate gym / restaurant. 3 has history.
   const fitFor = (i) => [{ team_id: 'crm:wbb', team: "Women's Basketball", score: i % 2 ? 22 : 40, why: i % 2 ? 'near campus' : 'a gym: players train there' },
     { team_id: 'crm:sb', team: 'Softball', score: 18, why: 'near campus' }];
+  // Ten kinds of business by Google type, so no kind is over the 15% share
+  // the contactable list is capped at (campusQuality).
+  const KINDS = ['gym', 'restaurant', 'cafe', 'clothing_store', 'barber_shop', 'physiotherapist', 'car_dealer', 'bakery', 'bowling_alley', 'florist'];
   for (let i = 0; i < 40; i++) {
     const brand = `Crm Biz ${i}`;
     const miles = i < 10 ? 1 + i * 0.2 : 6 + (i - 10) * 0.2;
     await P.query(`INSERT INTO university_market_seen (market_key, brand, place_id, category, types, address, distance_m, rating, user_ratings_total)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,4.5,120)`, [MKA, brand, 'crm-' + i, i % 2 ? 'restaurant' : 'gym', JSON.stringify([i % 2 ? 'restaurant' : 'gym']),
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,4.5,120)`, [MKA, brand, 'crm-' + i, i % 2 ? 'restaurant' : 'gym', JSON.stringify([KINDS[i % 10]]),
       `${i} Main St, Crmtown`, Math.round(miles * MI)]);
     await P.query(`INSERT INTO university_contacts (university_id, market_key, brand, place_id, contact_name, contact_title, email, phone, reachable, status, team_fit, athlete_history, athlete_history_note)
                    VALUES ($1,$2,$3,$4,$5,'Owner',$6,'(714) 555-0100',$7,$8,$9::jsonb,$10,$11)`,

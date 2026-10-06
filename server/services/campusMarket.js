@@ -54,6 +54,9 @@ function parseFilters(q) {
     categories: list(q.category),
     maxMiles: num(q.miles),
     hasContact: q.contact === '1' || q.contact === 'true' || q.hasContact === true,
+    // contact=1 is THE contactable list: within each category's 15% share.
+    // held=1 adds the rows the cap holds back (shown last, marked held).
+    includeHeld: q.held === '1' || q.held === 'true',
     history: q.history === '1' || q.history === 'true',
     team: String(q.team || '').trim() || null,
     stages: list(q.stage).filter((s) => STAGES.includes(s)),
@@ -65,9 +68,14 @@ function parseFilters(q) {
 }
 
 async function search(pool, universityId, query) {
-  await require('./campusQuality').ensureColumns(pool).catch(() => {});
+  const QC = require('./campusQuality');
+  await QC.ensureColumns(pool).catch(() => {});
   const u = await universityFor(pool, universityId);
   if (!u) return { ok: false, error: 'no university' };
+  // The 15% cap ran only at the end of a build and the start of a night, and
+  // contact=1 read reachable without looking at it: Cypress showed 22 dentists
+  // in 65. The cap is applied here, on the read, before the list is selected.
+  await QC.ensureCapped(pool, u).catch((e) => console.warn('[campusMarket] share cap:', e.message));
   const f = parseFilters(query || {});
   const args = [universityId, u.marketKey];
   const where = ['m.market_key = $2', 'm.blocked_reason IS NULL'];
@@ -75,7 +83,7 @@ async function search(pool, universityId, query) {
   if (f.q) add(`m.brand ILIKE ?`, '%' + f.q.replace(/[%_]/g, '') + '%');
   if (f.categories.length) add(`m.category = ANY(?)`, f.categories);
   if (f.maxMiles !== null) add(`m.distance_m <= ?`, Math.round(f.maxMiles * MI));
-  if (f.hasContact) where.push('c.reachable IS TRUE');
+  if (f.hasContact) where.push(f.includeHeld ? 'c.reachable IS TRUE' : 'c.reachable IS TRUE AND c.held_reason IS NULL');
   if (f.history) where.push('c.athlete_history IS TRUE');
   if (f.stages.length) add(`COALESCE(r.stage, 'not_contacted') = ANY(?)`, f.stages);
   let fitSel = 'NULL::int AS fit_score, NULL::text AS fit_why';
@@ -119,6 +127,7 @@ function present(r) {
     fit: r.fit_score === null || r.fit_score === undefined ? null : { score: Number(r.fit_score), why: r.fit_why },
     stage: r.stage, stageLabel: STAGE_LABEL[r.stage] || r.stage, lastTouchAt: r.last_touch_at || null, lastTouchBy: r.last_touch_by || null,
     notes: r.notes || null,
+    bucket: r.deal_bucket || null, held: r.held_reason || null,
   };
 }
 
