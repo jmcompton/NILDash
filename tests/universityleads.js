@@ -53,8 +53,10 @@ async function main() {
                  ('ul-bstaff','Quiet Staff','ul-b@ul.test',$1,'university',$3,'unlimited')`, [hash, A, B]);
   for (let i = 0; i < 12; i++) {
     const brand = `Lead Biz ${i}`;
-    await P.query(`INSERT INTO university_market_seen (market_key, brand, place_id, category, types, address, distance_m) VALUES ($1,$2,$3,'gym','["gym"]',$4,$5)`,
-      [MKA, brand, 'ul-' + i, `${i} Main St`, Math.round((1 + i * 0.3) * MI)]);
+    await P.query(`INSERT INTO university_market_seen (market_key, brand, place_id, category, types, address, distance_m) VALUES ($1,$2,$3,'gym',$6::jsonb,$4,$5)`,
+      [MKA, brand, 'ul-' + i, `${i} Main St`, Math.round((1 + i * 0.3) * MI),
+       // Eight kinds by Google type: no kind over the list's 15% share (campusQuality).
+       JSON.stringify([['gym', 'restaurant', 'cafe', 'clothing_store', 'barber_shop', 'physiotherapist', 'car_dealer', 'bakery'][i % 8]])]);
     await P.query(`INSERT INTO university_contacts (university_id, market_key, brand, place_id, contact_name, contact_title, email, phone, reachable, status, team_fit)
                    VALUES ($1,$2,$3,$4,$5,'Owner',$6,'(714) 555-0100',$7,$8,$9::jsonb)`,
       [A, MKA, brand, 'ul-' + i, i < 8 ? 'Dana Reed' : null, i < 8 ? `dana${i}@biz.test` : null, i < 8, i < 8 ? 'reachable' : 'unreachable',
