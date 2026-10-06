@@ -257,7 +257,11 @@ const aiStub = {
   ok('  and a business whose contact is at a chain\'s corporate address (bill.m@autozone.com)', wdr('Corner Parts') && /corporate address/.test(wdr('Corner Parts').why), wdr('Corner Parts'));
   ok('A SPONSORED ATHLETE IS NEVER THE DECISION MAKER (the NASCAR driver), nor a videographer', wdr('Speedy Insure') && wdr('Speedy Insure').why === 'not a decision maker'
     && wdr('Seven Brew Cafe') && wdr('Seven Brew Cafe').why === 'not a decision maker', [wdr('Speedy Insure'), wdr('Seven Brew Cafe')]);
-  ok('A SHARED INBOX IS NOT A PERSON: info@ with no phone is no named contact', wdr('Home Run Park') && wdr('Home Run Park').why === 'shared inbox only', wdr('Home Run Park'));
+  // info@ beside a named person is a SEND PATH (kept apart, never their own
+  // address): the business stays, reachable through the shared inbox.
+  const hrp = (await P.query(`SELECT reachable, email, generic_email FROM university_contacts WHERE university_id = $1 AND brand = 'Home Run Park'`, [QU])).rows[0];
+  ok('A SHARED INBOX IS A SEND PATH, NOT A PERSON: info@ beside a named owner stays, kept apart from their name', !wdr('Home Run Park')
+    && hrp && hrp.reachable === true && !hrp.email && hrp.generic_email === 'info@homerunpark.com', { w: wdr('Home Run Park'), hrp });
   const leaves = (await P.query(`SELECT brand, email, generic_email, reachable FROM university_contacts WHERE university_id = $1 AND brand LIKE '7 Leaves%'`, [QU])).rows;
   const kept7 = leaves.find((x) => x.brand === '7 Leaves Cafe Qtown');
   ok('  a shared inbox with a phone: reached by phone, the inbox moved off the person\'s name', kept7 && kept7.reachable && kept7.email === null && kept7.generic_email === 'customercare@7leavescafe.com', leaves);
@@ -289,7 +293,7 @@ const aiStub = {
   const CC = require(REPO + 'server/services/campusContacts.js');
   const ro = await CC.resolveOne({ brand: 'Q Test' }, { city: 'Qtown, CA', history: false, ai: { deepContactCtx: () => ({}), webSearchJson: async () => ({ text: '{}' }),
     getBrandContacts: async () => ({ contacts: [{ name: 'Daniel Suarez', title: 'NASCAR driver, sponsorship partner', email: 'dan@x.com' }, { name: 'Pat Kowalski', title: 'Owner', source: 'site' }], genericInbox: 'info@qtest.com' }) } });
-  ok('  the ladder skips the driver, takes the owner, and an info@ alone does not make them reachable', ro.contact_name === 'Pat Kowalski' && ro.email === null && ro.generic_email === 'info@qtest.com' && ro.reachable === false, ro);
+  ok('  the ladder skips the driver, takes the owner, and keeps info@ as a send path, not as their address', ro.contact_name === 'Pat Kowalski' && ro.email === null && ro.generic_email === 'info@qtest.com' && ro.reachable === true, ro);
   await qclean();
 
   // ── 5a-1b. THE CAP ON THE LIST THE PORTAL READS (Cypress in production) ──

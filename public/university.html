@@ -119,6 +119,7 @@ main.stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 .lead .who{font-size:13.5px;color:var(--text)}
 .lead .who span{color:var(--muted)}
 .lead ol.points{margin:6px 0 0;padding-left:20px;font-size:13px;line-height:1.5}
+.lead .dm2{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line,#2a2a2a)}
 .lead .reach{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted)}
 .lead .reach a{color:var(--lime);text-decoration:none}
 .lead .why{font-size:13.5px;color:var(--muted);line-height:1.5}
@@ -755,6 +756,7 @@ function leadCard(d){
   if (ch === "email"){
     const mailto = `mailto:${encodeURIComponent(d.contact_email)}?subject=${encodeURIComponent(d.subject || "")}&body=${encodeURIComponent(d.body || "")}`;
     main = `<div class="who">${who}</div>${reachLine({ email:d.contact_email, phone:d.contact_phone, instagram:d.contact_instagram })}
+      ${d.email_is_shared ? `<div class="why" style="opacity:.75">${esc(d.contact_email)} is the business's shared inbox, not ${esc(String(d.contact_name || "their").split(" ")[0])}'s own address; the email is addressed to them by name.</div>` : ""}
       ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
       <details><summary>Read the email</summary><pre>${esc(d.subject ? "Subject: " + d.subject + "\n\n" : "")}${esc(d.body || "")}</pre></details>`;
     tools = `<a class="btn go sm" href="${mailto}" data-sent="${esc(d.id)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Open in email</a>
@@ -784,10 +786,20 @@ function leadCard(d){
   } else {
     main = `<div class="who">${who}</div><div class="reach">No email, phone or Instagram on file: nothing to send yet.</div>`;
   }
+  /* EVERY WAY TO REACH THEM: a card with a handle offers the Instagram DM as
+     the second action, beside the email or the call. */
+  const dmSecond = (ch === "email" || ch === "call") && handle && d.dm_text
+    ? `<div class="dm2"><div class="why"><b>Or on Instagram</b> <a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a></div>
+        <details><summary>Read the DM</summary><pre>${esc(d.dm_text)}</pre></details>
+        <div class="toolrow"><button type="button" class="btn ghost sm" data-copytext="${esc(d.dm_text)}">Copy DM</button>
+          <a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a>
+          ${done ? "" : `<button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-channel="dm" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Mark DM sent</button>`}</div></div>`
+    : "";
   return `<div class="lead">
-    <div class="biz">${esc(d.brand_name)}${CH_CHIP[ch] ? ` <span class="chip">${CH_CHIP[ch]}</span>` : ""}</div>
+    <div class="biz">${esc(d.brand_name)}${CH_CHIP[ch] ? ` <span class="chip">${CH_CHIP[ch]}</span>` : ""}${dmSecond ? ` <span class="chip">+ DM</span>` : ""}</div>
     ${main}
     <div class="toolrow">${tools}${doneBtn}</div>
+    ${dmSecond}
   </div>`;
 }
 function vHome(){
@@ -928,7 +940,11 @@ async function writePitch(brand, ack){
       ${d.channel !== "call" ? `<button type="button" class="btn ghost sm" data-copytext="${esc(text)}">${d.channel === "email" ? "Copy email" : "Copy message"}</button>` : ""}
       <button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-channel="${esc(d.channel)}" data-brand="${esc(brand)}" data-team="${esc(teamId)}">${CH_DONE[d.channel] || "Mark contacted"}</button>
       <button type="button" class="btn ghost sm" data-close>Close</button>
-    </div>`);
+    </div>
+    ${d.channel !== "dm" && d.dmText && handle ? `<p class="lede" style="margin-top:14px">Or on Instagram: <a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a></p>
+      <pre>${esc(d.dmText)}</pre>
+      <div class="toolrow"><button type="button" class="btn ghost sm" data-copytext="${esc(d.dmText)}">Copy DM</button>
+        <a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a></div>` : ""}`);
 }
 function chooseTeam(teams){
   return new Promise((resolve) => {

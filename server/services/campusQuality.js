@@ -165,6 +165,15 @@ async function scorePool(pool, marketKey) {
 // Stored contacts re-judged by today's rules. Returns what was withdrawn, by why.
 async function recheckContacts(pool, uni) {
   // Only businesses still in the pool: one the block already withdrew is not re-judged (or double-counted).
+  // A SHARED INBOX IS A SEND PATH, NOT A PERSON. info@ beside a named person
+  // is a way to reach them (the email greets the person by name); it never
+  // counts as "a named person's email" and is kept apart as generic_email.
+  // A business with a named person and only a shared inbox used to be
+  // withdrawn; those come back here.
+  await pool.query(
+    `UPDATE university_contacts SET reachable = TRUE, status = 'reachable', withdrawn_reason = NULL, updated_at = NOW()
+      WHERE university_id = $1 AND NOT reachable AND withdrawn_reason LIKE 'only a shared inbox (%' AND contact_name IS NOT NULL
+        AND (COALESCE(generic_email, '') <> '' OR COALESCE(email, '') <> '')`, [uni.id]).catch(() => {});
   const rows = (await pool.query(`SELECT c.* FROM university_contacts c
        JOIN university_market_seen m ON m.market_key = c.market_key AND m.brand = c.brand AND m.blocked_reason IS NULL
       WHERE c.university_id = $1 AND c.reachable`, [uni.id])).rows;
@@ -173,14 +182,15 @@ async function recheckContacts(pool, uni) {
     let email = c.email, generic = c.generic_email;
     if (email && isGenericInbox(email)) { generic = email; email = null; }
     const why = refusedName(c.contact_name) || refusedTitle(c.contact_title)
-      || (!email && !c.phone && !c.instagram ? `only a shared inbox (${generic || 'none'}), no direct address, phone or DM for ${c.contact_name}` : null);
+      || (!c.contact_name ? 'no named person' : null)
+      || (!email && !generic && !c.phone && !c.instagram ? `no address, phone or DM for ${c.contact_name}` : null);
     if (why) {
       await pool.query(`UPDATE university_contacts SET reachable = FALSE, status = 'unreachable', withdrawn_reason = $3, email = $4, generic_email = $5, updated_at = NOW()
                          WHERE university_id = $1 AND brand = $2`, [uni.id, c.brand, why, email, generic]);
-      out.push({ brand: c.brand, why: /inbox/.test(why) ? 'shared inbox only' : /not a person|no name/.test(why) ? 'not a person' : 'not a decision maker', detail: why });
+      out.push({ brand: c.brand, why: /no address, phone or DM/.test(why) ? 'no way to reach them' : /not a person|no name|no named person/.test(why) ? 'not a person' : 'not a decision maker', detail: why });
     } else if (email !== c.email) {
       await pool.query(`UPDATE university_contacts SET email = NULL, generic_email = $3, updated_at = NOW() WHERE university_id = $1 AND brand = $2`, [uni.id, c.brand, generic]);
-      out.push({ brand: c.brand, why: 'shared inbox moved off the person (reached by phone)', detail: generic, kept: true });
+      out.push({ brand: c.brand, why: 'shared inbox kept apart from the person (still a send path)', detail: generic, kept: true });
     }
   }
   return out;

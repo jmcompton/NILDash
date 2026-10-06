@@ -79,14 +79,107 @@ function pickPerson(res) {
   return people.sort((a, b) => rank(b) - rank(a))[0] || null;
 }
 
+// ── FREE FIRST, PAID LAST ───────────────────────────────────────────────────
+// Every lookup used to open with the paid contact ladder ($0.10 to $0.24),
+// including for businesses whose website we already had and never opened:
+// Cypress had 46 named people without an email, 30 of them with a website on
+// file. Now, in order, stopping as soon as there is a named person and a way
+// to reach them:
+//   1. Google Places details (by place id, cached a month): the website, the phone
+//   2. the business website (siteEmail: homepage plus up to two contact/about/
+//      team pages it links to, mailto: links and the footer; plain HTTP, free,
+//      cached by domain): a named person's address first, info@ over nothing,
+//      and the owners named on the site
+//   3. the Instagram handle linked from that website (instagramLookup, scrape
+//      only: free)
+//   4. the owner by name, from search including the state business filing
+//      (ownerNameSearch: one or two web searches) -- only when 1 to 3 found
+//      a way to reach them but no person
+//   5. the paid contact ladder -- only when there is still no person or no way
+//      to reach them
+// deps (tests): { places: { lookupPlaceById }, site: { findSiteEmail }, ig: { findInstagram } }
+async function freeContact(row, ctx = {}) {
+  const deps = ctx.deps || {};
+  const out = { website: row.website || null, phone: row.phone || null, email: null, genericEmail: null, instagram: row.instagram || null,
+    person: null, people: [], steps: [], placesCalls: 0 };
+  // 1. Places details: the website and the phone, if we do not hold them.
+  if ((!out.website || !out.phone) && row.place_id) {
+    try {
+      const P = deps.places || require('./placesLookup');
+      const d = await P.lookupPlaceById(row.place_id);
+      out.placesCalls++;
+      if (d) { out.website = out.website || d.website || null; out.phone = out.phone || d.phone || null; }
+      out.steps.push(`places details: ${d ? `${d.website ? 'website' : 'no website'}, ${d.phone ? 'phone' : 'no phone'}` : 'nothing'}`);
+    } catch (e) { out.steps.push('places details failed: ' + e.message); }
+  }
+  // 2. The website.
+  if (out.website) {
+    try {
+      const SE = deps.site || require('./siteEmail');
+      const r = await SE.findSiteEmail(out.website, { brand: row.brand });
+      if (r && !r.corporate) {
+        out.email = r.personalEmail || null;
+        out.genericEmail = r.roleEmail || null;
+        out.people = Array.isArray(r.people) ? r.people : [];
+        out.siteOutcome = r.outcomeKind || null;
+      }
+      out.steps.push(`website: ${r ? (r.personalEmail ? 'a person\'s address' : r.roleEmail ? 'a shared inbox' : (r.outcomeKind || 'nothing')) : 'not read'}`);
+    } catch (e) { out.steps.push('website failed: ' + e.message); }
+    // 3. The Instagram handle the website links to (never searched for here).
+    if (!out.instagram) {
+      try {
+        const IG = deps.ig || require('./instagramLookup');
+        const h = await IG.findInstagram(out.website, { brand: row.brand, loc: ctx.city });
+        if (h && h.handle && h.scope !== 'brand') out.instagram = String(h.handle).replace(/^@/, '');
+        if (h && h.bookingEmail && !out.email && !out.genericEmail) out.genericEmail = h.bookingEmail;
+        out.steps.push(`instagram: ${out.instagram ? '@' + out.instagram : 'none linked'}`);
+      } catch (e) { out.steps.push('instagram failed: ' + e.message); }
+    }
+  }
+  // The person: one already on file, or an owner the website names.
+  const QC = require('./campusQuality');
+  if (row.contact_name && !QC.refusedName(row.contact_name)) out.person = { name: row.contact_name, title: row.contact_title || null, source: 'on file' };
+  if (!out.person) {
+    const ONS = require('./ownerNameSearch');
+    const p = out.people.find((x) => x && x.name && ONS.looksLikePerson(x.name) && !QC.refusedName(x.name) && !QC.refusedTitle(x.title));
+    if (p) out.person = { name: p.name, title: p.title || null, source: 'website', sourceUrl: p.sourceUrl || null };
+  }
+  out.reach = !!(out.email || out.genericEmail || out.phone || out.instagram);
+  return out;
+}
+
 async function resolveOne(row, ctx) {
   const ai = ctx.ai || require('../ai');
   const ONS = require('./ownerNameSearch');
   const city = ctx.city;
   const sources = [];
+  // 1 to 3: free.
+  const free = ctx.free === false ? null : await freeContact(row, ctx).catch((e) => ({ steps: ['free steps failed: ' + e.message], placesCalls: 0 }));
+  const freeDone = (f) => f && f.person && f.reach;
+  const shape = (f, extra = {}) => {
+    const QCq = require('./campusQuality');
+    const email = f.email && !QCq.isGenericInbox(f.email) ? f.email : null;
+    const generic = f.genericEmail || (f.email && QCq.isGenericInbox(f.email) ? f.email : null);
+    return { contact_name: f.person ? f.person.name : null, contact_title: f.person ? f.person.title || null : null,
+      email, email_source: email ? (f.emailSource || 'website') : null, phone: f.phone || null, instagram: f.instagram || null, website: f.website || null,
+      facebook: null, linkedin: null, sources: [f.person && f.person.source, email || generic ? 'website' : null, f.instagram ? 'instagram' : null].filter(Boolean),
+      athlete_history: null, athlete_history_note: null, generic_email: generic, free: true, steps: f.steps, placesCalls: f.placesCalls || 0,
+      // A named person AND a way to reach them: their address, a shared inbox
+      // (a send path, though not their address), a phone or an Instagram DM.
+      reachable: !!(f.person && f.person.name && (email || generic || f.phone || f.instagram)), ...extra };
+  };
+  if (freeDone(free)) return shape(free);
+  // 4. A way to reach them but no person: the owner by name (search, state filings).
+  if (free && free.reach && !free.person) {
+    try {
+      const found = await ONS.findOwnerName({ brand: row.brand, city, search: ai.webSearchJson });
+      if (found && found.name) { free.person = { name: found.name, title: found.title || null, source: 'owner-search' }; return shape(free, { paidStep: 'owner search' }); }
+    } catch (_) { /* on to the ladder */ }
+  }
+  // 5. Paid: the contact ladder.
   let res = null;
   try {
-    res = await ai.getBrandContacts(row.brand, null, city, ai.deepContactCtx({ market: 'school' }));
+    res = await ai.getBrandContacts(row.brand, (free && free.website) || null, city, ai.deepContactCtx({ market: 'school' }));
   } catch (e) {
     return { error: 'contact ladder: ' + e.message, fault: true };
   }
@@ -107,11 +200,13 @@ async function resolveOne(row, ctx) {
   // A SHARED INBOX IS NOT THE PERSON (campusQuality.isGenericInbox): kept
   // apart as generic_email, never shown beside their name, never "reachable".
   const QCq = require('./campusQuality');
-  const email = anyEmail && !QCq.isGenericInbox(anyEmail) ? anyEmail : null;
-  const genericEmail = anyEmail && QCq.isGenericInbox(anyEmail) ? anyEmail : null;
+  const email = (free && free.email && !QCq.isGenericInbox(free.email) ? free.email : null) || (anyEmail && !QCq.isGenericInbox(anyEmail) ? anyEmail : null);
+  const genericEmail = (anyEmail && QCq.isGenericInbox(anyEmail) ? anyEmail : null) || (free && free.genericEmail) || null;
   const emailSource = person && person.email ? (person.emailSource || person.source || 'ladder') : email ? (ladder.label || 'inbox') : null;
-  const phone = (person && person.phone) || (res && res.businessPhone) || null;
-  const instagram = res && res.instagram ? String(res.instagram).replace(/^@/, '') : null;
+  // What the free steps found stands; the ladder fills what they did not.
+  if (!person && free && free.person) person = free.person;
+  const phone = (person && person.phone) || (res && res.businessPhone) || (free && free.phone) || null;
+  const instagram = res && res.instagram ? String(res.instagram).replace(/^@/, '') : (free && free.instagram) || null;
   const all = (res && res.contacts) || [];
   const urlLike = (re) => (all.map((c) => [c.sourceUrl, c.linkedinUrl]).flat().find((u) => u && re.test(u))) || null;
   // ── ATHLETE OR NIL HISTORY: cited, or nothing ─────────────────────────────
@@ -130,13 +225,14 @@ async function resolveOne(row, ctx) {
   }
   return {
     contact_name: person ? person.name : null, contact_title: person ? person.title || null : null,
-    email, email_source: emailSource, phone, instagram, website: (res && (res.website || res.websiteResolved)) || null,
+    email, email_source: emailSource, phone, instagram, website: (res && (res.website || res.websiteResolved)) || (free && free.website) || null,
     facebook: urlLike(/facebook\.com/i), linkedin: (person && person.linkedinUrl) || urlLike(/linkedin\.com/i),
     sources: sources.concat(all.map((c) => c.source).filter(Boolean)).filter((v, i, a) => a.indexOf(v) === i),
     athlete_history: history, athlete_history_note: historyNote, generic_email: genericEmail,
-    // A named person AND a way to reach them: a direct address, a phone, or
-    // the Instagram DM. A shared inbox (info@, customercare@) is not.
-    reachable: !!(person && person.name && (email || phone || instagram)),
+    // A named person AND a way to reach them: their address, a shared inbox
+    // (a send path, though not their address), a phone, or an Instagram DM.
+    reachable: !!(person && person.name && (email || genericEmail || phone || instagram)),
+    free: false, steps: (free && free.steps) || [], placesCalls: (free && free.placesCalls) || 0, paidStep: 'contact ladder',
   };
 }
 
@@ -226,12 +322,19 @@ async function resolveAndStore(pool, universityId, row, opts = {}) {
                       VALUES ($1,$2,$3,$4,COALESCE($5::jsonb,'[]'::jsonb)) ON CONFLICT (university_id, brand) DO NOTHING`,
       [universityId, opts.marketKey, row.brand, row.place_id || null, opts.teamFit ? JSON.stringify(opts.teamFit) : null]);
   }
+  // What is already on file goes to the free steps first (resolveOne).
+  const onFile = (await pool.query(`SELECT website, phone, instagram, contact_name, contact_title, place_id FROM university_contacts WHERE university_id = $1 AND brand = $2`,
+    [universityId, row.brand]).catch(() => ({ rows: [] }))).rows[0] || {};
+  const full = { ...row, place_id: row.place_id || onFile.place_id || null, website: row.website || onFile.website || null, phone: row.phone || onFile.phone || null,
+    instagram: row.instagram || onFile.instagram || null, contact_name: row.contact_name || onFile.contact_name || null, contact_title: row.contact_title || onFile.contact_title || null };
   let out, meter;
   try {
     ({ result: out, meter } = await scanMeter.run(() => scanMeter.label({ site: 'campus.contacts', brand: row.brand },
-      () => resolveOne(row, { city: opts.city, ai: opts.ai, history: opts.history }))));
+      () => resolveOne(full, { city: opts.city, ai: opts.ai, history: opts.history, deps: opts.deps, free: opts.free }))));
   } catch (e) { out = { error: e.message, fault: true }; meter = null; }
-  const c = meter ? Q.priceOf(meter) : 0;
+  // Places details (step 1) is a Places request the meter does not see: counted
+  // at list price, though a cached answer costs nothing.
+  const c = (meter ? Q.priceOf(meter) : 0) + ((out && out.placesCalls) || 0) * Q.USD_PER_PLACES_REQUEST;
   if (out.error) {
     await pool.query(`UPDATE university_contacts SET status = 'error', last_error = $3, attempts = attempts + 1, cost_usd = cost_usd + $4, updated_at = NOW()
                        WHERE university_id = $1 AND brand = $2`, [universityId, row.brand, String(out.error).slice(0, 400), c]);
@@ -247,7 +350,7 @@ async function resolveAndStore(pool, universityId, row, opts = {}) {
     [universityId, row.brand, out.contact_name, out.contact_title, out.email, out.email_source, out.phone, out.instagram, out.website,
       out.facebook, out.linkedin, JSON.stringify(out.sources || []), out.athlete_history, out.athlete_history_note, out.reachable,
       out.reachable ? 'reachable' : 'unreachable', c, out.generic_email || null]);
-  return { reachable: !!out.reachable, costUsd: c, error: null, out };
+  return { reachable: !!out.reachable, costUsd: c, error: null, out, free: !!out.free };
 }
 
 async function run(pool, universityId, opts = {}) {
@@ -349,4 +452,4 @@ function formatReport(r) {
   ].filter(Boolean).join('\n');
 }
 
-module.exports = { resolveAndStore, estimate, perBusinessUsd, PER_BIZ, run, report, formatReport, resolveOne, teamFit, pickPerson, seedRows, isRunning, MAX_ATTEMPTS };
+module.exports = { freeContact, resolveAndStore, estimate, perBusinessUsd, PER_BIZ, run, report, formatReport, resolveOne, teamFit, pickPerson, seedRows, isRunning, MAX_ATTEMPTS };

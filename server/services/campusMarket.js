@@ -103,7 +103,7 @@ async function search(pool, universityId, query) {
   const rows = (await pool.query(
     `SELECT * FROM (SELECT m.brand, m.category, m.primary_type_label, m.address, m.distance_m, m.rating, m.user_ratings_total, m.place_id,
             m.deal_priority, m.deal_bucket, c.held_reason,
-            c.contact_name, c.contact_title, c.email, c.phone, c.instagram, c.website, c.facebook, c.linkedin,
+            c.contact_name, c.contact_title, c.email, c.generic_email, c.phone, c.instagram, c.website, c.facebook, c.linkedin,
             COALESCE(c.reachable, FALSE) AS reachable, COALESCE(c.status, 'pending') AS contact_status, c.athlete_history, c.athlete_history_note, c.team_fit,
             COALESCE(r.stage, 'not_contacted') AS stage, r.last_touch_at, r.last_touch_by, r.notes, ${fitSel}
        ${base}) z
@@ -119,7 +119,7 @@ function present(r) {
     brand: r.brand, category: r.category, kind: r.primary_type_label || r.category || null, address: r.address,
     miles: r.distance_m === null || r.distance_m === undefined ? null : Math.round((Number(r.distance_m) / MI) * 10) / 10,
     rating: r.rating === null ? null : Number(r.rating), reviews: r.user_ratings_total,
-    contact: { name: r.contact_name || null, title: r.contact_title || null, email: r.email || null, phone: r.phone || null,
+    contact: { name: r.contact_name || null, title: r.contact_title || null, email: r.email || null, sharedEmail: r.generic_email || null, phone: r.phone || null,
       instagram: r.instagram || null, website: r.website || null, facebook: r.facebook || null, linkedin: r.linkedin || null,
       reachable: !!r.reachable, status: r.contact_status },
     athleteHistory: r.athlete_history === true, athleteHistoryNote: r.athlete_history_note || null,
@@ -309,7 +309,9 @@ async function pitch(pool, universityId, userId, opts) {
     contactName: biz.contact.name, sender };
   // No email address, no email (services/cardChannel).
   const CHN = require('./cardChannel');
-  const channel = CHN.channelOf({ email: biz.contact.email, phone: biz.contact.phone, instagram: biz.contact.instagram });
+  if (!String(biz.contact.name || '').trim()) return { ok: false, status: 422, error: 'there is no named person at this business yet: every email and DM is written to someone by name' };
+  const sendTo = biz.contact.email || biz.contact.sharedEmail || null;
+  const channel = CHN.channelOf({ email: sendTo, phone: biz.contact.phone, instagram: biz.contact.instagram });
   if (!channel) return { ok: false, status: 422, error: 'there is no email, phone or Instagram for anyone at this business yet, so there is no one to reach' };
   let w, best = null, points = null;
   if (channel === 'call') {
@@ -322,17 +324,23 @@ async function pitch(pool, universityId, userId, opts) {
     w = await TW.writeAsk({ ...ctx, dm: channel === 'dm' }, { ai: opts.ai });
   }
   if (!w.ok) return { ok: false, status: 502, error: 'could not write it: ' + w.error };
+  // Every way to reach them: a handle gets its DM beside the email or the call.
+  let dmText = channel === 'dm' ? w.body : null;
+  if (channel !== 'dm' && CHN.hasHandle(biz.contact.instagram)) {
+    const d = await TW.writeAsk({ ...ctx, dm: true }, { ai: opts.ai });
+    if (d.ok) dmText = d.body;
+  }
   const id = 'udraft_' + require('crypto').randomBytes(8).toString('hex');
   await pool.query(
     `INSERT INTO university_drafts (id, university_id, team_id, brand_key, brand_name, place_id, subject, body, model, status, kind, athlete_name,
-        contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, created_by, channel, best_time, talking_points)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval',$10,$11,$12,$13,$14,$15,$16,$17,$18,$17,$19,$20,$21::jsonb)`,
+        contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, created_by, channel, best_time, talking_points, dm_text)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval',$10,$11,$12,$13,$14,$15,$16,$17,$18,$17,$19,$20,$21::jsonb,$22)`,
     [id, universityId, team ? team.id : null, 'brand:' + biz.brand.toLowerCase(), biz.brand, biz.place_id || null, w.subject, w.body, w.model,
-      ctx.athlete ? 'athlete' : 'pitch', ctx.athlete ? ctx.athlete.name : null, biz.contact.name, biz.contact.title, biz.contact.email,
-      biz.contact.phone, biz.contact.instagram, userId, sender && sender.email, channel, best, points ? JSON.stringify(points) : null]);
-  return { ok: true, draft: { id, channel, bestTime: best, talkingPoints: points, subject: channel === 'call' ? null : w.subject, body: w.body,
-    to: channel === 'email' ? biz.contact.email : null, contact: biz.contact, sender,
-    mailto: channel === 'email' ? `mailto:${encodeURIComponent(biz.contact.email)}?subject=${encodeURIComponent(w.subject)}&body=${encodeURIComponent(w.body)}` : null } };
+      ctx.athlete ? 'athlete' : 'pitch', ctx.athlete ? ctx.athlete.name : null, biz.contact.name, biz.contact.title, sendTo,
+      biz.contact.phone, biz.contact.instagram, userId, sender && sender.email, channel, best, points ? JSON.stringify(points) : null, dmText]);
+  return { ok: true, draft: { id, channel, bestTime: best, talkingPoints: points, dmText, subject: channel === 'call' ? null : w.subject, body: w.body,
+    to: channel === 'email' ? sendTo : null, contact: biz.contact, sender,
+    mailto: channel === 'email' ? `mailto:${encodeURIComponent(sendTo)}?subject=${encodeURIComponent(w.subject)}&body=${encodeURIComponent(w.body)}` : null } };
 }
 
 module.exports = {

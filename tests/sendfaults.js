@@ -38,6 +38,9 @@ async function main() {
     }
     await P.query(`DELETE FROM brand_evidence_cache WHERE LOWER(brand) IN ('central city toyota','hornsdownshop','contacts cached co')`).catch(() => {});
     await P.query(`DELETE FROM approval_faults WHERE log_id LIKE 'sf-%'`).catch(() => {});
+    // What this test records as our fault is removed with it (the shared test
+    // database feeds other suites' "our failures" counts).
+    await P.query(`DELETE FROM service_faults WHERE (service = 'send-fault' AND context LIKE 'sendFaults %') OR service = 'send-fault-email'`).catch(() => {});
     await P.query(`DELETE FROM email_suppression WHERE email = 'gone@sf-bounce.test'`).catch(() => {});
   };
   await clean();

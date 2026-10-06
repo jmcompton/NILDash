@@ -146,7 +146,7 @@ function emailSql(full, athleteScoped) {
        l.subject, l.body_html, l.edited_before_approval, l.touch_no, l.parent_id,
        e.website,
        c.contact_name, c.contact_title, c.why, c.instagram, c.instagram_scope,
-       c.phone, c.phone_ask_for, c.email_note, m.reasoning`
+       c.phone, c.phone_ask_for, c.email_note, c.dm_text, m.reasoning`
     : `l.id, l.athlete_id, l.brand_name, l.created_at, l.sent_to_email, e.website`;
   const joins = full
     ? `LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
@@ -158,7 +158,7 @@ function emailSql(full, athleteScoped) {
          -- one (outreach_log_id), falling back to the name for drafts written by
          -- a Deal Scan, which have no card behind them.
          SELECT contact_name, contact_title, why, instagram, instagram_scope,
-                phone, phone_ask_for, email_note
+                phone, phone_ask_for, email_note, dm_text
            FROM outreach_queue q2
           WHERE q2.athlete_id = l.athlete_id
             AND (q2.outreach_log_id = l.id
@@ -207,6 +207,7 @@ function normEmail(r) {
     instagram: r.instagram || null, instagramScope: r.instagram_scope || null,
     phone: r.phone || null, phoneAskFor: r.phone_ask_for || null,
     emailNote: r.email_note || null,
+    dmText: r.dm_text || null,
     verified: null,   // filled by the gate
   };
 }

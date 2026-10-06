@@ -31,6 +31,10 @@ ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS program_url TEXT;
 ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS channel TEXT;
 ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS best_time TEXT;
 ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS talking_points JSONB;
+-- The Instagram DM for any card with a handle, and whether the email address
+-- is a shared inbox (info@) rather than the person's own.
+ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS dm_text TEXT;
+ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS email_is_shared BOOLEAN;
 CREATE INDEX IF NOT EXISTS university_drafts_night_idx ON university_drafts (university_id, night);
 -- Staff title, for the sign-off (users is shared, so it is kept here, keyed by user).
 CREATE TABLE IF NOT EXISTS university_staff (

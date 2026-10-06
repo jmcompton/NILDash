@@ -968,6 +968,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-faults ul{margin:0 0 10px;padding-left:18px;font-size:13px;line-height:1.5;color:#d6d3cc}
 .hq-faults li{margin-bottom:6px}
 .hq-fault-fix{color:#fbbf24}
+.hq-dm2{margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.08)}
 .hq-who{font-size:12px;color:#9CA3AF;line-height:1.6}
 .hq-who b{color:#F0EDE6;font-weight:600}
 .hq-note{font-size:10.5px;color:#6B7280;line-height:1.5;margin-top:4px}
@@ -21571,8 +21572,8 @@ function hqRenderCard(c, i) {
   // diagnostic output about our address checks, for the operator, not the
   // agent; it stays on the payload for anything that wants it.
 
-  var body = c.channel === 'email' ? hqEmailBody(c, i)
-    : c.channel === 'dm' ? hqDmBody(c, i) : hqCallBody(c, i);
+  var body = (c.channel === 'email' ? hqEmailBody(c, i)
+    : c.channel === 'dm' ? hqDmBody(c, i) : hqCallBody(c, i)) + hqDmSecond(c, i);
   return '<div class="hq-card hq-row ' + ch.cls + (open ? ' open' : '') + '">' + head
     + '<div class="hq-x" id="' + xId + '"' + (open ? '' : ' hidden') + '>' + ctx + body + '</div>'
     + '</div>';
@@ -21682,6 +21683,25 @@ function hqDmBody(c, i) {
 // call_script column on outreach_queue and nothing writes one, so there is no
 // script here -- a templated one would be a sentence we invented presented as
 // something the product prepared.
+// EVERY WAY TO REACH THEM. An email or call card whose person has an Instagram
+// handle offers the DM as the second action: the message, Copy, the profile.
+function hqDmSecond(c, i) {
+  if (c.channel === 'dm' || !c.handle || c.handleIsBrand || !c.dmText) return '';
+  var paras = String(c.dmText).split(/\n\s*\n+/).map(function (x) { return x.trim(); }).filter(Boolean)
+    .map(function (x) { return '<p>' + hqEscape(x) + '</p>'; }).join('');
+  return '<div class="hq-dm2"><p class="hq-who"><b>Or on Instagram</b> @' + hqEscape(c.handle) + '</p>'
+    + '<div class="hq-body">' + paras + '</div>'
+    + '<div class="hq-xbtns"><button class="hm-btn ghost" type="button" onclick="hqCopyDm2(' + i + ')">Copy DM &amp; open Instagram</button></div></div>';
+}
+function hqCopyDm2(i) {
+  var c = hqCardAt(i); if (!c) return;
+  var done = function () {
+    if (typeof showToast === 'function') showToast('DM copied');
+    window.open('https://www.instagram.com/' + String(c.handle).replace(/^@/, ''), '_blank', 'noopener');
+  };
+  if (navigator.clipboard) navigator.clipboard.writeText(c.dmText).then(done, done); else done();
+}
+
 // WHAT THE ROW'S MAIN BUTTON DOES, said on it. Approve means send, and only an
 // email card can be sent; a call card is marked called, a DM card marked sent.
 function hqApproveLabel(c) {

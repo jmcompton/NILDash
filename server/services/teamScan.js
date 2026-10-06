@@ -202,6 +202,11 @@ async function ensureTables(pool) {
   await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS channel TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS best_time TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS talking_points JSONB`).catch(() => {});
+  // The Instagram DM, written for EVERY card with a handle, not only the cards
+  // with nothing else: the second action beside the email or the call.
+  await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS dm_text TEXT`).catch(() => {});
+  // The address is a shared inbox (info@): a send path, not the person's own.
+  await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS email_is_shared BOOLEAN`).catch(() => {});
   await require('./campusQuality').ensureColumns(pool).catch(() => {});
 }
 
@@ -349,7 +354,7 @@ async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [],
   const rows = (await pool.query(
     `SELECT * FROM (
        SELECT m.brand AS brand_name, m.place_id, m.types, m.category, m.primary_type, m.primary_type_label, m.address, m.distance_m,
-              m.rating, m.user_ratings_total, c.contact_name, c.contact_title, c.email, c.phone, c.instagram, c.athlete_history_note,
+              m.rating, m.user_ratings_total, c.contact_name, c.contact_title, c.email, c.generic_email, c.phone, c.instagram, c.athlete_history_note,
               COALESCE(c.reachable, FALSE) AS reachable, COALESCE(c.status, 'pending') AS contact_status, c.attempts,
               COALESCE(m.deal_priority, 5) AS deal_priority, COALESCE(m.deal_bucket, 'other') AS deal_bucket, c.held_reason,
               (SELECT (x->>'score')::int FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_score,
@@ -543,7 +548,17 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     // no email: a phone is a call card (talking points, no email body), an
     // Instagram handle alone is a DM, and nothing at all is no card.
     const CHN = require('./cardChannel');
-    const channel = CHN.channelOf({ email: c.email, phone: c.phone, instagram: c.instagram, programUrl: c.social ? (c.program_url || c.website) : null, social: c.social });
+    // THE PERSON'S NAME ON EVERY EMAIL AND EVERY DM. A business with no named
+    // person is not a card (a social brand's program page is not an email or a DM).
+    if (!c.social && !String(c.contact_name || '').trim()) {
+      await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
+      out.skipped.push({ brand: c.brand_name, why: 'no named person to write to', stage: 'owner' });
+      return false;
+    }
+    // Their own address first; a shared inbox (info@) over nothing: it is a
+    // way to send, addressed to them by name, just not their own address.
+    const sendTo = c.email || c.generic_email || null;
+    const channel = CHN.channelOf({ email: sendTo, phone: c.phone, instagram: c.instagram, programUrl: c.social ? (c.program_url || c.website) : null, social: c.social });
     if (!channel) {
       await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
       out.skipped.push({ brand: c.brand_name, why: 'no email, phone or Instagram for the person: no way to reach them', stage: 'owner' });
@@ -559,6 +574,18 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       asks++;
       w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: channel === 'dm',
         ...(c.social ? { program: { url: c.program_url, offer: c.offer } } : {}) }, { ai: deps.ai });
+    }
+    // EVERY WAY TO REACH THEM: a card with a handle carries the DM too, as the
+    // second action beside the email or the call (or the card itself, if a DM
+    // is all there is). Short, their name, the team, why, the ask.
+    let dmText = null;
+    if (w.ok && !c.social && CHN.hasHandle(c.instagram)) {
+      if (channel === 'dm') dmText = w.body;
+      else {
+        asks++;
+        const d = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: true }, { ai: deps.ai });
+        if (d.ok) dmText = d.body;
+      }
     }
     if (!w.ok) {
       await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
@@ -582,18 +609,19 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     await pool.query(
       `INSERT INTO university_drafts (id, university_id, team_id, brand_key, brand_name, place_id, subject, body, model, status, kind, why,
           contact_name, contact_title, contact_email, contact_phone, contact_instagram, sender_user_id, sender_email, night, lane, program_url,
-          channel, best_time, talking_points)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval','pitch',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb)`,
+          channel, best_time, talking_points, dm_text, email_is_shared)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_approval','pitch',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25)`,
       [id, university.id, team.id, brandKey, c.brand_name, c.place_id || null, w.subject, w.body, w.model, c.fit_why || null,
-        c.contact_name || null, c.contact_title || null, c.email || null, c.phone || null, c.instagram || null,
+        c.contact_name || null, c.contact_title || null, sendTo, c.phone || null, c.instagram || null,
         sender ? String(sender.userId) : null, sender ? sender.email : null, night, c.social ? 'social' : (c.fromFile ? 'local' : 'local-wide'),
-        c.social ? (c.program_url || c.website || null) : null, channel, best, points ? JSON.stringify(points) : null]);
+        c.social ? (c.program_url || c.website || null) : null, channel, best, points ? JSON.stringify(points) : null,
+        dmText, channel === 'email' ? !c.email : null]);
     if (share && !c.social) share.catCount[bucket] = (share.catCount[bucket] || 0) + 1;
     if (c.social) socialHeld++; else if (c.fromFile) fromFileHeld++; else lookedUpHeld++;
     out.drafts.push({ id, brand: c.brand_name, contact: c.contact_name, email: c.email || null, phone: c.phone || null, instagram: c.instagram || null,
       why: c.fit_why || null, subject: w.subject, body: w.body, status: 'awaiting_approval', retried: w.retried,
       lane: c.social ? 'social' : (c.fromFile ? 'local' : 'local-wide'), programUrl: c.social ? (c.program_url || null) : null,
-      channel, bestTime: best, talkingPoints: points });
+      channel, bestTime: best, talkingPoints: points, dmText });
     return true;
   };
 

@@ -123,7 +123,7 @@ function mount(app, { store, requireAuth }) {
     const rows = (await pool.query(
       `SELECT d.id, d.team_id, t.name AS team_name, d.brand_name, d.subject, d.body, d.why, d.contact_name, d.contact_title, d.contact_email,
               d.contact_phone, d.contact_instagram, d.sender_email, d.status, d.sent_at, d.created_at, d.night, d.lane, d.program_url,
-              d.channel, d.best_time, d.talking_points, t.name AS team_label,
+              d.channel, d.best_time, d.talking_points, d.dm_text, d.email_is_shared, t.name AS team_label,
               COALESCE(r.stage, 'not_contacted') AS stage
          FROM university_drafts d LEFT JOIN university_teams t ON t.id = d.team_id
          LEFT JOIN university_crm r ON r.university_id = d.university_id AND r.brand = d.brand_name

@@ -697,6 +697,12 @@ async function buildHome(pool, agentId, opts = {}) {
         card.handleIsBrand = c.instagramScope === 'brand';
         card.phone = c.phone || null;
         card.askFor = c.phoneAskFor || c.contactName || null;
+        // EVERY WAY TO REACH THEM: an email card whose person has a handle
+        // carries the DM as the second action -- the card's own DM, or the
+        // email cut to two or three sentences, opening with their name.
+        if (card.handle && !card.handleIsBrand) {
+          card.dmText = c.dmText || require('./draftChannel').dmFromEmail(c.subject, c.bodyHtml, c.contactName);
+        }
         // A FOLLOW-UP SAYS SO, with the thread so far (filled in below).
         if (c.touch > 1 && c.parentId) card.followUp = { n: c.touch - 1, of: 2, last: c.touch >= 3, history: historyFor(c.parentId) };
       } else if (c.channel === 'dm') {
@@ -726,6 +732,15 @@ async function buildHome(pool, agentId, opts = {}) {
         card.talkingPoints = CHN.talkingPoints({ who: agentName ? `${agentName}, ${ath}'s agent` : `${ath}'s agent`, subject: ath,
           business: c.brand_name, why: c.why || c.reasoning,
           ask: `would ${c.brand_name} work with ${ath} on a few posts or an appearance? If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.` });
+        // A phone card whose person has a handle offers the DM too.
+        card.handle = c.instagram || null;
+        card.handleIsBrand = c.instagramScope === 'brand';
+        if (card.handle && !card.handleIsBrand) {
+          const first = String(c.contactName || '').trim().split(/\s+/)[0];
+          card.dmText = c.dmText || (first
+            ? `Hi ${first},\n\nI represent ${ath}. ${c.why ? String(c.why).replace(/\s+/g, ' ').trim().replace(/\.?$/, '.') + ' ' : ''}Would ${c.brand_name} be open to a few posts or an appearance together this season?`
+            : null);
+        }
       }
       return card;
     }),

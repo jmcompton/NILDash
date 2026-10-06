@@ -5381,6 +5381,14 @@ const ADMIN_SCRIPTS = {
   // Every business contacted or beyond, by agent, with what happened next;
   // every reply, decline and logged deal anywhere. Read-only.
   'real-outcomes': { file: 'scripts/real-outcomes.js', args: () => [] },
+  // The free contact steps across a university's named people (the website on
+  // file for an email, the Instagram handle it links to) and the latest
+  // night's cards brought up to date. Dry run unless apply=1. Sends nothing.
+  'campus-reach': { file: 'scripts/campus-reach.js', args: (q) => {
+    const u = String(q.university || 'univ-cypress');
+    if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });
+    return ['--university', u].concat(q.apply === '1' ? ['--apply'] : []);
+  } },
   // Approved emails that never sent and are too old to send: each re-decided
   // once (a fresh unapproved draft, a call card, or a DM card) and the old row
   // closed. Dry run unless apply=1. Never sends or approves anything.

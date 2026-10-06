@@ -146,7 +146,10 @@ async function main() {
     && ce.totalUsd.metered[0] === 0.62 && ce.totalUsd.metered[1] === 1.31 && ce.perBusiness.withInputTokensUsd[1] > ce.perBusiness.meteredUsd[1], ce);
   ok('  without the history search it is cheaper', (await CC.estimate(P, UNI, { history: false })).perBusiness.meteredUsd[1] < 0.262);
   // Ten pending, each lookup metering $0.10: a $0.30 cap stops at about three.
-  await P.query(`UPDATE university_contacts SET status = 'pending', attempts = 0 WHERE university_id = $1 AND brand IN (SELECT brand FROM university_contacts
+  // Nothing on file for them, so each needs the paid lookup (a person and a
+  // phone on file are finished by the free steps for nothing).
+  await P.query(`UPDATE university_contacts SET status = 'pending', attempts = 0, contact_name = NULL, email = NULL, generic_email = NULL, phone = NULL,
+                   instagram = NULL, website = NULL WHERE university_id = $1 AND brand IN (SELECT brand FROM university_contacts
                    WHERE university_id = $1 AND status = 'reachable' ORDER BY brand LIMIT 10)`, [UNI]);
   const scanMeter = require(REPO + 'server/scanMeter.js');
   const paid = { ...ai, getBrandContacts: async (brand, w, c, x) => { scanMeter.bumpWeb(10); return ai.getBrandContacts(brand, w, c, x); } };
