@@ -310,6 +310,10 @@ async function main() {
 
   // ── 7. THE REAL SERVER ────────────────────────────────────────────────────
   OUT.push('', '-- the real server --');
+  // Production's shape after a deploy, before any night: the card columns the
+  // night adds do not exist yet. The server must add them, not fail the read.
+  await P.query(`ALTER TABLE university_drafts DROP COLUMN IF EXISTS lane`);
+  await P.query(`ALTER TABLE university_drafts DROP COLUMN IF EXISTS program_url`);
   const port = await freePort();
   const srv = spawn(process.execPath, [REPO + 'server/index.js'], {
     env: { ...process.env, PORT: String(port), NODE_ENV: 'development', SESSION_SECRET: 'crm-test', CYPRESS_SEED_ON_BOOT: 'off', UNIVERSITY_NIGHTLY: 'off',
@@ -340,6 +344,11 @@ async function main() {
     const cx = await login(STAFF.x);
     const me = await call(cx, 'GET', '/api/university/market/me');
     ok('staff sign in and see their own department, teams and stages', me.status === 200 && me.body.university.id === A && me.body.teams.length === 2 && me.body.stages.length === 7, me.status);
+    const nCards = (await P.query(`SELECT COUNT(*)::int n FROM university_drafts WHERE university_id = $1 AND kind = 'pitch'
+                                     AND night = (SELECT MAX(night) FROM university_drafts WHERE university_id = $1 AND night IS NOT NULL)`, [A])).rows[0].n;
+    const cr = await call(cx, 'GET', '/api/university/market/cards');
+    ok('THE MORNING\'S CARDS ARE RETURNED on a deploy no night has run on yet (the columns are made, not missing)', cr.status === 200 && nCards > 0 && cr.body.cards.length === nCards,
+      { status: cr.status, got: cr.body && cr.body.cards ? cr.body.cards.length : cr.text, want: nCards });
     const sr = await call(cx, 'GET', '/api/university/market/search?team=crm:wbb&miles=5&contact=1&stage=not_contacted');
     ok('  the filter over HTTP', sr.status === 200 && sr.body.total > 0 && sr.body.rows.every((x) => x.miles <= 5 && x.stage === 'not_contacted'), sr.status);
     const ex = await call(cx, 'GET', '/api/university/market/search?team=crm:wbb&miles=5&contact=1&stage=not_contacted&format=csv');

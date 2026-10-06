@@ -490,6 +490,7 @@ const LIVE = { home:true, sponsors:true, teams:true, inventory:true };      /* t
 let view = "home";
 let ME = null;              /* from /api/university/market/me: teams, stages, sender */
 let CARDS = [];             /* this morning's leads, /api/university/market/cards */
+let CARDS_FAILED = false;   /* the read failed: say so, never "no leads written yet" */
 let NEAR = { total:0, withContact:0, rows:[] };
 let SP = { q:"", team:"", contact:true, stage:"", rows:[], total:0, loading:false };
 let invFilter = "All";
@@ -531,6 +532,7 @@ async function load(){
     getJson("/api/university/market/search?limit=1"), getJson("/api/university/market/search?contact=1&limit=8&sort=distance")]);
   ME = m.status === 200 ? m.body : null;
   CARDS = c.status === 200 ? (c.body.cards || []) : [];
+  CARDS_FAILED = c.status !== 200;
   NEAR = { total: all.status === 200 ? all.body.total || 0 : 0, withContact: wc.status === 200 ? wc.body.total || 0 : 0,
     rows: wc.status === 200 ? wc.body.rows || [] : [], failed: all.status !== 200 };
   shell(); paint(); adminViewBar();
@@ -777,6 +779,11 @@ function vHome(){
       <div><b>2. Send the email</b>"Open in email" puts it in your own email, ready to edit and send.</div>
       <div><b>3. Mark it contacted</b>So nobody on your staff pitches the same business twice.</div>
     </div>`;
+  if (CARDS_FAILED){
+    return `<div class="board">${intro}
+      <div class="panel" style="margin-top:18px"><h3>This morning's leads could not be loaded</h3>
+        <p class="lede">They are there; we could not read them just now. Reload the page in a minute. We have been told.</p></div></div>`;
+  }
   if (!CARDS.length){
     return `<div class="board">${intro}
       <div class="panel" style="margin-top:18px">

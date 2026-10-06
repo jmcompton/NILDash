@@ -36,6 +36,16 @@ function mount(app, { store, requireAuth }) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   };
   const guard = [requireAuth, requireUniversityMode, staff];
+  // THE COLUMNS EVERY READ HERE NEEDS, BEFORE ANY READ. They were added only
+  // when a night ran (teamScan.ensureTables), so the cards query named a
+  // column production did not have yet and Cypress's 85 cards came back as
+  // none. Run once at mount, and awaited by the cards read.
+  let _ready = null;
+  const ready = () => (_ready = _ready || (async () => {
+    await require('../services/campusPool').ensureTables(pool);
+    await require('../services/teamScan').ensureTables(pool);
+  })().catch((e) => { _ready = null; throw e; }));
+  ready().catch((e) => console.error('[campus] table setup at mount failed:', e.message));
   const brandOf = (req) => String((req.body && req.body.brand) || req.query.brand || '').trim().slice(0, 300);
 
   app.get('/api/university/market/me', guard, async (req, res) => {
@@ -107,6 +117,8 @@ function mount(app, { store, requireAuth }) {
   });
 
   app.get('/api/university/market/cards', guard, async (req, res) => {
+    try {
+    await ready();
     const rows = (await pool.query(
       `SELECT d.id, d.team_id, t.name AS team_name, d.brand_name, d.subject, d.body, d.why, d.contact_name, d.contact_title, d.contact_email,
               d.contact_phone, d.contact_instagram, d.sender_email, d.status, d.sent_at, d.created_at, d.night, d.lane, d.program_url,
@@ -116,6 +128,12 @@ function mount(app, { store, requireAuth }) {
         WHERE d.university_id = $1 AND d.kind = 'pitch' AND d.night = (SELECT MAX(night) FROM university_drafts WHERE university_id = $1 AND night IS NOT NULL)
         ORDER BY t.name, d.created_at`, [req.staff.university_id])).rows;
     res.json({ cards: rows });
+    } catch (e) {
+      // Loud: a failed read is never an empty morning.
+      console.error('[campus/cards]', req.staff.university_id, e.message);
+      require('../services/ourFault').record('university-cards', `cards read failed for ${req.staff.university_id}: ${e.message}`, 'campus.cards').catch(() => {});
+      res.status(500).json({ error: 'The leads could not be loaded.', code: 'CARDS_READ_FAILED' });
+    }
   });
 
   app.post('/api/university/market/me/title', guard, async (req, res) => {
