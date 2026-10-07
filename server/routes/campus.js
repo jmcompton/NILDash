@@ -44,6 +44,7 @@ function mount(app, { store, requireAuth }) {
   const ready = () => (_ready = _ready || (async () => {
     await require('../services/campusPool').ensureTables(pool);
     await require('../services/teamScan').ensureTables(pool);
+    await require('../services/ownerLookup').ensureTable(pool);
   })().catch((e) => { _ready = null; throw e; }));
   ready().catch((e) => console.error('[campus] table setup at mount failed:', e.message));
   const brandOf = (req) => String((req.body && req.body.brand) || req.query.brand || '').trim().slice(0, 300);
@@ -124,7 +125,11 @@ function mount(app, { store, requireAuth }) {
       `SELECT d.id, d.team_id, t.name AS team_name, d.brand_name, d.subject, d.body, d.why, d.contact_name, d.contact_title, d.contact_email,
               d.contact_phone, d.contact_instagram, d.sender_email, d.status, d.sent_at, d.created_at, d.night, d.lane, d.program_url,
               d.channel, d.best_time, d.talking_points, d.dm_text, d.email_is_shared, t.name AS team_label,
-              COALESCE(r.stage, 'not_contacted') AS stage
+              COALESCE(r.stage, 'not_contacted') AS stage,
+              (SELECT o.found FROM university_owner_lookups o WHERE o.university_id = d.university_id AND o.brand = d.brand_name AND o.error IS NULL
+                ORDER BY o.at DESC LIMIT 1) AS owner_lookup_found,
+              (SELECT (x->>'score')::int FROM university_contacts c, jsonb_array_elements(COALESCE(c.team_fit, '[]'::jsonb)) x
+                WHERE c.university_id = d.university_id AND c.brand = d.brand_name AND x->>'team_id' = d.team_id LIMIT 1) AS fit
          FROM university_drafts d LEFT JOIN university_teams t ON t.id = d.team_id
          LEFT JOIN university_crm r ON r.university_id = d.university_id AND r.brand = d.brand_name
         WHERE d.university_id = $1 AND d.kind = 'pitch' AND d.night = (SELECT MAX(night) FROM university_drafts WHERE university_id = $1 AND night IS NOT NULL)
@@ -136,6 +141,23 @@ function mount(app, { store, requireAuth }) {
       console.error('[campus/cards]', req.staff.university_id, e.message);
       require('../services/ourFault').record('university-cards', `cards read failed for ${req.staff.university_id}: ${e.message}`, 'campus.cards').catch(() => {});
       res.status(500).json({ error: 'The leads could not be loaded.', code: 'CARDS_READ_FAILED' });
+    }
+  });
+
+  // "Find the owner" on a card: the paid lookup for this one business, only
+  // when staff ask (services/ownerLookup). Capped a month; never twice.
+  app.post('/api/university/market/cards/:id/find-owner', guard, async (req, res) => {
+    try {
+      await ready();
+      const OL = require('../services/ownerLookup');
+      const r = await OL.findOwner(pool, req.staff.university_id, req.staff.id, String(req.params.id).slice(0, 80));
+      if (!r.ok) return res.status(r.status || 400).json(r);
+      const uniName = ((await pool.query(`SELECT name FROM universities WHERE id = $1`, [req.staff.university_id])).rows[0] || {}).name || 'the athletic department';
+      res.json({ ok: true, found: r.found, cached: r.cached, leftUsd: r.leftUsd, card: CM.cardForPortal(r.card, uniName) });
+    } catch (e) {
+      console.error('[campus/find-owner]', e.message);
+      require('../services/ourFault').record('campus-contacts', `find-owner failed for ${req.staff.university_id}: ${e.message}`, 'campus.findOwner').catch(() => {});
+      res.status(500).json({ error: 'The lookup failed on our side. Try again later.' });
     }
   });
 

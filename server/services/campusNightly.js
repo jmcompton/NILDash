@@ -93,16 +93,36 @@ const REPLENISH_FLOOR_USD = Math.min(NIGHT_HARD_CAP_USD, parseFloat(process.env.
 const REFRESH_SEARCHES = 6;                 // one team's places-refresh rung: six new searches at most
 const RESERVE_TARGET_NIGHTS = parseFloat(process.env.UNIVERSITY_RESERVE_TARGET_NIGHTS) || 10;
 const RUNWAY_FAIL_NIGHTS = 3;
+// FREE NIGHTS: one budget a night for the SCHOOL (never per team) to buy owner
+// names for tonight's best cards that the free sources left nameless. About
+// 11 to 15 names at $0.25-0.32 a named owner. Fits under the $5 cap with
+// discovery ($0.75) and the writing and listing details (~$0.04 a card).
+const NAMES_USD = Math.min(NIGHT_HARD_CAP_USD, parseFloat(process.env.UNIVERSITY_NIGHT_NAMES_USD) || 3.50);
 
 // ── THE RESERVE: named contacts unused and available for tomorrow ──────────
 // Reachable, not withdrawn or blocked, not a card in the last PITCH_REST_DAYS,
 // never touched by staff, not moved along in the CRM: exactly what tomorrow's
 // local rung can draw on without buying anything.
+// FREE NIGHTS (teamScan.PAID_CONTACTS_AT_NIGHT off): the supply is every
+// business on the list not pitched in PITCH_REST_DAYS and not worked by staff,
+// whose free check has not run yet or found a way to reach it. Nothing is
+// bought for tomorrow, so the reserve is the list itself.
 async function reserve(pool, universityId) {
   const TS = require('./teamScan');
   const CP = require('./campusPool');
   const u = await CP.universityOf(pool, universityId);
   if (!u) return 0;
+  if (!TS.PAID_CONTACTS_AT_NIGHT) return (await pool.query(
+    `SELECT COUNT(*)::int n FROM university_market_seen m
+       LEFT JOIN university_contacts c ON c.university_id = $1 AND c.brand = m.brand
+      WHERE m.market_key = $2 AND m.blocked_reason IS NULL AND c.withdrawn_reason IS NULL
+        AND (COALESCE(c.status, 'pending') IN ('pending', 'error')
+             OR c.reachable OR c.email IS NOT NULL OR c.generic_email IS NOT NULL OR c.phone IS NOT NULL OR c.instagram IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM university_drafts d WHERE d.university_id = $1 AND d.brand_name = m.brand AND d.kind = 'pitch'
+                          AND d.created_at > NOW() - make_interval(days => $3))
+        AND NOT EXISTS (SELECT 1 FROM university_touches t WHERE t.university_id = $1 AND t.brand = m.brand)
+        AND NOT EXISTS (SELECT 1 FROM university_crm r WHERE r.university_id = $1 AND r.brand = m.brand AND (r.stage <> 'not_contacted' OR r.notes IS NOT NULL))`,
+    [universityId, u.marketKey, TS.PITCH_REST_DAYS]).catch(() => ({ rows: [{ n: 0 }] }))).rows[0].n;
   return (await pool.query(
     `SELECT COUNT(*)::int n FROM university_contacts c
        JOIN university_market_seen m ON m.market_key = $2 AND m.brand = c.brand AND m.blocked_reason IS NULL
@@ -131,7 +151,8 @@ async function runway(pool, universityId) {
   const avail = await reserve(pool, universityId);
   const r = await localRate(pool, universityId);
   const nights = r.rate > 0 ? Math.round((avail / r.rate) * 10) / 10 : null;
-  return { available: avail, perNight: r.rate, rateFrom: r.from, nights, failing: nights !== null && nights < RUNWAY_FAIL_NIGHTS,
+  const unit = require('./teamScan').PAID_CONTACTS_AT_NIGHT ? 'named contacts unused' : 'businesses left to pitch';
+  return { available: avail, unit, perNight: r.rate, rateFrom: r.from, nights, failing: nights !== null && nights < RUNWAY_FAIL_NIGHTS,
     failNights: RUNWAY_FAIL_NIGHTS };
 }
 
@@ -169,8 +190,8 @@ async function runNight(pool, universityId, deps = {}) {
     await QC.ensureCapped(pool, uni || { id: universityId }, { force: true }).catch((e) => console.error('[campus-nightly] share cap:', e.message));
     const reserveBefore = await reserve(pool, universityId);
     // ── THE SPEND, BY WHAT IT BOUGHT ────────────────────────────────────────
-    const usd = { writing: 0, contactsForCards: 0, discovery: 0, contactsForTomorrow: 0, places: 0 };
-    const spent = () => usd.writing + usd.contactsForCards + usd.discovery + usd.contactsForTomorrow + usd.places;
+    const usd = { writing: 0, contactsForCards: 0, discovery: 0, contactsForTomorrow: 0, places: 0, names: 0 };
+    const spent = () => usd.writing + usd.contactsForCards + usd.discovery + usd.contactsForTomorrow + usd.places + usd.names;
     const disc = { calls: 0, searches: [], newBusinesses: 0, newUsable: 0, errors: [], left: null, byRefresh: 0 };
     const CD = require('./campusDiscovery');
     const discover = async (budgetUsd, maxCalls) => {
@@ -198,26 +219,54 @@ async function runNight(pool, universityId, deps = {}) {
       disc.byRefresh += (d.searches || []).length;
       return { ok: d.ok, usd: usd.discovery - before, newUsable: d.newUsable || 0 };
     };
+    // FREE NIGHTS SOURCE PER SCHOOL: the first pass gives each team only the
+    // businesses it fits better than any other team (teamScan.pitchSlate
+    // bestFitOnly); a second pass fills a team still short from the rest.
+    const freeNight = !TS.PAID_CONTACTS_AT_NIGHT && deps.paidContacts !== true;
+    const passes = freeNight ? [{ bestFitOnly: true }, { bestFitOnly: false }] : [{ bestFitOnly: false }];
+    for (const pass of passes) {
+    const firstPass = pass === passes[0];
     for (const t of teams) {
       let r;
+      const prev = firstPass ? null : out.find((x) => x.teamId === t.id);
+      if (prev && prev.cards >= PER_TEAM) continue;
       const left = Math.min(cardsCap - usd.writing - usd.contactsForCards, nightCap - spent());
       // Too little left for a team to place even one card (a contact lookup
       // and the writer): it does not start, and is reported short.
       if (left < 0.25) {
+        if (prev) continue;
         out.push({ team: t.name, teamId: t.id, ok: false, cards: 0, error: null, stop: 'night-cap', rungs: [], candidates: 0, costUsd: 0, byLane: {} });
         continue;
       }
       try {
-        r = await TS.runTeamScan(pool, { universityId, teamId: t.id, limit: PER_TEAM, mode: 'pitch', discoverPool: deps.discoverPool === true,
-          deps: { ...deps, night, nightShare: shared, refresh, costCeilingUsd: Math.min(Number(deps.costCeilingUsd) > 0 ? Number(deps.costCeilingUsd) : TEAM_CAP_USD, left) } });
+        r = await TS.runTeamScan(pool, { universityId, teamId: t.id, limit: prev ? PER_TEAM - prev.cards : PER_TEAM, mode: 'pitch', discoverPool: deps.discoverPool === true,
+          deps: { ...deps, night, nightShare: shared, refresh, bestFitOnly: pass.bestFitOnly, ...(prev ? { socialPerTeam: 0 } : {}),
+            costCeilingUsd: Math.min(Number(deps.costCeilingUsd) > 0 ? Number(deps.costCeilingUsd) : TEAM_CAP_USD, left) } });
         if (r.loop) { usd.writing += Number(r.loop.writeUsd) || 0; usd.contactsForCards += Number(r.loop.contactUsd) || 0; }
       } catch (e) {
         require('./ourFault').record('nightly-floor', `${t.name}: the team's night threw: ${e.message}`, 'campusNightly ' + universityId).catch(() => {});
         r = { ok: false, error: e.message };
       }
-      out.push({ team: t.name, teamId: t.id, ok: r.ok, cards: (r.drafts || []).length, error: r.error || null,
+      const row = { team: t.name, teamId: t.id, ok: r.ok, cards: (r.drafts || []).length, error: r.error || null,
         stop: r.loop && r.loop.stop, rungs: r.loop && r.loop.rungs, candidates: r.loop && r.loop.candidates, costUsd: r.loop ? r.loop.costUsd : 0,
-        byLane: (r.loop && r.loop.byLane) || {} });
+        byLane: (r.loop && r.loop.byLane) || {} };
+      if (!prev) { out.push(row); continue; }
+      // The fill-in pass adds to the team's first-pass row.
+      prev.cards += row.cards; prev.ok = prev.ok || row.ok; prev.stop = row.stop; prev.costUsd = (Number(prev.costUsd) || 0) + (Number(row.costUsd) || 0);
+      prev.rungs = (prev.rungs || []).concat(['fill-in'], row.rungs || []); prev.candidates = (prev.candidates || 0) + (row.candidates || 0);
+      for (const [k, v] of Object.entries(row.byLane)) prev.byLane[k] = (Number(prev.byLane[k]) || 0) + (Number(v) || 0);
+    }
+    }
+    // ── NAMES FOR TONIGHT'S BEST CARDS: one budget for the school ──────────
+    // Not per team: a flat NAMES_USD a night, spent on the free-night cards
+    // with no owner's name, best fit first (services/ownerLookup.nameTonight).
+    // Whatever it does not reach, staff can ask for with "Find the owner".
+    let names = null;
+    if (freeNight && deps.names !== false) {
+      const pot = Math.max(0, Math.min(NAMES_USD, nightCap - spent() - Math.max(0, discoveryPot - usd.discovery)));
+      names = await require('./ownerLookup').nameTonight(pool, universityId, night, pot, { ai: deps.contactsAi, free: deps.freeDeps })
+        .catch((e) => ({ error: e.message, tried: 0, found: 0, usd: 0 }));
+      usd.names += Number(names.usd) || 0;
     }
     usd.places = shared.placesCalls * Q.USD_PER_PLACES_REQUEST;
     // ── NEW GROUND: the rest of the discovery pot ───────────────────────────
@@ -229,7 +278,9 @@ async function runNight(pool, universityId, deps = {}) {
     const reserveMid = await reserve(pool, universityId);
     const ratePerNight = (await localRate(pool, universityId)).rate;
     const reserveTarget = Math.ceil(RESERVE_TARGET_NIGHTS * ratePerNight);
-    if (deps.resolveContacts !== false && uni) {
+    if (!TS.PAID_CONTACTS_AT_NIGHT && deps.paidContacts !== true) {
+      bought = { resolved: 0, reachable: 0, contactUsd: 0, stoppedFor: 'free nights: an owner is looked up when staff ask for one' };
+    } else if (deps.resolveContacts !== false && uni) {
       const budget = nightCap - spent();
       const want = Math.max(0, reserveTarget - reserveMid);
       if (want > 0 && budget > 0) {
@@ -243,12 +294,13 @@ async function runNight(pool, universityId, deps = {}) {
     const rw = await runway(pool, universityId).catch(() => null);
     const r3 = (x) => Math.round(x * 1000) / 1000;
     const short = out.filter((x) => x.cards < PER_TEAM);
-    const summary = { night, teams: out.length, cards: out.reduce((s, x) => s + x.cards, 0), target: out.length * PER_TEAM,
+    const summary = { night, freeNight: !TS.PAID_CONTACTS_AT_NIGHT && deps.paidContacts !== true, teams: out.length, cards: out.reduce((s, x) => s + x.cards, 0), target: out.length * PER_TEAM,
       short: short.map((x) => ({ team: x.team, cards: x.cards, stop: x.stop, rungs: x.rungs, error: x.error })),
       byLane,
       // The whole night against its one cap, by what the money bought.
       costUsd: r3(spent()), nightCapUsd: nightCap,
-      spend: { writingUsd: r3(usd.writing), contactsForCardsUsd: r3(usd.contactsForCards), discoveryUsd: r3(usd.discovery),
+      names: names && { tried: names.tried || 0, found: names.found || 0, usd: r3(Number(names.usd) || 0), budgetUsd: NAMES_USD, stoppedFor: names.stoppedFor || null, error: names.error || null },
+      spend: { namesUsd: r3(usd.names), writingUsd: r3(usd.writing), contactsForCardsUsd: r3(usd.contactsForCards), discoveryUsd: r3(usd.discovery),
         contactsForTomorrowUsd: r3(usd.contactsForTomorrow), placesRingsUsd: r3(usd.places),
         contactsUsd: r3(usd.contactsForCards + usd.contactsForTomorrow) },
       teamUsd: r3(usd.writing + usd.contactsForCards), placesCalls: shared.placesCalls + disc.calls, placesUsd: r3(usd.places + usd.discovery),
@@ -274,8 +326,14 @@ function formatNight(s) {
   if (!s || !s.night) return '(no night has run)';
   const sp = s.spend || {};
   const L = [`LAST NIGHT (${s.night}): ${s.cards} of ${s.target} cards`
-    + (s.byLane ? ` -- ${s.byLane.local || 0} from contacts on file, ${s.byLane['local-wide'] || 0} with a contact bought for the card, ${s.byLane.social || 0} social` : '')];
-  if (s.spend) {
+    + (s.byLane ? ` -- ${s.byLane.local || 0} from contacts on file, ${s.byLane['local-wide'] || 0} ${s.freeNight ? 'found free tonight' : 'with a contact bought for the card'}, ${s.byLane.social || 0} social` : '')];
+  if (s.freeNight && s.spend) {
+    const perCard = s.cards ? (Number(sp.writingUsd) + Number(sp.contactsForCardsUsd)) / s.cards : 0;
+    L.push(`  COST FOR THE SCHOOL: $${Number(s.costUsd).toFixed(2)} tonight for ${s.teams} teams (cap $${Number(s.nightCapUsd).toFixed(2)})`,
+      `    owner names  $${Number(sp.namesUsd || 0).toFixed(2)}  flat a school, not per team: ${s.names ? `${s.names.found} named of ${s.names.tried} looked up` : 'not run'}`,
+      `    discovery    $${Number(sp.discoveryUsd).toFixed(2)}  flat a school`,
+      `    cards        $${(Number(sp.writingUsd) + Number(sp.contactsForCardsUsd)).toFixed(2)}  writing and listing details, about $${perCard.toFixed(3)} a card (the only part that grows with teams)`);
+  } else if (s.spend) {
     L.push(`  SPENT $${Number(s.costUsd).toFixed(2)} of the $${Number(s.nightCapUsd).toFixed(2)} cap:`,
       `    writing      $${Number(sp.writingUsd).toFixed(2)}`,
       `    discovery    $${Number(sp.discoveryUsd).toFixed(2)}  (${s.discovery ? s.discovery.searches : 0} new searches, ${s.discovery ? s.discovery.byRefresh : 0} of them for a short team)`,
@@ -322,6 +380,23 @@ async function estimate(pool, universityId) {
   const perNamed = hitRate > 0 ? perLookup / hitRate : per.high * 2;
   const cards = teams * PER_TEAM;
   const social = Math.min(teams * TS.SOCIAL_PER_TEAM, socialBrands * TS.SOCIAL_BRAND_NIGHTLY_MAX);
+  if (!TS.PAID_CONTACTS_AT_NIGHT) {
+    // FREE NIGHTS: a card costs the writer (two asks with the DM) and at most
+    // one Places details call; nothing is bought for tomorrow.
+    const local = cards - social;
+    const writer = cards * 2 * Q.USD_PER_AI_CALL;
+    const places = local * Q.USD_PER_PLACES_REQUEST;
+    const names = Math.min(NAMES_USD, Math.max(0, NIGHT_CAP_USD - writer - places - DISCOVERY_USD));
+    const namesFound = Math.min(local, Math.floor(names / perNamed));
+    const total = Math.min(NIGHT_CAP_USD, writer + places + DISCOVERY_USD + names);
+    const rate = Math.max(1, teams * Math.max(0, PER_TEAM - TS.SOCIAL_PER_TEAM));
+    return { ok: true, free: true, university: u.name, teams, perTeamTarget: PER_TEAM, cards, socialCards: social, socialBrands, localCards: local,
+      readyContacts: ready, writerUsd: r2(writer), placesUsd: r2(places), discoveryUsd: r2(DISCOVERY_USD), totalUsd: [r2(total), r2(total)],
+      namesUsd: r2(names), namesFound, perNamedUsd: r2(perNamed), hitRate: Math.round(hitRate * 100) / 100,
+      costFrom: history ? `this university's ${known.looked} lookups so far` : 'list price, half assumed to find a named person',
+      reserveNow: ready, runwayNightsNow: r2(ready / rate), contactsUsedPerNight: rate, nightCapUsd: NIGHT_CAP_USD, teamCapUsd: TEAM_CAP_USD,
+      contactsOnFile: { reachable: known.reachable, n: known.n }, shortfallLikely: ready < local };
+  }
   const fromFile = Math.min(ready, cards - social);
   const lookups = cards - social - fromFile;
   const writer = cards * Q.USD_PER_AI_CALL;
@@ -355,6 +430,16 @@ async function estimate(pool, universityId) {
 function formatEstimate(e) {
   if (!e || !e.ok) return (e && e.error) || 'no estimate';
   const d = (x) => `$${Number(x).toFixed(2)}`;
+  if (e.free) return [
+    `TONIGHT FOR ${e.university}: ${e.teams} teams x ${e.perTeamTarget} cards = ${e.cards} cards (free nights: no contact is bought)`,
+    `  social brands (one seat a team, ${e.socialBrands} brands on the list): ${e.socialCards} cards`,
+    `  local businesses: ${e.localCards} cards from the free sources (listing, website, Instagram); "Find the owner" buys a name when staff ask`,
+    `  owner names for tonight's best cards: ${d(e.namesUsd)} a night for the school -> about ${e.namesFound} named (${d(e.perNamedUsd)} a named owner, from ${e.costFrom})`,
+    `PROJECTED: ${d(e.totalUsd[0])} for the school -- names ${d(e.namesUsd)} and discovery ${d(e.discoveryUsd)} (flat), writing ${d(e.writerUsd)} and listing details ${d(e.placesUsd)} (per card)`,
+    `SUPPLY: ${e.reserveNow} businesses left to pitch (not pitched in 30 days, reachable or not checked yet)`,
+    `RUNWAY: ${e.runwayNightsNow} nights at ${e.contactsUsedPerNight} local cards a night (under ${RUNWAY_FAIL_NIGHTS} is a failure)`,
+    `HARD CAP: $${e.nightCapUsd.toFixed(2)} for the whole night`,
+  ].join('\n');
   return [
     `TONIGHT FOR ${e.university}: ${e.teams} teams x ${e.perTeamTarget} cards = ${e.cards} cards`,
     `  social brands (one seat a team, ${e.socialBrands} brands on the list): ${e.socialCards} cards`,
@@ -380,4 +465,4 @@ async function tick(pool, now = new Date()) {
   return { ran };
 }
 
-module.exports = { runNight, tick, centralNow, universitiesDue, ranTonight, estimate, formatEstimate, formatNight, reserve, runway, localRate, DISCOVERY_USD, REPLENISH_FLOOR_USD, RESERVE_TARGET_NIGHTS, RUNWAY_FAIL_NIGHTS, PER_TEAM, WINDOW_START_HOUR, WINDOW_END_HOUR, NIGHT_CAP_USD, NIGHT_HARD_CAP_USD, TEAM_CAP_USD, RING_WORST_USD };
+module.exports = { NAMES_USD, runNight, tick, centralNow, universitiesDue, ranTonight, estimate, formatEstimate, formatNight, reserve, runway, localRate, DISCOVERY_USD, REPLENISH_FLOOR_USD, RESERVE_TARGET_NIGHTS, RUNWAY_FAIL_NIGHTS, PER_TEAM, WINDOW_START_HOUR, WINDOW_END_HOUR, NIGHT_CAP_USD, NIGHT_HARD_CAP_USD, TEAM_CAP_USD, RING_WORST_USD };

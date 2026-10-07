@@ -492,6 +492,8 @@ const LIVE = { home:true, sponsors:true, teams:true, inventory:true };      /* t
 let view = "home";
 let ME = null;              /* from /api/university/market/me: teams, stages, sender */
 let CARDS = [];             /* this morning's leads, /api/university/market/cards */
+let HOME_TEAM = "";          /* the team picker on Home: "" is All teams, best fit first */
+let HOME_SHOW_ALL = false;   /* All teams shows the best ten until asked for the rest */
 let CARDS_FAILED = false;   /* the read failed: say so, never "no leads written yet" */
 let NEAR = { total:0, withContact:0, rows:[] };
 let SP = { q:"", team:"", contact:true, stage:"", rows:[], total:0, loading:false };
@@ -745,10 +747,10 @@ function reachLine(c){
    program  a brand's athlete program: the message, Copy, the page; Mark applied. */
 const CH_DONE = { email:"Mark contacted", call:"Mark called", dm:"Mark sent", program:"Mark applied" };
 const CH_CHIP = { call:"CALL", dm:"INSTAGRAM DM", program:"BRAND PROGRAM" };
-function leadCard(d){
+function leadCard(d, showTeam){
   const ch = d.channel || (d.contact_email ? "email" : "");
   const done = d.sent_at || (d.stage && d.stage !== "not_contacted");
-  const who = d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No named contact</span>`;
+  const who = d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No name yet: the message goes to the business</span>`;
   const handle = String(d.contact_instagram || "").replace(/^@/,"");
   const doneBtn = done ? `<span class="chip green">${esc(stageLabel(d.stage || "contacted").toUpperCase())}</span>`
     : (CH_DONE[ch] ? `<button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-channel="${esc(ch)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">${CH_DONE[ch]}</button>` : "");
@@ -795,9 +797,19 @@ function leadCard(d){
           <a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a>
           ${done ? "" : `<button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-channel="dm" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Mark DM sent</button>`}</div></div>`
     : "";
+  /* NO NAME YET: the night uses only free sources. "Find the owner" is the
+     paid lookup for this one business (services/ownerLookup), never twice. */
+  const findOwner = !d.contact_name && d.lane !== "social" && !done
+    ? (d.owner_lookup_found === false
+      ? `<div class="why" style="opacity:.75">We looked for the owner and found no name. The message is addressed to the business.</div>`
+      : (ME && ME.me && ME.me.viewingAsAdmin ? "" : `<div class="toolrow"><button type="button" class="btn ghost sm" data-findowner="${esc(d.id)}">Find the owner</button>
+          <span class="why" style="opacity:.75">Looks up who runs it and puts their name on the message.</span></div>`))
+    : "";
   return `<div class="lead">
+    ${showTeam && d.team_name ? `<div class="why" style="margin:0 0 4px;letter-spacing:.06em;text-transform:uppercase;font-size:11px">${esc(d.team_name)}</div>` : ""}
     <div class="biz">${esc(d.brand_name)}${CH_CHIP[ch] ? ` <span class="chip">${CH_CHIP[ch]}</span>` : ""}${dmSecond ? ` <span class="chip">+ DM</span>` : ""}</div>
     ${main}
+    ${findOwner}
     <div class="toolrow">${tools}${doneBtn}</div>
     ${dmSecond}
   </div>`;
@@ -845,10 +857,30 @@ function vHome(){
         <div class="toolrow" style="margin-top:12px"><button type="button" class="btn ghost sm" data-goto="sponsors">See every business</button></div>
       </div></div>`;
   }
+  /* THE TEAM PICKER. All teams: every lead, best fit for its team first, the
+     top ten until "Show all". A team: only that team's leads. */
+  if (HOME_TEAM && !byTeam[HOME_TEAM]) HOME_TEAM = "";
+  const pick = (key, label, n) => `<button type="button" class="btn ${HOME_TEAM === key ? "go" : "ghost"} sm" data-hometeam="${esc(key)}">${esc(label)}${n != null ? ` <span style="opacity:.7">${n}</span>` : ""}</button>`;
+  const picker = `<div class="toolrow" style="margin-top:18px;flex-wrap:wrap;gap:6px">
+      ${pick("", "All teams, best first", CARDS.length)}
+      ${teamsWithLeads.map(t => pick(t, t, byTeam[t].length)).join("")}
+    </div>`;
+  let list;
+  if (HOME_TEAM){
+    list = `<div class="teamhead"><h3>${esc(HOME_TEAM)}</h3><span>${byTeam[HOME_TEAM].length} lead${byTeam[HOME_TEAM].length === 1 ? "" : "s"}</span></div>
+      <div class="leads">${byTeam[HOME_TEAM].map(d => leadCard(d)).join("")}</div>`;
+  } else {
+    const ranked = CARDS.slice().sort((a, b) => ((b.fit == null ? -1 : b.fit) - (a.fit == null ? -1 : a.fit))
+      || ((b.contact_name ? 1 : 0) - (a.contact_name ? 1 : 0)) || String(a.team_name || "").localeCompare(String(b.team_name || "")));
+    const shown = HOME_SHOW_ALL ? ranked : ranked.slice(0, 10);
+    list = `<div class="teamhead"><h3>Best ${HOME_SHOW_ALL ? "first" : "ten today"}</h3><span>${CARDS.length} lead${CARDS.length === 1 ? "" : "s"} across ${word(teamsWithLeads.length).toLowerCase()} team${teamsWithLeads.length === 1 ? "" : "s"}</span></div>
+      <div class="leads">${shown.map(d => leadCard(d, true)).join("")}</div>
+      ${ranked.length > shown.length ? `<div class="toolrow" style="margin-top:10px"><button type="button" class="btn ghost sm" data-homeall="1">Show all ${ranked.length}</button></div>` : ""}`;
+  }
   return `<div class="board">${intro}
-    <p class="lede" style="margin-top:18px">This morning's leads${night ? `, written ${esc(night)}` : ""}.</p>
-    ${teamsWithLeads.map(t => `<div class="teamhead"><h3>${esc(t)}</h3><span>${byTeam[t].length} lead${byTeam[t].length === 1 ? "" : "s"}</span></div>
-      <div class="leads">${byTeam[t].map(leadCard).join("")}</div>`).join("")}
+    <p class="lede" style="margin-top:18px">This morning's leads${night ? `, written ${esc(night)}` : ""}. Pick a team, or see the best across all of them.</p>
+    ${picker}
+    ${list}
   </div>`;
 }
 
@@ -1059,14 +1091,30 @@ document.addEventListener("change", e => {
       .then(r => { toast(r.ok ? `${brand}: ${stageLabel(stage)}` : "Could not save that. Try again."); const row = SP.rows.find(x => x.brand === brand); if (row && r.ok) row.stage = stage; });
   }
 });
+async function findOwnerFor(id, btn){
+  if (btn) { btn.disabled = true; btn.textContent = "Looking..."; }
+  let r;
+  try {
+    r = await fetch(`/api/university/market/cards/${encodeURIComponent(id)}/find-owner`, { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body:"{}" });
+  } catch (_) { toast("Could not reach NILDash. Try again."); if (btn) { btn.disabled = false; btn.textContent = "Find the owner"; } return; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.error || "The lookup failed. Try again later."); if (btn) { btn.disabled = false; btn.textContent = "Find the owner"; } return; }
+  const i = CARDS.findIndex(x => x.id === id);
+  if (i >= 0) CARDS[i] = { ...CARDS[i], ...j.card, owner_lookup_found: j.found };
+  toast(j.found ? `Found ${String(j.card.contact_name || "the owner")}. The message now uses their name.` : "No owner name found. The message stays addressed to the business.");
+  paint();
+}
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close]");
+  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall]");
   if (!t) return;
   const copy = (txt) => { try { navigator.clipboard.writeText(txt); toast("Copied. Paste it into your email."); } catch (_) { toast("Select the text and copy it."); } };
   if (t.dataset.copy !== undefined){ const d = CARDS.find(x => x.id === t.dataset.copy); if (d) copy((d.subject ? "Subject: " + d.subject + "\n\n" : "") + (d.body || "")); return }
   if (t.dataset.copytext !== undefined){ copy(t.dataset.copytext); return }
   if (t.dataset.mark !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.mark, t.dataset.channel).then(() => { toast("Marked for your whole staff."); paint(); }); return }
   if (t.dataset.sent !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.sent).then(() => { if (view === "home") paint(); }); return }   /* the mailto opens as usual */
+  if (t.dataset.hometeam !== undefined){ HOME_TEAM = t.dataset.hometeam; HOME_SHOW_ALL = false; paint(); window.scrollTo({ top: 0 }); return }
+  if (t.dataset.homeall !== undefined){ HOME_SHOW_ALL = true; paint(); return }
+  if (t.dataset.findowner !== undefined){ findOwnerFor(t.dataset.findowner, t); return }
   if (t.dataset.pitch !== undefined){ writePitch(t.dataset.pitch); return }
   if (t.dataset.pickteam !== undefined){ if (window._pickTeam) window._pickTeam(t.dataset.pickteam); return }
   if (t.dataset.close !== undefined){ closeModal(); if (window._pickCancel) { window._pickCancel(); window._pickCancel = null; } return }

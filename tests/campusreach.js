@@ -114,7 +114,11 @@ async function main() {
   const it = cards['Inbox Taqueria'];
   ok('A SHARED INBOX IS A SEND PATH: an email card to it, greeting the person by name, marked shared', it && it.channel === 'email' && it.contact_email === 'hola@inboxtaq.test'
     && it.email_is_shared === true && /^Hi Cora,/.test(it.body), it);
-  ok('NO PERSON, NO CARD', !cards['Nameless Barber'], Object.keys(cards));
+  // Free nights (the default): no person found free is still a card, written
+  // to the business, and "Find the owner" puts a name on it later.
+  const nb = cards['Nameless Barber'];
+  ok('NO PERSON YET, STILL A CARD: addressed to the business, to its inbox', nb && nb.channel === 'email' && !nb.contact_name
+    && /^Hi Nameless Barber team,/.test(nb.body) && nb.contact_email === 'shop@nameless.test', nb);
   const html = require('fs').readFileSync(REPO + 'public/university.html', 'utf8');
   ok('the portal shows the DM as the second action, with Copy and the Instagram link', /Or on Instagram/.test(html) && /Copy DM/.test(html) && /Mark DM sent/.test(html) && /shared inbox, not/.test(html));
   const home = require('fs').readFileSync(REPO + 'public/index.html', 'utf8');

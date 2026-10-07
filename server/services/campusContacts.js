@@ -169,6 +169,10 @@ async function resolveOne(row, ctx) {
       reachable: !!(f.person && f.person.name && (email || generic || f.phone || f.instagram)), ...extra };
   };
   if (freeDone(free)) return shape(free);
+  // FREE ONLY (the night, services/ownerLookup): what the free steps found and
+  // nothing bought. The owner search and the ladder run when a person on the
+  // department's staff asks for this business ("Find the owner").
+  if (ctx.free === 'only') return shape(free || { steps: [], placesCalls: 0 }, { freeOnly: true });
   // 4. A way to reach them but no person: the owner by name (search, state filings).
   if (free && free.reach && !free.person) {
     try {
@@ -349,7 +353,7 @@ async function resolveAndStore(pool, universityId, row, opts = {}) {
      WHERE university_id = $1 AND brand = $2`,
     [universityId, row.brand, out.contact_name, out.contact_title, out.email, out.email_source, out.phone, out.instagram, out.website,
       out.facebook, out.linkedin, JSON.stringify(out.sources || []), out.athlete_history, out.athlete_history_note, out.reachable,
-      out.reachable ? 'reachable' : 'unreachable', c, out.generic_email || null]);
+      out.reachable ? 'reachable' : out.freeOnly ? 'free-checked' : 'unreachable', c, out.generic_email || null]);
   return { reachable: !!out.reachable, costUsd: c, error: null, out, free: !!out.free };
 }
 
