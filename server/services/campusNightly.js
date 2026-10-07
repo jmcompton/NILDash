@@ -386,13 +386,17 @@ async function estimate(pool, universityId) {
     const local = cards - social;
     const writer = cards * 2 * Q.USD_PER_AI_CALL;
     const places = local * Q.USD_PER_PLACES_REQUEST;
-    const names = Math.min(NAMES_USD, Math.max(0, NIGHT_CAP_USD - writer - places - DISCOVERY_USD));
-    const namesFound = Math.min(local, Math.floor(names / perNamed));
+    // THE NAMES: the budget is a ceiling, not the spend. Only tonight's local
+    // cards are named, so the spend is those cards x this school's measured
+    // cost a lookup (history above), or the budget if that is less.
+    const namesBudget = Math.min(NAMES_USD, Math.max(0, NIGHT_CAP_USD - writer - places - DISCOVERY_USD));
+    const names = Math.min(namesBudget, local * perLookup);
+    const namesFound = Math.min(local, Math.floor((names / perLookup) * hitRate));
     const total = Math.min(NIGHT_CAP_USD, writer + places + DISCOVERY_USD + names);
     const rate = Math.max(1, teams * Math.max(0, PER_TEAM - TS.SOCIAL_PER_TEAM));
     return { ok: true, free: true, university: u.name, teams, perTeamTarget: PER_TEAM, cards, socialCards: social, socialBrands, localCards: local,
       readyContacts: ready, writerUsd: r2(writer), placesUsd: r2(places), discoveryUsd: r2(DISCOVERY_USD), totalUsd: [r2(total), r2(total)],
-      namesUsd: r2(names), namesFound, perNamedUsd: r2(perNamed), hitRate: Math.round(hitRate * 100) / 100,
+      namesUsd: r2(names), namesBudgetUsd: r2(namesBudget), namesFound, perLookupUsd: Math.round(perLookup * 1000) / 1000, perNamedUsd: r2(perNamed), hitRate: Math.round(hitRate * 100) / 100,
       costFrom: history ? `this university's ${known.looked} lookups so far` : 'list price, half assumed to find a named person',
       reserveNow: ready, runwayNightsNow: r2(ready / rate), contactsUsedPerNight: rate, nightCapUsd: NIGHT_CAP_USD, teamCapUsd: TEAM_CAP_USD,
       contactsOnFile: { reachable: known.reachable, n: known.n }, shortfallLikely: ready < local };
@@ -434,7 +438,8 @@ function formatEstimate(e) {
     `TONIGHT FOR ${e.university}: ${e.teams} teams x ${e.perTeamTarget} cards = ${e.cards} cards (free nights: no contact is bought)`,
     `  social brands (one seat a team, ${e.socialBrands} brands on the list): ${e.socialCards} cards`,
     `  local businesses: ${e.localCards} cards from the free sources (listing, website, Instagram); "Find the owner" buys a name when staff ask`,
-    `  owner names for tonight's best cards: ${d(e.namesUsd)} a night for the school -> about ${e.namesFound} named (${d(e.perNamedUsd)} a named owner, from ${e.costFrom})`,
+    `  owner names for tonight's ${e.localCards} local cards: about ${d(e.namesUsd)} (ceiling ${d(e.namesBudgetUsd)} a night for the school) -> about ${e.namesFound} named`,
+    `    at ${d(e.perLookupUsd)} a lookup, ${Math.round(e.hitRate * 100)}% named, ${d(e.perNamedUsd)} a name (from ${e.costFrom})`,
     `PROJECTED: ${d(e.totalUsd[0])} for the school -- names ${d(e.namesUsd)} and discovery ${d(e.discoveryUsd)} (flat), writing ${d(e.writerUsd)} and listing details ${d(e.placesUsd)} (per card)`,
     `SUPPLY: ${e.reserveNow} businesses left to pitch (not pitched in 30 days, reachable or not checked yet)`,
     `RUNWAY: ${e.runwayNightsNow} nights at ${e.contactsUsedPerNight} local cards a night (under ${RUNWAY_FAIL_NIGHTS} is a failure)`,

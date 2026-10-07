@@ -36,10 +36,28 @@ async function spentThisMonth(pool, universityId) {
 // each looked up once (never a business looked up before), until the budget
 // cannot cover the dearest lookup. Recorded as user 'night', outside the
 // staff's monthly "Find the owner" cap. -> { tried, found, usd, stoppedFor }
+// WHAT A LOOKUP COSTS HERE: this university's own history once it has 10
+// lookups (cost of every lookup / how many), the ladder's list price before.
+// Cypress: 123 lookups, $0.083 each, 87% named -> $0.10 a name.
+async function measuredRate(pool, universityId) {
+  const CC = require('./campusContacts');
+  const k = (await pool.query(`SELECT COUNT(*) FILTER (WHERE status IN ('reachable','unreachable'))::int AS looked,
+                                      COUNT(*) FILTER (WHERE reachable)::int AS reachable,
+                                      COALESCE(SUM(cost_usd) FILTER (WHERE status IN ('reachable','unreachable','error')),0)::float AS spent
+                                 FROM university_contacts WHERE university_id = $1`, [universityId]).catch(() => ({ rows: [{ looked: 0, reachable: 0, spent: 0 }] }))).rows[0];
+  const list = { low: CC.perBusinessUsd('low', false).metered, high: CC.perBusinessUsd('high', false).metered };
+  const history = k.looked >= 10 && k.spent > 0;
+  const perLookup = history ? k.spent / k.looked : (list.low + list.high) / 2;
+  const hitRate = history ? k.reachable / k.looked : 0.5;
+  return { history, looked: k.looked, perLookup, hitRate, perNamed: hitRate > 0 ? perLookup / hitRate : list.high * 2, listHigh: list.high };
+}
+
 async function nameTonight(pool, universityId, night, budgetUsd, deps = {}) {
   await ensureTable(pool);
-  const CC = require('./campusContacts');
-  const worst = CC.perBusinessUsd('high', false).metered;
+  // The next lookup must fit what is left: twice this school's measured
+  // average (a lookup varies), never more than the list price of the dearest.
+  const rate = await measuredRate(pool, universityId);
+  const worst = rate.history ? Math.min(rate.listHigh, rate.perLookup * 2) : rate.listHigh;
   const out = { tried: 0, found: 0, usd: 0, stoppedFor: null };
   if (!(budgetUsd > 0)) { out.stoppedFor = 'no budget'; return out; }
   const rows = (await pool.query(
@@ -139,4 +157,4 @@ async function findOwner(pool, universityId, userId, draftId, deps = {}) {
   }
 }
 
-module.exports = { findOwner, nameTonight, applyToDraft, greet, spentThisMonth, ensureTable, MONTHLY_USD };
+module.exports = { findOwner, nameTonight, measuredRate, applyToDraft, greet, spentThisMonth, ensureTable, MONTHLY_USD };

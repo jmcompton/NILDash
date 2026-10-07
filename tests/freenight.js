@@ -98,13 +98,26 @@ async function main() {
   // ── THE ESTIMATE: flat for the school ────────────────────────────────────
   const e3 = await CN.estimate(P, U);
   ok('the estimate is a free night: 3 teams x 2 = 6 cards, 3 social', e3.ok && e3.free && e3.cards === 6 && e3.socialCards === 3 && e3.localCards === 3, e3);
-  ok('  the names budget is one number for the school', e3.namesUsd === CN.NAMES_USD && e3.namesFound > 0, e3);
+  ok('  the names budget is one number for the school', e3.namesBudgetUsd === CN.NAMES_USD && e3.namesFound > 0, e3);
+  ok('  and the spend is only what tonight\'s local cards need, not the whole budget', e3.namesUsd < e3.namesBudgetUsd && e3.namesUsd > 0, e3);
   await P.query(`INSERT INTO university_teams (id, university_id, name, sport, market_key) VALUES
     ('ft:vb',$1,'Volleyball','volleyball',$2), ('ft:wp',$1,'Water Polo','water polo',$2), ('ft:tn',$1,'Tennis','tennis',$2)`, [U, MK]);
   const e6 = await CN.estimate(P, U);
-  ok('COST PER SCHOOL DOES NOT SCALE WITH TEAMS: names and discovery the same for 3 teams and 6', e6.namesUsd === e3.namesUsd && e6.discoveryUsd === e3.discoveryUsd, { e3: [e3.namesUsd, e3.discoveryUsd], e6: [e6.namesUsd, e6.discoveryUsd] });
+  ok('COST PER SCHOOL DOES NOT SCALE WITH TEAMS: the names ceiling and discovery the same for 3 teams and 6', e6.namesBudgetUsd === e3.namesBudgetUsd && e6.discoveryUsd === e3.discoveryUsd, { e3: [e3.namesBudgetUsd, e3.discoveryUsd], e6: [e6.namesBudgetUsd, e6.discoveryUsd] });
   ok('  only the per-card part grows (writing and listing details)', e6.writerUsd > e3.writerUsd, { e3: e3.writerUsd, e6: e6.writerUsd });
   ok('  and it is printed per school', /for the school -- names \$\d+\.\d\d and discovery \$\d+\.\d\d \(flat\)/.test(CN.formatEstimate(e6)), CN.formatEstimate(e6));
+  // THE MEASURED RATE: Cypress-like history (12 lookups at $0.083, 10 named).
+  ok('  with no history the price is the list price', !(await OL.measuredRate(P, U)).history);
+  for (let i = 0; i < 12; i++) {
+    await P.query(`INSERT INTO university_contacts (university_id, market_key, brand, status, reachable, cost_usd) VALUES ($1,$2,$3,$4,$5,0.083)`,
+      [U, MK, 'History Biz ' + i, i < 10 ? 'reachable' : 'unreachable', i < 10]);
+  }
+  const mr = await OL.measuredRate(P, U);
+  ok('THE MEASURED RATE: this school\'s own lookups, once it has 10', mr.history && Math.abs(mr.perLookup - 0.083) < 1e-6 && Math.abs(mr.perNamed - 0.0996) < 0.001, mr);
+  const eh = await CN.estimate(P, U);
+  ok('  the estimate uses it: $0.083 a lookup, $0.10 a name', eh.perLookupUsd === 0.083 && eh.perNamedUsd === 0.1 && /this university's 12 lookups/.test(eh.costFrom), eh);
+  ok('  the names cost tonight\'s local cards x $0.083, not the $3.50 ceiling', Math.abs(eh.namesUsd - eh.localCards * 0.083) < 0.01 && eh.namesUsd < 1, { local: eh.localCards, names: eh.namesUsd });
+  await P.query(`DELETE FROM university_contacts WHERE university_id = $1 AND brand LIKE 'History Biz %'`, [U]);
   await P.query(`DELETE FROM university_teams WHERE id IN ('ft:vb','ft:wp','ft:tn')`);
 
   // ── THE NIGHT, no names budget: what the free sources alone make ──────────
