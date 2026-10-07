@@ -33,10 +33,13 @@ const RI = require(REPO + 'server/services/universityRosterImport.js');
 
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g).slice(0, 900) : '')); } };
-// NO ATHLETES, NO PITCH (campusNightly.athletesByTeam): every fixture team gets one.
-const roster = (P, uid) => P.query(`INSERT INTO university_athletes (id, university_id, name, sport, data)
-  SELECT t.id || ':roster-athlete', t.university_id, 'Roster Athlete', t.name, jsonb_build_object('teamId', t.id)
-    FROM university_teams t WHERE t.university_id = $1 ON CONFLICT (id) DO NOTHING`, [uid]);
+// A TEAM IS PITCHED WHEN IT HAS SOMETHING TO SELL (campusNightly.sellableTeams):
+// every fixture team gets home dates and one available inventory item.
+const roster = async (P, uid) => {
+  await P.query(`UPDATE university_teams SET home_dates = COALESCE(home_dates, 8) WHERE university_id = $1`, [uid]);
+  await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents)
+    SELECT t.id || ':inv', t.university_id, t.id, 'Home game banner', 25000 FROM university_teams t WHERE t.university_id = $1 ON CONFLICT (id) DO NOTHING`, [uid]);
+};
 const U = 'univ-cyptest', MK = 'cyptown, ca';
 const ai = { oneShot: async (prompt) => { const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`; } };
 let n = 0;
@@ -56,7 +59,7 @@ async function main() {
   const P = store.pool;
   await TS.ensureTables(P); await CP.ensureTables(P); await CB.ensureTables(P); await OL.ensureTable(P);
   const clean = async () => {
-    for (const t of ['university_athletes', 'university_contacts', 'university_market_runs', 'university_crm', 'university_touches', 'university_drafts', 'university_brand_engagement',
+    for (const t of ['university_inventory', 'university_athletes', 'university_contacts', 'university_market_runs', 'university_crm', 'university_touches', 'university_drafts', 'university_brand_engagement',
       'university_social_brands', 'university_owner_lookups']) await P.query(`DELETE FROM ${t} WHERE university_id = $1`, [U]).catch(() => {});
     await P.query(`DELETE FROM university_research_claims WHERE team_id LIKE 'cy:%'`);
     await P.query(`DELETE FROM university_teams WHERE university_id = $1`, [U]);
@@ -96,22 +99,30 @@ async function main() {
   }
 
   await roster(P, U);
-  // Women's Tennis: home dates and inventory, no roster published. Never pitched.
-  await P.query(`INSERT INTO university_teams (id, university_id, name, sport, market_key, home_dates) VALUES ('cy:wten',$1,'Women''s Tennis','Tennis',$2,6)`, [U, MK]);
+  // No team here has athletes on file (the roster is not what is sold), and
+  // Women's Tennis has no roster published at all: 9 home dates, $775. Pitched.
+  await P.query(`INSERT INTO university_teams (id, university_id, name, sport, market_key, home_dates) VALUES ('cy:wten',$1,'Women''s Tennis','Tennis',$2,9)`, [U, MK]);
+  await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents) VALUES ('cy:wten:inv',$1,'cy:wten','Court banner',77500)`, [U]);
+  // The roster half of a duplicate: athletes, no home dates, no inventory. Not pitched.
+  await P.query(`INSERT INTO university_teams (id, university_id, name, sport, market_key, roster_size) VALUES ('cy:dup',$1,'Men''s Swimming & Diving (roster row)','Swimming',$2,16)`, [U, MK]);
   const est = await CN.estimate(P, U);
   OUT.push('', CN.formatEstimate(est), '');
   const r = await CN.runNight(P, U, { ai, contactsAi, freeDeps, night: '2026-10-30' });
   OUT.push(CN.formatNight(r), '');
   const v = await CB.verify(P, U);
-  const zero = r.perTeam.filter((t) => t.cards < 1 && t.stop !== 'no-roster');
+  const zero = r.perTeam.filter((t) => t.cards < 1 && t.stop !== 'nothing-to-sell');
   const wten = r.perTeam.find((t) => t.teamId === 'cy:wten');
-  ok('NO ATHLETES, NO PITCH: Women\'s Tennis has no roster and no cards, and is listed as not pitched', wten && wten.cards === 0 && wten.stop === 'no-roster'
-    && r.noRoster.includes("Women's Tennis") && !r.short.some((x) => x.team === "Women's Tennis")
-    && (await P.query(`SELECT COUNT(*)::int n FROM university_drafts WHERE team_id = 'cy:wten'`)).rows[0].n === 0, { wten, noRoster: r.noRoster });
-  ok('  printed', /NOT PITCHED, no athletes on file: Women's Tennis/.test(CN.formatNight(r)), CN.formatNight(r));
-  ok('  and left out of the estimate (15 teams with a roster, not 16)', est.teams === 15, est.teams);
+  const dup = r.perTeam.find((t) => t.teamId === 'cy:dup');
+  const bb = r.perTeam.find((t) => t.team === "Men's Basketball");
+  ok('NO ROSTER IS NOT NO PITCH: Men\'s Basketball, 0 athletes on file, gets its cards', bb && bb.cards > 0
+    && (await P.query(`SELECT COUNT(*)::int n FROM university_athletes WHERE university_id = $1`, [U])).rows[0].n === 0, bb);
+  ok('  Women\'s Tennis, no roster published, 9 home dates and $775: pitched', wten && wten.cards > 0, wten);
+  ok('NOTHING TO SELL, NO PITCH: a row with no home dates and no inventory gets no cards, listed as not pitched', dup && dup.cards === 0 && dup.stop === 'nothing-to-sell'
+    && r.notSellable.some((x) => x.team.startsWith("Men's Swimming & Diving")) && !r.short.some((x) => x.team.startsWith("Men's Swimming & Diving")), { dup, notSellable: r.notSellable });
+  ok('  printed', /NOT PITCHED, no home dates or no inventory to sell: Men's Swimming & Diving \(roster row\) \(0 home dates, 0 items\)/.test(CN.formatNight(r)), CN.formatNight(r));
+  ok('  and left out of the estimate (16 teams with something to sell, not 17)', est.teams === 16, est.teams);
   const capped = r.perTeam.filter((t) => t.stop === 'night-cap');
-  ok('EVERY TEAM WITH A ROSTER HAS AT LEAST ONE CARD', zero.length === 0 && r.perTeam.length === 16, zero.map((t) => t.team));
+  ok('EVERY TEAM WITH SOMETHING TO SELL HAS AT LEAST ONE CARD', zero.length === 0 && r.perTeam.length === 17, zero.map((t) => t.team));
   ok('NO TEAM STOPS ON THE NIGHT CAP', capped.length === 0, capped.map((t) => t.team));
   ok('CARDSBYCHANNEL.DM > 0', v.cardsByChannel && v.cardsByChannel.dm > 0, v.cardsByChannel);
   ok('THE NIGHT COSTS $5 OR LESS (stubbed lookups cost nothing here: see the estimate)', r.costUsd <= 5 && est.totalUsd[0] <= 5, { night: r.costUsd, projected: est.totalUsd });

@@ -140,7 +140,7 @@ async function reserve(pool, universityId) {
 // list came to empty.
 async function localRate(pool, universityId) {
   const TS = require('./teamScan');
-  const teams = [...(await athletesByTeam(pool, universityId)).values()].filter((n) => n > 0).length;   // no athletes, no pitch
+  const teams = [...(await sellableTeams(pool, universityId)).values()].filter((x) => x.sellable).length;   // teams with something to sell
   const seat = Math.min(PER_TEAM, TS.SOCIAL_PER_TEAM);
   return { rate: teams * (PER_TEAM - seat), from: `${teams} teams x ${PER_TEAM - seat} (${PER_TEAM} a team less the social seat)` };
 }
@@ -156,17 +156,19 @@ async function runway(pool, universityId) {
     failNights: RUNWAY_FAIL_NIGHTS };
 }
 
-// ── NO ATHLETES, NO PITCH ───────────────────────────────────────────────────
-// A team with no athletes on file is not pitched: Cypress's Women's Basketball
-// drew 5 of a night's 41 cards with an empty roster (the import found none).
-// Athletes are the roster import's rows for the team (university_athletes,
-// data.teamId or the team's id prefix).
-async function athletesByTeam(pool, universityId) {
+// ── A TEAM IS PITCHED WHEN IT HAS SOMETHING TO SELL ─────────────────────────
+// The university side sells team sponsorship, not athlete NIL: a banner, a
+// program ad, a PA read, a team meal, a presenting sponsorship. So a team is
+// pitched when it has home dates and inventory still available to sell,
+// whether or not its roster is on file (Cypress's basketball teams: 0
+// athletes, 14 home dates, $3,150 each, the most valuable at the school).
+// A row with neither (the roster half of a duplicate) is not.
+async function sellableTeams(pool, universityId) {
   const rows = (await pool.query(
-    `SELECT t.id, (SELECT COUNT(*)::int FROM university_athletes a WHERE a.university_id = t.university_id
-                     AND (a.data->>'teamId' = t.id OR a.id LIKE t.id || ':%')) AS n
+    `SELECT t.id, COALESCE(t.home_dates, 0)::int AS home_dates,
+            (SELECT COUNT(*)::int FROM university_inventory i WHERE i.team_id = t.id AND i.status = 'available') AS items
        FROM university_teams t WHERE t.university_id = $1`, [universityId]).catch(() => ({ rows: [] }))).rows;
-  return new Map(rows.map((r) => [r.id, r.n]));
+  return new Map(rows.map((r) => [r.id, { sellable: r.home_dates > 0 && r.items > 0, homeDates: r.home_dates, items: r.items }]));
 }
 
 // One department, every team. deps pass straight to the team loop (tests).
@@ -186,9 +188,9 @@ async function runNight(pool, universityId, deps = {}) {
     const run = (await pool.query(`INSERT INTO university_market_runs (university_id, kind, summary) VALUES ($1,'nightly',$2) RETURNING id`,
       [universityId, { night, started: true, projected }])).rows[0].id;
     const all = (await pool.query(`SELECT id, name FROM university_teams WHERE university_id = $1 ORDER BY name`, [universityId])).rows;
-    const counts = await athletesByTeam(pool, universityId);
-    const noRoster = all.filter((t) => !(counts.get(t.id) > 0));
-    const sorted = all.filter((t) => counts.get(t.id) > 0);
+    const sell = await sellableTeams(pool, universityId);
+    const notSellable = all.filter((t) => !(sell.get(t.id) || {}).sellable);
+    const sorted = all.filter((t) => (sell.get(t.id) || {}).sellable);
     // The first team starts one later each night, so a night that hits its
     // cap shorts a different team each time, never the end of the alphabet.
     const day = Math.floor(Date.parse(String(night).slice(0, 10) + 'T12:00:00Z') / 86400000) || 0;
@@ -310,9 +312,9 @@ async function runNight(pool, universityId, deps = {}) {
     const rw = await runway(pool, universityId).catch(() => null);
     const r3 = (x) => Math.round(x * 1000) / 1000;
     const short = out.filter((x) => x.cards < PER_TEAM);
-    // Listed, not pitched, and not a short team: there is nothing to pitch them with.
-    for (const t of noRoster) out.push({ team: t.name, teamId: t.id, ok: true, cards: 0, error: null, stop: 'no-roster', rungs: [], candidates: 0, costUsd: 0, byLane: {} });
-    const summary = { noRoster: noRoster.map((t) => t.name), night, freeNight: !TS.PAID_CONTACTS_AT_NIGHT && deps.paidContacts !== true, teams: out.length, cards: out.reduce((s, x) => s + x.cards, 0), target: out.length * PER_TEAM,
+    // Listed, not pitched, and not a short team: there is nothing to sell for them.
+    for (const t of notSellable) out.push({ team: t.name, teamId: t.id, ok: true, cards: 0, error: null, stop: 'nothing-to-sell', rungs: [], candidates: 0, costUsd: 0, byLane: {} });
+    const summary = { notSellable: notSellable.map((t) => { const x = sell.get(t.id) || {}; return { team: t.name, homeDates: x.homeDates || 0, items: x.items || 0 }; }), night, freeNight: !TS.PAID_CONTACTS_AT_NIGHT && deps.paidContacts !== true, teams: out.length, cards: out.reduce((s, x) => s + x.cards, 0), target: out.length * PER_TEAM,
       short: short.map((x) => ({ team: x.team, cards: x.cards, stop: x.stop, rungs: x.rungs, error: x.error })),
       byLane,
       // The whole night against its one cap, by what the money bought.
@@ -363,7 +365,7 @@ function formatNight(s) {
     + (s.replenish.pendingLeft != null ? `; ${s.replenish.pendingLeft} businesses still without a lookup` : ''));
   if (s.reserve) L.push(`  RESERVE (named contacts unused, ready for tomorrow): ${s.reserve.before} -> ${s.reserve.after} (${s.reserve.change >= 0 ? '+' : ''}${s.reserve.change})`);
   for (const x of s.short || []) L.push(`  SHORT ${x.team}: ${x.cards} cards; stopped by ${x.stop || x.error}; rungs ${(x.rungs || []).join(' > ')}`);
-  if ((s.noRoster || []).length) L.push(`  NOT PITCHED, no athletes on file: ${s.noRoster.join(', ')}`);
+  if ((s.notSellable || []).length) L.push(`  NOT PITCHED, no home dates or no inventory to sell: ${s.notSellable.map((x) => `${x.team} (${x.homeDates} home dates, ${x.items} items)`).join(', ')}`);
   return L.join('\n');
 }
 
@@ -382,7 +384,7 @@ async function estimate(pool, universityId) {
   const CP = require('./campusPool');
   const u = await CP.universityOf(pool, universityId);
   if (!u) return { ok: false, error: `no university "${universityId}"` };
-  const teams = [...(await athletesByTeam(pool, universityId)).values()].filter((n) => n > 0).length;   // no athletes, no pitch
+  const teams = [...(await sellableTeams(pool, universityId)).values()].filter((x) => x.sellable).length;   // teams with something to sell
   const ready = await reserve(pool, universityId);
   const known = (await pool.query(`SELECT COUNT(*) FILTER (WHERE reachable)::int AS reachable, COUNT(*)::int AS n,
                                           COUNT(*) FILTER (WHERE status IN ('reachable','unreachable'))::int AS looked,
@@ -489,4 +491,4 @@ async function tick(pool, now = new Date()) {
   return { ran };
 }
 
-module.exports = { NAMES_USD, athletesByTeam, runNight, tick, centralNow, universitiesDue, ranTonight, estimate, formatEstimate, formatNight, reserve, runway, localRate, DISCOVERY_USD, REPLENISH_FLOOR_USD, RESERVE_TARGET_NIGHTS, RUNWAY_FAIL_NIGHTS, PER_TEAM, WINDOW_START_HOUR, WINDOW_END_HOUR, NIGHT_CAP_USD, NIGHT_HARD_CAP_USD, TEAM_CAP_USD, RING_WORST_USD };
+module.exports = { NAMES_USD, sellableTeams, runNight, tick, centralNow, universitiesDue, ranTonight, estimate, formatEstimate, formatNight, reserve, runway, localRate, DISCOVERY_USD, REPLENISH_FLOOR_USD, RESERVE_TARGET_NIGHTS, RUNWAY_FAIL_NIGHTS, PER_TEAM, WINDOW_START_HOUR, WINDOW_END_HOUR, NIGHT_CAP_USD, NIGHT_HARD_CAP_USD, TEAM_CAP_USD, RING_WORST_USD };

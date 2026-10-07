@@ -37,10 +37,13 @@ const MG = require(REPO + 'server/middleware/modeGuard.js');
 
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g).slice(0, 600) : '')); } };
-// NO ATHLETES, NO PITCH (campusNightly.athletesByTeam): every fixture team gets one.
-const roster = (P, uid) => P.query(`INSERT INTO university_athletes (id, university_id, name, sport, data)
-  SELECT t.id || ':roster-athlete', t.university_id, 'Roster Athlete', t.name, jsonb_build_object('teamId', t.id)
-    FROM university_teams t WHERE t.university_id = $1 ON CONFLICT (id) DO NOTHING`, [uid]);
+// A TEAM IS PITCHED WHEN IT HAS SOMETHING TO SELL (campusNightly.sellableTeams):
+// every fixture team gets home dates and one available inventory item.
+const roster = async (P, uid) => {
+  await P.query(`UPDATE university_teams SET home_dates = COALESCE(home_dates, 8) WHERE university_id = $1`, [uid]);
+  await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents)
+    SELECT t.id || ':inv', t.university_id, t.id, 'Home game banner', 25000 FROM university_teams t WHERE t.university_id = $1 ON CONFLICT (id) DO NOTHING`, [uid]);
+};
 const A = 'univ-crmtest-a', B = 'univ-crmtest-b';
 const MKA = 'crmtown, ca', MKB = 'othertown, ca';
 const STAFF = { x: 'crm-xavier', y: 'crm-yolanda', b: 'crm-bstaff', agent: 'crm-agent' };
@@ -71,7 +74,7 @@ async function main() {
 
   const clean = async () => {
     for (const u of [A, B]) {
-      for (const t of ['university_athletes', 'university_contacts', 'university_market_runs', 'university_crm', 'university_touches', 'university_deals', 'university_drafts',
+      for (const t of ['university_inventory', 'university_athletes', 'university_contacts', 'university_market_runs', 'university_crm', 'university_touches', 'university_deals', 'university_drafts',
         'university_brand_engagement', 'university_staff']) await P.query(`DELETE FROM ${t} WHERE university_id = $1`, [u]);
       await P.query(`DELETE FROM university_research_claims WHERE team_id LIKE 'crm%'`);
       await P.query(`DELETE FROM university_teams WHERE university_id = $1`, [u]);

@@ -97,6 +97,7 @@ const aiStub = {
   const clean = async () => {
     await P.query(`DELETE FROM university_athletes WHERE university_id = $1`, [UID]).catch(() => {});
     await P.query(`DELETE FROM university_drafts WHERE university_id = $1`, [UID]).catch(() => {});
+    await P.query(`DELETE FROM university_inventory WHERE university_id = $1`, [UID]).catch(() => {});
     await P.query(`DELETE FROM university_teams WHERE university_id = $1`, [UID]).catch(() => {});
     await P.query(`DELETE FROM university_contacts WHERE university_id = $1`, [UID]).catch(() => {});
     await P.query(`DELETE FROM university_market_seen WHERE market_key = 'cypress, ca' AND brand = ANY($1)`, [PLACES.map((p) => p.name)]).catch(() => {});
@@ -354,6 +355,15 @@ const aiStub = {
   // ── 5a-2. THE TILE AND THE LOCK ─────────────────────────────────────────
   OUT.push('', '-- the athletes tile, the lock --');
   const lt = await require(REPO + 'server/services/universityPortal.js').listTeams(P, UID);
+  // A team whose roster is not published: no athletes imported (no fallback
+  // to last season's), shown as "Roster not published yet", never 0.
+  await P.query(`INSERT INTO university_teams (id, university_id, name, sport, home_dates) VALUES ($1,$2,'Women''s Tennis','Tennis',9) ON CONFLICT (id) DO NOTHING`, [UID + ':wten', UID]);
+  const lt2 = await require(REPO + 'server/services/universityPortal.js').listTeams(P, UID);
+  const wt = lt2.teams.find((t) => t.name === "Women's Tennis");
+  ok('A ROSTER NOT PUBLISHED reads as not published, not 0', wt && wt.roster_size === null && wt.roster_published === false
+    && lt2.teams.filter((t) => t.athletes_on_file > 0).every((t) => t.roster_published === true && t.roster_size === t.athletes_on_file), lt2.teams.map((t) => [t.name, t.roster_size, t.roster_published]));
+  ok('  and My Teams says so', /Roster not published yet/.test(require('fs').readFileSync(REPO + 'public/university.html', 'utf8')));
+  await P.query(`DELETE FROM university_teams WHERE id = $1`, [UID + ':wten']);
   ok('the portal\'s athletes tile sums the athletes on file (7), not a stored roster guess', lt.teams.reduce((a, t) => a + (t.roster_size || 0), 0) === 7, lt.teams.map((t) => [t.name, t.roster_size, t.roster_size_stated]));
   const UJ = require(REPO + 'server/services/universityJobs.js');
   await UJ.release(P, UID);
@@ -375,6 +385,10 @@ const aiStub = {
 
   // ── 5c. THE NIGHT: HARD $5, NO PLACES, THE PROJECTION FIRST ─────────────
   OUT.push('', '-- the night: projected, capped at $5 --');
+  // A team is pitched when it has something to sell (campusNightly.sellableTeams).
+  await P.query(`UPDATE university_teams SET home_dates = COALESCE(home_dates, 8) WHERE university_id = $1`, [UID]);
+  await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents)
+    SELECT t.id || ':inv', t.university_id, t.id, 'Home game banner', 25000 FROM university_teams t WHERE t.university_id = $1 ON CONFLICT (id) DO NOTHING`, [UID]);
   const est = await CN.estimate(P, UID);
   ok('the projection: 3 teams x 5 cards, a social seat a team (one brand, two teams at most), the named contacts on file, lookups only for the rest',
     est.ok && est.cards === 15 && est.socialCards === 2 && est.cardsFromFile === 3 && est.lookupsNeeded === 10 && est.discoveryUsd === CN.DISCOVERY_USD
