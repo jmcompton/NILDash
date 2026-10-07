@@ -204,6 +204,10 @@ async function runNight(pool, universityId, deps = {}) {
     const QC = require('./campusQuality');
     await QC.ensureColumns(pool).catch(() => {});
     const uni = await CP.universityOf(pool, universityId);
+    // Every stored contact judged again before picking (campusQuality.recheckContacts:
+    // a junior title, a shared inbox, not a person), so the night never trusts
+    // a row judged under older rules.
+    if (uni) await QC.recheckContacts(pool, uni).catch((e) => console.error('[campus-nightly] recheck:', e.message));
     // The 15% category cap re-applied to the contactable list before picking.
     await QC.ensureCapped(pool, uni || { id: universityId }, { force: true }).catch((e) => console.error('[campus-nightly] share cap:', e.message));
     const reserveBefore = await reserve(pool, universityId);
@@ -282,7 +286,7 @@ async function runNight(pool, universityId, deps = {}) {
     let names = null;
     if (freeNight && deps.names !== false) {
       const pot = Math.max(0, Math.min(NAMES_USD, nightCap - spent() - Math.max(0, discoveryPot - usd.discovery)));
-      names = await require('./ownerLookup').nameTonight(pool, universityId, night, pot, { ai: deps.contactsAi, free: deps.freeDeps })
+      names = await require('./ownerLookup').nameTonight(pool, universityId, night, pot, { ai: deps.contactsAi, writerAi: deps.ai, free: deps.freeDeps })
         .catch((e) => ({ error: e.message, tried: 0, found: 0, usd: 0 }));
       usd.names += Number(names.usd) || 0;
     }

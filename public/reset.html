@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reset Password - NILDash</title>
+<title>Set Your Password - NILDash</title>
 <link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
 <link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
 <style>
@@ -37,7 +37,7 @@ a{color:#C8F135;text-decoration:none;font-size:12px}
     <input type="password" id="new-password" placeholder="Min 6 characters">
     <label>Confirm Password</label>
     <input type="password" id="confirm-password" placeholder="Confirm password">
-    <button class="btn" onclick="doReset()">Set New Password</button>
+    <button class="btn" onclick="doReset()">Set Password</button>
   </div>
   <div id="success-view" style="display:none;text-align:center;padding:20px 0">
     <div style="font-size:32px;margin-bottom:16px">&#10003;</div>
@@ -51,7 +51,7 @@ var token = new URLSearchParams(window.location.search).get("token");
 if (token) {
   document.getElementById("forgot-form").style.display = "none";
   document.getElementById("reset-form").style.display = "block";
-  document.getElementById("page-sub").textContent = "Enter your new password";
+  document.getElementById("page-sub").textContent = "Choose a password for your NILDash account";
 }
 function showMsg(text, type) {
   var el = document.getElementById("msg");

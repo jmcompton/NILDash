@@ -591,6 +591,19 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     // no email: a phone is a call card (talking points, no email body), an
     // Instagram handle alone is a DM, and nothing at all is no card.
     const CHN = require('./cardChannel');
+    // NOT A DECISION MAKER, NOT ON THE CARD: a stored contact is judged again
+    // here (campusQuality.refusedName / refusedTitle: an assistant store
+    // manager, a service manager, a shift lead). On a free night the business
+    // is still pitched, to the business, without them; their own address
+    // goes with them, the shared inbox stays.
+    if (!c.social && c.contact_name) {
+      const QCt = require('./campusQuality');
+      const notTheOne = QCt.refusedName(c.contact_name) || QCt.refusedTitle(c.contact_title);
+      if (notTheOne) {
+        out.skipped.push({ brand: c.brand_name, why: `contact left off the card: ${notTheOne}`, stage: 'owner', kept: freeOnly });
+        c.contact_name = null; c.contact_title = null; c.email = null; c.reachable = false;
+      }
+    }
     // THE PERSON'S NAME ON EVERY EMAIL AND EVERY DM when we have it. Paid
     // nights: a business with no named person is not a card. Free nights: it
     // is, written to the business ("Hi <business> team,"), and the portal

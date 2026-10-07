@@ -161,8 +161,10 @@ async function main() {
 
   // ── FIND THE OWNER, when staff ask ────────────────────────────────────────
   const target = nameless[0];
-  const f1 = await OL.findOwner(P, U, 'staff-1', target.id, { ai: contactsAi, free: freeDeps });
+  const f1 = await OL.findOwner(P, U, 'staff-1', target.id, { ai: contactsAi, writerAi: ai, free: freeDeps });
   const after = (await P.query(`SELECT * FROM university_drafts WHERE id = $1`, [target.id])).rows[0];
+  ok('AN EMAIL FOUND MAKES AN EMAIL CARD: written to them, their address on it, the DM kept beside it', after.channel === 'email' && /^sam@/.test(after.contact_email || '')
+    && /^Hi Sam,/.test(after.body) && (target.channel !== 'dm' || /^Hi Sam,/.test(after.dm_text || '')), { was: target.channel, now: after.channel, email: after.contact_email, body: (after.body || '').slice(0, 40), dm: (after.dm_text || '').slice(0, 40) });
   ok('"Find the owner" puts the name on the card', f1.ok && f1.found && after.contact_name === 'Sam Hill' && paid.length === 1, { f1, paid });
   ok('  the greeting is now their first name', /^Hi Sam,/.test(after.body) || /^Hi Sam,/.test(after.dm_text || '') || after.channel === 'call', after.body);
   const f2 = await OL.findOwner(P, U, 'staff-1', target.id, { ai: contactsAi, free: freeDeps });
@@ -192,6 +194,8 @@ async function main() {
   const c2 = (await P.query(`SELECT * FROM university_drafts WHERE university_id = $1 AND night = '2026-10-21' AND lane <> 'social'`, [U])).rows;
   ok('A FULL NIGHT: free cards, then names bought for the nameless ones from the school budget', r2.ok && r2.cards === 6 && r2.names && r2.names.found > 0
     && r2.names.tried === paid.length && c2.every((d) => d.contact_name), { names: r2.names, paid, cards: c2.map((d) => [d.brand_name, d.contact_name]) });
+  ok('  every card the night named with an email is an email card, never "No email address"', c2.filter((d) => d.contact_email).every((d) => d.channel === 'email'),
+    c2.map((d) => [d.brand_name, d.channel, d.contact_email]));
   ok('  the names spend is its own line, under the cap', r2.spend.namesUsd >= 0 && r2.costUsd <= 5 && /owner names +\$/.test(CN.formatNight(r2)), CN.formatNight(r2));
 
   await clean();

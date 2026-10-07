@@ -105,11 +105,18 @@ async function main() {
   await biz('Nameless Barber', 'barber_shop', { email: 'shop@nameless.test' });
   // A chain location whose site links the corporate account: never a team's DM.
   await biz('Chain Grill Reachtown', 'restaurant', { name: 'Dee Fox', phone: '(714) 555-0133', instagram: 'chaingrill' });
+  // A junior manager on file (an older build stored him as the contact).
+  await biz('Tire Shop Reachtown', 'car_repair', { name: 'Kevin Tran', email: 'kevin@tireshop.test', phone: '(714) 555-0144' });
+  await P.query(`UPDATE university_contacts SET contact_title = 'Assistant Store Manager' WHERE university_id = $1 AND brand = 'Tire Shop Reachtown'`, [U]);
   prompts.length = 0;
-  await TS.runTeamScan(P, { universityId: U, teamId: 'rt:bb', limit: 5, mode: 'pitch', discoverPool: false, deps: { ai, contactsAi, night: '2026-10-12', socialPerTeam: 0 } });
+  await TS.runTeamScan(P, { universityId: U, teamId: 'rt:bb', limit: 8, mode: 'pitch', discoverPool: false, deps: { ai, contactsAi, night: '2026-10-12', socialPerTeam: 0 } });
   const cards = Object.fromEntries((await P.query(`SELECT * FROM university_drafts WHERE university_id = $1 AND night = '2026-10-12'`, [U])).rows.map((d) => [d.brand_name, d]));
   const mg = cards['Mail And Gram Gym'];
   ok('AN EMAIL AND A HANDLE: the email first, the DM written beside it', mg && mg.channel === 'email' && /^Hi Ann,/.test(mg.body) && /^Hi Ann,/.test(mg.dm_text || '') && mg.contact_instagram === 'maggym', mg);
+  const ts = cards['Tire Shop Reachtown'];
+  ok('AN ASSISTANT STORE MANAGER IS NEVER ON THE CARD: the business is pitched to the business, his address dropped', !!ts
+    && (!ts.contact_name && !/Kevin/.test(ts.body || '') && ts.contact_email !== 'kevin@tireshop.test'), ts);
+  ok('  nowhere on any card', !Object.values(cards).some((d) => /Kevin|Assistant Store Manager/.test(`${d.contact_name} ${d.contact_title} ${d.body}`)));
   const cg = cards['Chain Grill Reachtown'];
   ok('A CHAIN LOCATION\'S CORPORATE HANDLE IS NOT ITS DM: a call card, no handle, no DM text', cg && cg.channel === 'call' && !cg.contact_instagram && !cg.dm_text, cg);
   const pg = cards['Phone And Gram Cafe'];

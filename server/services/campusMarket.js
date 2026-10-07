@@ -314,7 +314,13 @@ async function pitch(pool, universityId, userId, opts) {
     contactName: biz.contact.name, sender };
   // No email address, no email (services/cardChannel).
   const CHN = require('./cardChannel');
-  if (!String(biz.contact.name || '').trim()) return { ok: false, status: 422, error: 'there is no named person at this business yet: every email and DM is written to someone by name' };
+  // Not a decision maker (an assistant store manager): left off, as on the night's cards.
+  { const QC = require('./campusQuality');
+    if (biz.contact.name && (QC.refusedName(biz.contact.name) || QC.refusedTitle(biz.contact.title))) {
+      biz.contact.name = null; biz.contact.title = null; biz.contact.email = null; ctx.contactName = null;
+    } }
+  // No named person yet: written to the business ("Hi <business> team,"), as
+  // the free night does; "Find the owner" on the card puts a name on it.
   const sendTo = biz.contact.email || biz.contact.sharedEmail || null;
   // A brand-wide handle is not this location's DM (cardChannel.campusHandle).
   biz.contact.instagram = CHN.campusHandle({ instagram: biz.contact.instagram, brand: biz.brand, city: require('./teamScan').cityOf(u.location) });
