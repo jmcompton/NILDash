@@ -773,10 +773,10 @@ function leadCard(d, showTeam){
     tools = `<a class="btn go sm" href="tel:${esc(d.contact_phone)}">Call</a>`;
   } else if (ch === "dm"){
     main = `<div class="who">${who}</div>
-      <div class="reach"><a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a></div>
+      <div class="reach"><a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a>${d.contact_phone ? `<a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a>` : ""}</div>
       ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
       <pre>${esc(d.body || "")}</pre>
-      <div class="why" style="opacity:.75">No email address for this person: send this as an Instagram message.</div>`;
+      <div class="why" style="opacity:.75">No email address: send this as an Instagram message${d.contact_phone ? ", or call the number" : ""}.</div>`;
     tools = `<button type="button" class="btn go sm" data-copytext="${esc(d.body || "")}">Copy message</button>
       <a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a>`;
   } else if (ch === "program"){

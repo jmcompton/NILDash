@@ -109,7 +109,9 @@ async function main() {
   const mg = cards['Mail And Gram Gym'];
   ok('AN EMAIL AND A HANDLE: the email first, the DM written beside it', mg && mg.channel === 'email' && /^Hi Ann,/.test(mg.body) && /^Hi Ann,/.test(mg.dm_text || '') && mg.contact_instagram === 'maggym', mg);
   const pg = cards['Phone And Gram Cafe'];
-  ok('A PHONE AND A HANDLE: the call card, and the DM too', pg && pg.channel === 'call' && /^Hi Ben,/.test(pg.dm_text || ''), pg);
+  // DM BEFORE CALL (cardChannel.channelOf): a handle and a phone is a DM card,
+  // the phone beside it. It was a call card, and DM cards never happened.
+  ok('A PHONE AND A HANDLE: a DM card, the phone kept on it', pg && pg.channel === 'dm' && /^Hi Ben,/.test(pg.body || '') && !!pg.contact_phone && !!pg.contact_instagram, pg);
   ok('  the DM is short: 2 or 3 sentences, written as a DM', prompts.some((p) => /INSTAGRAM DIRECT MESSAGE[\s\S]*30 to 70 words/.test(p)) && String(mg.dm_text).split(/[.!?]/).filter((x) => x.trim()).length <= 5);
   const it = cards['Inbox Taqueria'];
   ok('A SHARED INBOX IS A SEND PATH: an email card to it, greeting the person by name, marked shared', it && it.channel === 'email' && it.contact_email === 'hola@inboxtaq.test'

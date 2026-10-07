@@ -8,10 +8,10 @@
 // for the agent side and the university side alike:
 //
 //   email    an email address on file. The only card that is an email.
-//   call     a phone and no email: who, the number, the best time to call,
-//            three talking points. NO email body. Done = "mark as called".
-//   dm       an Instagram handle and nothing else: the message and a copy
-//            button. Done = "mark as sent".
+//   dm       an Instagram handle and no email: the message and a copy
+//            button, the phone beside it if there is one. Done = "mark as sent".
+//   call     a phone, no email and no handle: who, the number, the best time
+//            to call, three talking points. NO email body. Done = "mark as called".
 //   program  a brand's athlete-program page (the social rung): the message,
 //            a copy button, the page. Done = "mark as applied".
 //   null     no way to reach anyone: no card at all.
@@ -24,12 +24,17 @@ function hasEmail(v) { return EMAIL_RE.test(String(v || '').trim()); }
 function hasPhone(v) { return String(v || '').replace(/\D/g, '').length >= 7; }
 function hasHandle(v) { return /^@?[a-z0-9._]{2,30}$/i.test(String(v || '').trim()); }
 
-// The channel a card has, from what is on file. Email wins whenever there is one.
+// The channel a card has, from what is on file. Email wins whenever there is
+// one; then the Instagram DM; a call only when there is neither.
+// DM BEFORE CALL. It was the other way round, and nearly every business on a
+// Google listing has a phone, so a handle never made a DM card: Cypress had
+// 66 handles on 88 businesses and cardsByChannel.dm was 0 every night. The
+// agent side's own route (outreachQueue.channelFor) already put DM first.
 function channelOf({ email, phone, instagram, programUrl, social } = {}) {
   if (hasEmail(email)) return 'email';
   if (social || programUrl) return programUrl ? 'program' : null;
-  if (hasPhone(phone)) return 'call';
   if (hasHandle(instagram)) return 'dm';
+  if (hasPhone(phone)) return 'call';
   return null;
 }
 
