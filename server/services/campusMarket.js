@@ -299,9 +299,9 @@ async function pitch(pool, universityId, userId, opts) {
   if (h.touched && !opts.acknowledgeHistory) return { ok: false, status: 409, needsAck: true, history: h };
   const team = opts.teamId ? (await pool.query(`SELECT * FROM university_teams WHERE id = $1 AND university_id = $2`, [opts.teamId, universityId])).rows[0] : null;
   // A TEAM WITH NOTHING TO SELL IS NOT PITCHED (campusNightly.sellableTeams):
-  // home dates and inventory still available, roster or not.
+  // inventory still available, roster or home dates or not.
   if (team && !((await require('./campusNightly').sellableTeams(pool, universityId)).get(team.id) || {}).sellable) {
-    return { ok: false, status: 422, error: `${team.name} has no home dates or no inventory left to sell, so there is nothing to pitch for it yet.` };
+    return { ok: false, status: 422, error: `${team.name} has no inventory left to sell, so there is nothing to pitch for it yet.` };
   }
   if (opts.teamId && !team) return { ok: false, status: 404, error: 'team not found' };
   if (!team && !(opts.athlete && opts.athlete.name)) return { ok: false, status: 400, error: 'pick a team or name an athlete' };

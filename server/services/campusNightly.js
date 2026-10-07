@@ -159,16 +159,18 @@ async function runway(pool, universityId) {
 // ── A TEAM IS PITCHED WHEN IT HAS SOMETHING TO SELL ─────────────────────────
 // The university side sells team sponsorship, not athlete NIL: a banner, a
 // program ad, a PA read, a team meal, a presenting sponsorship. So a team is
-// pitched when it has home dates and inventory still available to sell,
-// whether or not its roster is on file (Cypress's basketball teams: 0
-// athletes, 14 home dates, $3,150 each, the most valuable at the school).
-// A row with neither (the roster half of a duplicate) is not.
+// pitched when it has inventory still available to sell, whether or not its
+// roster or its home dates are on file (Cypress's basketball teams: 0
+// athletes, $3,150 each; Beach Volleyball, Flag Football and Men's Water
+// Polo: no home dates known). Where the dates are missing the card does not
+// claim a number of home games (teamWriter only states dates it has). A row
+// with nothing to sell (the roster half of a duplicate) is not pitched.
 async function sellableTeams(pool, universityId) {
   const rows = (await pool.query(
     `SELECT t.id, COALESCE(t.home_dates, 0)::int AS home_dates,
             (SELECT COUNT(*)::int FROM university_inventory i WHERE i.team_id = t.id AND i.status = 'available') AS items
        FROM university_teams t WHERE t.university_id = $1`, [universityId]).catch(() => ({ rows: [] }))).rows;
-  return new Map(rows.map((r) => [r.id, { sellable: r.home_dates > 0 && r.items > 0, homeDates: r.home_dates, items: r.items }]));
+  return new Map(rows.map((r) => [r.id, { sellable: r.items > 0, homeDates: r.home_dates, items: r.items }]));
 }
 
 // One department, every team. deps pass straight to the team loop (tests).
@@ -369,7 +371,7 @@ function formatNight(s) {
     + (s.replenish.pendingLeft != null ? `; ${s.replenish.pendingLeft} businesses still without a lookup` : ''));
   if (s.reserve) L.push(`  RESERVE (named contacts unused, ready for tomorrow): ${s.reserve.before} -> ${s.reserve.after} (${s.reserve.change >= 0 ? '+' : ''}${s.reserve.change})`);
   for (const x of s.short || []) L.push(`  SHORT ${x.team}: ${x.cards} cards; stopped by ${x.stop || x.error}; rungs ${(x.rungs || []).join(' > ')}`);
-  if ((s.notSellable || []).length) L.push(`  NOT PITCHED, no home dates or no inventory to sell: ${s.notSellable.map((x) => `${x.team} (${x.homeDates} home dates, ${x.items} items)`).join(', ')}`);
+  if ((s.notSellable || []).length) L.push(`  NOT PITCHED, no inventory to sell: ${s.notSellable.map((x) => `${x.team} (${x.items} items)`).join(', ')}`);
   return L.join('\n');
 }
 
