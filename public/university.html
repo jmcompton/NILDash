@@ -691,7 +691,7 @@ function vTeams(){
         </tr></thead><tbody>
         ${bySeason(s).map(t => `<tr>
             <td data-l="TEAM"><span class="b">${esc(t.name)}</span></td>
-            <td data-l="ROSTER">${t.roster_size == null ? "" : t.roster_size}</td>
+            <td data-l="ROSTER">${t.roster_published === false || t.roster_size == null ? `<span class="s">Roster not published yet</span>` : t.roster_size}</td>
             <td data-l="HOME DATES">${t.home_dates == null ? "" : t.home_dates}</td>
             <td data-l="VENUE"><span class="s">${esc(String(t.venue || "").replace((university.name || "") + " ",""))}</span></td>
             <td data-l="CROWD"><span class="s">—</span></td>

@@ -40,7 +40,13 @@ async function listTeams(pool, universityId) {
     `SELECT data->>'teamId' AS team_id, COUNT(*)::int n FROM university_athletes WHERE university_id = $1 GROUP BY 1`, [universityId]).catch(() => ({ rows: [] }))).rows;
   if (counts.length) {
     const by = new Map(counts.map((c) => [c.team_id, c.n]));
-    for (const t of teams) { t.roster_size_stated = t.roster_size; t.roster_size = by.get(t.id) || 0; t.athletes_on_file = by.get(t.id) || 0; }
+    // A team with none on file: its roster is not published yet (Cypress posts
+    // a season's roster late; a two-year college's last season is gone by
+    // October, so it is never imported in its place). Shown as such, not 0.
+    for (const t of teams) {
+      t.roster_size_stated = t.roster_size; t.athletes_on_file = by.get(t.id) || 0;
+      t.roster_size = by.get(t.id) || null; t.roster_published = !!by.get(t.id);
+    }
   }
   return { university, teams };
 }
