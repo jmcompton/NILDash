@@ -80,6 +80,7 @@ function looksLikePerson(name, brand) {
 //             title is accepted.
 // -> null when the person may be pitched, or the reason they may not.
 const NEVER_TITLE = /\b(emerit(us|a)|retired|former|ex-|chair(man|woman|person)? of the board|board (chair|member)|board of (directors|trustees|regents)|trustee|regent|vice chancellor|chancellor|provost|dean|athletic director|athletics director|director of athletics|head coach|assistant coach|coach)\b|\bpresident of (the )?[\w .&'-]*\b(university|college|school|institute)\b|\b(university|college) president\b|^\s*\d+(st|nd|rd|th) president\b/i;
+const JUNIOR_TITLE = /\b(assistant|asst\.?|associate|deputy)\s+([\w&-]+\s+){0,2}manager\b|\bco-?\s?manager\b|\b(service|parts|shift|floor|department|dept\.?|office|front of house|back of house|kitchen|bar|night|weekend|desk|counter|inventory|warehouse|receiving|customer service)\s+(manager|supervisor|lead|leader)\b|\b(shift|team|crew)\s+(lead|leader|supervisor|member)\b|\bkey ?holder\b|\bsupervisor\b|\bservice (advisor|writer)\b/i;
 const DECIDES = /\b(marketing|partnerships?|brand|influencer|sponsorships?|athletes?|creators?|community|social media|nil|ambassador|talent|communications|public relations|events?|growth|affiliate|activation)\b/i;
 const TOP_EXEC = /\b(ceo|chief executive|president|chair(man|woman|person)?|co-?founder|founder|owner|proprietor|managing director|general partner)\b/i;
 // ── THE PARENT COMPANY'S LEADERSHIP IS NOT THIS LOCATION'S ──────────────────
@@ -115,6 +116,14 @@ function titleProblem(title, opts = {}) {
   const ownsIt = /\b(co-?)?(owner|founder|proprietor)\b/i.test(t) && !/\b(emerit(us|a)|retired|former|ex-)\b/i.test(t);
   const never = NEVER_TITLE.test(t) && !(ownsIt && !NEVER_TITLE.test(t.replace(/\b(head |assistant |health |life |yoga |pilates |fitness |personal |strength |wellness |swim |dance |martial arts |tennis |golf |running |nutrition )?coach(es|ing)?\b/gi, '')));
   if (never) return `"${t}" is not someone who signs an athlete deal (emeritus, retired, a board seat or a school's leadership)`;
+  // A JUNIOR MANAGER IS NOT WHO SIGNS. Cypress cards went to a service
+  // manager and an assistant store manager as the decision maker. The store
+  // or general manager, the franchisee or the owner signs; the people under
+  // them do not. A title that also says owner, partner or general manager is
+  // that, not this.
+  if (JUNIOR_TITLE.test(t) && !ownsIt && !/\b(general manager|gm|partner|president|principal|director|franchisee)\b/i.test(t.replace(JUNIOR_TITLE, ''))) {
+    return `"${t}" is not who signs here; we want the owner or the store or general manager`;
+  }
   // "Owner" at a franchise location is the franchisee; only a title that also
   // names the corporate parent is refused.
   const ownerTitle = /\b(co-?)?owner\b/i.test(t) && !CORPORATE.test(t);
@@ -229,4 +238,4 @@ const NO_NAME_REASON = 'no contact name found after all sources, including the f
 // Never its owner or founder.
 const LARGE_ORDER = ['partnerships', 'marketing'];
 
-module.exports = { titleProblem, chainLocation, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };
+module.exports = { titleProblem, JUNIOR_TITLE, chainLocation, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };
