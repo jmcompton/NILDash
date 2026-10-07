@@ -12808,6 +12808,20 @@ app.get('/api/admin/status', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Read-only, for a scheduled agent with no browser session: what failed,
+// behind OPS_READ_TOKEN (services/opsReport). 404 without the token.
+//   curl -H "Authorization: Bearer $OPS_READ_TOKEN" https://mynildash.com/api/ops/report
+app.get('/api/ops/report', async (req, res) => {
+  const OR = require('./services/opsReport');
+  if (!OR.tokenOk(req)) return res.status(404).json({ error: 'Not found' });
+  try {
+    const r = await OR.collect(store.pool);
+    res.set('Cache-Control', 'no-store');
+    if (req.query.format === 'json') return res.json(r);
+    res.type('text/plain').send(OR.formatText(r));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/cache-health', async (req, res) => {
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
