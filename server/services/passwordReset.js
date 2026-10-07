@@ -182,6 +182,20 @@ async function completeReset({ pool, token, password, minLength }) {
 // back in. express-session keeps userId inside the JSON `sess` column of
 // connect-pg-simple's table; in dev there is no table (MemoryStore), so this is
 // best-effort and never fails the reset.
+// ── WHERE A NEW PASSWORD LANDS ──────────────────────────────────────────────
+// A university account (a department's NIL coordinator, onboarded by us with
+// a set-password link) is signed in on the spot and sent to its portal: one
+// click from the email to /university, never the public site's agent pitch
+// and a second login. Every other account keeps what it does today (the
+// "sign in with your new password" screen). -> { signIn, redirect, role }
+const UNIVERSITY_ROLES = ['university', 'university_admin'];
+async function landingFor(pool, out) {
+  if (!out || !out.ok || !out.userId) return { signIn: false, redirect: null, role: out && out.role };
+  const u = (await pool.query(`SELECT id, role, university_id FROM users WHERE id = $1`, [out.userId]).catch(() => ({ rows: [] }))).rows[0];
+  if (u && UNIVERSITY_ROLES.includes(u.role) && u.university_id) return { signIn: true, redirect: '/university', role: u.role, userId: u.id };
+  return { signIn: false, redirect: null, role: out.role };
+}
+
 async function endOtherSessions(pool, userId) {
   try {
     const r = await pool.query(`DELETE FROM session WHERE sess->>'userId' = $1`, [String(userId)]);
@@ -195,7 +209,7 @@ async function endOtherSessions(pool, userId) {
   }
 }
 
-module.exports = {
+module.exports = { landingFor, UNIVERSITY_ROLES,
   normEmail, hashToken, issueResetToken, requestReset, completeReset, endOtherSessions,
   renderResetEmail, resetUrl,
   DEFAULT_TTL_MS, ONBOARDING_TTL_MS, MIN_PASSWORD_LENGTH,
