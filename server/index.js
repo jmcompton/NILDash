@@ -5384,6 +5384,14 @@ const ADMIN_SCRIPTS = {
   // The free contact steps across a university's named people (the website on
   // file for an email, the Instagram handle it links to) and the latest
   // night's cards brought up to date. Dry run unless apply=1. Sends nothing.
+  // A university's duplicate teams ("Swim & Dive" and "Swimming & Diving")
+  // merged into one: athletes, cards and every team row moved, the duplicate
+  // deleted. Dry run unless apply=1.
+  'merge-duplicate-teams': { file: 'scripts/merge-duplicate-teams.js', args: (q) => {
+    const u = String(q.university || 'univ-cypress');
+    if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });
+    return ['--university', u].concat(q.apply === '1' ? ['--apply'] : []);
+  } },
   'campus-reach': { file: 'scripts/campus-reach.js', args: (q) => {
     const u = String(q.university || 'univ-cypress');
     if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });
@@ -15513,7 +15521,7 @@ try {
 }
 
 // ── A department's night (services/campusNightly) ───────────────────────────
-// Once per Central date, 1-5am: five cards for every team at every university
+// Once per Central date, 1-5am: CN.PER_TEAM cards (two) for every team at every university
 // with staff and a worked contact pool. A team short of five is a
 // 'nightly-floor' fault naming it, read by the morning alert.
 try {
@@ -15521,7 +15529,7 @@ try {
   const cnTick = () => { CN.tick(store.pool).catch((e) => console.error('[campus-nightly] tick failed:', e.message)); };
   setTimeout(cnTick, 5 * 60 * 1000);
   setInterval(cnTick, 15 * 60 * 1000);
-  console.log(`[campus-nightly] scheduled: five cards a team once a night ${CN.WINDOW_START_HOUR}-${CN.WINDOW_END_HOUR}am Central`);
+  console.log(`[campus-nightly] scheduled: ${CN.PER_TEAM} cards a team once a night ${CN.WINDOW_START_HOUR}-${CN.WINDOW_END_HOUR}am Central`);
 } catch (e) {
   console.error('[campus-nightly] scheduler failed to start:', e.message);
 }

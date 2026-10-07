@@ -228,9 +228,12 @@ async function main() {
   ok('  and its shell is the demo\'s: brand, nav, crumb, who', ['<nav class="side">', '<div class="eyebrow">UNIVERSITY PORTAL</div>',
     '<div class="eyebrow">ADMINISTRATION</div>', '<span class="ready"><i></i>AI READY</span>', '<div class="navwrap"><div class="navlist" id="nav1"></div></div>']
     .every((s) => page.includes(s) && html.includes(s)));
-  ok('  the nav lists every demo item', /\["home","Home"\], \["scan","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]/.test(page)
-    && /const NAV2 = \[\["compliance","Compliance"\], \["settings","Settings"\]\];/.test(page));
-  ok('  Home, Sponsors, My Teams and Inventory do something; the rest of the nav waits', /const LIVE = \{ home:true, sponsors:true, teams:true, inventory:true \}/.test(page));
+  // ONLY SCREENS THAT WORK (2026-10-07): the demo's eight "Coming soon" items
+  // are gone from the nav until they ship; Sponsor Scan is the business list.
+  ok('  the nav lists only the screens that work: Home, Sponsor Scan, My Teams, Inventory', /const NAV1 = \[\s*\["home","Home"\], \["sponsors","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
+    && /const NAV2 = \[\];/.test(page));
+  ok('  every item does something; nothing says "coming soon"', /const LIVE = \{ home:true, sponsors:true, teams:true, inventory:true \}/.test(page) && !/coming soon/i.test(page)
+    && !/aria-disabled="true"/.test(page.slice(page.indexOf('function paintNav'), page.indexOf('function paintNav') + 600)));
   ok('  it reads only its own department\'s APIs (teams, inventory, the market tool) and signs in with the account login',
     (page.match(/\/api\/[a-z/_-]+/g) || []).every((u) => ['/api/university/teams', '/api/university/inventory', '/api/auth/login', '/api/auth/logout'].includes(u) || u.startsWith('/api/university/market/')),
     [...new Set(page.match(/\/api\/[a-z/_-]+/g))]);

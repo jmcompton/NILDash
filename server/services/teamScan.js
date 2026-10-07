@@ -335,6 +335,16 @@ async function recheckPool(pool, marketKey, opts = {}) {
 // business with a reachable contact (services/campusContacts), that fits this
 // team, that no one on staff has touched (the CRM's hard rule), and that was
 // not already a card for any team in the last PITCH_REST_DAYS days.
+// ── THE NIGHT PAYS FOR NO CONTACTS ──────────────────────────────────────────
+// A contact lookup is $0.10-0.24 and about half find no one, so buying one for
+// every business the night picks spent most of a university's $5 on guesses.
+// The night now uses only what is free (the listing, the website, the
+// Instagram handle it links to) and writes the card with every way it found to
+// reach the business, the owner's name when a free source gave it. The paid
+// search runs when someone on staff taps "Find the owner" (services/
+// ownerLookup), on a business they actually want. UNIVERSITY_NIGHT_PAID_CONTACTS=on
+// puts the old nightly lookups back.
+const PAID_CONTACTS_AT_NIGHT = String(process.env.UNIVERSITY_NIGHT_PAID_CONTACTS || 'off').toLowerCase() === 'on';
 const PITCH_REST_DAYS = parseInt(process.env.UNIVERSITY_PITCH_REST_DAYS, 10) || 30;
 const PITCH_FIT_MIN = 10;
 // BUSINESSES FIRST, CONTACTS SECOND. The team night used to read only
@@ -349,27 +359,33 @@ const PITCH_FIT_MIN = 10;
 //               'local' rung: costs the email and nothing else)
 //         false only businesses still needing a lookup ('local-wide')
 //         null  both, on-file first (the default, and every caller before the ladder)
-async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [], limit = 10, onFile = null }) {
+// bestFitOnly (the night's first pass): only businesses that fit THIS team
+// better than any other team at the school. A business near campus is
+// relevant to every team; it is shown to the one it suits best, once.
+async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [], limit = 10, onFile = null, bestFitOnly = false }) {
   const team = (await pool.query(`SELECT id, name, sport FROM university_teams WHERE id = $1`, [teamId])).rows[0];
   const rows = (await pool.query(
     `SELECT * FROM (
        SELECT m.brand AS brand_name, m.place_id, m.types, m.category, m.primary_type, m.primary_type_label, m.address, m.distance_m,
               m.rating, m.user_ratings_total, c.contact_name, c.contact_title, c.email, c.generic_email, c.phone, c.instagram, c.athlete_history_note,
               COALESCE(c.reachable, FALSE) AS reachable, COALESCE(c.status, 'pending') AS contact_status, c.attempts,
-              COALESCE(m.deal_priority, 5) AS deal_priority, COALESCE(m.deal_bucket, 'other') AS deal_bucket, c.held_reason,
+              COALESCE(m.deal_priority, 5) AS deal_priority, COALESCE(m.deal_bucket, 'other') AS deal_bucket, c.held_reason, c.team_fit AS team_fit_all,
               (SELECT (x->>'score')::int FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_score,
               (SELECT x->>'why' FROM jsonb_array_elements(COALESCE(c.team_fit,'[]'::jsonb)) x WHERE x->>'team_id' = $3) AS fit_why
          FROM university_market_seen m
          LEFT JOIN university_contacts c ON c.university_id = $1 AND c.brand = m.brand
         WHERE m.market_key = $2 AND m.blocked_reason IS NULL
-          AND COALESCE(c.status, 'pending') <> 'unreachable'
+          -- Looked up and no one found: out, unless (free nights) it can still
+          -- be reached at the business itself.
+          AND NOT (COALESCE(c.status, 'pending') = 'unreachable'
+                   AND ($6::boolean OR (c.email IS NULL AND c.generic_email IS NULL AND c.phone IS NULL AND c.instagram IS NULL)))
           AND NOT (COALESCE(c.status, '') = 'error' AND COALESCE(c.attempts, 0) >= 3)
           AND NOT EXISTS (SELECT 1 FROM university_crm r WHERE r.university_id = $1 AND r.brand = m.brand AND (r.stage <> 'not_contacted' OR r.notes IS NOT NULL))
           AND NOT EXISTS (SELECT 1 FROM university_touches t WHERE t.university_id = $1 AND t.brand = m.brand)
           AND NOT EXISTS (SELECT 1 FROM university_drafts d WHERE d.university_id = $1 AND d.brand_name = m.brand AND d.kind = 'pitch'
                             AND d.created_at > NOW() - make_interval(days => $4))
           AND NOT (lower(m.brand) = ANY($5::text[]))) z`,
-    [universityId, marketKey, teamId, PITCH_REST_DAYS, exclude.map((x) => String(x).toLowerCase())])).rows;
+    [universityId, marketKey, teamId, PITCH_REST_DAYS, exclude.map((x) => String(x).toLowerCase()), PAID_CONTACTS_AT_NIGHT])).rows;
   const CC = require('./campusContacts');
   for (const r of rows) {
     if (r.fit_score === null || r.fit_score === undefined) {
@@ -378,7 +394,23 @@ async function pitchSlate(pool, { universityId, teamId, marketKey, exclude = [],
       r.fit_score = f ? f.score : 0; r.fit_why = f ? f.why : null; r.team_fit_row = f;
     }
   }
+  if (bestFitOnly && rows.length) {
+    const all = (await pool.query(`SELECT id, name, sport FROM university_teams WHERE university_id = $1 ORDER BY id`, [universityId])).rows;
+    for (const r of rows) {
+      const fits = Array.isArray(r.team_fit_all) && r.team_fit_all.length >= all.length ? r.team_fit_all
+        : CC.teamFit({ brand: r.brand_name, category: r.category, types: r.types || [], primary_type_label: r.primary_type_label, distance_m: r.distance_m }, all);
+      // A tie (most businesses fit every team equally; only a sport's own
+      // shop scores higher) is split across the tied teams by the business's
+      // name, so the same business always lands on the same team and no team
+      // takes every tie.
+      const top = Math.max(...fits.map((x) => Number(x.score) || 0));
+      const tied = fits.filter((x) => (Number(x.score) || 0) === top).map((x) => String(x.team_id)).sort();
+      const h = [...String(r.brand_name || '')].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+      r.best_team = tied.length ? tied[h % tied.length] : null;
+    }
+  }
   const picks = rows.filter((r) => Number(r.fit_score) >= PITCH_FIT_MIN)
+    .filter((r) => !bestFitOnly || r.best_team === teamId)
     .filter((r) => onFile === null || onFile === undefined || (onFile ? !!r.reachable : !r.reachable))
     // A NAMED CONTACT ALREADY ON FILE FIRST. The build resolved them; using
     // one costs the email and nothing else. A business still needing a
@@ -490,7 +522,8 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     const r = rungNow();
     if (r === 'social') return socialSlate(pool, { universityId, teamId, exclude, limit: n, night });
     if (r === 'places-refresh') return { picks: [] };
-    return pitchSlate(pool, { universityId, teamId, marketKey, exclude, limit: n, onFile: r === 'local' ? true : r === 'local-wide' ? false : null });
+    return pitchSlate(pool, { universityId, teamId, marketKey, exclude, limit: n, onFile: r === 'local' ? true : r === 'local-wide' ? false : null,
+      bestFitOnly: deps.bestFitOnly === true });
   };
   const slate = pitchMode ? await nextSlate([], limit * 2) : await Scout.assembleSlate(pool, { subject, limit });
   const sender = pitchMode ? (deps.sender || await require('./campusMarket').defaultSender(pool, universityId)) : null;
@@ -523,9 +556,14 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       heldForShare.push(c);
       return false;
     }
-    // THE CONTACT, FOR THIS BUSINESS ONLY, NOW THAT IT IS PICKED.
-    if (!c.reachable && !c.social) {
-      const est = require('./campusContacts').perBusinessUsd('high', false).metered;
+    // THE CONTACT, FOR THIS BUSINESS ONLY, NOW THAT IT IS PICKED. Free
+    // nights (PAID_CONTACTS_AT_NIGHT off): the free steps only, and a row they
+    // already read is used as it stands.
+    const freeOnly = !PAID_CONTACTS_AT_NIGHT && deps.paidContacts !== true;
+    const onFileReach = !!(c.email || c.generic_email || c.phone || c.instagram);
+    const freeReady = freeOnly && onFileReach && ['free-checked', 'unreachable'].includes(c.contact_status);
+    if (!c.reachable && !c.social && !freeReady) {
+      const est = freeOnly ? Qs.USD_PER_PLACES_REQUEST : require('./campusContacts').perBusinessUsd('high', false).metered;
       if (cost() + est + Qs.USD_PER_AI_CALL > COST_CEILING_USD + 1e-9) {
         await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
         out.skipped.push({ brand: c.brand_name, why: 'the cost ceiling leaves nothing to look up its contact', stage: 'owner', ceiling: true });
@@ -535,22 +573,29 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       const u = await CP.universityOf(pool, university.id);
       const r = await require('./campusContacts').resolveAndStore(pool, university.id, { brand: c.brand_name, place_id: c.place_id },
         { city: cityOf(university.location) || university.location, ai: deps.contactsAi, history: false, marketKey: u && u.marketKey,
-          teamFit: c.team_fit_row ? [c.team_fit_row] : null });
+          teamFit: c.team_fit_row ? [c.team_fit_row] : null, free: freeOnly ? 'only' : undefined, deps: deps.freeDeps });
       resolveUsd += r.costUsd; contactsResolved++;
       if (r.error) { out.skipped.push({ brand: c.brand_name, why: 'contact lookup failed on our side: ' + r.error, fault: true, stage: 'owner' }); return false; }
-      if (!r.reachable) { out.skipped.push({ brand: c.brand_name, why: 'no named person and no way to reach them after every source', stage: 'owner' }); return false; }
-      contactsReachable++;
       const o = r.out;
-      Object.assign(c, { reachable: true, contact_name: o.contact_name, contact_title: o.contact_title, email: o.email, phone: o.phone,
-        instagram: o.instagram, athlete_history_note: o.athlete_history_note || c.athlete_history_note });
+      if (!r.reachable && !freeOnly) { out.skipped.push({ brand: c.brand_name, why: 'no named person and no way to reach them after every source', stage: 'owner' }); return false; }
+      if (!o.email && !o.generic_email && !o.phone && !o.instagram) {
+        await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
+        out.skipped.push({ brand: c.brand_name, why: 'no email, phone or Instagram from the free sources', stage: 'owner' });
+        return false;
+      }
+      if (r.reachable) contactsReachable++;
+      Object.assign(c, { reachable: !!r.reachable, contact_name: o.contact_name, contact_title: o.contact_title, email: o.email, generic_email: o.generic_email || null,
+        phone: o.phone, instagram: o.instagram, athlete_history_note: o.athlete_history_note || c.athlete_history_note });
     }
     // HOW THIS CARD REACHES SOMEONE (services/cardChannel). No email address,
     // no email: a phone is a call card (talking points, no email body), an
     // Instagram handle alone is a DM, and nothing at all is no card.
     const CHN = require('./cardChannel');
-    // THE PERSON'S NAME ON EVERY EMAIL AND EVERY DM. A business with no named
-    // person is not a card (a social brand's program page is not an email or a DM).
-    if (!c.social && !String(c.contact_name || '').trim()) {
+    // THE PERSON'S NAME ON EVERY EMAIL AND EVERY DM when we have it. Paid
+    // nights: a business with no named person is not a card. Free nights: it
+    // is, written to the business ("Hi <business> team,"), and the portal
+    // offers "Find the owner" to put a name on it.
+    if (!c.social && !freeOnly && !String(c.contact_name || '').trim()) {
       await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
       out.skipped.push({ brand: c.brand_name, why: 'no named person to write to', stage: 'owner' });
       return false;
@@ -558,7 +603,10 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     // Their own address first; a shared inbox (info@) over nothing: it is a
     // way to send, addressed to them by name, just not their own address.
     const sendTo = c.email || c.generic_email || null;
-    const channel = CHN.channelOf({ email: sendTo, phone: c.phone, instagram: c.instagram, programUrl: c.social ? (c.program_url || c.website) : null, social: c.social });
+    // A brand-wide handle (a chain location linking to the corporate account)
+    // is never this business's DM (cardChannel.campusHandle).
+    if (!c.social) c.instagram = CHN.campusHandle({ instagram: c.instagram, brand: c.brand_name, city: cityOf(university.location) });
+    const channel = CHN.campusChannelOf({ email: sendTo, phone: c.phone, instagram: c.instagram, programUrl: c.social ? (c.program_url || c.website) : null, social: c.social });
     if (!channel) {
       await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
       out.skipped.push({ brand: c.brand_name, why: 'no email, phone or Instagram for the person: no way to reach them', stage: 'owner' });
@@ -830,5 +878,5 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   return out;
 }
 
-module.exports = { runTeamScan, pitchSlate, socialSlate, SOCIAL_PER_TEAM, SOCIAL_BRAND_NIGHTLY_MAX, PITCH_REST_DAYS, discover, storeCandidates, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
+module.exports = { runTeamScan, pitchSlate, PAID_CONTACTS_AT_NIGHT, socialSlate, SOCIAL_PER_TEAM, SOCIAL_BRAND_NIGHTLY_MAX, PITCH_REST_DAYS, discover, storeCandidates, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
   BLOCKED_KEYS, PAYDAY_MARKERS, CATEGORY_FIT, MIGRATION };

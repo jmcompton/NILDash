@@ -252,7 +252,7 @@ async function verify(pool, universityId) {
     .catch(() => ({ rows: [] })))).rows;
   const cardsByChannel = { email: 0, call: 0, dm: 0, program: 0, none: 0 };
   for (const d of latest) {
-    const ch = d.channel || CHN.channelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
+    const ch = d.channel || CHN.campusChannelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
       programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social' });
     cardsByChannel[ch || 'none']++;
   }
@@ -277,7 +277,7 @@ async function verify(pool, universityId) {
   // the list faster than it is finding it.
   const CN = require('./campusNightly');
   const runway = teams && found ? await CN.runway(pool, uni.id).catch(() => null) : null;
-  if (runway && runway.failing) failures.push(`runway ${runway.nights} nights: ${runway.available} named contacts unused for ${runway.perNight} cards a night from file (under ${runway.failNights} nights)`);
+  if (runway && runway.failing) failures.push(`runway ${runway.nights} nights: ${runway.available} ${runway.unit || 'named contacts unused'} for ${runway.perNight} cards a night from file (under ${runway.failNights} nights)`);
   return { ok: true, university: uni.name, id: uni.id, location: uni.location, marketKey: uni.marketKey,
     center: row.lat != null ? { lat: row.lat, lng: row.lng } : null,
     teams, athletes, businessesFound: found, businessesBlocked: blocked, businessesWithNamedContact: named, contactableBeforeShareCap: contactable, socialBrands: social,
@@ -299,7 +299,7 @@ function formatVerify(v) {
   L.push(`  cards, latest night            ${v.cardsLatestNight}   (all time ${v.cardsAllTime})`);
   if (v.cardsByChannel) { const c = v.cardsByChannel; L.push(`    by how they reach someone    ${c.email} with an email, ${c.call} phone only (call cards), ${c.dm} Instagram only (DM cards)`
     + `${c.program ? `, ${c.program} brand program pages` : ''}${c.none ? `, ${c.none} WITH NO WAY TO REACH ANYONE` : ''}`); }
-  if (v.runway) L.push(`  named contacts unused          ${v.runway.available}   ready for tomorrow`,
+  if (v.runway) L.push(`  ${String(v.runway.unit || 'named contacts unused').padEnd(30)} ${v.runway.available}   ready for tomorrow`,
     `  runway                         ${v.runway.nights == null ? '-' : v.runway.nights + ' nights'}   at ${v.runway.perNight} cards a night from file (${v.runway.rateFrom})${v.runway.failing ? '   UNDER ' + v.runway.failNights + ' NIGHTS' : ''}`);
   L.push(`  staff accounts                 ${v.staff}`);
   if (v.lastBuild) L.push(`  last build spent               $${v.lastBuild.spentUsd} of $${v.lastBuild.budgetUsd} (Places $${v.lastBuild.placesUsd}, contacts $${v.lastBuild.contactUsd})${v.lastBuild.stoppedFor ? ', stopped at the cap' : ''}`);

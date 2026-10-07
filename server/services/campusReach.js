@@ -41,7 +41,7 @@ async function cardCounts(pool, uni) {
   const CHN = require('./cardChannel');
   const out = { cards: rows.length, email: 0, call: 0, dm: 0, program: 0, none: 0, withHandle: 0, withDm: 0 };
   for (const d of rows) {
-    const ch = d.channel || CHN.channelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram, programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social' });
+    const ch = d.channel || CHN.campusChannelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram, programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social' });
     out[ch || 'none']++;
     if (CHN.hasHandle(d.contact_instagram)) out.withHandle++;
     if (d.dm_text || ch === 'dm') out.withDm++;
@@ -123,7 +123,7 @@ async function run(pool, universityId, opts = {}) {
         rating: d.rating, user_ratings_total: d.user_ratings_total };
       const ctx = { university: uni, team, business, contactName: name, sender };
       const sendTo = d.contact_email || d.c_email || d.c_shared || null;
-      const ch = d.channel || CHN.channelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram });
+      const ch = d.channel || CHN.campusChannelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram, brand: d.brand_name, city: require('./teamScan').cityOf(uni.location) });
       // A card whose person now has an address becomes an email card.
       if (ch !== 'email' && sendTo) {
         writerCalls++;
@@ -135,7 +135,8 @@ async function run(pool, universityId, opts = {}) {
         }
       }
       // Every card with a handle carries the DM.
-      const ig = d.contact_instagram || d.c_ig;
+      // Never a brand-wide account's DM (cardChannel.campusHandle).
+      const ig = CHN.campusHandle({ instagram: d.contact_instagram || d.c_ig, brand: d.brand_name, city: require('./teamScan').cityOf(uni.location) });
       if (!d.dm_text && CHN.hasHandle(ig)) {
         writerCalls++;
         const w = await TW.writeAsk({ ...ctx, dm: true }, { ai: opts.ai });

@@ -103,18 +103,28 @@ async function main() {
   await biz('Phone And Gram Cafe', 'cafe', { name: 'Ben Ruiz', phone: '(714) 555-0122', instagram: 'pgcafe' });
   await biz('Inbox Taqueria', 'mexican_restaurant', { name: 'Cora Vega', generic: 'hola@inboxtaq.test' });
   await biz('Nameless Barber', 'barber_shop', { email: 'shop@nameless.test' });
+  // A chain location whose site links the corporate account: never a team's DM.
+  await biz('Chain Grill Reachtown', 'restaurant', { name: 'Dee Fox', phone: '(714) 555-0133', instagram: 'chaingrill' });
   prompts.length = 0;
   await TS.runTeamScan(P, { universityId: U, teamId: 'rt:bb', limit: 5, mode: 'pitch', discoverPool: false, deps: { ai, contactsAi, night: '2026-10-12', socialPerTeam: 0 } });
   const cards = Object.fromEntries((await P.query(`SELECT * FROM university_drafts WHERE university_id = $1 AND night = '2026-10-12'`, [U])).rows.map((d) => [d.brand_name, d]));
   const mg = cards['Mail And Gram Gym'];
   ok('AN EMAIL AND A HANDLE: the email first, the DM written beside it', mg && mg.channel === 'email' && /^Hi Ann,/.test(mg.body) && /^Hi Ann,/.test(mg.dm_text || '') && mg.contact_instagram === 'maggym', mg);
+  const cg = cards['Chain Grill Reachtown'];
+  ok('A CHAIN LOCATION\'S CORPORATE HANDLE IS NOT ITS DM: a call card, no handle, no DM text', cg && cg.channel === 'call' && !cg.contact_instagram && !cg.dm_text, cg);
   const pg = cards['Phone And Gram Cafe'];
-  ok('A PHONE AND A HANDLE: the call card, and the DM too', pg && pg.channel === 'call' && /^Hi Ben,/.test(pg.dm_text || ''), pg);
+  // DM BEFORE CALL (cardChannel.campusChannelOf): a handle and a phone is a DM card,
+  // the phone beside it. It was a call card, and DM cards never happened.
+  ok('A PHONE AND A HANDLE: a DM card, the phone kept on it', pg && pg.channel === 'dm' && /^Hi Ben,/.test(pg.body || '') && !!pg.contact_phone && !!pg.contact_instagram, pg);
   ok('  the DM is short: 2 or 3 sentences, written as a DM', prompts.some((p) => /INSTAGRAM DIRECT MESSAGE[\s\S]*30 to 70 words/.test(p)) && String(mg.dm_text).split(/[.!?]/).filter((x) => x.trim()).length <= 5);
   const it = cards['Inbox Taqueria'];
   ok('A SHARED INBOX IS A SEND PATH: an email card to it, greeting the person by name, marked shared', it && it.channel === 'email' && it.contact_email === 'hola@inboxtaq.test'
     && it.email_is_shared === true && /^Hi Cora,/.test(it.body), it);
-  ok('NO PERSON, NO CARD', !cards['Nameless Barber'], Object.keys(cards));
+  // Free nights (the default): no person found free is still a card, written
+  // to the business, and "Find the owner" puts a name on it later.
+  const nb = cards['Nameless Barber'];
+  ok('NO PERSON YET, STILL A CARD: addressed to the business, to its inbox', nb && nb.channel === 'email' && !nb.contact_name
+    && /^Hi Nameless Barber team,/.test(nb.body) && nb.contact_email === 'shop@nameless.test', nb);
   const html = require('fs').readFileSync(REPO + 'public/university.html', 'utf8');
   ok('the portal shows the DM as the second action, with Copy and the Instagram link', /Or on Instagram/.test(html) && /Copy DM/.test(html) && /Mark DM sent/.test(html) && /shared inbox, not/.test(html));
   const home = require('fs').readFileSync(REPO + 'public/index.html', 'utf8');

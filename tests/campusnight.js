@@ -1,4 +1,11 @@
 'use strict';
+// Five cards a team here, not the night's default two: these fixtures climb
+// every rung (from file, social, bought for the card, new ground), and two
+// cards a team stops after the first two. tests/univperteam.js checks two.
+process.env.UNIVERSITY_CARDS_PER_TEAM = '5';
+// The paid night (contacts bought for the card, for tomorrow): what these
+// fixtures measure. tests/freenight.js covers the free night, the default.
+process.env.UNIVERSITY_NIGHT_PAID_CONTACTS = 'on';
 // Runs against the local test Postgres.
 //
 //   node tests/campusnight.js

@@ -54,6 +54,7 @@ body{padding-bottom:62px}
 .ribbon .book:hover{filter:brightness(1.08)}
 
 .shell{display:flex;min-width:0;max-width:100%;min-height:100%}
+.shell{min-height:100vh}
 nav.side{width:206px;flex:0 0 206px;padding:22px 14px 18px;background:var(--panel);border-right:1px solid #1B2433;display:flex;flex-direction:column;gap:14px}
 .brand{display:flex;align-items:center;gap:9px;padding:0 4px}
 .brand .mark{width:28px;height:28px;border-radius:8px;background:var(--lime);color:#0A0F17;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:16px}
@@ -481,17 +482,22 @@ const WORDS = ["Zero","One","Two","Three","Four","Five","Six","Seven","Eight","N
   "Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen","Twenty"];
 const word = n => WORDS[n] || String(n);
 
+/* ONLY SCREENS THAT WORK. A first customer should not see doors that do not
+   open: Outreach, Pipeline, Season Calendar, Reports, AI Command, Compliance
+   and Settings come back here as they ship. Sponsor Scan IS the business
+   list (id "sponsors": search, team and stage filters, named contact, reach,
+   best fit, distance, Write a pitch, the spreadsheet). */
 const NAV1 = [
-  ["home","Home"], ["scan","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"],
-  ["sponsors","Sponsors"], ["outreach","Outreach"], ["pipeline","Pipeline"],
-  ["calendar","Season Calendar"], ["reports","Reports"], ["command","AI Command"]
+  ["home","Home"], ["sponsors","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"]
 ];
-const NAV2 = [["compliance","Compliance"], ["settings","Settings"]];
-const LIVE = { home:true, sponsors:true, teams:true, inventory:true };      /* the screens built so far */
+const NAV2 = [];
+const LIVE = { home:true, sponsors:true, teams:true, inventory:true };
 
 let view = "home";
 let ME = null;              /* from /api/university/market/me: teams, stages, sender */
 let CARDS = [];             /* this morning's leads, /api/university/market/cards */
+let HOME_TEAM = "";          /* the team picker on Home: "" is All teams, best fit first */
+let HOME_SHOW_ALL = false;   /* All teams shows the best ten until asked for the rest */
 let CARDS_FAILED = false;   /* the read failed: say so, never "no leads written yet" */
 let NEAR = { total:0, withContact:0, rows:[] };
 let SP = { q:"", team:"", contact:true, stage:"", rows:[], total:0, loading:false };
@@ -636,8 +642,8 @@ function shell(){
     <div class="brand"><span class="mark">N</span><span class="word">NIL<br>DASH</span></div>
     <div class="eyebrow">UNIVERSITY PORTAL</div>
     <div class="navwrap"><div class="navlist" id="nav1"></div></div>
-    <div class="eyebrow">ADMINISTRATION</div>
-    <div class="navwrap"><div class="navlist" id="nav2" style="margin-top:-8px"></div></div>
+${NAV2.length ? `<div class="eyebrow">ADMINISTRATION</div>
+    <div class="navwrap"><div class="navlist" id="nav2" style="margin-top:-8px"></div></div>` : ""}
     <div class="who">
       <span class="av">${esc(initials(name))}</span>
       <span class="nm"><b>${esc(name)}</b><small>Athletics</small>
@@ -658,10 +664,9 @@ function shell(){
 }
 
 function paintNav(){
-  const row = ([id,label]) => `<button type="button" class="${id===view?"active":""}" ${
-    LIVE[id] ? `data-goto="${id}"` : `aria-disabled="true" title="Coming soon"`}>${esc(label)}</button>`;
-  $("nav1").innerHTML = NAV1.map(row).join("");
-  $("nav2").innerHTML = NAV2.map(row).join("");
+  const row = ([id,label]) => `<button type="button" class="${id===view?"active":""}" data-goto="${id}">${esc(label)}</button>`;
+  $("nav1").innerHTML = NAV1.filter(([id]) => LIVE[id]).map(row).join("");
+  if ($("nav2")) $("nav2").innerHTML = NAV2.filter(([id]) => LIVE[id]).map(row).join("");
   $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","Home"])[1];
 }
 
@@ -745,10 +750,10 @@ function reachLine(c){
    program  a brand's athlete program: the message, Copy, the page; Mark applied. */
 const CH_DONE = { email:"Mark contacted", call:"Mark called", dm:"Mark sent", program:"Mark applied" };
 const CH_CHIP = { call:"CALL", dm:"INSTAGRAM DM", program:"BRAND PROGRAM" };
-function leadCard(d){
+function leadCard(d, showTeam){
   const ch = d.channel || (d.contact_email ? "email" : "");
   const done = d.sent_at || (d.stage && d.stage !== "not_contacted");
-  const who = d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No named contact</span>`;
+  const who = d.contact_name ? `${esc(d.contact_name)}${d.contact_title ? ` <span>· ${esc(d.contact_title)}</span>` : ""}` : `<span>No name yet: the message goes to the business</span>`;
   const handle = String(d.contact_instagram || "").replace(/^@/,"");
   const doneBtn = done ? `<span class="chip green">${esc(stageLabel(d.stage || "contacted").toUpperCase())}</span>`
     : (CH_DONE[ch] ? `<button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-channel="${esc(ch)}" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">${CH_DONE[ch]}</button>` : "");
@@ -771,10 +776,10 @@ function leadCard(d){
     tools = `<a class="btn go sm" href="tel:${esc(d.contact_phone)}">Call</a>`;
   } else if (ch === "dm"){
     main = `<div class="who">${who}</div>
-      <div class="reach"><a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a></div>
+      <div class="reach"><a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a>${d.contact_phone ? `<a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a>` : ""}</div>
       ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
       <pre>${esc(d.body || "")}</pre>
-      <div class="why" style="opacity:.75">No email address for this person: send this as an Instagram message.</div>`;
+      <div class="why" style="opacity:.75">No email address: send this as an Instagram message${d.contact_phone ? ", or call the number" : ""}.</div>`;
     tools = `<button type="button" class="btn go sm" data-copytext="${esc(d.body || "")}">Copy message</button>
       <a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a>`;
   } else if (ch === "program"){
@@ -795,9 +800,19 @@ function leadCard(d){
           <a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a>
           ${done ? "" : `<button type="button" class="btn ghost sm" data-mark="${esc(d.id)}" data-channel="dm" data-brand="${esc(d.brand_name)}" data-team="${esc(d.team_id || "")}">Mark DM sent</button>`}</div></div>`
     : "";
+  /* NO NAME YET: the night uses only free sources. "Find the owner" is the
+     paid lookup for this one business (services/ownerLookup), never twice. */
+  const findOwner = !d.contact_name && d.lane !== "social" && !done
+    ? (d.owner_lookup_found === false
+      ? `<div class="why" style="opacity:.75">We looked for the owner and found no name. The message is addressed to the business.</div>`
+      : (ME && ME.me && ME.me.viewingAsAdmin ? "" : `<div class="toolrow"><button type="button" class="btn ghost sm" data-findowner="${esc(d.id)}">Find the owner</button>
+          <span class="why" style="opacity:.75">Looks up who runs it and puts their name on the message.</span></div>`))
+    : "";
   return `<div class="lead">
+    ${showTeam && d.team_name ? `<div class="why" style="margin:0 0 4px;letter-spacing:.06em;text-transform:uppercase;font-size:11px">${esc(d.team_name)}</div>` : ""}
     <div class="biz">${esc(d.brand_name)}${CH_CHIP[ch] ? ` <span class="chip">${CH_CHIP[ch]}</span>` : ""}${dmSecond ? ` <span class="chip">+ DM</span>` : ""}</div>
     ${main}
+    ${findOwner}
     <div class="toolrow">${tools}${doneBtn}</div>
     ${dmSecond}
   </div>`;
@@ -835,7 +850,7 @@ function vHome(){
     return `<div class="board">${intro}
       <div class="panel" style="margin-top:18px">
         <h3>No leads written yet</h3>
-        <p class="lede">The nightly run writes a few leads for every team once your department is set up. Until then, these are the closest businesses where we already know who to ask for. The full list is under Sponsors, and downloads as a spreadsheet.</p>
+        <p class="lede">The nightly run writes a few leads for every team once your department is set up. Until then, these are the closest businesses where we already know who to ask for. The full list is under Sponsor Scan, and downloads as a spreadsheet.</p>
         ${NEAR.rows.length ? `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Business</th><th>Kind</th><th>Who to ask for</th><th>Reach</th><th>Miles</th></tr></thead><tbody>
           ${NEAR.rows.map(r => `<tr><td data-l="BUSINESS"><span class="b">${esc(r.brand)}</span></td><td data-l="KIND"><span class="s">${esc(r.kind || "")}</span></td>
             <td data-l="WHO">${esc(r.contact.name || "")}${r.contact.title ? `<span class="s"> · ${esc(r.contact.title)}</span>` : ""}</td>
@@ -845,10 +860,30 @@ function vHome(){
         <div class="toolrow" style="margin-top:12px"><button type="button" class="btn ghost sm" data-goto="sponsors">See every business</button></div>
       </div></div>`;
   }
+  /* THE TEAM PICKER. All teams: every lead, best fit for its team first, the
+     top ten until "Show all". A team: only that team's leads. */
+  if (HOME_TEAM && !byTeam[HOME_TEAM]) HOME_TEAM = "";
+  const pick = (key, label, n) => `<button type="button" class="btn ${HOME_TEAM === key ? "go" : "ghost"} sm" data-hometeam="${esc(key)}">${esc(label)}${n != null ? ` <span style="opacity:.7">${n}</span>` : ""}</button>`;
+  const picker = `<div class="toolrow" style="margin-top:18px;flex-wrap:wrap;gap:6px">
+      ${pick("", "All teams, best first", CARDS.length)}
+      ${teamsWithLeads.map(t => pick(t, t, byTeam[t].length)).join("")}
+    </div>`;
+  let list;
+  if (HOME_TEAM){
+    list = `<div class="teamhead"><h3>${esc(HOME_TEAM)}</h3><span>${byTeam[HOME_TEAM].length} lead${byTeam[HOME_TEAM].length === 1 ? "" : "s"}</span></div>
+      <div class="leads">${byTeam[HOME_TEAM].map(d => leadCard(d)).join("")}</div>`;
+  } else {
+    const ranked = CARDS.slice().sort((a, b) => ((b.fit == null ? -1 : b.fit) - (a.fit == null ? -1 : a.fit))
+      || ((b.contact_name ? 1 : 0) - (a.contact_name ? 1 : 0)) || String(a.team_name || "").localeCompare(String(b.team_name || "")));
+    const shown = HOME_SHOW_ALL ? ranked : ranked.slice(0, 10);
+    list = `<div class="teamhead"><h3>Best ${HOME_SHOW_ALL ? "first" : "ten today"}</h3><span>${CARDS.length} lead${CARDS.length === 1 ? "" : "s"} across ${word(teamsWithLeads.length).toLowerCase()} team${teamsWithLeads.length === 1 ? "" : "s"}</span></div>
+      <div class="leads">${shown.map(d => leadCard(d, true)).join("")}</div>
+      ${ranked.length > shown.length ? `<div class="toolrow" style="margin-top:10px"><button type="button" class="btn ghost sm" data-homeall="1">Show all ${ranked.length}</button></div>` : ""}`;
+  }
   return `<div class="board">${intro}
-    <p class="lede" style="margin-top:18px">This morning's leads${night ? `, written ${esc(night)}` : ""}.</p>
-    ${teamsWithLeads.map(t => `<div class="teamhead"><h3>${esc(t)}</h3><span>${byTeam[t].length} lead${byTeam[t].length === 1 ? "" : "s"}</span></div>
-      <div class="leads">${byTeam[t].map(leadCard).join("")}</div>`).join("")}
+    <p class="lede" style="margin-top:18px">This morning's leads${night ? `, written ${esc(night)}` : ""}. Pick a team, or see the best across all of them.</p>
+    ${picker}
+    ${list}
   </div>`;
 }
 
@@ -875,7 +910,7 @@ function vSponsors(){
   const stages = (ME && ME.stages) || Object.keys(STAGE_TXT).map(k => ({ key:k, label:STAGE_TXT[k] }));
   return `<div class="board">
     <div class="head">
-      <h1>Sponsors</h1>
+      <h1>Sponsor Scan</h1>
       <p>Every business near campus NILDash has looked at, nearest first, or best fit first when you pick a team.
          Set where each one stands, write a pitch for a team, or download the list as a spreadsheet.</p>
     </div>
@@ -1059,14 +1094,30 @@ document.addEventListener("change", e => {
       .then(r => { toast(r.ok ? `${brand}: ${stageLabel(stage)}` : "Could not save that. Try again."); const row = SP.rows.find(x => x.brand === brand); if (row && r.ok) row.stage = stage; });
   }
 });
+async function findOwnerFor(id, btn){
+  if (btn) { btn.disabled = true; btn.textContent = "Looking..."; }
+  let r;
+  try {
+    r = await fetch(`/api/university/market/cards/${encodeURIComponent(id)}/find-owner`, { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body:"{}" });
+  } catch (_) { toast("Could not reach NILDash. Try again."); if (btn) { btn.disabled = false; btn.textContent = "Find the owner"; } return; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.error || "The lookup failed. Try again later."); if (btn) { btn.disabled = false; btn.textContent = "Find the owner"; } return; }
+  const i = CARDS.findIndex(x => x.id === id);
+  if (i >= 0) CARDS[i] = { ...CARDS[i], ...j.card, owner_lookup_found: j.found };
+  toast(j.found ? `Found ${String(j.card.contact_name || "the owner")}. The message now uses their name.` : "No owner name found. The message stays addressed to the business.");
+  paint();
+}
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close]");
+  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall]");
   if (!t) return;
   const copy = (txt) => { try { navigator.clipboard.writeText(txt); toast("Copied. Paste it into your email."); } catch (_) { toast("Select the text and copy it."); } };
   if (t.dataset.copy !== undefined){ const d = CARDS.find(x => x.id === t.dataset.copy); if (d) copy((d.subject ? "Subject: " + d.subject + "\n\n" : "") + (d.body || "")); return }
   if (t.dataset.copytext !== undefined){ copy(t.dataset.copytext); return }
   if (t.dataset.mark !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.mark, t.dataset.channel).then(() => { toast("Marked for your whole staff."); paint(); }); return }
   if (t.dataset.sent !== undefined){ markContacted(t.dataset.brand, t.dataset.team, t.dataset.sent).then(() => { if (view === "home") paint(); }); return }   /* the mailto opens as usual */
+  if (t.dataset.hometeam !== undefined){ HOME_TEAM = t.dataset.hometeam; HOME_SHOW_ALL = false; paint(); window.scrollTo({ top: 0 }); return }
+  if (t.dataset.homeall !== undefined){ HOME_SHOW_ALL = true; paint(); return }
+  if (t.dataset.findowner !== undefined){ findOwnerFor(t.dataset.findowner, t); return }
   if (t.dataset.pitch !== undefined){ writePitch(t.dataset.pitch); return }
   if (t.dataset.pickteam !== undefined){ if (window._pickTeam) window._pickTeam(t.dataset.pickteam); return }
   if (t.dataset.close !== undefined){ closeModal(); if (window._pickCancel) { window._pickCancel(); window._pickCancel = null; } return }

@@ -43,6 +43,8 @@ const SPORT_WORDS = {
   'flag football': /football|flag football|\bnfl\b|cleats|turf/i,
   golf: /golf|country club|driving range|putt|caddie|pro shop/i,
 };
+// Every spelling teamNames.canonicalName gives a sport finds its words.
+SPORT_WORDS['swim & dive'] = SPORT_WORDS['swimming & diving'] = SPORT_WORDS['swim and dive'] = SPORT_WORDS.swimming;
 const EVERY_TEAM = /gym|fitness|training|sports|athletic|physical therapy|chiropract|orthopedic|nutrition|smoothie|juice|sporting goods|dick'?s|big 5|uniform|screen print|embroider|trophy/i;
 const CATEGORY_ALL = { gym: 18, health: 16, wellness: 14, restaurant: 10, food: 10, coffee: 8, bank: 10, dealership: 10, insurance: 8,
   apparel: 10, retail: 6, auto: 8, education: 6, entertainment: 6, realestate: 6, services: 4, salon: 4, medspa: 4, pet: 3 };
@@ -169,6 +171,10 @@ async function resolveOne(row, ctx) {
       reachable: !!(f.person && f.person.name && (email || generic || f.phone || f.instagram)), ...extra };
   };
   if (freeDone(free)) return shape(free);
+  // FREE ONLY (the night, services/ownerLookup): what the free steps found and
+  // nothing bought. The owner search and the ladder run when a person on the
+  // department's staff asks for this business ("Find the owner").
+  if (ctx.free === 'only') return shape(free || { steps: [], placesCalls: 0 }, { freeOnly: true });
   // 4. A way to reach them but no person: the owner by name (search, state filings).
   if (free && free.reach && !free.person) {
     try {
@@ -206,7 +212,9 @@ async function resolveOne(row, ctx) {
   // What the free steps found stands; the ladder fills what they did not.
   if (!person && free && free.person) person = free.person;
   const phone = (person && person.phone) || (res && res.businessPhone) || (free && free.phone) || null;
-  const instagram = res && res.instagram ? String(res.instagram).replace(/^@/, '') : (free && free.instagram) || null;
+  // A brand-wide handle (the lookup's own verdict, instagramLookup) is not
+  // this location's: never stored as theirs, so never a DM.
+  const instagram = res && res.instagram && res.instagramScope !== 'brand' ? String(res.instagram).replace(/^@/, '') : (free && free.instagram) || null;
   const all = (res && res.contacts) || [];
   const urlLike = (re) => (all.map((c) => [c.sourceUrl, c.linkedinUrl]).flat().find((u) => u && re.test(u))) || null;
   // ── ATHLETE OR NIL HISTORY: cited, or nothing ─────────────────────────────
@@ -349,7 +357,7 @@ async function resolveAndStore(pool, universityId, row, opts = {}) {
      WHERE university_id = $1 AND brand = $2`,
     [universityId, row.brand, out.contact_name, out.contact_title, out.email, out.email_source, out.phone, out.instagram, out.website,
       out.facebook, out.linkedin, JSON.stringify(out.sources || []), out.athlete_history, out.athlete_history_note, out.reachable,
-      out.reachable ? 'reachable' : 'unreachable', c, out.generic_email || null]);
+      out.reachable ? 'reachable' : out.freeOnly ? 'free-checked' : 'unreachable', c, out.generic_email || null]);
   return { reachable: !!out.reachable, costUsd: c, error: null, out, free: !!out.free };
 }
 
@@ -427,12 +435,13 @@ async function report(pool, universityId) {
   // writer: one ask, sometimes a lint retry, on the team writer's model.
   const perAsk = parseFloat(process.env.UNIVERSITY_ASK_USD) || 0.02;
   const asksPerCard = 1.3;
-  const nightly = Math.round(teams * 5 * asksPerCard * perAsk * 100) / 100;
+  const perTeam = require('./campusNightly').PER_TEAM;
+  const nightly = Math.round(teams * perTeam * asksPerCard * perAsk * 100) / 100;
   return {
     university: u && u.name, marketKey: u && u.marketKey, pool: pc, contacts: c, teams,
     hitRate: c.resolved ? c.reachable / c.resolved : null,
     poolCostUsd: Math.round(poolCost * 100) / 100, contactsCostUsd: Math.round(c.contacts_cost * 100) / 100,
-    nightly: { cards: teams * 5, usd: nightly, assumes: `${asksPerCard} writer calls a card at $${perAsk} (contacts already resolved, so no lookup cost)` },
+    nightly: { cards: teams * perTeam, perTeam, usd: nightly, assumes: `${asksPerCard} writer calls a card at $${perAsk} (contacts already resolved, so no lookup cost)` },
     running: isRunning(universityId),
   };
 }
@@ -447,7 +456,7 @@ function formatReport(r) {
       + `${c.pending ? `  (${c.pending} still pending)` : ''}${c.errors ? `  (${c.errors} failed on our side, will retry)` : ''}`,
     `   with email ${c.with_email}, with phone ${c.with_phone}, Instagram DM only ${c.dm_only}; named but no way to reach ${c.named - c.reachable}; athlete/NIL history ${c.history}`,
     `2. COST OF THE DEEP BUILD: pool $${r.poolCostUsd.toFixed(2)} + contacts $${r.contactsCostUsd.toFixed(2)} = $${(r.poolCostUsd + r.contactsCostUsd).toFixed(2)}`,
-    `3. NIGHTLY ESTIMATE: ${r.nightly.cards} cards (${r.teams} teams x 5) about $${r.nightly.usd.toFixed(2)} a night; ${r.nightly.assumes}`,
+    `3. NIGHTLY ESTIMATE: ${r.nightly.cards} cards (${r.teams} teams x ${r.nightly.perTeam}) about $${r.nightly.usd.toFixed(2)} a night; ${r.nightly.assumes}`,
     r.hitRate !== null && r.hitRate < 0.6 ? 'UNDER 60%: this is the product problem; stop before the UI.' : '',
   ].filter(Boolean).join('\n');
 }
