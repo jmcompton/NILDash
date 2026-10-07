@@ -5384,6 +5384,14 @@ const ADMIN_SCRIPTS = {
   // The free contact steps across a university's named people (the website on
   // file for an email, the Instagram handle it links to) and the latest
   // night's cards brought up to date. Dry run unless apply=1. Sends nothing.
+  // A university's duplicate teams ("Swim & Dive" and "Swimming & Diving")
+  // merged into one: athletes, cards and every team row moved, the duplicate
+  // deleted. Dry run unless apply=1.
+  'merge-duplicate-teams': { file: 'scripts/merge-duplicate-teams.js', args: (q) => {
+    const u = String(q.university || 'univ-cypress');
+    if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });
+    return ['--university', u].concat(q.apply === '1' ? ['--apply'] : []);
+  } },
   'campus-reach': { file: 'scripts/campus-reach.js', args: (q) => {
     const u = String(q.university || 'univ-cypress');
     if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });

@@ -65,11 +65,19 @@ function discoverTeams(html, baseUrl) {
     if (m[2]) t.seasons.add(m[2]);
     teams.set(code, t);
   });
-  return [...teams.values()].map((t) => ({
-    code: t.code,
-    name: bestName(t.labels, t.code),
-    seasons: [...t.seasons].sort().reverse(),
-  })).slice(0, MAX_TEAMS);
+  // ONE TEAM PER SPORT, NOT PER CODE: two codes whose names are the same team
+  // (teamNames.teamKey) collapse into one, keeping every code to try for the
+  // roster and every season the site links.
+  const TN = require('./teamNames');
+  const byKey = new Map();
+  for (const t of teams.values()) {
+    const name = bestName(t.labels, t.code);
+    const k = TN.teamKey(name);
+    const seen = byKey.get(k);
+    if (seen) { seen.codes.push(t.code); for (const x of t.seasons) seen.seasons.add(x); continue; }
+    byKey.set(k, { code: t.code, codes: [t.code], name, seasons: new Set(t.seasons) });
+  }
+  return [...byKey.values()].map((t) => ({ code: t.code, codes: t.codes, name: t.name, seasons: [...t.seasons].sort().reverse() })).slice(0, MAX_TEAMS);
 }
 
 // The label a person would use: "Men's Basketball" over "Basketball" over the code.
@@ -83,6 +91,9 @@ const CODE_NAMES = {
   wflag: 'Flag Football', wflagfb: 'Flag Football',
 };
 function bestName(labels, code) {
+  return require('./teamNames').canonicalName(bestLabel(labels, code));
+}
+function bestLabel(labels, code) {
   const gendered = labels.find((l) => /\b(men|women)'?s\b/i.test(l) && /[a-z]/i.test(l));
   if (gendered) return gendered.replace(/\s+/g, ' ');
   if (CODE_NAMES[code]) return CODE_NAMES[code];
@@ -199,7 +210,8 @@ async function importRosters(pool, { universityId, siteUrl, now } = {}, deps = {
   let athletes = 0;
   for (const t of found) {
     let roster = null, tried = [];
-    for (const url of rosterUrls(site.href, t, now)) {
+    const urls = (t.codes || [t.code]).flatMap((code) => rosterUrls(site.href, { ...t, code }, now));
+    for (const url of urls) {
       const r = await getPage(url, deps);
       tried.push(`${url} (${r.ok ? r.status : (r.error || r.status)})`);
       if (!r.ok) continue;
@@ -207,7 +219,9 @@ async function importRosters(pool, { universityId, siteUrl, now } = {}, deps = {
       if (players.length) { roster = { url: r.url || url, players }; break; }
     }
     if (!roster) { skipped.push({ name: t.name, code: t.code, why: 'no roster with players found', tried }); continue; }
-    const same = existing.find((e) => lc(e.name) === lc(t.name));
+    // The same team already on file under any spelling (teamNames.teamKey).
+    const TN = require('./teamNames');
+    const same = existing.find((e) => TN.teamKey(e.name) === TN.teamKey(t.name));
     const teamId = same ? same.id : `${uni.id}:${t.code}`;
     await pool.query(
       `INSERT INTO university_teams (id, university_id, name, sport, season, roster_size, market_key, source, roster_url, roster_imported_at)

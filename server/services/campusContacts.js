@@ -43,6 +43,8 @@ const SPORT_WORDS = {
   'flag football': /football|flag football|\bnfl\b|cleats|turf/i,
   golf: /golf|country club|driving range|putt|caddie|pro shop/i,
 };
+// Every spelling teamNames.canonicalName gives a sport finds its words.
+SPORT_WORDS['swim & dive'] = SPORT_WORDS['swimming & diving'] = SPORT_WORDS['swim and dive'] = SPORT_WORDS.swimming;
 const EVERY_TEAM = /gym|fitness|training|sports|athletic|physical therapy|chiropract|orthopedic|nutrition|smoothie|juice|sporting goods|dick'?s|big 5|uniform|screen print|embroider|trophy/i;
 const CATEGORY_ALL = { gym: 18, health: 16, wellness: 14, restaurant: 10, food: 10, coffee: 8, bank: 10, dealership: 10, insurance: 8,
   apparel: 10, retail: 6, auto: 8, education: 6, entertainment: 6, realestate: 6, services: 4, salon: 4, medspa: 4, pet: 3 };
