@@ -212,7 +212,9 @@ async function resolveOne(row, ctx) {
   // What the free steps found stands; the ladder fills what they did not.
   if (!person && free && free.person) person = free.person;
   const phone = (person && person.phone) || (res && res.businessPhone) || (free && free.phone) || null;
-  const instagram = res && res.instagram ? String(res.instagram).replace(/^@/, '') : (free && free.instagram) || null;
+  // A brand-wide handle (the lookup's own verdict, instagramLookup) is not
+  // this location's: never stored as theirs, so never a DM.
+  const instagram = res && res.instagram && res.instagramScope !== 'brand' ? String(res.instagram).replace(/^@/, '') : (free && free.instagram) || null;
   const all = (res && res.contacts) || [];
   const urlLike = (re) => (all.map((c) => [c.sourceUrl, c.linkedinUrl]).flat().find((u) => u && re.test(u))) || null;
   // ── ATHLETE OR NIL HISTORY: cited, or nothing ─────────────────────────────

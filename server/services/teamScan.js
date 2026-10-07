@@ -603,7 +603,10 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     // Their own address first; a shared inbox (info@) over nothing: it is a
     // way to send, addressed to them by name, just not their own address.
     const sendTo = c.email || c.generic_email || null;
-    const channel = CHN.channelOf({ email: sendTo, phone: c.phone, instagram: c.instagram, programUrl: c.social ? (c.program_url || c.website) : null, social: c.social });
+    // A brand-wide handle (a chain location linking to the corporate account)
+    // is never this business's DM (cardChannel.campusHandle).
+    if (!c.social) c.instagram = CHN.campusHandle({ instagram: c.instagram, brand: c.brand_name, city: cityOf(university.location) });
+    const channel = CHN.campusChannelOf({ email: sendTo, phone: c.phone, instagram: c.instagram, programUrl: c.social ? (c.program_url || c.website) : null, social: c.social });
     if (!channel) {
       await pool.query(`DELETE FROM university_research_claims WHERE team_id = $1 AND brand_key = $2 AND night = $3`, [team.id, brandKey, night]).catch(() => {});
       out.skipped.push({ brand: c.brand_name, why: 'no email, phone or Instagram for the person: no way to reach them', stage: 'owner' });

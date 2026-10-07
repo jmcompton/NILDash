@@ -103,13 +103,17 @@ async function main() {
   await biz('Phone And Gram Cafe', 'cafe', { name: 'Ben Ruiz', phone: '(714) 555-0122', instagram: 'pgcafe' });
   await biz('Inbox Taqueria', 'mexican_restaurant', { name: 'Cora Vega', generic: 'hola@inboxtaq.test' });
   await biz('Nameless Barber', 'barber_shop', { email: 'shop@nameless.test' });
+  // A chain location whose site links the corporate account: never a team's DM.
+  await biz('Chain Grill Reachtown', 'restaurant', { name: 'Dee Fox', phone: '(714) 555-0133', instagram: 'chaingrill' });
   prompts.length = 0;
   await TS.runTeamScan(P, { universityId: U, teamId: 'rt:bb', limit: 5, mode: 'pitch', discoverPool: false, deps: { ai, contactsAi, night: '2026-10-12', socialPerTeam: 0 } });
   const cards = Object.fromEntries((await P.query(`SELECT * FROM university_drafts WHERE university_id = $1 AND night = '2026-10-12'`, [U])).rows.map((d) => [d.brand_name, d]));
   const mg = cards['Mail And Gram Gym'];
   ok('AN EMAIL AND A HANDLE: the email first, the DM written beside it', mg && mg.channel === 'email' && /^Hi Ann,/.test(mg.body) && /^Hi Ann,/.test(mg.dm_text || '') && mg.contact_instagram === 'maggym', mg);
+  const cg = cards['Chain Grill Reachtown'];
+  ok('A CHAIN LOCATION\'S CORPORATE HANDLE IS NOT ITS DM: a call card, no handle, no DM text', cg && cg.channel === 'call' && !cg.contact_instagram && !cg.dm_text, cg);
   const pg = cards['Phone And Gram Cafe'];
-  // DM BEFORE CALL (cardChannel.channelOf): a handle and a phone is a DM card,
+  // DM BEFORE CALL (cardChannel.campusChannelOf): a handle and a phone is a DM card,
   // the phone beside it. It was a call card, and DM cards never happened.
   ok('A PHONE AND A HANDLE: a DM card, the phone kept on it', pg && pg.channel === 'dm' && /^Hi Ben,/.test(pg.body || '') && !!pg.contact_phone && !!pg.contact_instagram, pg);
   ok('  the DM is short: 2 or 3 sentences, written as a DM', prompts.some((p) => /INSTAGRAM DIRECT MESSAGE[\s\S]*30 to 70 words/.test(p)) && String(mg.dm_text).split(/[.!?]/).filter((x) => x.trim()).length <= 5);

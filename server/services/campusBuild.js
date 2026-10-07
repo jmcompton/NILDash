@@ -252,7 +252,7 @@ async function verify(pool, universityId) {
     .catch(() => ({ rows: [] })))).rows;
   const cardsByChannel = { email: 0, call: 0, dm: 0, program: 0, none: 0 };
   for (const d of latest) {
-    const ch = d.channel || CHN.channelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
+    const ch = d.channel || CHN.campusChannelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
       programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social' });
     cardsByChannel[ch || 'none']++;
   }

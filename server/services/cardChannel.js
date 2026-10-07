@@ -8,10 +8,11 @@
 // for the agent side and the university side alike:
 //
 //   email    an email address on file. The only card that is an email.
-//   dm       an Instagram handle and no email: the message and a copy
-//            button, the phone beside it if there is one. Done = "mark as sent".
-//   call     a phone, no email and no handle: who, the number, the best time
-//            to call, three talking points. NO email body. Done = "mark as called".
+//   call     a phone and no email: who, the number, the best time to call,
+//            three talking points. NO email body. Done = "mark as called".
+//   dm       an Instagram handle and nothing else: the message and a copy
+//            button. Done = "mark as sent".
+//   (The university side puts dm before call: campusChannelOf below.)
 //   program  a brand's athlete-program page (the social rung): the message,
 //            a copy button, the page. Done = "mark as applied".
 //   null     no way to reach anyone: no card at all.
@@ -24,16 +25,44 @@ function hasEmail(v) { return EMAIL_RE.test(String(v || '').trim()); }
 function hasPhone(v) { return String(v || '').replace(/\D/g, '').length >= 7; }
 function hasHandle(v) { return /^@?[a-z0-9._]{2,30}$/i.test(String(v || '').trim()); }
 
-// The channel a card has, from what is on file. Email wins whenever there is
-// one; then the Instagram DM; a call only when there is neither.
-// DM BEFORE CALL. It was the other way round, and nearly every business on a
-// Google listing has a phone, so a handle never made a DM card: Cypress had
-// 66 handles on 88 businesses and cardsByChannel.dm was 0 every night. The
-// agent side's own route (outreachQueue.channelFor) already put DM first.
+// The channel a card has, from what is on file. Email wins whenever there is one.
+// THE AGENT SIDE'S ORDER, unchanged: email, then call, then DM. (The agent
+// night picks its own cards' channel in outreachQueue.channelFor; this is the
+// order its conversions use: draftChannel.convert, approvedBacklog.)
 function channelOf({ email, phone, instagram, programUrl, social } = {}) {
   if (hasEmail(email)) return 'email';
   if (social || programUrl) return programUrl ? 'program' : null;
+  if (hasPhone(phone)) return 'call';
   if (hasHandle(instagram)) return 'dm';
+  return null;
+}
+
+// ── THE UNIVERSITY SIDE: DM BEFORE CALL, never to a brand-wide account ──────
+// channelOf put the phone first, and nearly every business on a Google
+// listing has a phone, so a handle never made a DM card: Cypress had 66
+// handles on 88 businesses and cardsByChannel.dm was 0 every night. The
+// university callers (the night, the portal, the status count, the on-demand
+// pitch, campusReach) use this order: email, then DM, then call.
+//
+// A BRAND-WIDE HANDLE IS NOT A ROUTE TO THIS LOCATION: the agent night's rule
+// (outreachQueue.channelFor, instagramLookup.handleVerdict), ported. A store
+// whose name carries its town and whose handle does not ("85°C Bakery Cafe
+// Cypress" and @85cbakerycafe) is a chain location linking to the corporate
+// account; a team never DMs it. scope 'brand' from a lookup says the same.
+function campusHandle({ instagram, instagramScope, brand, city } = {}) {
+  if (!hasHandle(instagram)) return null;
+  if (instagramScope === 'brand') return null;
+  const h = String(instagram).trim().replace(/^@/, '');
+  if (brand) {
+    const v = require('./instagramLookup').handleVerdict(h.toLowerCase(), brand, city || '');
+    if (v === 'brand') return null;
+  }
+  return h;
+}
+function campusChannelOf({ email, phone, instagram, instagramScope, programUrl, social, brand, city } = {}) {
+  if (hasEmail(email)) return 'email';
+  if (social || programUrl) return programUrl ? 'program' : null;
+  if (campusHandle({ instagram, instagramScope, brand, city })) return 'dm';
   if (hasPhone(phone)) return 'call';
   return null;
 }
@@ -87,4 +116,4 @@ function callText({ contactName, phone, best, points }) {
     ...points.map((p, i) => `${i + 1}. ${p}`)].filter((x) => x !== null).join('\n');
 }
 
-module.exports = { channelOf, canSend, bestTime, talkingPoints, callText, hasEmail, hasPhone, hasHandle, ACTION };
+module.exports = { channelOf, campusChannelOf, campusHandle, canSend, bestTime, talkingPoints, callText, hasEmail, hasPhone, hasHandle, ACTION };

@@ -269,8 +269,8 @@ async function defaultSender(pool, universityId) {
 // not shown as something to send.
 function cardForPortal(d, universityName) {
   const CHN = require('./cardChannel');
-  const channel = d.channel || CHN.channelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
-    programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social' });
+  const channel = d.channel || CHN.campusChannelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
+    programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social', brand: d.lane === 'social' ? null : d.brand_name });
   const out = { ...d, channel, sendable: channel === 'email' };
   if (channel === 'call' && !d.talking_points) {
     out.best_time = d.best_time || CHN.bestTime(String(d.why || '') + ' ' + String(d.brand_name || ''));
@@ -311,7 +311,9 @@ async function pitch(pool, universityId, userId, opts) {
   const CHN = require('./cardChannel');
   if (!String(biz.contact.name || '').trim()) return { ok: false, status: 422, error: 'there is no named person at this business yet: every email and DM is written to someone by name' };
   const sendTo = biz.contact.email || biz.contact.sharedEmail || null;
-  const channel = CHN.channelOf({ email: sendTo, phone: biz.contact.phone, instagram: biz.contact.instagram });
+  // A brand-wide handle is not this location's DM (cardChannel.campusHandle).
+  biz.contact.instagram = CHN.campusHandle({ instagram: biz.contact.instagram, brand: biz.brand, city: require('./teamScan').cityOf(u.location) });
+  const channel = CHN.campusChannelOf({ email: sendTo, phone: biz.contact.phone, instagram: biz.contact.instagram });
   if (!channel) return { ok: false, status: 422, error: 'there is no email, phone or Instagram for anyone at this business yet, so there is no one to reach' };
   let w, best = null, points = null;
   if (channel === 'call') {
