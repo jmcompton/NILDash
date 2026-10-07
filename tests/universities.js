@@ -1,4 +1,8 @@
 'use strict';
+// Five cards a team here, not the night's default two: these fixtures climb
+// every rung (from file, social, bought for the card, new ground), and two
+// cards a team stops after the first two. tests/univperteam.js checks two.
+process.env.UNIVERSITY_CARDS_PER_TEAM = '5';
 // Runs against the local test Postgres. No network: the athletics site, Places
 // and the contact ladder are stand-ins.
 //

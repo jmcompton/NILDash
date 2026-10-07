@@ -1,7 +1,8 @@
 'use strict';
-// ── A DEPARTMENT'S NIGHT: FIVE CARDS FOR EVERY TEAM ─────────────────────────
+// ── A DEPARTMENT'S NIGHT: TWO CARDS FOR EVERY TEAM ──────────────────────────
 //
-// Every team gets five cards each morning: a business in town, the named human
+// Every team gets PER_TEAM cards each morning (two: one social brand, one
+// local business): a business in town, the named human
 // there and how to reach them, the team, why, and a pitch signed by the
 // department's sender. One loop per team, the shared one (teamScan, mode
 // 'pitch'): never a lower bar, and a team that comes up short is an ourFault
@@ -15,7 +16,12 @@
 //   POST /api/admin/campus/:universityId/nightly   run one now (admin)
 const WINDOW_START_HOUR = parseInt(process.env.UNIVERSITY_NIGHT_START_HOUR_CT, 10) || 1;   // 1am Central = 11pm Pacific
 const WINDOW_END_HOUR = parseInt(process.env.UNIVERSITY_NIGHT_END_HOUR_CT, 10) || 5;
-const PER_TEAM = 5;
+// TWO A TEAM, NOT FIVE. Cypress, Oct 6: 17 teams x 5 = 85 cards wanted, the
+// $5 cap ran out at 41 ($4.87), and the teams at the end of the rotation got
+// nothing (Flag Football 0, Beach Volleyball 1 of 5). Two a team (one social
+// seat, one local) is 34 cards, what $5 actually sustains, and every team
+// gets its cards every night. UNIVERSITY_CARDS_PER_TEAM can set 1-5.
+const PER_TEAM = Math.min(5, Math.max(1, parseInt(process.env.UNIVERSITY_CARDS_PER_TEAM, 10) || 2));
 // ── THE WHOLE NIGHT HAS ONE CAP ─────────────────────────────────────────────
 // Each team stops at its own ceiling (teamScan UNIVERSITY_TEAM_COST_CEILING_USD,
 // $1.50: contact lookups and the writer). That alone let fifteen teams spend
@@ -72,7 +78,7 @@ async function ranTonight(pool, universityId, night) {
 // The night used to only SPEND: it read the contacts the build had bought and
 // turned them into cards, 85 of 88 in one night, and the next night had
 // nothing. Now it works like the agents' night, which finds as it goes:
-//   cards      every team's five, up the ladder (teamScan): contacts on file,
+//   cards      every team's PER_TEAM, up the ladder (teamScan): contacts on file,
 //              one social brand, the rest from file, contacts bought for the
 //              card, new ground. At most CARDS_USD of the cap.
 //   discovery  new ground every night (campusDiscovery: squares and searches
@@ -108,15 +114,15 @@ async function reserve(pool, universityId) {
     [universityId, u.marketKey, TS.PITCH_REST_DAYS]).catch(() => ({ rows: [{ n: 0 }] }))).rows[0].n;
 }
 
-// THE CARD RATE: named contacts a full night uses -- every team's five less
-// its social seat. Not last night's count from file: as the reserve empties
+// THE CARD RATE: named contacts a full night uses -- every team's PER_TEAM
+// less its social seat. Not last night's count from file: as the reserve empties
 // that count falls with it, and the runway would look longer the closer the
 // list came to empty.
 async function localRate(pool, universityId) {
   const TS = require('./teamScan');
   const teams = (await pool.query(`SELECT COUNT(*)::int n FROM university_teams WHERE university_id = $1`, [universityId])).rows[0].n;
   const seat = Math.min(PER_TEAM, TS.SOCIAL_PER_TEAM);
-  return { rate: teams * (PER_TEAM - seat), from: `${teams} teams x ${PER_TEAM - seat} (five less the social seat)` };
+  return { rate: teams * (PER_TEAM - seat), from: `${teams} teams x ${PER_TEAM - seat} (${PER_TEAM} a team less the social seat)` };
 }
 
 // Unused named contacts, nights of runway at the current card rate, and
@@ -285,7 +291,7 @@ function formatNight(s) {
 }
 
 // ── WHAT ONE NIGHT WILL COST, BEFORE IT RUNS (spends nothing) ───────────────
-// Cards: every team's five. The social seat (one a team, while the social list
+// Cards: every team's PER_TEAM. The social seat (one a team, while the social list
 // has brands for it) costs the email only. The rest come from contacts on file
 // first (the email only), then contacts bought for the card. Discovery is its
 // pot. Contacts for tomorrow take what the cap has left, until the reserve

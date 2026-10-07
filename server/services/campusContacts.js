@@ -427,12 +427,13 @@ async function report(pool, universityId) {
   // writer: one ask, sometimes a lint retry, on the team writer's model.
   const perAsk = parseFloat(process.env.UNIVERSITY_ASK_USD) || 0.02;
   const asksPerCard = 1.3;
-  const nightly = Math.round(teams * 5 * asksPerCard * perAsk * 100) / 100;
+  const perTeam = require('./campusNightly').PER_TEAM;
+  const nightly = Math.round(teams * perTeam * asksPerCard * perAsk * 100) / 100;
   return {
     university: u && u.name, marketKey: u && u.marketKey, pool: pc, contacts: c, teams,
     hitRate: c.resolved ? c.reachable / c.resolved : null,
     poolCostUsd: Math.round(poolCost * 100) / 100, contactsCostUsd: Math.round(c.contacts_cost * 100) / 100,
-    nightly: { cards: teams * 5, usd: nightly, assumes: `${asksPerCard} writer calls a card at $${perAsk} (contacts already resolved, so no lookup cost)` },
+    nightly: { cards: teams * perTeam, perTeam, usd: nightly, assumes: `${asksPerCard} writer calls a card at $${perAsk} (contacts already resolved, so no lookup cost)` },
     running: isRunning(universityId),
   };
 }
@@ -447,7 +448,7 @@ function formatReport(r) {
       + `${c.pending ? `  (${c.pending} still pending)` : ''}${c.errors ? `  (${c.errors} failed on our side, will retry)` : ''}`,
     `   with email ${c.with_email}, with phone ${c.with_phone}, Instagram DM only ${c.dm_only}; named but no way to reach ${c.named - c.reachable}; athlete/NIL history ${c.history}`,
     `2. COST OF THE DEEP BUILD: pool $${r.poolCostUsd.toFixed(2)} + contacts $${r.contactsCostUsd.toFixed(2)} = $${(r.poolCostUsd + r.contactsCostUsd).toFixed(2)}`,
-    `3. NIGHTLY ESTIMATE: ${r.nightly.cards} cards (${r.teams} teams x 5) about $${r.nightly.usd.toFixed(2)} a night; ${r.nightly.assumes}`,
+    `3. NIGHTLY ESTIMATE: ${r.nightly.cards} cards (${r.teams} teams x ${r.nightly.perTeam}) about $${r.nightly.usd.toFixed(2)} a night; ${r.nightly.assumes}`,
     r.hitRate !== null && r.hitRate < 0.6 ? 'UNDER 60%: this is the product problem; stop before the UI.' : '',
   ].filter(Boolean).join('\n');
 }

@@ -15513,7 +15513,7 @@ try {
 }
 
 // ── A department's night (services/campusNightly) ───────────────────────────
-// Once per Central date, 1-5am: five cards for every team at every university
+// Once per Central date, 1-5am: CN.PER_TEAM cards (two) for every team at every university
 // with staff and a worked contact pool. A team short of five is a
 // 'nightly-floor' fault naming it, read by the morning alert.
 try {
@@ -15521,7 +15521,7 @@ try {
   const cnTick = () => { CN.tick(store.pool).catch((e) => console.error('[campus-nightly] tick failed:', e.message)); };
   setTimeout(cnTick, 5 * 60 * 1000);
   setInterval(cnTick, 15 * 60 * 1000);
-  console.log(`[campus-nightly] scheduled: five cards a team once a night ${CN.WINDOW_START_HOUR}-${CN.WINDOW_END_HOUR}am Central`);
+  console.log(`[campus-nightly] scheduled: ${CN.PER_TEAM} cards a team once a night ${CN.WINDOW_START_HOUR}-${CN.WINDOW_END_HOUR}am Central`);
 } catch (e) {
   console.error('[campus-nightly] scheduler failed to start:', e.message);
 }
