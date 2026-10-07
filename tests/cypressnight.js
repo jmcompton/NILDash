@@ -76,9 +76,14 @@ async function main() {
                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [U, MK, brand, 'cy-' + i, name, name ? 'Owner' : null, email, phone, handle, !!(name && reach), name && reach ? 'reachable' : reach ? 'free-checked' : 'pending']);
   }
-  for (let i = 0; i < 123; i++) {   // Cypress's lookup history
+  // CYPRESS'S LOOKUP HISTORY, EXACTLY: 123 lookups, 107 named, $0.083 each.
+  // The named contacts above were bought too, so they are part of the 123 and
+  // carry the cost; the rest of the history makes up the difference.
+  const onFile = (await P.query(`SELECT COUNT(*)::int n FROM university_contacts WHERE university_id = $1 AND status = 'reachable'`, [U])).rows[0].n;
+  await P.query(`UPDATE university_contacts SET cost_usd = 0.083 WHERE university_id = $1 AND status = 'reachable'`, [U]);
+  for (let i = 0; i < 123 - onFile; i++) {
     await P.query(`INSERT INTO university_contacts (university_id, market_key, brand, status, reachable, cost_usd) VALUES ($1,'(history)',$2,$3,$4,0.083)`,
-      [U, 'History ' + i, i < 107 ? 'reachable' : 'unreachable', i < 107]);
+      [U, 'History ' + i, i < 107 - onFile ? 'reachable' : 'unreachable', i < 107 - onFile]);
   }
   for (let i = 0; i < 20; i++) {
     await P.query(`INSERT INTO university_social_brands (university_id, brand, website, program_url, category, sports, proof_date, offer, evidence)
@@ -97,7 +102,8 @@ async function main() {
   ok('NO TEAM STOPS ON THE NIGHT CAP', capped.length === 0, capped.map((t) => t.team));
   ok('CARDSBYCHANNEL.DM > 0', v.cardsByChannel && v.cardsByChannel.dm > 0, v.cardsByChannel);
   ok('THE NIGHT COSTS $5 OR LESS (stubbed lookups cost nothing here: see the estimate)', r.costUsd <= 5 && est.totalUsd[0] <= 5, { night: r.costUsd, projected: est.totalUsd });
-  ok('  the projection uses the school\'s measured rate, not list price', /lookups so far/.test(est.costFrom) && est.perLookupUsd < 0.1, est);
+  ok('  the projection uses the measured rate: $0.083 a lookup, $0.10 a name, from 123 lookups', est.perLookupUsd === 0.083 && est.perNamedUsd === 0.1
+    && /this university's 123 lookups/.test(est.costFrom), { perLookupUsd: est.perLookupUsd, perNamedUsd: est.perNamedUsd, costFrom: est.costFrom });
   OUT.push(`cards ${r.cards} of ${r.target}; by channel ${JSON.stringify(v.cardsByChannel)}; names ${JSON.stringify(r.names)}`);
   await clean();
 }
