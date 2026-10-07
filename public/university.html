@@ -53,7 +53,7 @@ body{padding-bottom:62px}
   text-decoration:none;white-space:nowrap}
 .ribbon .book:hover{filter:brightness(1.08)}
 
-.shell{display:flex;min-width:0;max-width:100%;min-height:100%}
+.shell{display:flex;min-width:0;max-width:100%;min-height:100%;min-height:100vh}
 nav.side{width:206px;flex:0 0 206px;padding:22px 14px 18px;background:var(--panel);border-right:1px solid #1B2433;display:flex;flex-direction:column;gap:14px}
 .brand{display:flex;align-items:center;gap:9px;padding:0 4px}
 .brand .mark{width:28px;height:28px;border-radius:8px;background:var(--lime);color:#0A0F17;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:16px}
@@ -481,13 +481,16 @@ const WORDS = ["Zero","One","Two","Three","Four","Five","Six","Seven","Eight","N
   "Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen","Twenty"];
 const word = n => WORDS[n] || String(n);
 
+/* ONLY SCREENS THAT WORK. A first customer should not see doors that do not
+   open: Outreach, Pipeline, Season Calendar, Reports, AI Command, Compliance
+   and Settings come back here as they ship. Sponsor Scan IS the business
+   list (id "sponsors": search, team and stage filters, named contact, reach,
+   best fit, distance, Write a pitch, the spreadsheet). */
 const NAV1 = [
-  ["home","Home"], ["scan","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"],
-  ["sponsors","Sponsors"], ["outreach","Outreach"], ["pipeline","Pipeline"],
-  ["calendar","Season Calendar"], ["reports","Reports"], ["command","AI Command"]
+  ["home","Home"], ["sponsors","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"]
 ];
-const NAV2 = [["compliance","Compliance"], ["settings","Settings"]];
-const LIVE = { home:true, sponsors:true, teams:true, inventory:true };      /* the screens built so far */
+const NAV2 = [];
+const LIVE = { home:true, sponsors:true, teams:true, inventory:true };
 
 let view = "home";
 let ME = null;              /* from /api/university/market/me: teams, stages, sender */
@@ -638,8 +641,8 @@ function shell(){
     <div class="brand"><span class="mark">N</span><span class="word">NIL<br>DASH</span></div>
     <div class="eyebrow">UNIVERSITY PORTAL</div>
     <div class="navwrap"><div class="navlist" id="nav1"></div></div>
-    <div class="eyebrow">ADMINISTRATION</div>
-    <div class="navwrap"><div class="navlist" id="nav2" style="margin-top:-8px"></div></div>
+${NAV2.length ? `<div class="eyebrow">ADMINISTRATION</div>
+    <div class="navwrap"><div class="navlist" id="nav2" style="margin-top:-8px"></div></div>` : ""}
     <div class="who">
       <span class="av">${esc(initials(name))}</span>
       <span class="nm"><b>${esc(name)}</b><small>Athletics</small>
@@ -660,10 +663,9 @@ function shell(){
 }
 
 function paintNav(){
-  const row = ([id,label]) => `<button type="button" class="${id===view?"active":""}" ${
-    LIVE[id] ? `data-goto="${id}"` : `aria-disabled="true" title="Coming soon"`}>${esc(label)}</button>`;
-  $("nav1").innerHTML = NAV1.map(row).join("");
-  $("nav2").innerHTML = NAV2.map(row).join("");
+  const row = ([id,label]) => `<button type="button" class="${id===view?"active":""}" data-goto="${id}">${esc(label)}</button>`;
+  $("nav1").innerHTML = NAV1.filter(([id]) => LIVE[id]).map(row).join("");
+  if ($("nav2")) $("nav2").innerHTML = NAV2.filter(([id]) => LIVE[id]).map(row).join("");
   $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","Home"])[1];
 }
 
@@ -847,7 +849,7 @@ function vHome(){
     return `<div class="board">${intro}
       <div class="panel" style="margin-top:18px">
         <h3>No leads written yet</h3>
-        <p class="lede">The nightly run writes a few leads for every team once your department is set up. Until then, these are the closest businesses where we already know who to ask for. The full list is under Sponsors, and downloads as a spreadsheet.</p>
+        <p class="lede">The nightly run writes a few leads for every team once your department is set up. Until then, these are the closest businesses where we already know who to ask for. The full list is under Sponsor Scan, and downloads as a spreadsheet.</p>
         ${NEAR.rows.length ? `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Business</th><th>Kind</th><th>Who to ask for</th><th>Reach</th><th>Miles</th></tr></thead><tbody>
           ${NEAR.rows.map(r => `<tr><td data-l="BUSINESS"><span class="b">${esc(r.brand)}</span></td><td data-l="KIND"><span class="s">${esc(r.kind || "")}</span></td>
             <td data-l="WHO">${esc(r.contact.name || "")}${r.contact.title ? `<span class="s"> · ${esc(r.contact.title)}</span>` : ""}</td>
@@ -907,7 +909,7 @@ function vSponsors(){
   const stages = (ME && ME.stages) || Object.keys(STAGE_TXT).map(k => ({ key:k, label:STAGE_TXT[k] }));
   return `<div class="board">
     <div class="head">
-      <h1>Sponsors</h1>
+      <h1>Sponsor Scan</h1>
       <p>Every business near campus NILDash has looked at, nearest first, or best fit first when you pick a team.
          Set where each one stands, write a pitch for a team, or download the list as a spreadsheet.</p>
     </div>
