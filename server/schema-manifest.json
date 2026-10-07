@@ -1574,6 +1574,19 @@
       "started_at": "TIMESTAMPTZ DEFAULT NOW()",
       "university_id": "TEXT"
     },
+    "university_owner_lookups": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "brand": "TEXT",
+      "contact_name": "TEXT",
+      "contact_title": "TEXT",
+      "cost_usd": "NUMERIC DEFAULT 0",
+      "draft_id": "TEXT",
+      "error": "TEXT",
+      "found": "BOOLEAN",
+      "id": "SERIAL",
+      "university_id": "TEXT",
+      "user_id": "TEXT"
+    },
     "university_social_brands": {
       "brand": "TEXT",
       "category": "TEXT",
