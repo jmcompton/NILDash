@@ -31,6 +31,10 @@ const OL = require(REPO + 'server/services/ownerLookup.js');
 
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g).slice(0, 700) : '')); } };
+// NO ATHLETES, NO PITCH (campusNightly.athletesByTeam): every fixture team gets one.
+const roster = (P, uid) => P.query(`INSERT INTO university_athletes (id, university_id, name, sport, data)
+  SELECT t.id || ':roster-athlete', t.university_id, 'Roster Athlete', t.name, jsonb_build_object('teamId', t.id)
+    FROM university_teams t WHERE t.university_id = $1 ON CONFLICT (id) DO NOTHING`, [uid]);
 const U = 'univ-freetest', MK = 'freetown, ca';
 
 const ai = {
@@ -64,7 +68,7 @@ async function main() {
   const P = store.pool;
   await TS.ensureTables(P); await CP.ensureTables(P); await CB.ensureTables(P); await OL.ensureTable(P);
   const clean = async () => {
-    for (const t of ['university_contacts', 'university_market_runs', 'university_crm', 'university_touches', 'university_drafts', 'university_brand_engagement',
+    for (const t of ['university_athletes', 'university_contacts', 'university_market_runs', 'university_crm', 'university_touches', 'university_drafts', 'university_brand_engagement',
       'university_social_brands', 'university_owner_lookups']) await P.query(`DELETE FROM ${t} WHERE university_id = $1`, [U]).catch(() => {});
     await P.query(`DELETE FROM university_research_claims WHERE team_id LIKE 'ft:%'`);
     await P.query(`DELETE FROM university_teams WHERE university_id = $1`, [U]);
@@ -96,12 +100,14 @@ async function main() {
   }
 
   // ── THE ESTIMATE: flat for the school ────────────────────────────────────
+  await roster(P, U);
   const e3 = await CN.estimate(P, U);
   ok('the estimate is a free night: 3 teams x 2 = 6 cards, 3 social', e3.ok && e3.free && e3.cards === 6 && e3.socialCards === 3 && e3.localCards === 3, e3);
   ok('  the names budget is one number for the school', e3.namesBudgetUsd === CN.NAMES_USD && e3.namesFound > 0, e3);
   ok('  and the spend is only what tonight\'s local cards need, not the whole budget', e3.namesUsd < e3.namesBudgetUsd && e3.namesUsd > 0, e3);
   await P.query(`INSERT INTO university_teams (id, university_id, name, sport, market_key) VALUES
     ('ft:vb',$1,'Volleyball','volleyball',$2), ('ft:wp',$1,'Water Polo','water polo',$2), ('ft:tn',$1,'Tennis','tennis',$2)`, [U, MK]);
+  await roster(P, U);
   const e6 = await CN.estimate(P, U);
   ok('COST PER SCHOOL DOES NOT SCALE WITH TEAMS: the names ceiling and discovery the same for 3 teams and 6', e6.namesBudgetUsd === e3.namesBudgetUsd && e6.discoveryUsd === e3.discoveryUsd, { e3: [e3.namesBudgetUsd, e3.discoveryUsd], e6: [e6.namesBudgetUsd, e6.discoveryUsd] });
   ok('  only the per-card part grows (writing and listing details)', e6.writerUsd > e3.writerUsd, { e3: e3.writerUsd, e6: e6.writerUsd });

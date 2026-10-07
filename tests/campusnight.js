@@ -34,6 +34,10 @@ const TS = require(REPO + 'server/services/teamScan.js');
 
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g).slice(0, 700) : '')); } };
+// NO ATHLETES, NO PITCH (campusNightly.athletesByTeam): every fixture team gets one.
+const roster = (P, uid) => P.query(`INSERT INTO university_athletes (id, university_id, name, sport, data)
+  SELECT t.id || ':roster-athlete', t.university_id, 'Roster Athlete', t.name, jsonb_build_object('teamId', t.id)
+    FROM university_teams t WHERE t.university_id = $1 ON CONFLICT (id) DO NOTHING`, [uid]);
 const U = 'univ-nighttest', MK = 'nighttown, ca';
 
 const prompts = [];
@@ -64,7 +68,7 @@ async function main() {
   await CP.ensureTables(P);
   await CB.ensureTables(P);
   const clean = async () => {
-    for (const t of ['university_contacts', 'university_market_runs', 'university_crm', 'university_touches', 'university_drafts', 'university_brand_engagement', 'university_social_brands']) {
+    for (const t of ['university_athletes', 'university_contacts', 'university_market_runs', 'university_crm', 'university_touches', 'university_drafts', 'university_brand_engagement', 'university_social_brands']) {
       await P.query(`DELETE FROM ${t} WHERE university_id = $1`, [U]).catch(() => {});
     }
     await P.query(`DELETE FROM university_research_claims WHERE team_id LIKE 'nt:%'`);
@@ -96,6 +100,7 @@ async function main() {
       [U, b, `https://${b.split(' ')[0].toLowerCase()}.test`, `https://${b.split(' ')[0].toLowerCase()}.test/athletes`, sports]);
   }
 
+  await roster(P, U);
   const est = await CN.estimate(P, U);
   ok('the projection: 15 cards, 3 social (a seat a team), 9 from file, 3 needing a contact bought', est.ok && est.cards === 15 && est.socialCards === 3
     && est.cardsFromFile === 9 && est.lookupsNeeded === 3, est);

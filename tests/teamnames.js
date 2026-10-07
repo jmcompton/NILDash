@@ -115,6 +115,51 @@ async function main() {
     && (await P.query(`SELECT COUNT(*)::int n FROM university_teams WHERE id = 'univ-tntest:wswimdive'`)).rows[0].n === 0);
   ok('  printed', /ATHLETES MOVED: 2/.test(M.format(r)) && /TEAMS AFTER: 2/.test(M.format(r)), M.format(r));
   ok('  a second run finds nothing to merge', (await M.run(P, U)).merges.length === 0);
+
+  // ── CYPRESS AS IT REALLY IS: the roster on one row, the schedule and the
+  // inventory on the other.
+  await P.query(`DELETE FROM university_inventory WHERE university_id = $1`, [U]).catch(() => {});
+  await P.query(`DELETE FROM university_athletes WHERE university_id = $1`, [U]);
+  await P.query(`DELETE FROM university_teams WHERE university_id = $1`, [U]);
+  await P.query(`INSERT INTO university_teams (id, university_id, name, sport, home_dates, venue, season) VALUES
+    ('univ-tntest:mswim',$1,'Men''s Swim & Dive','Swim & Dive',7,'Aquatics Center','Spring')`, [U]);
+  await P.query(`INSERT INTO university_teams (id, university_id, name, sport, roster_size, roster_url) VALUES
+    ('univ-tntest:mswimdive',$1,'Men''s Swimming & Diving','Swimming & Diving',16,'https://tn.test/sports/mswimdive/2025-26/roster')`, [U]);
+  for (let i = 0; i < 16; i++) await ath('univ-tntest:mswimdive', "Men's Swimming & Diving", `Swimmer Number${String.fromCharCode(65 + i)}`);
+  await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents) VALUES
+    ('inv-1',$1,'univ-tntest:mswim','Pool deck banner',75000), ('inv-2',$1,'univ-tntest:mswim','Meet sponsor',50000)`, [U]);
+  const sd = await M.run(P, U);
+  const sm = sd.merges[0];
+  ok('THE SPLIT, DRY RUN: keeps "Swim & Dive" (the schedule and inventory row)', sm && sm.keep.id === 'univ-tntest:mswim' && sm.keep.name === "Men's Swim & Dive", sm && sm.keep);
+  ok('  BEFORE: 16 athletes, 2 items $1,250, 7 home dates across both rows', sm.before.athletes === 16 && sm.before.inventoryCents === 125000 && sm.before.inventoryItems === 2 && sm.before.homeDates === 7, sm.before);
+  ok('  AFTER: the kept row holds all of it', sm.after.athletes === 16 && sm.after.inventoryCents === 125000 && sm.after.inventoryItems === 2 && sm.after.homeDates === 7, sm.after);
+  ok('  printed, row by row and before and after', /now  univ-tntest:mswim .*0 athletes, 2 inventory items \$1,250, 7 home dates/.test(M.format(sd))
+    && /now  univ-tntest:mswimdive .*16 athletes, 0 inventory items \$0, 0 home dates/.test(M.format(sd))
+    && /AFTER  \(kept row\):  16 athletes, 2 inventory items \$1,250, 7 home dates/.test(M.format(sd)), M.format(sd));
+  ok('  the dry run wrote nothing', (await P.query(`SELECT COUNT(*)::int n FROM university_teams WHERE university_id = $1`, [U])).rows[0].n === 2
+    && (await P.query(`SELECT COUNT(*)::int n FROM university_athletes WHERE university_id = $1 AND id LIKE 'univ-tntest:mswimdive:%'`, [U])).rows[0].n === 16);
+
+  // A LOSS IS REFUSED: an inventory row that will not move (a trigger stands
+  // in for whatever would stop it) leaves the kept row with less.
+  await P.query(`CREATE OR REPLACE FUNCTION tn_pin() RETURNS trigger AS $$ BEGIN IF OLD.id = 'inv-x' THEN RETURN NULL; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
+  await P.query(`DROP TRIGGER IF EXISTS tn_pin ON university_inventory`);
+  await P.query(`CREATE TRIGGER tn_pin BEFORE UPDATE ON university_inventory FOR EACH ROW EXECUTE FUNCTION tn_pin()`);
+  await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents) VALUES ('inv-x',$1,'univ-tntest:mswimdive','Lane sign',30000)`, [U]);
+  const refused = await M.run(P, U, { apply: true });
+  ok('A DROP IN INVENTORY IS REFUSED and rolled back, even with apply', !refused.ok && /inventoryCents 155000 -> 125000/.test(refused.merges[0].refused || '')
+    && (await P.query(`SELECT COUNT(*)::int n FROM university_teams WHERE university_id = $1`, [U])).rows[0].n === 2, refused.merges[0]);
+  ok('  and says so', /REFUSED, rolled back: .*would drop/.test(M.format(refused)) && /NOT ALL MERGED/.test(M.format(refused)), M.format(refused));
+  await P.query(`DROP TRIGGER IF EXISTS tn_pin ON university_inventory`);
+  await P.query(`DELETE FROM university_inventory WHERE id = 'inv-x'`);
+
+  const sa = await M.run(P, U, { apply: true });
+  const keptRows = (await P.query(`SELECT * FROM university_teams WHERE university_id = $1`, [U])).rows;
+  ok('THE SPLIT, APPLIED: one team, "Men\'s Swim & Dive"', sa.ok && keptRows.length === 1 && keptRows[0].id === 'univ-tntest:mswim' && keptRows[0].name === "Men's Swim & Dive", keptRows);
+  ok('  with the roster (16, roster_size 16), the schedule (7 home dates, venue) and the inventory ($1,250)', keptRows[0].roster_size === 16 && keptRows[0].home_dates === 7
+    && keptRows[0].venue === 'Aquatics Center' && (await P.query(`SELECT COALESCE(SUM(price_cents),0)::int c FROM university_inventory WHERE team_id = 'univ-tntest:mswim'`)).rows[0].c === 125000
+    && (await P.query(`SELECT COUNT(*)::int n FROM university_athletes WHERE university_id = $1 AND data->>'teamId' = 'univ-tntest:mswim'`, [U])).rows[0].n === 16, keptRows[0]);
+  ok('  the roster URL comes across too', (await P.query(`SELECT roster_url FROM university_teams WHERE id = 'univ-tntest:mswim'`)).rows[0].roster_url === 'https://tn.test/sports/mswimdive/2025-26/roster');
+  await P.query(`DELETE FROM university_inventory WHERE university_id = $1`, [U]).catch(() => {});
   await clean();
 }
 main().then(() => { console.log(OUT.join('\n')); console.log(`\nfailures: ${F}`); process.exit(F ? 1 : 0); })

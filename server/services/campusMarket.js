@@ -298,6 +298,10 @@ async function pitch(pool, universityId, userId, opts) {
   const h = await history(pool, universityId, opts.brand);
   if (h.touched && !opts.acknowledgeHistory) return { ok: false, status: 409, needsAck: true, history: h };
   const team = opts.teamId ? (await pool.query(`SELECT * FROM university_teams WHERE id = $1 AND university_id = $2`, [opts.teamId, universityId])).rows[0] : null;
+  // NO ATHLETES, NO PITCH (campusNightly.athletesByTeam): a team with an empty roster is not pitched.
+  if (team && !((await require('./campusNightly').athletesByTeam(pool, universityId)).get(team.id) > 0)) {
+    return { ok: false, status: 422, error: `${team.name} has no athletes on file yet, so it is not pitched. Its roster comes in with the next roster import.` };
+  }
   if (opts.teamId && !team) return { ok: false, status: 404, error: 'team not found' };
   if (!team && !(opts.athlete && opts.athlete.name)) return { ok: false, status: 400, error: 'pick a team or name an athlete' };
   const sender = await senderFor(pool, userId);
