@@ -203,7 +203,8 @@ function checks(deps) {
             AND EXISTS (SELECT 1 FROM athletes a WHERE a.agent_id = u.id)`)).rows;
       if (!rows.length) return 'no connected mailboxes to check';
       const emailStore = deps.emailStore || require('./emailStore');
-      const bad = [];
+      const MN = require('./mailboxNotice');
+      const bad = [], notices = [];
       let checked = 0, undecryptable = 0;
       for (const r of rows) {
         const full = await emailStore.getEmailAccountWithTokens(r.id);
@@ -224,7 +225,19 @@ function checks(deps) {
             }
             checked++;
           }
-          catch (e) { bad.push(`${r.name || r.agent_email} (${r.email_address}): ${r.provider} refused the token: ${String(e.message).slice(0, 160)}`); }
+          catch (e) {
+            // A REFUSED MAILBOX (services/mailboxNotice): its agent is emailed a
+            // reconnect link, and it is a failure here only if it holds
+            // something up (cards waiting, approvals not sent); otherwise a
+            // notice, listed in the morning alert.
+            const why = `${r.provider} refused the token: ${String(e.message).slice(0, 160)}`;
+            const n = await MN.record(pool, r, why, { send: deps.noticeSend, email: deps.noticeEmail }).catch((er) => ({ matters: true, error: er.message }));
+            const line = `${r.name || r.agent_email} (${r.email_address}): ${why}`;
+            if (n.matters) bad.push(`${line} [${n.queued || 0} card(s) waiting, ${n.approved || 0} approval(s) not sent]`);
+            else notices.push(`${line} [nothing waiting${n.emailed ? '; agent emailed a reconnect link' : ''}]`);
+            continue;
+          }
+          await MN.clear(pool, r.id).catch(() => {});
         } else checked++;
       }
       if (undecryptable && undecryptable === rows.length) {
@@ -232,8 +245,8 @@ function checks(deps) {
         e.detail = { tokenEncryption: true, agents: bad };
         throw e;
       }
-      if (bad.length) { const e = new Error(`${bad.length} of ${rows.length} mailbox(es) will not send: ${bad.join('; ')}`); e.detail = { agents: bad }; throw e; }
-      return `${checked} mailbox(es) refreshed`;
+      if (bad.length) { const e = new Error(`${bad.length} of ${rows.length} mailbox(es) will not send: ${bad.join('; ')}`); e.detail = { agents: bad, notices }; throw e; }
+      return `${checked} mailbox(es) refreshed` + (notices.length ? `; ${notices.length} refused with nothing waiting (notice, agent emailed): ${notices.join('; ')}` : '');
     },
   };
 }

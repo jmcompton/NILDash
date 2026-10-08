@@ -5397,6 +5397,13 @@ const ADMIN_SCRIPTS = {
   // A university's duplicate teams ("Swim & Dive" and "Swimming & Diving")
   // merged into one: athletes, cards and every team row moved, the duplicate
   // deleted. Dry run unless apply=1.
+  // A mailbox marked disconnected (not deleted): the preflight stops checking
+  // it and nothing sends from it until the agent reconnects. Dry run unless apply=1.
+  'disconnect-mailbox': { file: 'scripts/disconnect-mailbox.js', args: (q) => {
+    const e = String(q.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(e)) throw Object.assign(new Error('email= must be an email address'), { status: 400 });
+    return ['--email', e].concat(q.apply === '1' ? ['--apply'] : []);
+  } },
   'merge-duplicate-teams': { file: 'scripts/merge-duplicate-teams.js', args: (q) => {
     const u = String(q.university || 'univ-cypress');
     if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });
@@ -15395,6 +15402,15 @@ app.patch('/api/athlete-messages/:id/read', requireAuth, async (req, res) => {
 });
 
 // ── Email Integration ─────────────────────────────────────────────────────────
+// THE RECONNECT LINK an agent is emailed when their mailbox is refused
+// (services/mailboxNotice): signed in, straight to the provider's consent
+// screen; signed out, the sign-in page first, then back here.
+app.get('/reconnect-mailbox', (req, res) => {
+  const p = req.query.provider === 'gmail' ? 'gmail' : 'outlook';
+  if (!req.session || !req.session.userId) return res.redirect('/?next=' + encodeURIComponent('/reconnect-mailbox?provider=' + p));
+  res.redirect(`/api/email/oauth/${p}?returnTo=${encodeURIComponent('/')}`);
+});
+
 // All email routes isolated in server/routes/email.js — no existing logic touched.
 const emailRoutes = require('./routes/email');
 // OAuth callbacks bypass session auth — identity is verified via the state param.

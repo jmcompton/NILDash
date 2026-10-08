@@ -896,6 +896,20 @@
       "dedupe_key": "TEXT",
       "sent_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "mailbox_notices": {
+      "account_id": "TEXT",
+      "approved": "INTEGER DEFAULT 0",
+      "email_address": "TEXT",
+      "email_error": "TEXT",
+      "emailed_at": "TIMESTAMPTZ",
+      "first_seen_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "last_seen_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "nights": "INTEGER DEFAULT 1",
+      "provider": "TEXT",
+      "queued": "INTEGER DEFAULT 0",
+      "reason": "TEXT",
+      "user_id": "TEXT"
+    },
     "mailbox_prospect_drafts": {
       "anchor_at": "TIMESTAMPTZ",
       "body_text": "TEXT",

@@ -156,7 +156,11 @@ async function main() {
   const PF = require(REPO + 'server/services/preflight.js');
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('ol-ath', $1, '{"name":"X"}'::jsonb) ON CONFLICT DO NOTHING`, [U]);
   st.tokenMode = 'refused';
+  // A refused mailbox fails only if something is waiting (services/mailboxNotice): a card is.
+  await P.query(`INSERT INTO outreach_queue (agent_id, athlete_id, slot, brand_key, brand_name, channel, state) VALUES ($1,'ol-ath',1,'k:ol','Ol Cafe','email','queued')`, [U]);
   const bad = await PF.checks({ pool: P })['mailbox-tokens']().then(() => null, (e) => e);
+  await P.query(`DELETE FROM outreach_queue WHERE agent_id = $1`, [U]);
+  await P.query(`DELETE FROM mailbox_notices WHERE user_id = $1`, [U]).catch(() => {});
   ok('a refused Outlook token: the check fails and names the agent and mailbox ("will not send")',
     bad && /will not send/.test(bad.message) && /Ana Agent \(agent@contoso\.com\): outlook refused the token: .*invalid_grant/.test(bad.message), bad && bad.message);
   ok('  and its consequence reads "will not send tonight"', /will not send tonight/.test(PF.CONSEQUENCE['mailbox-tokens']));

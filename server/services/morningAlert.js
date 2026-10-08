@@ -148,6 +148,9 @@ async function collect(pool, { now } = {}) {
   // APPROVALS THAT DID NOT SEND, by agent (services/sendFaults): every agent
   // who approved something that did not go out, and how many.
   out.sendFaults = await require('./sendFaults').byAgentOpen(pool).catch(() => []);
+  // Refused mailboxes with nothing waiting (services/mailboxNotice): listed and
+  // counted as notices, never a problem; the agent has been emailed.
+  out.mailboxNotices = await require('./mailboxNotice').recent(pool).catch(() => []);
   // Every one of our failures in the last day, by service (services/ourFault).
   out.faults24h = await q(`SELECT service, SUM(1 + COALESCE(suppressed, 0))::int AS n, MAX(at) AS last,
       (ARRAY_AGG(reason ORDER BY (kind = 'billing') DESC, at DESC))[1] AS reason, BOOL_OR(kind = 'billing') AS billing
@@ -203,6 +206,17 @@ async function collect(pool, { now } = {}) {
   return out;
 }
 
+function mailboxLines(r) {
+  const n = r.mailboxNotices || [];
+  if (!n.length) return [];
+  const L = [`MAILBOX NOTICES (${n.length}): refused, the agent emailed a reconnect link; a failure only if something is waiting`];
+  for (const x of n) {
+    L.push(`  ${x.agent_name || x.agent_email || x.user_id} (${x.email_address || x.provider}): ${x.nights} night(s), `
+      + `${x.queued} card(s) waiting, ${x.approved} approval(s) not sent; emailed ${x.emailed_at ? new Date(x.emailed_at).toISOString().slice(0, 10) : (x.email_error ? 'FAILED: ' + x.email_error : 'not yet')}`);
+  }
+  return L;
+}
+
 function render(r) {
   if (!r.problemCount) {
     const subject = `NILDash all clear ${r.runDate}: ${r.cardsLastNight} card(s) last night, `
@@ -213,6 +227,7 @@ function render(r) {
         + (r.skippedByDesign ? `; ${r.skippedByDesign} skipped by design (not signed in recently)` : '') + '.',
       r.digests ? `Agent digests last night: ${r.digests.sent} sent, none failed or held.` : '',
       `Preflight for ${r.runDate}: every service answered.`,
+      ...mailboxLines(r),
       ...(r.universities || []).map((u) => `${u.name}: ${u.teams} team(s), ${u.items} item(s) for sale, ${u.asks24h} sponsor ask(s) in 24h, last ask ${u.last_ask ? new Date(u.last_ask).toISOString().slice(0, 10) : 'never'}.`),
       r.queueEnabled ? '' : 'Note: the nightly queue is OFF on this deployment (OUTREACH_QUEUE_ENABLED is not 1).',
       'Status: ' + STATUS_URL(),
@@ -277,6 +292,7 @@ function render(r) {
     lines.push(`AGENT DIGESTS for ${r.runDate}: ${r.digests.sent} sent, ${r.digests.failed} failed, ${r.digests.stuck} stuck, ${r.digests.held} held by NIGHTLY_DIGEST_ALLOWLIST`
       + (r.digests.failReason ? `. First failure: ${r.digests.failReason}` : ''), '');
   }
+  { const ml = mailboxLines(r); if (ml.length) lines.push(...ml, ''); }
   if (r.sendFaults && r.sendFaults.length) {
     lines.push(`APPROVALS THAT DID NOT SEND, by agent (each agent sees these on Home and got one email):`);
     for (const x of r.sendFaults) lines.push(`  ${String(x.n).padStart(4)}  ${x.name || ''} <${x.email}>${x.ours ? `  (${x.ours} our fault)` : ''}  latest: ${x.latest_kind}`);
