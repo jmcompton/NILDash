@@ -949,7 +949,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   }
 
   const heldRows = (await pool.query(
-    `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
+    `SELECT slot, state, channel, created_at FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
     [athleteId])).rows;
   const heldPrograms = heldRows.filter((r) => r && r.channel === 'program').length;
   let programsPlaced = 0;
@@ -963,7 +963,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   if (!open.length) {
     // Says the real number. It said "three" while SLOTS_PER_ATHLETE was five,
     // which made a full athlete look like a bug in the slot count.
-    const msg = `all ${Q.SLOTS_PER_ATHLETE} slots already hold work you have not actioned`;
+    const msg = `${Q.SLOTS_PER_ATHLETE} new pitches from the last ${Q.FRESH_HOURS || 'few'} hours are already waiting`;
     say(`${athleteName}: ${msg}`);
     return { filled: 0, open: 0, tried, note: msg, emptyReason: Scout.EMPTY.SLOTS_FULL };
   }
@@ -2796,7 +2796,7 @@ async function resumeAgent(pool, agentId, opts = {}) {
   const out = { athletes: aths.length, withOpenSlots: 0, filled: 0, spent: 0, ms: 0 };
   for (const ath of aths) {
     const held = (await pool.query(
-      `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`, [ath.id]).catch(() => ({ rows: [] }))).rows;
+      `SELECT slot, state, channel, created_at FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`, [ath.id]).catch(() => ({ rows: [] }))).rows;
     if (!Q.slotsToFill(held).length) continue;
     out.withOpenSlots++;
     if (budget.remaining() <= 0) { console.log(`[queue/resume] agent=${agentId}: budget spent, ${ath.name} left for tonight`); continue; }

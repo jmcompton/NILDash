@@ -191,6 +191,31 @@ const CAND = (over) => Object.assign({
       Q.slotsToFill([{ slot: 3, state: 'skipped' }]));
   }
 
+  // FIVE NEW EVERY MORNING. Only cards written in the last FRESH_HOURS hold a
+  // slot; older untouched cards stay queued but do not block tonight's five.
+  console.log('\n-- FIVE NEW EVERY MORNING: OLD UNTOUCHED CARDS DO NOT BLOCK --');
+  {
+    const now = Date.parse('2026-10-08T06:00:00Z');
+    const hrs = (h) => new Date(now - h * 3600000).toISOString();
+    const old = [1, 2, 3].map((n) => ({ slot: n, state: 'queued', created_at: hrs(30) }));
+    const o = Q.slotsToFill(old, now);
+    ok('three cards from yesterday leave five new to write', o.length === 5, o);
+    ok('  and the new ones take free slot numbers past the held ones', String(o) === '4,5,6,7,8', o);
+    const mixed = old.concat([{ slot: 4, state: 'queued', created_at: hrs(2) }, { slot: 5, state: 'queued', created_at: hrs(1) }]);
+    const m = Q.slotsToFill(mixed, now);
+    ok('  two fresh plus three old leaves three to write', m.length === 3 && String(m) === '6,7,8', m);
+    const fiveFresh = [1, 2, 3, 4, 5].map((n) => ({ slot: n, state: 'queued', created_at: hrs(1) }));
+    ok('  five fresh leaves none', Q.slotsToFill(fiveFresh, now).length === 0);
+    ok('  a Date object works as created_at', Q.slotsToFill([{ slot: 1, state: 'queued', created_at: new Date(now - 30 * 3600000) }], now).length === 5);
+    const full = [];
+    for (let n = 1; n <= Q.SLOT_CEILING; n++) full.push({ slot: n, state: 'queued', created_at: hrs(48) });
+    ok('  the slot ceiling bounds the pile', Q.slotsToFill(full, now).length === 0);
+    ok('  ceiling is five a night for every night a card can live', Q.SLOT_CEILING === Q.SLOTS_PER_ATHLETE * (Q.EXPIRE_AFTER_DAYS + 1), Q.SLOT_CEILING);
+    ok('  default window is 20 hours', Q.FRESH_HOURS === 20, Q.FRESH_HOURS);
+    ok('  isFreshCard: 2h old is fresh', Q.isFreshCard({ created_at: hrs(2) }, now) === true);
+    ok('  isFreshCard: 30h old is not', Q.isFreshCard({ created_at: hrs(30) }, now) === false);
+  }
+
   console.log('\n-- THE CAP IS $0.50 AND IT IS A CAP --');
   {
     const B = Q.newBudget(0.50);

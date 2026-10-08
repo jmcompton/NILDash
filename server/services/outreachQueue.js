@@ -956,10 +956,46 @@ function sortCards(cards) {
 
 // Which of the five slots are open. Only a QUEUED row holds a slot -- sent and
 // skipped rows stay for outcome tracking but free their slot for the next run.
-function slotsToFill(rows) {
-  const taken = new Set((rows || []).filter((r) => r && r.state === 'queued').map((r) => Number(r.slot)));
+// ── FIVE NEW EVERY MORNING, NOT FIVE SLOTS FOREVER ──────────────────────────
+//
+// A card the agent never touched used to hold its slot until it expired seven
+// days later, so an agent who did not approve on Monday woke up to two new
+// pitches on Tuesday, then none. The promise is five NEW pitches per athlete
+// every morning, so only FRESH cards hold a slot now: anything written more than
+// FRESH_HOURS ago stays queued and visible (nothing is deleted, it still expires
+// on its own clock) but no longer blocks tonight's five.
+//
+// Slot numbers can therefore run past five. uq_outreach_queue_open is unique on
+// (athlete_id, slot) for queued rows, so new cards take the lowest numbers not
+// already held, bounded by SLOT_CEILING: five a night for as many nights as a
+// card can stay queued, so the ceiling never binds before expiry frees space.
+//
+// OUTREACH_QUEUE_FRESH_HOURS=0 turns this off and restores the old rule (every
+// queued card holds a slot). Rows with no created_at are treated as fresh, which
+// is also the old rule, so a caller that does not select it behaves as before.
+const FRESH_HOURS = (() => {
+  const v = parseInt(process.env.OUTREACH_QUEUE_FRESH_HOURS, 10);
+  return Number.isFinite(v) && v >= 0 ? v : 20;
+})();
+const SLOT_CEILING = SLOTS_PER_ATHLETE * (EXPIRE_AFTER_DAYS + 1);
+
+function isFreshCard(r, nowMs) {
+  if (!FRESH_HOURS) return true;
+  const v = r && r.created_at;
+  const t = v instanceof Date ? v.getTime() : (v ? Date.parse(v) : NaN);
+  if (!Number.isFinite(t)) return true;
+  return t > nowMs - FRESH_HOURS * 3600000;
+}
+
+function slotsToFill(rows, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const queued = (rows || []).filter((r) => r && r.state === 'queued');
+  const taken = new Set(queued.map((r) => Number(r.slot)));
+  const freshHeld = queued.filter((r) => isFreshCard(r, now)).length;
+  const want = Math.max(0, SLOTS_PER_ATHLETE - freshHeld);
+  const ceiling = FRESH_HOURS ? SLOT_CEILING : SLOTS_PER_ATHLETE;
   const out = [];
-  for (let s = 1; s <= SLOTS_PER_ATHLETE; s++) if (!taken.has(s)) out.push(s);
+  for (let s = 1; s <= ceiling && out.length < want; s++) if (!taken.has(s)) out.push(s);
   return out;
 }
 
@@ -1292,7 +1328,7 @@ function restrictedFor(brandName, place, athleteData, now, opts = {}) {
 module.exports = {
   restrictedFor, RESTRICTED_AT_FILL,
   markFilling, unmarkFilling, isFilling, fillingIds, fillingSince,
-  passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
+  passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, isFreshCard, FRESH_HOURS, SLOT_CEILING, newBudget, slotSkipReason,
   inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, addressIsTheirs, addressKind, channelFor, subjectFor, routeOf, genericRowsOf,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
   workedOutNote, DISCOVERY_CAP_USD, DISCOVERY_PER_ATHLETE_USD, WIDEN_PER_ATHLETE_USD,

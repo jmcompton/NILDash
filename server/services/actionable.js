@@ -346,6 +346,11 @@ function ageDays(c, now) {
 
 function isStarved(c, now) { return ageDays(c, now) >= starveDaysFor(c.channel); }
 
+function isFresh(c, now) {
+  try { return require('./outreachQueue').isFreshCard({ created_at: c.createdAt }, now); }
+  catch (_) { return true; }
+}
+
 function reachScore(c) {
   if (c.channel === 'email') return c.verified && c.verified.result === 'valid' ? 2 : 1;
   // A brand account is a real channel and it is NOT this storefront, so the DM
@@ -365,6 +370,10 @@ function rankKey(c, now) {
     // due today, and it costs the agent one click.
     Number(c.touch || 1) > 1 ? 0 : 1,
     isStarved(c, now) ? 0 : 1,
+    // Last night's pitches before older ones the agent already passed over, so
+    // Home leads with the five new cards the night just wrote. Older cards stay
+    // in the pile and still show when there are fewer than five new ones.
+    isFresh(c, now) ? 0 : 1,
     -reachScore(c),
     -hasReason(c),
     ms(c.createdAt),

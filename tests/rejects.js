@@ -136,7 +136,7 @@ ok('  and it matches the slots an athlete actually has', Q.NIGHTLY_SLOTS === Q.S
 ok('  slotsToFill offers all five to a fresh athlete', Q.slotsToFill([]).length === 5, Q.slotsToFill([]));
 const JOB = require('fs').readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8');
 ok('  and the full-queue message no longer says "three"',
-  !/all three slots/.test(JOB) && /all \$\{Q\.SLOTS_PER_ATHLETE\} slots/.test(JOB), null);
+  !/all three slots/.test(JOB) && /\$\{Q\.SLOTS_PER_ATHLETE\} new pitches/.test(JOB), null);
 
 // ── THE GENUINE REFUSALS ARE UNTOUCHED ─────────────────────────────────────
 // The Writer refusing "no real connection" is it doing its job, and none of the
