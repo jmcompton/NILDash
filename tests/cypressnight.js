@@ -41,7 +41,8 @@ const roster = async (P, uid) => {
     SELECT t.id || ':inv', t.university_id, t.id, 'Home game banner', 25000 FROM university_teams t WHERE t.university_id = $1 ON CONFLICT (id) DO NOTHING`, [uid]);
 };
 const U = 'univ-cyptest', MK = 'cyptown, ca';
-const ai = { oneShot: async (prompt) => { const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`; } };
+const prompts = [];
+const ai = { oneShot: async (prompt) => { prompts.push(prompt); const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`; } };
 let n = 0;
 const contactsAi = {
   deepContactCtx: (o) => ({ ...o }),
@@ -103,6 +104,9 @@ async function main() {
   // Women's Tennis has no roster published at all: 9 home dates, $775. Pitched.
   await P.query(`INSERT INTO university_teams (id, university_id, name, sport, market_key, home_dates) VALUES ('cy:wten',$1,'Women''s Tennis','Tennis',$2,9)`, [U, MK]);
   await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents) VALUES ('cy:wten:inv',$1,'cy:wten','Court banner',77500)`, [U]);
+  // Beach Volleyball as it is: athletes and inventory, home dates never scraped. Pitched.
+  await P.query(`INSERT INTO university_teams (id, university_id, name, sport, market_key, home_dates) VALUES ('cy:bvb',$1,'Beach Volleyball (no dates)','Beach Volleyball',$2,NULL)`, [U, MK]);
+  await P.query(`INSERT INTO university_inventory (id, university_id, team_id, name, price_cents) VALUES ('cy:bvb:inv',$1,'cy:bvb','Court banner',315000)`, [U]);
   // The roster half of a duplicate: athletes, no home dates, no inventory. Not pitched.
   await P.query(`INSERT INTO university_teams (id, university_id, name, sport, market_key, roster_size) VALUES ('cy:dup',$1,'Men''s Swimming & Diving (roster row)','Swimming',$2,16)`, [U, MK]);
   const est = await CN.estimate(P, U);
@@ -119,10 +123,14 @@ async function main() {
   ok('  Women\'s Tennis, no roster published, 9 home dates and $775: pitched', wten && wten.cards > 0, wten);
   ok('NOTHING TO SELL, NO PITCH: a row with no home dates and no inventory gets no cards, listed as not pitched', dup && dup.cards === 0 && dup.stop === 'nothing-to-sell'
     && r.notSellable.some((x) => x.team.startsWith("Men's Swimming & Diving")) && !r.short.some((x) => x.team.startsWith("Men's Swimming & Diving")), { dup, notSellable: r.notSellable });
-  ok('  printed', /NOT PITCHED, no home dates or no inventory to sell: Men's Swimming & Diving \(roster row\) \(0 home dates, 0 items\)/.test(CN.formatNight(r)), CN.formatNight(r));
-  ok('  and left out of the estimate (16 teams with something to sell, not 17)', est.teams === 16, est.teams);
+  ok('  printed', /NOT PITCHED, no inventory to sell: Men's Swimming & Diving \(roster row\) \(0 items\)/.test(CN.formatNight(r)), CN.formatNight(r));
+  ok('  and left out of the estimate (17 teams with something to sell, not 18)', est.teams === 17, est.teams);
+  const bvb = r.perTeam.find((t) => t.teamId === 'cy:bvb');
+  ok('NO HOME DATES KNOWN IS NOT NO PITCH: a team with inventory and no dates gets its cards', bvb && bvb.cards > 0, bvb);
+  const bvbPrompts = prompts.filter((p) => /Beach Volleyball \(no dates\)/.test(p));
+  ok('  and its card never claims a number of home games', bvbPrompts.length > 0 && bvbPrompts.every((p) => !/HOME DATES/.test(p)), bvbPrompts.length);
   const capped = r.perTeam.filter((t) => t.stop === 'night-cap');
-  ok('EVERY TEAM WITH SOMETHING TO SELL HAS AT LEAST ONE CARD', zero.length === 0 && r.perTeam.length === 17, zero.map((t) => t.team));
+  ok('EVERY TEAM WITH SOMETHING TO SELL HAS AT LEAST ONE CARD', zero.length === 0 && r.perTeam.length === 18, zero.map((t) => t.team));
   ok('NO TEAM STOPS ON THE NIGHT CAP', capped.length === 0, capped.map((t) => t.team));
   ok('CARDSBYCHANNEL.DM > 0', v.cardsByChannel && v.cardsByChannel.dm > 0, v.cardsByChannel);
   ok('THE NIGHT COSTS $5 OR LESS (stubbed lookups cost nothing here: see the estimate)', r.costUsd <= 5 && est.totalUsd[0] <= 5, { night: r.costUsd, projected: est.totalUsd });

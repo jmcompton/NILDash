@@ -4888,7 +4888,17 @@ app.post('/api/auth/reset-password', resetLimiter, async (req, res) => {
     });
     if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
     console.log(`[reset-password] ${out.role} ${out.userId || out.athleteId} set a new password`);
-    res.json({ ok: true, role: out.role });
+    // A university account is signed in here and sent to its portal
+    // (passwordReset.landingFor); everyone else signs in as before.
+    const land = await pwReset.landingFor(store.pool, out);
+    if (!land.signIn) return res.json({ ok: true, role: out.role });
+    req.session.regenerate((err) => {
+      if (err) { console.error('[reset-password] session:', err.message); return res.json({ ok: true, role: land.role }); }
+      req.session.userId = land.userId;
+      req.session.role = land.role;
+      store.pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [land.userId]).catch(() => {});
+      req.session.save(() => res.json({ ok: true, role: land.role, signedIn: true, redirect: land.redirect }));
+    });
   } catch (e) {
     console.error('[reset-password] failed:', e.message);
     res.status(500).json({ error: 'Failed to reset password' });

@@ -69,7 +69,7 @@ async function nameTonight(pool, universityId, night, budgetUsd, deps = {}) {
       ORDER BY fit DESC NULLS LAST, d.created_at`, [universityId, night])).rows;
   for (const r of rows) {
     if (out.usd + worst > budgetUsd + 1e-9) { out.stoppedFor = 'budget'; break; }
-    const x = await findOwner(pool, universityId, 'night', r.id, { ai: deps.ai, free: deps.free, ignoreCap: true });
+    const x = await findOwner(pool, universityId, 'night', r.id, { ai: deps.ai, writerAi: deps.writerAi, free: deps.free, ignoreCap: true });
     out.tried++;
     out.usd += Number(x.costUsd) || 0;
     if (x.ok && x.found) out.found++;
@@ -89,8 +89,29 @@ function greet(text, name, brand) {
   return lines.join('\n');
 }
 
+// AN EMAIL FOUND MAKES AN EMAIL CARD. A DM or call card whose owner lookup
+// found an address said "No email address" and hid it. It becomes an email
+// card: the email written to the person (teamWriter), their DM kept as the
+// second action. If the writer fails, the card keeps its channel and shows
+// the address (the portal lists it). -> the fields to set, or null.
+async function emailCard(pool, draft, set, deps = {}) {
+  if (draft.channel === 'email' || draft.lane === 'social' || !set.contact_email) return null;
+  const uni = (await pool.query(`SELECT * FROM universities WHERE id = $1`, [draft.university_id])).rows[0];
+  const team = (await pool.query(`SELECT * FROM university_teams WHERE id = $1`, [draft.team_id])).rows[0];
+  if (!uni || !team) return null;
+  const CM = require('./campusMarket');
+  const sender = (draft.sender_user_id && await CM.senderFor(pool, draft.sender_user_id).catch(() => null)) || await CM.defaultSender(pool, draft.university_id).catch(() => null);
+  const biz = (await pool.query(`SELECT brand, category, primary_type_label, address, distance_m, rating, user_ratings_total FROM university_market_seen
+                                   WHERE brand = $1 ORDER BY distance_m NULLS LAST LIMIT 1`, [draft.brand_name]).catch(() => ({ rows: [] }))).rows[0] || {};
+  const w = await require('./teamWriter').writeAsk({ university: uni, team, sender, contactName: set.contact_name,
+    business: { brand_name: draft.brand_name, kindLabel: biz.primary_type_label || null, category: biz.category || null, address: biz.address || null,
+      distance_m: biz.distance_m != null ? Number(biz.distance_m) : null, rating: biz.rating, user_ratings_total: biz.user_ratings_total } }, { ai: deps.writerAi }).catch((e) => ({ ok: false, error: e.message }));
+  if (!w || !w.ok) return null;
+  return { channel: 'email', subject: w.subject, body: w.body, dm_text: draft.channel === 'dm' ? set.body : set.dm_text };
+}
+
 // Put what is on the contact row onto the card. -> the fields changed.
-async function applyToDraft(pool, draft, k) {
+async function applyToDraft(pool, draft, k, deps = {}) {
   const QC = require('./campusQuality');
   const own = k.email && !QC.isGenericInbox(k.email) ? k.email : null;
   const set = {
@@ -103,10 +124,14 @@ async function applyToDraft(pool, draft, k) {
     body: greet(draft.body, k.contact_name, draft.brand_name),
     dm_text: greet(draft.dm_text, k.contact_name, draft.brand_name),
   };
+  if (set.contact_email && draft.channel !== 'email') set.email_is_shared = !own;
+  const asEmail = await emailCard(pool, draft, set, deps);
+  if (asEmail) Object.assign(set, asEmail);
   await pool.query(
     `UPDATE university_drafts SET contact_name = $2, contact_title = $3, contact_email = $4, email_is_shared = $5, contact_phone = $6,
-       contact_instagram = $7, body = $8, dm_text = $9, updated_at = NOW() WHERE id = $1`,
-    [draft.id, set.contact_name, set.contact_title, set.contact_email, set.email_is_shared, set.contact_phone, set.contact_instagram, set.body, set.dm_text]);
+       contact_instagram = $7, body = $8, dm_text = $9, channel = COALESCE($10, channel), subject = COALESCE($11, subject), updated_at = NOW() WHERE id = $1`,
+    [draft.id, set.contact_name, set.contact_title, set.contact_email, set.email_is_shared, set.contact_phone, set.contact_instagram, set.body, set.dm_text,
+      set.channel || null, set.subject || null]);
   return set;
 }
 
@@ -126,7 +151,7 @@ async function findOwner(pool, universityId, userId, draftId, deps = {}) {
                                     ORDER BY at DESC LIMIT 1`, [universityId, brand])).rows[0];
   if (prior) {
     const k = await contactRow();
-    if (prior.found && k.contact_name) return { ok: true, found: true, cached: true, costUsd: 0, card: { ...draft, ...(await applyToDraft(pool, draft, k)) } };
+    if (prior.found && k.contact_name) return { ok: true, found: true, cached: true, costUsd: 0, card: { ...draft, ...(await applyToDraft(pool, draft, k, deps)) } };
     return { ok: true, found: false, cached: true, costUsd: 0, card: draft };
   }
   const spent = deps.ignoreCap ? 0 : await spentThisMonth(pool, universityId);
@@ -151,7 +176,7 @@ async function findOwner(pool, universityId, userId, draftId, deps = {}) {
     const leftUsd = Math.max(0, MONTHLY_USD - spent - (Number(r.costUsd) || 0));
     if (r.error) return { ok: false, status: 502, error: 'The lookup failed on our side. Try again later.', leftUsd, costUsd: Number(r.costUsd) || 0 };
     if (!found) return { ok: true, found: false, cached: false, costUsd: Number(r.costUsd) || 0, card: draft, leftUsd };
-    return { ok: true, found: true, cached: false, costUsd: Number(r.costUsd) || 0, card: { ...draft, ...(await applyToDraft(pool, draft, k)) }, leftUsd };
+    return { ok: true, found: true, cached: false, costUsd: Number(r.costUsd) || 0, card: { ...draft, ...(await applyToDraft(pool, draft, k, deps)) }, leftUsd };
   } finally {
     _busy.delete(key);
   }

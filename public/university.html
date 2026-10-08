@@ -500,7 +500,7 @@ let HOME_TEAM = "";          /* the team picker on Home: "" is All teams, best f
 let HOME_SHOW_ALL = false;   /* All teams shows the best ten until asked for the rest */
 let CARDS_FAILED = false;   /* the read failed: say so, never "no leads written yet" */
 let NEAR = { total:0, withContact:0, rows:[] };
-let SP = { q:"", team:"", contact:true, stage:"", rows:[], total:0, loading:false };
+let SP = { q:"", team:"", contact:false, stage:"", rows:[], total:0, loading:false };   /* every business, named or not */
 let invFilter = "All";
 let university = null;      /* { id, name, ... } */
 let TEAMS = [];             /* from /api/university/teams */
@@ -615,7 +615,7 @@ async function doSignin(e){
 
 async function signout(){
   try { await fetch("/api/auth/logout", { method:"POST", credentials:"same-origin" }) } catch (_) {}
-  university = null; TEAMS = []; ITEMS = []; view = "home"; invFilter = "All"; CARDS = []; ME = null; SP = { q:"", team:"", contact:true, stage:"", rows:[], total:0, loading:false };
+  university = null; TEAMS = []; ITEMS = []; view = "home"; invFilter = "All"; CARDS = []; ME = null; SP = { q:"", team:"", contact:false, stage:"", rows:[], total:0, loading:false };
   signin("");
 }
 
@@ -683,7 +683,7 @@ function vTeams(){
   const block = s => bySeason(s).length ? `
     <div class="panel">
       <h3>${s}</h3>
-      <p class="lede">${bySeason(s).length} teams · ${roster(bySeason(s))} athletes ·
+      <p class="lede">${bySeason(s).length} teams · ${bySeason(s).some(t => t.roster_published !== false && t.roster_size) ? roster(bySeason(s)) + " athletes" : "rosters not published yet"} ·
          ${dates(bySeason(s))} home dates</p>
       <div class="tablewrap" style="margin-top:12px">
         <table><thead><tr>
@@ -769,17 +769,17 @@ function leadCard(d, showTeam){
   } else if (ch === "call"){
     const pts = Array.isArray(d.talking_points) ? d.talking_points : [];
     main = `<div class="who">${who}</div>
-      <div class="reach"><a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a></div>
+      <div class="reach"><a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a>${d.contact_email ? `<a href="mailto:${esc(d.contact_email)}">${esc(d.contact_email)}</a>` : ""}</div>
       ${d.best_time ? `<div class="why"><b>Best time:</b> ${esc(d.best_time)}</div>` : ""}
       <ol class="points">${pts.map(p => `<li>${esc(p)}</li>`).join("")}</ol>
-      <div class="why" style="opacity:.75">No email address for this person, so this is a call, not an email.</div>`;
+      ${d.contact_email ? "" : `<div class="why" style="opacity:.75">No email address for this person, so this is a call, not an email.</div>`}`;
     tools = `<a class="btn go sm" href="tel:${esc(d.contact_phone)}">Call</a>`;
   } else if (ch === "dm"){
     main = `<div class="who">${who}</div>
-      <div class="reach"><a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a>${d.contact_phone ? `<a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a>` : ""}</div>
+      <div class="reach"><a href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">@${esc(handle)}</a>${d.contact_phone ? `<a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a>` : ""}${d.contact_email ? `<a href="mailto:${esc(d.contact_email)}">${esc(d.contact_email)}</a>` : ""}</div>
       ${d.why ? `<div class="why">${esc(d.why)}</div>` : ""}
       <pre>${esc(d.body || "")}</pre>
-      <div class="why" style="opacity:.75">No email address: send this as an Instagram message${d.contact_phone ? ", or call the number" : ""}.</div>`;
+      ${d.contact_email ? "" : `<div class="why" style="opacity:.75">No email address: send this as an Instagram message${d.contact_phone ? ", or call the number" : ""}.</div>`}`;
     tools = `<button type="button" class="btn go sm" data-copytext="${esc(d.body || "")}">Copy message</button>
       <a class="btn ghost sm" href="https://instagram.com/${esc(handle)}" target="_blank" rel="noopener">Open Instagram</a>`;
   } else if (ch === "program"){
@@ -863,7 +863,7 @@ function vHome(){
   /* THE TEAM PICKER. All teams: every lead, best fit for its team first, the
      top ten until "Show all". A team: only that team's leads. */
   if (HOME_TEAM && !byTeam[HOME_TEAM]) HOME_TEAM = "";
-  const pick = (key, label, n) => `<button type="button" class="btn ${HOME_TEAM === key ? "go" : "ghost"} sm" data-hometeam="${esc(key)}">${esc(label)}${n != null ? ` <span style="opacity:.7">${n}</span>` : ""}</button>`;
+  const pick = (key, label, n) => `<button type="button" class="btn ${HOME_TEAM === key ? "go" : "ghost"} sm" data-hometeam="${esc(key)}">${esc(label)}${n != null ? `<span style="opacity:.7;margin-left:6px">${n}</span>` : ""}</button>`;
   const picker = `<div class="toolrow" style="margin-top:18px;flex-wrap:wrap;gap:6px">
       ${pick("", "All teams, best first", CARDS.length)}
       ${teamsWithLeads.map(t => pick(t, t, byTeam[t].length)).join("")}
@@ -929,7 +929,7 @@ function vSponsors(){
       ${SP.rows.map(r => `<tr>
         <td data-l="BUSINESS"><span class="b">${esc(r.brand)}</span><div class="s">${esc(r.kind || "")}</div></td>
         <td data-l="WHO">${esc(r.contact.name || "")}${r.contact.title ? `<div class="s">${esc(r.contact.title)}</div>` : ""}</td>
-        <td data-l="REACH">${r.contact.email ? `<a href="mailto:${esc(r.contact.email)}" style="color:var(--lime)">${esc(r.contact.email)}</a>` : ""}${r.contact.phone ? `<div class="s">${esc(r.contact.phone)}</div>` : ""}</td>
+        <td data-l="REACH">${r.contact.email ? `<a href="mailto:${esc(r.contact.email)}" style="color:var(--lime)">${esc(r.contact.email)}</a>` : ""}${!r.contact.email && r.contact.sharedEmail ? `<a href="mailto:${esc(r.contact.sharedEmail)}" style="color:var(--lime)">${esc(r.contact.sharedEmail)}</a>` : ""}${r.contact.instagram ? `<div class="s"><a href="https://instagram.com/${esc(String(r.contact.instagram).replace(/^@/,""))}" target="_blank" rel="noopener">@${esc(String(r.contact.instagram).replace(/^@/,""))}</a></div>` : ""}${r.contact.phone ? `<div class="s">${esc(r.contact.phone)}</div>` : ""}</td>
         <td data-l="FIT"><span class="s">${esc(r.fit ? r.fit.why : (r.teamFit[0] ? r.teamFit[0].team + ": " + r.teamFit[0].why : ""))}</span></td>
         <td data-l="MILES">${r.miles == null ? "" : r.miles}</td>
         <td data-l="STAGE"><select class="sel" data-stage="${esc(r.brand)}">${stages.map(s => `<option value="${esc(s.key)}" ${s.key===r.stage?"selected":""}>${esc(s.label)}</option>`).join("")}</select></td>

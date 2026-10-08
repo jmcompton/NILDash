@@ -299,9 +299,9 @@ async function pitch(pool, universityId, userId, opts) {
   if (h.touched && !opts.acknowledgeHistory) return { ok: false, status: 409, needsAck: true, history: h };
   const team = opts.teamId ? (await pool.query(`SELECT * FROM university_teams WHERE id = $1 AND university_id = $2`, [opts.teamId, universityId])).rows[0] : null;
   // A TEAM WITH NOTHING TO SELL IS NOT PITCHED (campusNightly.sellableTeams):
-  // home dates and inventory still available, roster or not.
+  // inventory still available, roster or home dates or not.
   if (team && !((await require('./campusNightly').sellableTeams(pool, universityId)).get(team.id) || {}).sellable) {
-    return { ok: false, status: 422, error: `${team.name} has no home dates or no inventory left to sell, so there is nothing to pitch for it yet.` };
+    return { ok: false, status: 422, error: `${team.name} has no inventory left to sell, so there is nothing to pitch for it yet.` };
   }
   if (opts.teamId && !team) return { ok: false, status: 404, error: 'team not found' };
   if (!team && !(opts.athlete && opts.athlete.name)) return { ok: false, status: 400, error: 'pick a team or name an athlete' };
@@ -314,7 +314,13 @@ async function pitch(pool, universityId, userId, opts) {
     contactName: biz.contact.name, sender };
   // No email address, no email (services/cardChannel).
   const CHN = require('./cardChannel');
-  if (!String(biz.contact.name || '').trim()) return { ok: false, status: 422, error: 'there is no named person at this business yet: every email and DM is written to someone by name' };
+  // Not a decision maker (an assistant store manager): left off, as on the night's cards.
+  { const QC = require('./campusQuality');
+    if (biz.contact.name && (QC.refusedName(biz.contact.name) || QC.refusedTitle(biz.contact.title))) {
+      biz.contact.name = null; biz.contact.title = null; biz.contact.email = null; ctx.contactName = null;
+    } }
+  // No named person yet: written to the business ("Hi <business> team,"), as
+  // the free night does; "Find the owner" on the card puts a name on it.
   const sendTo = biz.contact.email || biz.contact.sharedEmail || null;
   // A brand-wide handle is not this location's DM (cardChannel.campusHandle).
   biz.contact.instagram = CHN.campusHandle({ instagram: biz.contact.instagram, brand: biz.brand, city: require('./teamScan').cityOf(u.location) });
