@@ -12476,6 +12476,17 @@ app.get('/api/admin/brand-flags', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/admin/home?days=30 — the admin home: the pitch funnel, platform
+// health, athletes short of five new pitches, and per-agent waiting/sent/replied
+// /signed (services/adminHome). Read-only.
+app.get('/api/admin/home', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    res.json(await require('./services/adminHome').build(store.pool, { days: req.query.days }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── EVERY EMAIL TO ONE ADDRESS, AND THE LIST THAT STOPS THEM ALL ─────────────
 // GET  /api/admin/email-history?email=a@b.com[&days=30]
 //   Every email this codebase sent to that address in the window, newest
