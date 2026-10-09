@@ -97,6 +97,7 @@ async function main() {
   await clean();
   await P().query(`INSERT INTO users (id,name,email,password,role,report_tz)
                    VALUES ($1,'Age Agent','ah@x.com','x','agent','America/Chicago')`, [AG]);
+  await P().query(`UPDATE users SET business_street = '1 Test St', business_city = 'Testville', business_state = 'AL', business_zip = '35201' WHERE id = $1`, [AG]);   // the agent's own address (canSpam.senderAddress)
   // Exactly what POST /api/athletes stores for a freshman with the box left
   // unticked: no dob, no over18 answer at all.
   await store.saveAthlete('ah-a1', { id: 'ah-a1', agentId: AG, name: 'Noah Carpenter', sport: 'football',
