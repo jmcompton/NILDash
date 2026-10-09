@@ -119,7 +119,8 @@ function buildSend(pool, cache, { dry }) {
     // sending anyway.
     const args = {
       to: [to], subject: log.subject,
-      bodyHtml: canSpam.appendHtml(log.body_html, to, { senderName: account.senderName || null }),
+      bodyHtml: canSpam.appendHtml(log.body_html, to, { senderName: account.senderName || null,
+        address: log.footerAddress || (await canSpam.senderAddress(pool, log.agent_id)).address || null }),
       attachments: [], replyTo, messageId,
     };
     const res = account.provider === 'imap'

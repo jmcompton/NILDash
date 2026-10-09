@@ -4374,6 +4374,27 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="page-title">Settings</div>
     <div class="page-sub">Manage integrations, connected accounts, and preferences</div>
 
+    <!-- ══ BUSINESS ADDRESS — the postal address CAN-SPAM requires in every
+         commercial email, the agent's own (services/canSpam.senderAddress).
+         Required before the first send. ══ -->
+    <div id="biz-address-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Your business address</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+        The law (CAN-SPAM) requires a physical mailing address at the bottom of every outreach email.
+        This is the one we print on yours. Use your business address: an office, a PO box or a registered agent address all work.
+      </div>
+      <div style="margin-bottom:10px"><label class="form-label-sm">Street</label><input id="biz-street" class="input-sm" placeholder="123 Main St, Suite 200" style="width:100%"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="flex:2;min-width:140px"><label class="form-label-sm">City</label><input id="biz-city" class="input-sm" style="width:100%"></div>
+        <div style="flex:0 0 70px"><label class="form-label-sm">State</label><input id="biz-state" class="input-sm" maxlength="2" placeholder="AL" style="width:100%;text-transform:uppercase"></div>
+        <div style="flex:1;min-width:90px"><label class="form-label-sm">ZIP</label><input id="biz-zip" class="input-sm" maxlength="10" style="width:100%"></div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="run-btn" style="padding:8px 18px" onclick="saveBusinessAddress()">Save address</button>
+        <span id="biz-status" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+    </div>
+
     <!-- ══ SIGNATURE — the only part of an outbound message that is the same
          every time. Set once here, appended to every pitch. Deliberately NOT
          written by the model: a signature that varies is a signature nobody
@@ -6057,6 +6078,7 @@ async function bootApp() {
   document.getElementById('appScreen').classList.add('visible');
   document.body.classList.add('app-active'); // shows the mobile topbar (gated in CSS)
   document.getElementById('userName').textContent = currentUser.name || (currentUser.email || '').split('@')[0] || 'Agent';
+  if (currentUser.role === 'agent' || currentUser.role === 'admin') setTimeout(promptBusinessAddress, 400);
   try {
     const subBtn = document.getElementById('agentSubscribeBtn');
     if (subBtn) {
@@ -7871,7 +7893,7 @@ async function showView(id, btn) {
   }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
-  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); }
+  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); }
   // The Outreach tab no longer renders the queue; loadUnifiedOutreach and
   // loadAiOutreachLogs are its own tracking reads, wired to their own buttons.
   if (id === 'outreach') { setTimeout(loadUnifiedOutreach, 60); setTimeout(loadAiOutreachLogs, 80); }
@@ -18703,6 +18725,54 @@ async function saveSignature() {
   } catch (e) {
     if (st) { st.style.color = '#f87171'; st.textContent = e.message; }
   }
+}
+
+// ── The agent's business address (services/canSpam.senderAddress) ─────────────
+async function loadBusinessAddress() {
+  try {
+    var r = await fetch(API_BASE + '/api/agent/business-address', { credentials: 'include' });
+    if (!r.ok) return null;
+    var d = await r.json();
+    var set = function (id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; };
+    set('biz-street', d.street); set('biz-city', d.city); set('biz-state', d.state); set('biz-zip', d.zip);
+    var st = document.getElementById('biz-status');
+    if (st) { st.style.color = d.set ? 'var(--muted)' : '#f59e0b'; st.textContent = d.set ? 'On your emails as: ' + d.formatted : 'Not set yet. Required before your first email.'; }
+    return d;
+  } catch (e) { return null; }
+}
+async function saveBusinessAddress() {
+  var v = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+  var st = document.getElementById('biz-status');
+  if (st) { st.style.color = 'var(--muted)'; st.textContent = 'Saving...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/business-address', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ street: v('biz-street'), city: v('biz-city'), state: v('biz-state'), zip: v('biz-zip') }),
+    });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not save');
+    if (st) { st.style.color = 'var(--accent)'; st.textContent = 'Saved. On your emails as: ' + d.formatted; }
+    var b = document.getElementById('bizAddressBanner'); if (b) b.remove();
+    if (typeof showToast === 'function') showToast('Business address saved', 'success');
+  } catch (e) { if (st) { st.style.color = '#f87171'; st.textContent = e.message; } }
+}
+// At sign-in: an agent with no address of their own is asked for it, with why.
+async function promptBusinessAddress() {
+  try {
+    var r = await fetch(API_BASE + '/api/agent/business-address', { credentials: 'include' });
+    if (!r.ok) return;
+    var d = await r.json();
+    if (!d.needed || document.getElementById('bizAddressBanner')) return;
+    var bar = document.createElement('div');
+    bar.id = 'bizAddressBanner';
+    bar.setAttribute('role', 'alert');
+    bar.style.cssText = 'margin:12px 16px 0;padding:12px 14px;border:1px solid #f59e0b;border-radius:10px;background:rgba(245,158,11,0.08);color:var(--text);font-size:13px;line-height:1.5;display:flex;gap:12px;align-items:center;flex-wrap:wrap';
+    bar.innerHTML = '<div style="flex:1;min-width:220px"><b>Add your business address.</b> The law (CAN-SPAM) requires a mailing address at the bottom of every outreach email, and it should be yours. Until it is set, your first email cannot go out.</div>'
+      + '<button class="run-btn" style="padding:7px 14px">Add it in Settings</button>';
+    bar.querySelector('button').onclick = function () { try { showView('settings', null); } catch (e) {} setTimeout(function () { var c = document.getElementById('biz-address-card'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 150); };
+    var host = document.querySelector('#appScreen .main') || document.getElementById('appScreen');
+    if (host) host.insertBefore(bar, host.firstChild);
+  } catch (e) { /* the app works without the prompt */ }
 }
 
 // ── The agency's brand (services/agencyBrand) ─────────────────────────────────

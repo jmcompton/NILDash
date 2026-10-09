@@ -2170,6 +2170,34 @@ app.post('/api/agent/signature', requireAuth, async (req, res) => {
   }
 });
 
+// ── THE AGENT'S BUSINESS ADDRESS (services/canSpam.senderAddress) ────────
+// The postal address the law requires in every commercial email, the agent's
+// own. Required before their first send; prompted at sign-in until set.
+app.get('/api/agent/business-address', requireAuth, async (req, res) => {
+  try {
+    const CS = require('./services/canSpam');
+    const u = (await store.pool.query(`SELECT business_street, business_city, business_state, business_zip, role FROM users WHERE id = $1`, [req.session.userId])).rows[0] || {};
+    const set = !!CS.formatAddress(u);
+    res.json({ street: u.business_street || '', city: u.business_city || '', state: u.business_state || '', zip: u.business_zip || '',
+      set, formatted: CS.formatAddress(u) || null, needed: !set && ['agent', 'admin'].includes(u.role), why: CS.FIRST_SEND_WHY });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/agent/business-address', requireAuth, async (req, res) => {
+  try {
+    const CS = require('./services/canSpam');
+    const c = CS.cleanAddress(req.body || {});
+    if (!c.ok) return res.status(400).json({ error: c.error });
+    await store.pool.query(`UPDATE users SET business_street = $2, business_city = $3, business_state = $4, business_zip = $5,
+                              business_address_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [req.session.userId, c.value.street, c.value.city, c.value.state, c.value.zip]);
+    // Emails held for want of it are due again now, not at the next recheck.
+    await store.pool.query(`UPDATE outreach_logs SET send_hold_reason = NULL, send_hold_at = NULL, scheduled_send_at = NOW(), updated_at = NOW()
+                             WHERE agent_id = $1 AND status = 'approved' AND sent_at IS NULL AND send_hold_reason = $2`,
+      [req.session.userId, CS.FIRST_SEND_WHY]).catch(() => {});
+    res.json({ ok: true, ...c.value, set: true, formatted: CS.formatAddress(c.value) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── THE AGENCY'S BRAND (services/agencyBrand) ────────────────────────────
 // Beside the signature, on the same account row. Any signed-in account owns
 // one: an agent's, or a university's (the wall in middleware/modeGuard decides
@@ -5397,6 +5425,9 @@ const ADMIN_SCRIPTS = {
   // A university's duplicate teams ("Swim & Dive" and "Swimming & Diving")
   // merged into one: athletes, cards and every team row moved, the duplicate
   // deleted. Dry run unless apply=1.
+  // Who has sent outreach with the global postal address in the footer, by
+  // agent, since the footer began. Read only.
+  'footer-address-report': { file: 'scripts/footer-address-report.js', args: () => [] },
   'merge-duplicate-teams': { file: 'scripts/merge-duplicate-teams.js', args: (q) => {
     const u = String(q.university || 'univ-cypress');
     if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });
