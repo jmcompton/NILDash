@@ -813,7 +813,10 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   const canSpam = require('../services/canSpam');
   const senderName = await pool.query(`SELECT name FROM users WHERE id = $1`, [log.agent_id])
     .then((r) => (r.rows[0] && r.rows[0].name) || null).catch(() => null);
-  const bodyHtml = canSpam.appendHtml(log.body_html, toEmail, { senderName });
+  // The agent's own postal address (canSpam.senderAddress); none before their first send.
+  const sa = await canSpam.senderAddress(pool, log.agent_id);
+  if (!sa.ok) { const e = new Error(sa.why); e.status = 400; e.code = sa.code; throw e; }
+  const bodyHtml = canSpam.appendHtml(log.body_html, toEmail, { senderName, address: sa.address });
 
   let result;
   const fake = require('../services/providers/fakeSend');

@@ -61,6 +61,7 @@ async function main() {
   await clean();
   await P.query(`INSERT INTO users (id,name,email,password,role,report_tz)
                  VALUES ($1,'A','cr@x.com','x','agent','America/Chicago')`, [AG]);
+  await P.query(`UPDATE users SET business_street = '1 Test St', business_city = 'Testville', business_state = 'AL', business_zip = '35201' WHERE id = $1`, [AG]);   // the agent's own address (canSpam.senderAddress)
   await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ('cr-a0',$1,$2::jsonb)`,
     [AG, JSON.stringify({ name: 'Client Zero', school: 'Auburn University' })]);
   for (let i = 0; i < 4; i++) {

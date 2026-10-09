@@ -166,8 +166,51 @@ function esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// ── THE SENDER'S OWN ADDRESS ────────────────────────────────────────────────
+// The address in an agent's email is the agent's business, from Settings
+// (users.business_street/_city/_state/_zip). BUSINESS_MAILING_ADDRESS is the
+// NILDash fallback for an agent who has sent before and has not set theirs
+// yet; it is never the founder's home address (it was, on every agent's mail,
+// until an agent asked why). An agent with no address of their own cannot send
+// their FIRST email: required before the first send, with the reason.
+const ADDRESS_FIELDS = ['business_street', 'business_city', 'business_state', 'business_zip'];
+function formatAddress(a) {
+  if (!a) return '';
+  const street = String(a.business_street || a.street || '').trim();
+  const city = String(a.business_city || a.city || '').trim();
+  const state = String(a.business_state || a.state || '').trim().toUpperCase();
+  const zip = String(a.business_zip || a.zip || '').trim();
+  if (!street || !city || !state || !zip) return '';
+  return `${street}, ${city}, ${state} ${zip}`.replace(/\s{2,}/g, ' ').slice(0, 300);
+}
+// The fields a person typed, checked: -> { ok, value, error }.
+function cleanAddress(b) {
+  const v = { street: String((b && b.street) || '').trim().slice(0, 160), city: String((b && b.city) || '').trim().slice(0, 80),
+    state: String((b && b.state) || '').trim().toUpperCase().slice(0, 2), zip: String((b && b.zip) || '').trim().slice(0, 10) };
+  if (!v.street || !v.city || !v.state || !v.zip) return { ok: false, error: 'Street, city, state and ZIP are all required.' };
+  if (!/^[A-Z]{2}$/.test(v.state)) return { ok: false, error: 'State is the two-letter code, like CA or AL.' };
+  if (!/^\d{5}(-\d{4})?$/.test(v.zip)) return { ok: false, error: 'ZIP is five digits, like 90630.' };
+  return { ok: true, value: v };
+}
+const FIRST_SEND_WHY = 'Add your business address in Settings before your first email. The law (CAN-SPAM) requires a physical mailing '
+  + 'address in every commercial email, and it should be your business address, not NILDash\'s.';
+// -> { ok, address, source: 'agent'|'nildash', why }
+async function senderAddress(pool, userId) {
+  if (userId) {
+    const u = (await pool.query(`SELECT ${ADDRESS_FIELDS.join(', ')} FROM users WHERE id = $1`, [userId]).catch(() => ({ rows: [] }))).rows[0];
+    const own = formatAddress(u);
+    if (own) return { ok: true, address: own, source: 'agent', why: null };
+    const sentBefore = (await pool.query(`SELECT 1 FROM outreach_logs WHERE agent_id = $1 AND sent_at IS NOT NULL LIMIT 1`, [userId])
+      .catch(() => ({ rows: [] }))).rows.length > 0;
+    if (!sentBefore) return { ok: false, address: null, source: null, why: FIRST_SEND_WHY, code: 'NEEDS_BUSINESS_ADDRESS' };
+  }
+  const fallback = mailingAddress();
+  if (!fallback) return { ok: false, address: null, source: null, why: problem(), code: 'CANSPAM_UNCONFIGURED' };
+  return { ok: true, address: fallback, source: 'nildash', why: null };
+}
+
 function lines(email, opts = {}) {
-  const addr = mailingAddress();
+  const addr = String((opts && opts.address) || '').trim() || mailingAddress();
   if (!addr) { const e = new Error(problem()); e.code = 'CANSPAM_UNCONFIGURED'; throw e; }
   const who = String((opts && opts.senderName) || '').trim();
   // opts.why: a sender whose reader is not a business (the cold agent writes
@@ -223,6 +266,7 @@ function appendHtml(html, email, opts = {}) {
 module.exports = {
   ENV_NAME, MARKER,
   mailingAddress, configured, problem, appUrl, normalize,
+  ADDRESS_FIELDS, formatAddress, cleanAddress, senderAddress, FIRST_SEND_WHY,
   tokenFor, emailFromToken, unsubscribeUrl,
   required, footerText, footerHtml, hasFooter, appendText, appendHtml,
 };

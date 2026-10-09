@@ -1816,6 +1816,14 @@ async function init() {
   // and nothing sets it.
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS hide_powered_by BOOLEAN NOT NULL DEFAULT FALSE`)
     .catch((e) => console.error('[init] users.hide_powered_by:', e.message));
+  // THE AGENT'S BUSINESS ADDRESS (services/canSpam.senderAddress): the postal
+  // address CAN-SPAM requires in their outreach, theirs and not NILDash's.
+  for (const c of ['business_street', 'business_city', 'business_state', 'business_zip']) {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${c} TEXT`)
+      .catch((e) => console.error('[init] users.' + c + ':', e.message));
+  }
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS business_address_at TIMESTAMPTZ`)
+    .catch((e) => console.error('[init] users.business_address_at:', e.message));
   console.log('[init] users signature columns ready');
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_enabled BOOLEAN DEFAULT TRUE`).catch(() => {});
   // One row per agent per local day. The double-send guard: recurring work runs
