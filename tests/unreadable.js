@@ -92,6 +92,7 @@ async function main() {
   await clean();
   await P.query(`INSERT INTO users (id,name,email,password,role,report_tz)
                  VALUES ($1,'U','u@x.com','x','agent','America/Chicago')`, [AG]);
+  await P.query(`UPDATE users SET business_street = '1 Test St', business_city = 'Testville', business_state = 'AL', business_zip = '35201' WHERE id = $1`, [AG]);   // the agent's own address (canSpam.senderAddress)
   // NO athletes row is inserted. This is the empty-roster shape.
   await P.query(
     `INSERT INTO outreach_logs (id,agent_id,athlete_id,brand_name,subject,body_html,status,

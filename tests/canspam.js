@@ -123,7 +123,7 @@ const src = (p) => fs.readFileSync(REPO + p, 'utf8');
 
   const email = src('server/routes/email.js');
   ok('the inbox compose: a new message to a business carries it',
-    /canSpam\.appendHtml\(bodyHtml, recipients\[0\]\)/.test(email));
+    /canSpam\.appendHtml\(bodyHtml, recipients\[0\], \{ address: sa\.address \}\)/.test(email) && /canSpam\.senderAddress\(/.test(email));
   ok('  a reply inside a thread does not, because that is a conversation',
     /canSpam\.required\(threadId \? 'reply' : 'compose'\)/.test(email));
 
