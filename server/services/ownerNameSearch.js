@@ -81,6 +81,13 @@ function looksLikePerson(name, brand) {
 // -> null when the person may be pitched, or the reason they may not.
 const NEVER_TITLE = /\b(emerit(us|a)|retired|former|ex-|chair(man|woman|person)? of the board|board (chair|member)|board of (directors|trustees|regents)|trustee|regent|vice chancellor|chancellor|provost|dean|athletic director|athletics director|director of athletics|head coach|assistant coach|coach)\b|\bpresident of (the )?[\w .&'-]*\b(university|college|school|institute)\b|\b(university|college) president\b|^\s*\d+(st|nd|rd|th) president\b/i;
 const JUNIOR_TITLE = /\b(assistant|asst\.?|associate|deputy)\s+([\w&-]+\s+){0,2}manager\b|\bco-?\s?manager\b|\b(service|parts|shift|floor|department|dept\.?|office|front of house|back of house|kitchen|bar|night|weekend|desk|counter|inventory|warehouse|receiving|customer service)\s+(manager|supervisor|lead|leader)\b|\b(shift|team|crew)\s+(lead|leader|supervisor|member)\b|\bkey ?holder\b|\bsupervisor\b|\bservice (advisor|writer)\b/i;
+// A DEPARTMENT THAT IS NOT THE BUSINESS'S MONEY OR ITS MARKETING. A
+// sponsorship is decided by the owner, the general manager or the marketing
+// lead; housekeeping, the kitchen, IT or HR does not decide it, whatever the
+// seniority word ("Director of Housekeeping" passed the junior check on
+// "director"). IT and HR only in capitals, so the word "it" never matches.
+const DEPT_TITLE = /\b(housekeeping|housekeeper|janitorial|janitor|custodial|custodian|laundry|kitchen|culinary|chef|sous|line cook|cook|dishwasher|shift|information technology|tech support|technical support|help ?desk|systems? administrat\w*|human resources|people operations|people ops|payroll|recruit(ing|er|ment)|talent acquisition|benefits|accounting|accounts (payable|receivable)|bookkeep\w*|purchasing|procurement|warehouse|logistics|shipping|receiving|maintenance|facilities|facility|engineering|security|loss prevention|front desk|front office|guest services|reservations|concierge|night audit\w*|valet|bell ?(man|men|staff)|compliance|legal|quality assurance)\b/i;
+const DEPT_CAPS = /\b(IT|HR)\b/;
 const DECIDES = /\b(marketing|partnerships?|brand|influencer|sponsorships?|athletes?|creators?|community|social media|nil|ambassador|talent|communications|public relations|events?|growth|affiliate|activation)\b/i;
 const TOP_EXEC = /\b(ceo|chief executive|president|chair(man|woman|person)?|co-?founder|founder|owner|proprietor|managing director|general partner)\b/i;
 // ── THE PARENT COMPANY'S LEADERSHIP IS NOT THIS LOCATION'S ──────────────────
@@ -121,6 +128,12 @@ function titleProblem(title, opts = {}) {
   // or general manager, the franchisee or the owner signs; the people under
   // them do not. A title that also says owner, partner or general manager is
   // that, not this.
+  {
+    const dept = (t.match(DEPT_TITLE) || t.match(DEPT_CAPS) || [])[0];
+    if (dept && !ownsIt && !DECIDES.test(t) && !/\b(general manager|gm|president|ceo|partner|franchisee)\b/i.test(t)) {
+      return `"${t}" runs ${dept.toLowerCase() === 'it' ? 'IT' : dept.toLowerCase() === 'hr' ? 'HR' : dept.toLowerCase()}, not the business or its marketing; we want the owner, the general manager or the marketing lead`;
+    }
+  }
   if (JUNIOR_TITLE.test(t) && !ownsIt && !/\b(general manager|gm|partner|president|principal|director|franchisee)\b/i.test(t.replace(JUNIOR_TITLE, ''))) {
     return `"${t}" is not who signs here; we want the owner or the store or general manager`;
   }
@@ -238,4 +251,4 @@ const NO_NAME_REASON = 'no contact name found after all sources, including the f
 // Never its owner or founder.
 const LARGE_ORDER = ['partnerships', 'marketing'];
 
-module.exports = { titleProblem, JUNIOR_TITLE, chainLocation, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };
+module.exports = { titleProblem, JUNIOR_TITLE, DEPT_TITLE, chainLocation, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };

@@ -5397,6 +5397,14 @@ const ADMIN_SCRIPTS = {
   // A university's duplicate teams ("Swim & Dive" and "Swimming & Diving")
   // merged into one: athletes, cards and every team row moved, the duplicate
   // deleted. Dry run unless apply=1.
+  // Which of a university's unworked cards today's rules would drop (a
+  // chain or hotel brand) or strip of their contact (a junior or
+  // non-marketing title). Read only.
+  'univ-card-recheck': { file: 'scripts/univ-card-recheck.js', args: (q) => {
+    const u = String(q.university || 'univ-cypress');
+    if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });
+    return ['--university', u];
+  } },
   'merge-duplicate-teams': { file: 'scripts/merge-duplicate-teams.js', args: (q) => {
     const u = String(q.university || 'univ-cypress');
     if (!/^[a-z0-9_-]{1,80}$/i.test(u)) throw Object.assign(new Error('bad university id'), { status: 400 });

@@ -22,6 +22,17 @@ for (const t of ['Owner', 'Store Manager', 'General Manager', 'Owner & Service M
   'Founder', 'Managing Partner', 'Location Manager', 'General Manager / Office Manager']) {
   ok(`kept: ${t}`, !O.titleProblem(t), O.titleProblem(t));
 }
+// A NON-MARKETING DEPARTMENT, whatever the seniority word ("Director of
+// Housekeeping" passed on "director").
+for (const t of ['Director of Housekeeping', 'Executive Housekeeper', 'Executive Chef', 'Director of IT', 'IT Manager', 'HR Director',
+  'Director of Human Resources', 'Facilities Director', 'Director of Engineering', 'Front Desk Manager', 'Payroll Manager', 'Director of Guest Services']) {
+  ok(`refused (department): ${t}`, !!O.titleProblem(t));
+}
+for (const t of ['Chef/Owner', 'Owner & Executive Chef', 'Director of Sales & Marketing', 'Sponsorship Coordinator', 'Director of Sales',
+  'Director of Operations', 'Community Manager', 'General Manager, Hotel Operations', 'Director of Community Partnerships']) {
+  ok(`kept: ${t}`, !O.titleProblem(t), O.titleProblem(t));
+}
+ok('"it" in lower case is not IT', !O.titleProblem('Owner, and it shows'));
 ok('the university list refuses it too', !!CQ.refusedTitle('Assistant Store Manager') && !CQ.refusedTitle('Store Manager'));
 
 console.log(OUT.join('\n'));

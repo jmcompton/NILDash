@@ -57,6 +57,19 @@ const NATIONAL_CHAINS = [
   'verizon', 't-mobile', 'at&t store', 'cricket wireless', 'metro by t-mobile', 'boost mobile', 'mattress firm',
   'enterprise rent', 'hertz', 'u-haul', 'public storage', 'extra space storage',
   '24 hour fitness', 'eos fitness', 'chuck e. cheese', 'dave & buster', 'round1', 'main event', 'sky zone', 'urban air', 'boot barn', 'skechers',
+  // Added 2026-10-09 (Cypress: Tillys and IHG hotel properties reached cards).
+  // Hotel brands: a franchised or managed property answers to the brand.
+  'holiday inn', 'crowne plaza', 'intercontinental', 'hotel indigo', 'kimpton', 'staybridge suites', 'candlewood suites', 'even hotel', 'voco ', 'avid hotel', 'ihg ',
+  'marriott', 'courtyard by marriott', 'residence inn', 'fairfield inn', 'springhill suites', 'towneplace suites', 'ac hotel', 'moxy ', 'aloft ',
+  'element by westin', 'westin', 'sheraton', 'four points', 'renaissance hotel', 'ritz-carlton', 'jw marriott', 'le meridien',
+  'hilton', 'doubletree', 'embassy suites', 'hampton inn', 'homewood suites', 'home2 suites', 'tru by hilton', 'curio collection', 'tapestry collection', 'canopy by hilton',
+  'hyatt', 'wyndham', 'la quinta', 'days inn', 'super 8', 'ramada', 'howard johnson', 'baymont', 'microtel', 'travelodge', 'wingate',
+  'comfort inn', 'comfort suites', 'quality inn', 'sleep inn', 'clarion', 'econo lodge', 'rodeway inn', 'cambria hotel', 'mainstay suites', 'woodspring suites',
+  'best western', 'motel 6', 'red roof', 'extended stay america', 'americas best value', 'knights inn', 'studio 6',
+  // Youth apparel, shoe and sporting retail chains.
+  'tillys', 'tilly\'s', 'zumiez', 'pacsun', 'pacific sunwear', 'hot topic', 'boxlunch', 'torrid', 'champs sports', 'finish line', 'jd sports',
+  'shoe palace', 'footaction', 'h&m', 'forever 21', 'urban outfitters', 'aeropostale', 'rue21', 'five below', 'spencer gifts',
+  'shoe carnival', 'rack room shoes', 'burlington', 'nordstrom rack', 'sportsman\'s warehouse', 'scheels', 'golf galaxy', 'pga tour superstore', 'lids ',
 ];
 
 const _lc = NATIONAL_CHAINS.map((s) => String(s).toLowerCase());
