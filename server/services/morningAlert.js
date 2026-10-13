@@ -148,6 +148,10 @@ async function collect(pool, { now } = {}) {
   // APPROVALS THAT DID NOT SEND, by agent (services/sendFaults): every agent
   // who approved something that did not go out, and how many.
   out.sendFaults = await require('./sendFaults').byAgentOpen(pool).catch(() => []);
+  // Last night's Instagram sync (services/instagramConnect.nightly): connected,
+  // synced, failed by reason in plain words. A count, never a problem by itself.
+  out.instagram = await pool.query(`SELECT run_date, summary FROM instagram_sync_runs ORDER BY run_date DESC LIMIT 1`)
+    .then((r) => r.rows[0] || null).catch(() => null);
   // Refused mailboxes with nothing waiting (services/mailboxNotice): listed and
   // counted as notices, never a problem; the agent has been emailed.
   out.mailboxNotices = await require('./mailboxNotice').recent(pool).catch(() => []);
@@ -217,6 +221,17 @@ function mailboxLines(r) {
   return L;
 }
 
+function instagramLines(r) {
+  const x = r.instagram && r.instagram.summary;
+  if (!x) return [];
+  const W = require('./instagramInsights').KIND_WORDS;
+  const reasons = Object.entries(x.failedByReason || {}).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')} (${W[k] || k})`);
+  return [`INSTAGRAM (${String(r.instagram.run_date instanceof Date ? r.instagram.run_date.toISOString() : r.instagram.run_date).slice(0, 10)}): `
+    + `${x.connected != null ? x.connected : '?'} connected, ${x.synced || 0} synced, ${(x.failed || []).length} failed`
+    + (reasons.length ? `: ${reasons.join('; ')}` : '')
+    + (x.insightsRefused ? `; insights refused for ${x.insightsRefused} (Meta has not approved the app yet, or they are not testers)` : '')];
+}
+
 function render(r) {
   if (!r.problemCount) {
     const subject = `NILDash all clear ${r.runDate}: ${r.cardsLastNight} card(s) last night, `
@@ -227,6 +242,7 @@ function render(r) {
         + (r.skippedByDesign ? `; ${r.skippedByDesign} skipped by design (not signed in recently)` : '') + '.',
       r.digests ? `Agent digests last night: ${r.digests.sent} sent, none failed or held.` : '',
       `Preflight for ${r.runDate}: every service answered.`,
+      ...instagramLines(r),
       ...mailboxLines(r),
       ...(r.universities || []).map((u) => `${u.name}: ${u.teams} team(s), ${u.items} item(s) for sale, ${u.asks24h} sponsor ask(s) in 24h, last ask ${u.last_ask ? new Date(u.last_ask).toISOString().slice(0, 10) : 'never'}.`),
       r.queueEnabled ? '' : 'Note: the nightly queue is OFF on this deployment (OUTREACH_QUEUE_ENABLED is not 1).',
@@ -293,6 +309,7 @@ function render(r) {
       + (r.digests.failReason ? `. First failure: ${r.digests.failReason}` : ''), '');
   }
   { const ml = mailboxLines(r); if (ml.length) lines.push(...ml, ''); }
+  { const il = instagramLines(r); if (il.length) lines.push(...il, ''); }
   if (r.sendFaults && r.sendFaults.length) {
     lines.push(`APPROVALS THAT DID NOT SEND, by agent (each agent sees these on Home and got one email):`);
     for (const x of r.sendFaults) lines.push(`  ${String(x.n).padStart(4)}  ${x.name || ''} <${x.email}>${x.ours ? `  (${x.ours} our fault)` : ''}  latest: ${x.latest_kind}`);

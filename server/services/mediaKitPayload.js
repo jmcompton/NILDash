@@ -90,7 +90,7 @@ function draftKit(saved, body, athleteId) {
 
 // The audience block's data: one entry per platform that has a number, each
 // with its state. [] when nothing is known.
-function audienceOf(mk, ig) {
+function audienceOf(mk, ig, shot) {
   const n = (v) => { const x = Number(String(v == null ? '' : v).replace(/[,\s]/g, '')); return Number.isFinite(x) && x > 0 ? Math.round(x) : null; };
   const handle = (h) => { const v = String(h || '').replace(/^@+/, '').trim(); return v && v.toLowerCase() !== 'demo' ? v : null; };
   const out = [];
@@ -98,6 +98,10 @@ function audienceOf(mk, ig) {
     out.push({ platform: 'instagram', followers: Number(ig.followers_count), handle: ig.username || handle(mk.instagram_handle),
       engagement: ig.engagement_rate !== null && ig.engagement_rate !== undefined ? Math.round(Number(ig.engagement_rate) * 1000) / 10 : null,
       state: 'verified', source: 'instagram', fetchedAt: ig.fetched_at });
+  } else if (shot && shot.followers_count !== null && shot.followers_count !== undefined) {
+    // FROM THE ATHLETE'S SCREENSHOT: read from images they sent, dated, never "verified".
+    out.push({ platform: 'instagram', followers: Number(shot.followers_count), handle: shot.username || handle(mk.instagram_handle),
+      engagement: null, state: 'screenshot', source: 'screenshot', fetchedAt: shot.fetched_at });
   } else if (n(mk.instagram_followers)) {
     const e = parseFloat(String(mk.instagram_engagement || '').replace('%', ''));
     out.push({ platform: 'instagram', followers: n(mk.instagram_followers), handle: handle(mk.instagram_handle),
@@ -108,19 +112,45 @@ function audienceOf(mk, ig) {
   return out;
 }
 
+// ── THE INSTAGRAM AUDIENCE, FROM THE STORED RAW VALUES (services/instagramInsights)
+// Average reach and views per post, where the followers are (local share for
+// the school's city, top cities and countries), age and gender. Each part is
+// present only when Instagram (or the athlete's screenshot) gave real data;
+// an empty part is left out, never shown as zero.
+function instagramDetail(row, city) {
+  if (!row) return null;
+  const II = require('./instagramInsights');
+  const d = II.derive(row, { city });
+  const r1 = (x) => (x === null || x === undefined ? null : Math.round(x));
+  const shares = (rows) => (rows && rows.length ? rows.map((x) => ({ label: x.key, pct: x.share === null ? null : Math.round(x.share * 1000) / 10 })) : null);
+  const out = {
+    source: row.source === 'screenshot' ? 'screenshot' : 'instagram', asOf: row.fetched_at,
+    avgReachPerPost: r1(d.avgReachPerPost), avgViewsPerPost: r1(d.avgViewsPerPost), reach30: r1(d.reach30),
+    engagementByReach: d.engagementByReach === null ? null : Math.round(d.engagementByReach * 1000) / 10,
+    local: d.local && d.local.cityShare > 0 ? { city: d.local.city, pct: Math.round(d.local.cityShare * 1000) / 10 } : null,
+    topCities: shares(d.topCities), topCountries: shares(d.topCountries), ages: shares(d.ageBands), gender: shares(d.gender),
+  };
+  const any = ['avgReachPerPost', 'avgViewsPerPost', 'reach30', 'local', 'topCities', 'ages', 'gender'].some((k) => out[k] !== null && out[k] !== undefined);
+  return any ? out : null;
+}
+
 // mk: a media_kits row (saved, or a draft from draftKit). -> the public JSON.
 async function payloadFor(pool, mk, opts = {}) {
   await ensureColumns(pool);
   const store = opts.store || require('../store');
   const ath = (await pool.query(
     `SELECT a.data->>'name' AS name, a.data->>'sport' AS sport, a.data->>'school' AS school, a.data->>'position' AS position,
-            u.name AS agent_name, a.agent_id
+            u.name AS agent_name, a.agent_id, a.data AS data
        FROM athletes a LEFT JOIN users u ON u.id = a.agent_id WHERE a.id = $1`, [mk.athlete_id])).rows[0] || {};
   const owner = ath.agent_id ? await store.getUser(ath.agent_id).catch(() => null) : null;
   const agency = await require('./agencyBrand').brandForUser(owner || {});
   let ig = null;
   try { ig = await require('./instagramConnect').latestFor(pool, mk.athlete_id); }
   catch (e) { console.warn('[mediaKitPayload] instagram stats unavailable:', e.message); }
+  let shot = null;
+  if (!ig) { try { shot = await require('./instagramConnect').latestScreenshotFor(pool, mk.athlete_id); } catch (_) { shot = null; } }
+  let city = null;
+  try { city = require('./athleteRecord').resolveAthlete({ data: ath.data || {} }).schoolCity || null; } catch (_) { city = null; }
   const forSlug = String(opts.forSlug || '').trim().toLowerCase();
   const variants = mk.variants && typeof mk.variants === 'object' ? mk.variants : {};
   const variant = forSlug && variants[forSlug] ? { ...variants[forSlug], slug: forSlug } : null;
@@ -128,16 +158,18 @@ async function payloadFor(pool, mk, opts = {}) {
     variants: _v, instagram_followers: _a, instagram_engagement: _b, tiktok_followers: _c, twitter_followers: _d,
     photo_hash_at_build: _e, year_at_build: _f, position_at_build: _g, school_at_build: _h, built_by: _i, ...pub
   } = mk;
+  delete ath.data;
   return {
     ...pub,
     athlete_name: ath.name || '', sport: ath.sport || '', school: ath.school || '', position: ath.position || '',
     agent_first_name: require('./agentName').firstNameOrNull(ath.agent_name) || '',
     agency,
-    audience: audienceOf(mk, ig),
+    audience: audienceOf(mk, ig, shot),
+    instagram_detail: instagramDetail(ig || shot, city),
     deliverables: Array.isArray(mk.deliverables) ? mk.deliverables : null,
     worked_with: Array.isArray(mk.worked_with) ? mk.worked_with : null,
     variant,
   };
 }
 
-module.exports = { payloadFor, draftKit, storyFromBody, audienceOf, ensureColumns, STORY_COLUMNS, MAX_WORKED_WITH, MAX_DELIVERABLES };
+module.exports = { payloadFor, draftKit, storyFromBody, audienceOf, instagramDetail, ensureColumns, STORY_COLUMNS, MAX_WORKED_WITH, MAX_DELIVERABLES };

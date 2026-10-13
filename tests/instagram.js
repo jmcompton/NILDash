@@ -89,18 +89,21 @@ async function main() {
     const inv = await invR.json();
     const token = inv.url.split('/').pop();
     ok('the agent gets a link, a ready-to-send text and an sms: link', invR.status === 200 && /\/athlete\/connect\/[A-Za-z0-9_-]{20,}$/.test(inv.url)
-      && /Hi Maya, it's Dana/.test(inv.text) && /^sms:\?&body=/.test(inv.sms), inv);
+      && /^Hey Maya, tap this so businesses see your real Instagram numbers\. Takes 30 seconds: https:\/\//.test(inv.text) && /^sms:\?&body=/.test(inv.sms), inv);
     const pg = await get(`/athlete/connect/${token}`);
     const html = await pg.text();
     ok('the page shows the athlete\'s name and the agent\'s, says what is shared, and has one button', pg.status === 200 && /Hi Maya/.test(html) && /Dana Agent/.test(html)
-      && /follower count and your recent posts' likes and comments, read-only/.test(html) && (html.match(/class="btn"/g) || []).length === 1 && /Connect Instagram/.test(html));
+      && /Read-only: your followers, reach and views/.test(html) && (html.match(/class="btn"/g) || []).length === 1 && /Connect Instagram/.test(html));
+    ok('  before the button: a Creator or Business account, and the three steps to switch', /needs a Creator or Business account/.test(html)
+      && /Account type and tools/.test(html) && /Switch to professional account/.test(html) && html.indexOf('Switch to professional account') < html.indexOf('class="btn"'));
+    ok('  and the screenshot fallback, second', /Can't connect\?<\/b> Upload screenshots of your Instagram Insights/.test(html) && html.indexOf('Upload screenshots') > html.indexOf('class="btn"'));
     ok('  mobile-first and not indexed', /width=device-width/.test(html) && /noindex/.test(html));
     const start = await get(`/api/instagram/start/${token}`);
     const loc = start.headers.get('location') || '';
     const q = new URL(loc).searchParams;
-    ok('Connect goes to Instagram Login with our app, our redirect and only instagram_business_basic', start.status === 302 && loc.startsWith('https://www.instagram.com/oauth/authorize?')
+    ok('Connect goes to Instagram Login with our app, our redirect, basic and insights', start.status === 302 && loc.startsWith('https://www.instagram.com/oauth/authorize?')
       && q.get('client_id') === '1826629518692849' && q.get('redirect_uri') === 'https://mynildash.com/api/instagram/callback'
-      && q.get('scope') === 'instagram_business_basic' && q.get('response_type') === 'code' && q.get('state') === token, loc);
+      && q.get('scope') === 'instagram_business_basic,instagram_business_manage_insights' && q.get('response_type') === 'code' && q.get('state') === token, loc);
     const second = await (await post(`/api/agents/athletes/${ATH}/instagram-invite`, { 'x-user': AG })).json();
     const oldPage = await get(`/athlete/connect/${token}`);
     ok('a newer link retires the old one', oldPage.status === 410 && /newer link/.test(await oldPage.text()));
@@ -123,8 +126,8 @@ async function main() {
     ok('  the code is exchanged at api.instagram.com with our secret and redirect (the #_ suffix removed)', exBody.get('code') === 'GOOD-CODE'
       && exBody.get('client_secret') === 'test-secret-abc' && exBody.get('grant_type') === 'authorization_code' && exBody.get('redirect_uri') === 'https://mynildash.com/api/instagram/callback');
     ok('  then for a long-lived token at graph.instagram.com/access_token', fake.calls.some((c) => /graph\.instagram\.com\/access_token\?grant_type=ig_exchange_token/.test(c.url)));
-    ok('  then /me and /me/media with the fields asked for', fake.calls.some((c) => /\/me\?fields=user_id%2Cusername%2Cfollowers_count%2Cfollows_count%2Cmedia_count/.test(c.url))
-      && fake.calls.some((c) => /\/me\/media\?fields=id%2Clike_count%2Ccomments_count%2Ctimestamp%2Cmedia_type&limit=12/.test(c.url)));
+    ok('  then /me and /me/media with the fields asked for', fake.calls.some((c) => /\/me\?fields=user_id%2Cusername%2Cname%2Cbiography%2Cwebsite%2Cprofile_picture_url%2Caccount_type%2Cfollowers_count%2Cfollows_count%2Cmedia_count/.test(c.url))
+      && fake.calls.some((c) => /\/me\/media\?fields=id%2Ccaption%2Cmedia_type%2Cmedia_product_type%2Cpermalink%2Ctimestamp%2Clike_count%2Ccomments_count&limit=25/.test(c.url)));
     const conn = (await P.query(`SELECT * FROM instagram_connections WHERE athlete_id = $1`, [ATH])).rows[0];
     ok('the connection is stored: connected, the Instagram user, a ~60-day expiry', conn && conn.status === 'connected' && conn.ig_user_id === '17841400000000001'
       && Math.abs(new Date(conn.token_expires_at).getTime() - Date.now() - 5184000e3) < 120e3, conn && { status: conn.status, exp: conn.token_expires_at });
@@ -166,7 +169,7 @@ async function main() {
     // connected account is VERIFIED there and the page labels it so.
     const MKP = read('server/services/mediaKitPayload.js');
     ok('the media kit uses the connected numbers when present, labelled verified, with the date pulled', /latestFor\(pool, mk\.athlete_id\)/.test(MKP)
-      && /state: 'verified', source: 'instagram', fetchedAt: ig\.fetched_at/.test(MKP) && /Verified by NILDash/.test(read('public/media-kit.html')));
+      && /state: 'verified', source: 'instagram', fetchedAt: ig\.fetched_at/.test(MKP) && /Verified by Instagram/.test(read('public/media-kit.html')));
     const latest = await IG.latestFor(P, ATH);
     ok('  latestFor returns the stored numbers for a connected athlete', latest && latest.followers_count === 24000);
 

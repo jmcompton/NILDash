@@ -6082,6 +6082,7 @@ async function bootApp() {
   document.body.classList.add('app-active'); // shows the mobile topbar (gated in CSS)
   document.getElementById('userName').textContent = currentUser.name || (currentUser.email || '').split('@')[0] || 'Agent';
   if (currentUser.role === 'agent' || currentUser.role === 'admin') setTimeout(promptBusinessAddress, 400);
+  setTimeout(loadHomeIgLine, 700);   // Home is the first view: its Instagram line loads here too
   try {
     const subBtn = document.getElementById('agentSubscribeBtn');
     if (subBtn) {
@@ -6407,6 +6408,7 @@ async function renderRoster() {
     grid.innerHTML = '<div style="color:var(--muted);padding:40px;text-align:center">No clients yet. Use "Add Client" to add your first athlete.</div>';
     return;
   }
+  { const old = document.getElementById('igCountLine'); if (old) old.remove(); grid.insertAdjacentHTML('beforebegin', igCountLine()); }
   grid.innerHTML = athletes.map(a => {
     return `<div class="athlete-card ${a.id===selectedAthleteId?'selected':''}" onclick="selectAthlete('${a.id}')">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
@@ -6721,21 +6723,32 @@ function resetAthleteForm() {
 // last sync, and a link to copy or text. An unconnected athlete says "not
 // connected" -- never "0 followers", never "0% eng".
 let igStatus = {};
+let igCounts = null;
 async function loadIgStatus() {
   try {
     const r = await fetch(`${API_BASE}/api/agents/instagram/status`, { credentials: 'include' });
-    if (r.ok) igStatus = (await r.json()).athletes || {};
+    if (r.ok) { const j = await r.json(); igStatus = j.athletes || {}; igCounts = j.counts || null; }
   } catch (e) { /* the roster still renders; statuses read as not connected */ }
+}
+// "3 of 8 athletes connected to Instagram", above the roster and on Home.
+function igCountLine() {
+  if (!igCounts || !igCounts.total) return '';
+  const extra = [igCounts.needsNewLink ? igCounts.needsNewLink + ' need a new link' : '', igCounts.personal ? igCounts.personal + ' on a personal account' : ''].filter(Boolean).join(' · ');
+  return `<div id="igCountLine" style="font-size:12px;color:var(--muted);margin:0 0 12px">Instagram: <b style="color:var(--text)">${igCounts.connected} of ${igCounts.total}</b> athletes connected${extra ? ' · ' + extra : ''}</div>`;
 }
 function igFmt(n) { n = Number(n); return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'K' : n.toLocaleString(); }
 function igWhen(d) { return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }
 function igStatusHtml(id) {
   const s = igStatus[id] || { status: 'not_connected' };
+  // ONE PLAIN STATE (services/instagramConnect.statusForAgent: display).
+  if (s.display === 'personal_account') return `<span style="color:var(--amber, #f59e0b);font-weight:600">Personal account</span><br><span style="font-size:10px">Ask them to switch to Creator: Instagram, Settings, Account type and tools, Switch to professional account. Then send a new link.</span>`;
+  if (s.display === 'needs_new_link') return `<span style="color:var(--amber, #f59e0b);font-weight:600">Needs new link</span><br><span style="font-size:10px">${s.status === 'expired' ? 'Their Instagram connection expired.' : 'Connected before NILDash could read reach and audience. A new link adds them.'}${s.lastSyncedAt ? ' · last sync ' + igWhen(s.lastSyncedAt) : ''}</span>`;
+  if (s.display === 'blocked') return `<span style="color:var(--amber, #f59e0b);font-weight:600">Connected, insights blocked</span>${s.username ? ' · @' + escHtml(s.username) : ''}<br><span style="font-size:10px">Instagram is not letting NILDash read reach and audience yet (the app is waiting on Meta's approval). Followers still sync.</span>`;
   if (s.status === 'connected') {
     const bits = [];
     if (s.followers !== null && s.followers !== undefined) bits.push(`<b style="color:var(--text)">${igFmt(s.followers)}</b> followers`);
     if (s.engagementRate !== null && s.engagementRate !== undefined) bits.push(`<b style="color:var(--text)">${(s.engagementRate * 100).toFixed(1)}%</b> eng`);
-    return `<span style="color:var(--accent);font-weight:600">Instagram connected</span>${s.username ? ' · @' + escHtml(s.username) : ''}`
+    return `<span style="color:var(--accent);font-weight:600">Connected${s.lastSyncedAt ? ', verified ' + igWhen(s.lastSyncedAt) : ''}</span>${s.username ? ' · @' + escHtml(s.username) : ''}`
       + (bits.length ? `<br>${bits.join(' · ')}` : '')
       + `<br><span style="font-size:10px">${s.lastSyncedAt ? 'Last sync ' + igWhen(s.lastSyncedAt) : 'Not synced yet'}${s.lastSyncError ? ' · last sync failed' : ''}</span>`;
   }
@@ -6746,7 +6759,7 @@ function igStatusHtml(id) {
 }
 function igButtonsHtml(id) {
   const s = igStatus[id] || { status: 'not_connected' };
-  const label = s.status === 'connected' ? 'New link' : 'Copy link';
+  const label = s.display === 'needs_new_link' || s.display === 'personal_account' ? 'Copy new link message' : s.status === 'connected' ? 'Copy new link message' : 'Copy text message';
   return `<div style="display:flex;gap:6px;margin-top:6px">
     <button onclick="event.stopPropagation();igInvite('${id}','copy',this)" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:5px;cursor:pointer;font-weight:600">${label}</button>
     <button onclick="event.stopPropagation();igInvite('${id}','text',this)" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:5px;cursor:pointer;font-weight:600">Text link</button>
@@ -6775,8 +6788,9 @@ async function igInvite(id, how, btn) {
       try { await navigator.clipboard.writeText(j.text); } catch (e) {}
       showToast('Opening Messages. The message and link are also copied.');
     } else {
-      try { await navigator.clipboard.writeText(j.url); showToast('Instagram link copied. It works once and expires in 14 days.'); }
-      catch (e) { window.prompt('Copy this link and send it to your athlete:', j.url); }
+      // ONE TAP: the whole text message, link in it, ready to paste.
+      try { await navigator.clipboard.writeText(j.text); showToast('Message copied with the link in it. Paste it into a text to your athlete.'); }
+      catch (e) { window.prompt('Copy this message and text it to your athlete:', j.text); }
     }
     await loadIgStatus(); renderRoster(); if (_editingAthleteId === id) renderIgConnectPanel(id);
   } catch (e) { showToast('Could not create the link: ' + e.message); }
@@ -7935,7 +7949,7 @@ async function showView(id, btn) {
   if (id === 'rate') { try { loadBenchmarks(); } catch(e) {} }
   // Home fetches on every show rather than once: approving changes what is
   // on it, and a stale queue is the one thing this page must never render.
-  if (id === 'home') { try { hqLoad(HQ.selected); } catch (e) {} loadPinnedDeliverables(); loadNeedsFix(); }
+  if (id === 'home') { try { hqLoad(HQ.selected); } catch (e) {} loadPinnedDeliverables(); loadNeedsFix(); loadHomeIgLine(); }
 }
 
 // ── Local deal benchmarks ───────────────────────────────────────────────────
@@ -20247,6 +20261,25 @@ async function sendKitForBrand(i, btn) {
 }
 
 // ── Home notices: kit views today + inbound inquiries (read-time feed) ──────
+// HOME: how many athletes have Instagram connected, and who needs a new link
+// (services/instagramConnect). One line; the roster has the per-athlete state.
+async function loadHomeIgLine() {
+  try {
+    await loadIgStatus();
+    var old = document.getElementById('home-ig-line'); if (old) old.remove();
+    if (!igCounts || !igCounts.total) return;
+    var home = document.getElementById('view-home'); if (!home) return;
+    var el = document.createElement('div');
+    el.id = 'home-ig-line';
+    el.style.cssText = 'padding:0 2px';
+    var needs = Object.keys(igStatus).filter(function(id){ var d = igStatus[id].display; return d === 'needs_new_link' || d === 'personal_account' || d === 'not_connected'; })
+      .map(function(id){ var x = igStatus[id]; return escHtml(String(x.athleteName || '').split(' ')[0] || 'An athlete') + ' (' + ({ needs_new_link: 'needs new link', personal_account: 'personal account', not_connected: 'not connected' })[x.display] + ')'; });
+    el.innerHTML = igCountLine().replace('margin:0 0 12px', 'margin:0 0 4px')
+      + (needs.length ? '<div style="font-size:11px;color:var(--muted);margin:0 0 12px">' + needs.slice(0, 6).join(' · ') + (needs.length > 6 ? ' · and ' + (needs.length - 6) + ' more' : '') + ' <a href="#" onclick="showView(\'roster\', null);return false" style="color:var(--accent)">Send links</a></div>' : '');
+    home.insertBefore(el, home.firstElementChild);
+  } catch (e) { /* Home works without it */ }
+}
+
 async function loadHomeNotices() {
   try {
     var r = await fetch(API_BASE + '/api/agent/home-notices');
