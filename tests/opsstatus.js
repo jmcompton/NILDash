@@ -200,7 +200,7 @@ async function main() {
   const IDX = read('server/index.js');
   ok('the queue tick runs the preflight before the night starts', /await require\('\.\/services\/preflight'\)\.ensureTonight\(store\.pool\)[\s\S]{0,200}queueJob\.run\(/.test(IDX));
   ok('  and its own tick runs it whether or not the queue is on', /PF\.ensureTonight\(store\.pool\)/.test(IDX) && /setInterval\(pfTick/.test(IDX));
-  ok('the admin runner has preflight', /'preflight': \{ file: 'scripts\/preflight\.js'/.test(IDX) || /preflight: \{ file: 'scripts\/preflight\.js'/.test(IDX));
+  ok('the admin runner has preflight', ((require(REPO + 'server/services/adminScripts.js').registry()['preflight'] || {}).file === 'scripts/preflight.js') || ((require(REPO + 'server/services/adminScripts.js').registry()['preflight'] || {}).file === 'scripts/preflight.js'));
 
   // ── 5. THE MORNING ALERT: UNIVERSITIES, DIGESTS, SENDS, FAULTS ───────────
   OUT.push('', '-- the morning alert covers everything that can go quiet --');

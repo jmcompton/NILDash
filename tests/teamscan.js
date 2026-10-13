@@ -302,7 +302,7 @@ async function main() {
   ok('  and nothing in them can send', !/sendEmail|sendMail|gmail|outlook|resend|nodemailer|smtp/i.test(code));
   ok('the agent writer is untouched: still claude-sonnet-4-6', /'claude-sonnet-4-6'/.test(read('server/services/draftPrewarm.js')));
   ok('the script is in the admin runner and is not a portal route',
-    /'team-scan': \{ file: 'scripts\/team-scan\.js'/.test(read('server/index.js')) && !/\/api\/university\/[a-z-]*scan/.test(read('server/index.js')));
+    ((require(REPO + 'server/services/adminScripts.js').registry()['team-scan'] || {}).file === 'scripts/team-scan.js') && !/\/api\/university\/[a-z-]*scan/.test(read('server/index.js')));
 
   await clean();
   OUT.push(''); OUT.push('failures: ' + F);

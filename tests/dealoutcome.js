@@ -112,7 +112,7 @@ const AG = 'do-agent', ATH = 'do-ath';
   ok('real-outcomes runs and has every section', rep.status === 0 && /0\. THE LEDGER/.test(txt) && /1\. EVERY BUSINESS CONTACTED/.test(txt) && /2\. REPLIES AND OUTCOMES OUTSIDE/.test(txt) && /3\. PIPELINE/.test(txt) && /4\. EVERY LOGGED DEAL/.test(txt), txt.slice(0, 600) + (rep.stderr || ''));
   ok('  names the agent and the athlete, and the timeline after contact', /Dee Outcome <dee@agency\.example>/.test(txt) && /Do Athlete \(Auburn University\)\s+->\s+DO Gym/.test(txt) && /DEAL LOGGED \(no value\)/.test(txt), txt.slice(0, 3000));
   ok('  and the one-line list: the gym a DEAL, the bakery a REPLY', /DEAL\s+\S+\s+DO Gym for Do Athlete/.test(txt) && /REPLY\s+\S+\s+DO Bakery for Do Athlete/.test(txt), txt.slice(-800));
-  ok('  registered as an admin script', /'real-outcomes': \{ file: 'scripts\/real-outcomes\.js'/.test(idx));
+  ok('  registered as an admin script', ((require(REPO + 'server/services/adminScripts.js').registry()['real-outcomes'] || {}).file === 'scripts/real-outcomes.js'));
 
   await clean();
   OUT.push('', 'failures: ' + F);

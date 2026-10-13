@@ -380,7 +380,7 @@ async function main() {
   ok('section 2: a position with parts in different groups COULD FAIL, naming the word that was refused; one group is safe',
     exA && exA.couldFail && exA.refusedWords.join() === 'Shortstop' && exB && !exB.couldFail, { exA, exB });
   const IDXp = require('fs').readFileSync(REPO + 'server/index.js', 'utf8');
-  ok('it runs at /api/admin/scripts/position-audit, read-only (no apply)', /'position-audit': \{ file: 'scripts\/position-audit\.js', args: \(\) => \[\] \}/.test(IDXp)
+  ok('it runs at /api/admin/scripts/position-audit, read-only (no apply)', ((require(REPO + 'server/services/adminScripts.js').registry()['position-audit'] || {}).file === 'scripts/position-audit.js' && JSON.stringify(require(REPO + 'server/services/adminScripts.js').registry()['position-audit'].args({ apply: '1', text: '1' })) === '[]')
     && !/--apply/.test(require('fs').readFileSync(REPO + 'scripts/position-audit.js', 'utf8').replace(/there is no --apply/g, '')));
   await P.query(`DELETE FROM outreach_queue_runs WHERE agent_id = $1`, [AG]);
 

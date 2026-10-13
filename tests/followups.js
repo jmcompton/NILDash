@@ -211,7 +211,7 @@ const FIRST = '<p>Hi Pat,</p><p>Here is something concrete for FU Bakery: two In
   const { spawnSync } = require('child_process');
   const pl = spawnSync(process.execPath, [REPO + 'scripts/follow-up-plan.js'], { env: { ...process.env, INIT_WAIT_MS: '3000' }, encoding: 'utf8', timeout: 120000 });
   ok('the admin plan shows every thread by agent with what happens next', pl.status === 0 && /Jo Agent <jo@agency\.example>/.test(pl.stdout) && /STOPPED: hard bounce/.test(pl.stdout) && /SUMMARY/.test(pl.stdout), (pl.stdout || '') + (pl.stderr || ''));
-  ok('  registered as an admin script', /'follow-up-plan': \{ file: 'scripts\/follow-up-plan\.js'/.test(idx));
+  ok('  registered as an admin script', ((require(REPO + 'server/services/adminScripts.js').registry()['follow-up-plan'] || {}).file === 'scripts/follow-up-plan.js'));
 
   await clean();
   OUT.push('', 'failures: ' + F);

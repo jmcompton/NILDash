@@ -212,7 +212,7 @@ async function main() {
   const IDX = read('server/index.js');
   ok('the server schedules it, and it is not behind the queue flag', /MA\.runOnce\(store\.pool\)/.test(IDX) && /Not gated on OUTREACH_QUEUE_ENABLED/.test(IDX));
   ok('  it goes to ADMIN_ALERT_EMAIL, else ADMIN_EMAIL', /ADMIN_ALERT_EMAIL \|\| process\.env\.ADMIN_EMAIL/.test(read('server/services/morningAlert.js')));
-  ok('the admin runner has morning-alert and places-rebuild', /'morning-alert': \{ file: 'scripts\/morning-alert\.js'/.test(IDX) && /'places-rebuild': \{ file: 'scripts\/places-rebuild\.js'/.test(IDX));
+  ok('the admin runner has morning-alert and places-rebuild', ((require(REPO + 'server/services/adminScripts.js').registry()['morning-alert'] || {}).file === 'scripts/morning-alert.js') && ((require(REPO + 'server/services/adminScripts.js').registry()['places-rebuild'] || {}).file === 'scripts/places-rebuild.js'));
   ok('the nightly run report opens with discovery health', /DISCOVERY \(all agents\)/.test(read('scripts/nightly-run-report.js')) && /PLACES DISCOVERY FAILING/.test(read('scripts/nightly-run-report.js')));
 
   // The all-clear: a morning with nothing wrong still sends one line.

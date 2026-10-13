@@ -102,7 +102,7 @@ async function main() {
   const after = await st();
   ok('--apply pulls the brewery card: retired, outcome restricted, slot free', after[0].state === 'retired' && after[0].outcome === 'restricted', after);
   ok('  and leaves the other two on the agent\'s screen', after[1].state === 'queued' && after[2].state === 'queued', after);
-  ok('the admin runner has block-audit', /'block-audit': \{ file: 'scripts\/block-audit\.js'/.test(read('server/index.js')));
+  ok('the admin runner has block-audit', ((require(REPO + 'server/services/adminScripts.js').registry()['block-audit'] || {}).file === 'scripts/block-audit.js'));
   await P.query(`DELETE FROM outreach_queue WHERE agent_id = $1`, [AG]);
   await P.query(`DELETE FROM athletes WHERE id = $1`, [ATH]);
   await P.query(`DELETE FROM users WHERE id = $1`, [AG]);

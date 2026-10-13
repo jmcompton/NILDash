@@ -88,7 +88,7 @@ async function main() {
   const body = (await P.query(`SELECT body_html FROM outreach_logs WHERE id = 'ph-log-1'`)).rows[0].body_html;
   ok('--apply removes the lines from the card and the draft body', !/\[athlete_handle\]/.test(card) && /Would you be open/.test(card)
     && body === '<p>Hi Dave,</p><p>John</p>', [card, body]);
-  ok('the admin runner has it', /'placeholder-audit': \{ file: 'scripts\/placeholder-audit\.js'/.test(read('server/index.js')));
+  ok('the admin runner has it', ((require(REPO + 'server/services/adminScripts.js').registry()['placeholder-audit'] || {}).file === 'scripts/placeholder-audit.js'));
   await clean();
 }
 

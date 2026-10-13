@@ -105,7 +105,7 @@ const src = (p) => fs.readFileSync(REPO + p, 'utf8');
     /athletes tried \$\{tried\} of \$\{roster\.length\}/.test(rep) && /cards written \$\{cards\}/.test(rep) && /athlete\(s\) got no card/.test(rep));
   ok('  grouped by reason, because twenty-eight identical lines is not a report', /grouped by reason/i.test(rep) && /byWhy/.test(rep));
   ok('  and it never invents a reason it was not given', /nothing recorded for this athlete/.test(rep) && /not in the run at all/.test(rep));
-  ok('it is admin-only, through the script runner', /'nightly-run-report': \{ file: 'scripts\/nightly-run-report\.js'/.test(src('server/index.js')));
+  ok('it is admin-only, through the script runner', ((require(REPO + 'server/services/adminScripts.js').registry()['nightly-run-report'] || {}).file === 'scripts/nightly-run-report.js'));
 
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));

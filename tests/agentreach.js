@@ -122,7 +122,7 @@ async function main() {
 
   // ── 4. THE RELEASE STATUS SCRIPT ────────────────────────────────────────
   OUT.push('', '-- send-status --');
-  ok('send-status is registered with the admin script runner', /'send-status': \{ file: 'scripts\/send-status\.js'/.test(idx));
+  ok('send-status is registered with the admin script runner', ((require(REPO + 'server/services/adminScripts.js').registry()['send-status'] || {}).file === 'scripts/send-status.js'));
   const run = (env) => {
     try {
       return execFileSync(process.execPath, [REPO + 'scripts/send-status.js'],
@@ -141,7 +141,7 @@ async function main() {
 
   // ── 5. EVERY APPROVED EMAIL, ACCOUNTED FOR ──────────────────────────────
   OUT.push('', '-- approved-accounting --');
-  ok('approved-accounting is registered with the admin script runner', /'approved-accounting': \{ file: 'scripts\/approved-accounting\.js'/.test(idx));
+  ok('approved-accounting is registered with the admin script runner', ((require(REPO + 'server/services/adminScripts.js').registry()['approved-accounting'] || {}).file === 'scripts/approved-accounting.js'));
   const H = 3600000, now = Date.now(), ago = (ms) => new Date(now - ms);
   const acc = (id, extra) => P.query(
     `INSERT INTO outreach_logs (id, agent_id, athlete_id, brand_name, status, approved_at, sent_at, sent_to_email, subject,

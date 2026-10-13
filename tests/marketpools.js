@@ -130,7 +130,7 @@ async function main() {
   ok('the tick does nothing outside 10pm-midnight Central', (await MP.tick(P, { force: false, now: noon, resolve })).ran === false);
   const IDX = read('server/index.js');
   ok('the server schedules it every 15 minutes, before the nightly fill', /MP\.tick\(store\.pool\)/.test(IDX) && MP.WINDOW_END_HOUR <= 24 && MP.WINDOW_START_HOUR >= 20);
-  ok('  and the admin runner has the report', /'market-pools': \{ file: 'scripts\/market-pools\.js'/.test(IDX));
+  ok('  and the admin runner has the report', ((require(REPO + 'server/services/adminScripts.js').registry()['market-pools'] || {}).file === 'scripts/market-pools.js'));
   await P.query(`DELETE FROM market_pool_runs WHERE run_date = '2026-09-30'`);
   const prev = process.env.GOOGLE_PLACES_API_KEY; process.env.GOOGLE_PLACES_API_KEY = 'test-key';
   const t1 = await MP.tick(P, { now: tenPm, resolve, build: fakeBuild(() => 200, []), keys: KEYS });

@@ -103,7 +103,7 @@ async function main() {
     && /Mataya G +2 email cards with an address \(2 dated today\), 1 call cards, 1 DM cards/.test(B.format(out, home)), B.format(out, home));
   const all = await B.onHomeAll(P, out);
   ok('  every agent the sweep touched gets their own report', all.length === 1 && all[0].agent === 'jabree.bl@belcher.test' && /GETS BACK/.test(B.format(out, all)));
-  ok('the admin script is registered, dry run unless apply=1', /'approved-unsent-backlog': \{ file: 'scripts\/approved-unsent-backlog\.js'/.test(require('fs').readFileSync(REPO + 'server/index.js', 'utf8')));
+  ok('the admin script is registered, dry run unless apply=1', ((require(REPO + 'server/services/adminScripts.js').registry()['approved-unsent-backlog'] || {}).file === 'scripts/approved-unsent-backlog.js'));
   await clean();
 }
 
