@@ -114,7 +114,7 @@ const SENTENCE = 'The practice is led by Dr. Sarah Wilson, Dr. James Vetter, Dr.
   ok('a deleted placeholder card also stops the draft it wrote, rather than leaving it approvable',
     /cadence_stop_reason = 'the business name was a placeholder, not a real business'/.test(sc));
   ok('it is admin-only, through the script runner',
-    /'mybrands-cleanup': \{[\s\S]{0,120}?file: 'scripts\/mybrands-cleanup\.js'/.test(src('server/index.js')));
+    ((require(REPO + 'server/services/adminScripts.js').registry()['mybrands-cleanup'] || {}).file === 'scripts/mybrands-cleanup.js'));
 
   // ── AND THE PLACEHOLDER GATE ITSELF STILL CATCHES THE THREE REPORTED ───
   OUT.push('', '-- the three names from the report --');
