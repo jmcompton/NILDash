@@ -61,6 +61,10 @@ body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:
 
 /* ── Stats ── */
 .mk-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.mk-aud-lists{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px}
+.mk-aud-list{background:var(--raised);border:1px solid var(--line);border-radius:15px;padding:14px 16px}
+.mk-aud-row{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0;color:var(--text)}
+.mk-aud-row b{font-variant-numeric:tabular-nums}
 .mk-stat{background:var(--raised);border:1px solid var(--line);border-radius:15px;padding:16px 16px 15px;position:relative;overflow:hidden}
 .mk-stat-net{display:flex;align-items:center;gap:7px;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);margin-bottom:11px}
 .mk-stat-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
@@ -595,8 +599,10 @@ function render(data){
       (n.handle ? '<div class="mk-stat-sub">@' + esc(n.handle) + '</div>' : '') +
       (n.engagement ? '<div class="mk-stat-eng">' + esc(engagementLabel(n.engagement)) + '</div>' : '') +
       (verified
-        ? '<div class="mk-stat-badge">' + tick + 'Verified by NILDash' + (n.fetchedAt ? ' &middot; ' + esc(fmtDate(n.fetchedAt)) : '') + '</div>'
-        : '<div class="mk-stat-self">Self-reported</div>') +
+        ? '<div class="mk-stat-badge">' + tick + 'Verified by Instagram' + (n.fetchedAt ? ' &middot; ' + esc(fmtDate(n.fetchedAt)) : '') + '</div>'
+        : n.state === 'screenshot'
+          ? '<div class="mk-stat-self">From the athlete\'s screenshot' + (n.fetchedAt ? ' &middot; ' + esc(fmtDate(n.fetchedAt)) : '') + '</div>'
+          : '<div class="mk-stat-self">Self-reported</div>') +
     '</div>';
   });
   // Total Reach only adds something when it adds two or more platforms up.
@@ -611,8 +617,27 @@ function render(data){
         (selfCount === aud.length ? 'Self-reported, across platforms' : selfCount ? 'Includes self-reported counts' : 'Verified across platforms') + '</div>' +
     '</div>');
   }
+  // ── THE INSTAGRAM AUDIENCE (mediaKitPayload.instagramDetail) ────────────
+  // Only the parts Instagram (or the athlete's screenshot) actually gave.
+  var det = data.instagram_detail || null;
+  if (det) {
+    var dTiles = [];
+    var dTile = function(label, num, sub){ return '<div class="mk-stat verified"><div class="mk-stat-net">' + esc(label) + '</div><div class="mk-stat-num">' + esc(num) + '</div>' + (sub ? '<div class="mk-stat-sub">' + esc(sub) + '</div>' : '') + '</div>'; };
+    if (det.avgReachPerPost) dTiles.push(dTile('Avg reach per post', fmtFollowers(det.avgReachPerPost), 'people reached'));
+    if (det.avgViewsPerPost) dTiles.push(dTile('Avg views per post', fmtFollowers(det.avgViewsPerPost), ''));
+    if (det.local && det.local.pct) dTiles.push(dTile('Followers in ' + det.local.city, det.local.pct + '%', 'of followers Instagram places by city'));
+    tiles = tiles.concat(dTiles);
+    var lists = [];
+    var listHtml = function(title, rows){ return rows && rows.length ? '<div class="mk-aud-list"><div class="mk-stat-net">' + esc(title) + '</div>' +
+      rows.slice(0, 5).map(function(r){ return '<div class="mk-aud-row"><span>' + esc(r.label) + '</span><b>' + (r.pct === null ? '' : esc(r.pct + '%')) + '</b></div>'; }).join('') + '</div>' : ''; };
+    var l1 = listHtml('Top cities', det.topCities), l2 = listHtml('Age', det.ages), l3 = listHtml('Gender', det.gender);
+    if (l1 || l2 || l3) lists.push('<div class="mk-aud-lists">' + l1 + l2 + l3 + '</div>');
+    var srcLine = det.source === 'screenshot' ? 'From the athlete\'s screenshot of their Instagram Insights' : 'Verified by Instagram';
+    window._mkAudienceExtra = lists.join('') + ((dTiles.length || lists.length) ? '<div class="mk-stat-self" style="margin-top:10px">' + esc(srcLine) + (det.asOf ? ', ' + esc(fmtDate(det.asOf)) : '') + '</div>' : '');
+  }
   if (tiles.length){
     document.getElementById('mk-stats').innerHTML = tiles.join('');
+    if (window._mkAudienceExtra) document.getElementById('mk-stats').insertAdjacentHTML('afterend', window._mkAudienceExtra);
   } else {
     document.getElementById('mk-stats-section').style.display = 'none';
   }

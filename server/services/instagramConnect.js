@@ -37,13 +37,20 @@ const TOKEN_URL = 'https://api.instagram.com/oauth/access_token';
 const LONG_LIVED_URL = 'https://graph.instagram.com/access_token';
 const REFRESH_URL = 'https://graph.instagram.com/refresh_access_token';
 const GRAPH = 'https://graph.instagram.com';
-const SCOPE = 'instagram_business_basic';
+// instagram_business_manage_insights (services/instagramInsights): reach,
+// views, audience location, age and gender. A connection made on the basic
+// scope alone keeps working on the basic data and is marked
+// needs_reconnect_for_insights; it is never broken.
+const SCOPE = 'instagram_business_basic,instagram_business_manage_insights';
+const BASIC_SCOPE = 'instagram_business_basic';
+const INSIGHTS_SCOPE = 'instagram_business_manage_insights';
 const INVITE_DAYS = parseInt(process.env.INSTAGRAM_INVITE_DAYS, 10) || 14;
 // Refresh when a long-lived token has this many days or fewer left (tokens last
 // 60 days, refreshable once 24h old). Nightly, so a token is tried ~20 times
 // before it would lapse.
 const REFRESH_WHEN_DAYS_LEFT = parseInt(process.env.INSTAGRAM_REFRESH_DAYS_LEFT, 10) || 20;
-const MEDIA_LIMIT = 12;
+const MEDIA_LIMIT = 25;          // the last 25 posts are fetched
+const ENGAGEMENT_POSTS = 12;    // engagement by followers stays over the last 12, as before
 
 const appId = () => String(process.env.INSTAGRAM_APP_ID || '').trim();
 const appSecret = () => String(process.env.INSTAGRAM_APP_SECRET || '').trim();
@@ -78,9 +85,22 @@ async function ensureTables(pool) {
        connected_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
        last_synced_at    TIMESTAMPTZ,
        last_sync_error   TEXT,
-       updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       scopes_granted    TEXT[],
+       needs_reconnect_for_insights BOOLEAN NOT NULL DEFAULT FALSE,
+       account_type      TEXT,
+       last_error_kind   TEXT
      )`,
     `CREATE INDEX IF NOT EXISTS idx_ig_connections_user ON instagram_connections (ig_user_id)`,
+    `ALTER TABLE instagram_connections ADD COLUMN IF NOT EXISTS scopes_granted TEXT[]`,
+    `ALTER TABLE instagram_connections ADD COLUMN IF NOT EXISTS needs_reconnect_for_insights BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE instagram_connections ADD COLUMN IF NOT EXISTS account_type TEXT`,
+    `ALTER TABLE instagram_connections ADD COLUMN IF NOT EXISTS last_error_kind TEXT`,
+    // Connected before insights were asked for: still connected, basic data
+    // keeps syncing, and the agent is offered a new link.
+    `UPDATE instagram_connections SET needs_reconnect_for_insights = TRUE
+      WHERE status = 'connected' AND (scopes_granted IS NULL OR NOT ('instagram_business_manage_insights' = ANY(scopes_granted)))
+        AND needs_reconnect_for_insights = FALSE`,
     `CREATE TABLE IF NOT EXISTS instagram_stats (
        id               SERIAL PRIMARY KEY,
        athlete_id       TEXT NOT NULL,
@@ -94,8 +114,16 @@ async function ensureTables(pool) {
        posts_counted    INT,
        avg_likes        NUMERIC,
        avg_comments     NUMERIC,
-       engagement_rate  NUMERIC
+       engagement_rate  NUMERIC,
+       profile          JSONB,
+       insights         JSONB,
+       scopes_granted   TEXT[],
+       source           TEXT NOT NULL DEFAULT 'instagram'
      )`,
+    `ALTER TABLE instagram_stats ADD COLUMN IF NOT EXISTS profile JSONB`,
+    `ALTER TABLE instagram_stats ADD COLUMN IF NOT EXISTS insights JSONB`,
+    `ALTER TABLE instagram_stats ADD COLUMN IF NOT EXISTS scopes_granted TEXT[]`,
+    `ALTER TABLE instagram_stats ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'instagram'`,
     `CREATE INDEX IF NOT EXISTS idx_ig_stats_athlete ON instagram_stats (athlete_id, fetched_at DESC)`,
     `CREATE TABLE IF NOT EXISTS instagram_deletion_requests (
        confirmation_code TEXT PRIMARY KEY,
@@ -187,12 +215,15 @@ async function exchangeCode(code, opts = {}) {
   const s = short.body || {};
   const shortToken = s.access_token || (Array.isArray(s.data) && s.data[0] && s.data[0].access_token);
   const userId = s.user_id || (Array.isArray(s.data) && s.data[0] && s.data[0].user_id);
+  // What the athlete actually granted (Instagram Login returns it with the token).
+  const perms = s.permissions || (Array.isArray(s.data) && s.data[0] && s.data[0].permissions);
+  const scopes = (Array.isArray(perms) ? perms : String(perms || '').split(',')).map((x) => String(x).trim()).filter(Boolean);
   if (!shortToken) return { ok: false, step: 'code', error: 'Instagram returned no access token' };
   const q = new URLSearchParams({ grant_type: 'ig_exchange_token', client_secret: appSecret(), access_token: shortToken });
   const long = await _call(opts.fetch, `${LONG_LIVED_URL}?${q}`);
   if (!long.ok) return { ok: false, step: 'long-lived', error: long.error, fault: long.fault };
   const expiresIn = Number(long.body.expires_in) || 60 * 86400;
-  return { ok: true, accessToken: long.body.access_token, userId: userId ? String(userId) : null, expiresIn };
+  return { ok: true, accessToken: long.body.access_token, userId: userId ? String(userId) : null, expiresIn, scopes: scopes.length ? scopes : null };
 }
 
 async function refreshToken(accessToken, opts = {}) {
@@ -207,7 +238,7 @@ async function refreshToken(accessToken, opts = {}) {
 // A post whose like count Instagram withholds (hidden likes) has no like_count:
 // it is left out of the likes average rather than counted as zero.
 function computeEngagement(followers, posts) {
-  const list = Array.isArray(posts) ? posts : [];
+  const list = (Array.isArray(posts) ? posts : []).slice(0, ENGAGEMENT_POSTS);
   const liked = list.filter((p) => Number.isFinite(Number(p.like_count)) && p.like_count !== null && p.like_count !== undefined);
   const commented = list.filter((p) => Number.isFinite(Number(p.comments_count)) && p.comments_count !== null && p.comments_count !== undefined);
   const avg = (xs, k) => (xs.length ? xs.reduce((s, p) => s + Number(p[k]), 0) / xs.length : null);
@@ -218,29 +249,45 @@ function computeEngagement(followers, posts) {
   return { postsCounted: list.length, avgLikes, avgComments, engagementRate: rate };
 }
 
+const PROFILE_FIELDS = 'user_id,username,name,biography,website,profile_picture_url,account_type,followers_count,follows_count,media_count';
+const PROFILE_FIELDS_MIN = 'user_id,username,followers_count,follows_count,media_count';
+const MEDIA_FIELDS = 'id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count';
+// The profile, then the posts, EACH ON ITS OWN: a refused media call leaves the
+// profile saved (posts null, mediaError said), and a profile call that refuses
+// the full field list is retried on the original five.
 async function fetchStats(accessToken, opts = {}) {
-  const me = await _call(opts.fetch, `${GRAPH}/me?${new URLSearchParams({ fields: 'user_id,username,followers_count,follows_count,media_count', access_token: accessToken })}`);
-  if (!me.ok) return { ok: false, error: me.error, invalidToken: me.invalidToken, fault: me.fault };
-  const media = await _call(opts.fetch, `${GRAPH}/me/media?${new URLSearchParams({ fields: 'id,like_count,comments_count,timestamp,media_type', limit: String(MEDIA_LIMIT), access_token: accessToken })}`);
-  if (!media.ok) return { ok: false, error: media.error, invalidToken: media.invalidToken, fault: media.fault };
-  const posts = ((media.body && media.body.data) || []).slice(0, MEDIA_LIMIT).map((p) => ({
+  let me = await _call(opts.fetch, `${GRAPH}/me?${new URLSearchParams({ fields: PROFILE_FIELDS, access_token: accessToken })}`);
+  if (!me.ok && !me.invalidToken) {
+    const again = await _call(opts.fetch, `${GRAPH}/me?${new URLSearchParams({ fields: PROFILE_FIELDS_MIN, access_token: accessToken })}`);
+    if (again.ok) me = again;
+  }
+  if (!me.ok) return { ok: false, error: me.error, invalidToken: me.invalidToken, fault: me.fault, kind: require('./instagramInsights').classify({ message: me.error, invalidToken: me.invalidToken }) };
+  const media = await _call(opts.fetch, `${GRAPH}/me/media?${new URLSearchParams({ fields: MEDIA_FIELDS, limit: String(MEDIA_LIMIT), access_token: accessToken })}`);
+  const posts = media.ok ? ((media.body && media.body.data) || []).slice(0, MEDIA_LIMIT).map((p) => ({
     id: p.id, like_count: p.like_count === undefined ? null : p.like_count, comments_count: p.comments_count === undefined ? null : p.comments_count,
-    timestamp: p.timestamp || null, media_type: p.media_type || null }));
+    timestamp: p.timestamp || null, media_type: p.media_type || null, media_product_type: p.media_product_type || null,
+    permalink: p.permalink || null, caption: p.caption ? String(p.caption).slice(0, 500) : null })) : null;
   const b = me.body || {};
   const followers = b.followers_count === undefined ? null : Number(b.followers_count);
+  const profile = { username: b.username || null, name: b.name || null, biography: b.biography || null, website: b.website || null,
+    profile_picture_url: b.profile_picture_url || null, account_type: b.account_type || null,
+    followers_count: followers, follows_count: b.follows_count === undefined ? null : Number(b.follows_count),
+    media_count: b.media_count === undefined ? null : Number(b.media_count) };
   return { ok: true, userId: b.user_id ? String(b.user_id) : (b.id ? String(b.id) : null), username: b.username || null,
-    followers, follows: b.follows_count === undefined ? null : Number(b.follows_count),
-    mediaCount: b.media_count === undefined ? null : Number(b.media_count), posts, ...computeEngagement(followers, posts) };
+    followers, follows: profile.follows_count, mediaCount: profile.media_count, profile, accountType: profile.account_type,
+    posts: posts || [], mediaError: media.ok ? null : media.error, ...computeEngagement(followers, posts || []) };
 }
 
 // Store a fetch, and write the athlete record's live fields from it.
 async function saveStats(pool, athleteId, s) {
   const at = new Date();
   await pool.query(
-    `INSERT INTO instagram_stats (athlete_id, ig_user_id, username, fetched_at, followers_count, follows_count, media_count, posts, posts_counted, avg_likes, avg_comments, engagement_rate)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12)`,
+    `INSERT INTO instagram_stats (athlete_id, ig_user_id, username, fetched_at, followers_count, follows_count, media_count, posts, posts_counted, avg_likes, avg_comments, engagement_rate,
+                                  profile, insights, scopes_granted, source)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16)`,
     [athleteId, s.userId, s.username, at, s.followers, s.follows, s.mediaCount, JSON.stringify(s.posts || []), s.postsCounted,
-      s.avgLikes, s.avgComments, s.engagementRate]);
+      s.avgLikes, s.avgComments, s.engagementRate, s.profile ? JSON.stringify(s.profile) : null, s.insights ? JSON.stringify(s.insights) : null,
+      s.scopes || null, s.source || 'instagram']);
   // The athlete record: live, sourced and dated (services/reachProvenance).
   const patch = { instagramHandle: s.username || undefined, igStatsSource: 'instagram_connect', igStatsFetchedAt: at.toISOString() };
   if (Number.isFinite(s.followers)) Object.assign(patch, { instagram: s.followers, reachSource: 'instagram', reachAsOf: at.toISOString().slice(0, 10) });
@@ -282,14 +329,19 @@ async function handleCallback(pool, { code, state, error, errorReason }, opts = 
     return { ok: false, reason: 'exchange', message: 'Instagram did not finish connecting. Nothing was shared. Please try your link again.' };
   }
   await pool.query(
-    `INSERT INTO instagram_connections (athlete_id, agent_id, ig_user_id, access_token_enc, token_expires_at, token_issued_at, status, status_reason, connected_at, updated_at)
-     VALUES ($1,$2,$3,$4, NOW() + ($5 || ' seconds')::interval, NOW(), 'connected', NULL, NOW(), NOW())
+    `INSERT INTO instagram_connections (athlete_id, agent_id, ig_user_id, access_token_enc, token_expires_at, token_issued_at, status, status_reason, connected_at, updated_at,
+                                        scopes_granted, needs_reconnect_for_insights, last_error_kind)
+     VALUES ($1,$2,$3,$4, NOW() + ($5 || ' seconds')::interval, NOW(), 'connected', NULL, NOW(), NOW(), $6, $7, NULL)
      ON CONFLICT (athlete_id) DO UPDATE SET agent_id = EXCLUDED.agent_id, ig_user_id = EXCLUDED.ig_user_id,
        access_token_enc = EXCLUDED.access_token_enc, token_expires_at = EXCLUDED.token_expires_at, token_issued_at = NOW(),
-       status = 'connected', status_reason = NULL, connected_at = NOW(), updated_at = NOW()`,
-    [inv.athleteId, inv.agentId, ex.userId, C.encrypt(ex.accessToken), String(ex.expiresIn)]);
+       status = 'connected', status_reason = NULL, connected_at = NOW(), updated_at = NOW(),
+       scopes_granted = EXCLUDED.scopes_granted, needs_reconnect_for_insights = EXCLUDED.needs_reconnect_for_insights, last_error_kind = NULL`,
+    [inv.athleteId, inv.agentId, ex.userId, C.encrypt(ex.accessToken), String(ex.expiresIn), ex.scopes || null,
+      // No list back from Instagram: the scope we asked for is assumed, and the
+      // first insights call says otherwise if it was not granted.
+      !!(ex.scopes && !ex.scopes.includes(INSIGHTS_SCOPE))]);
   const sync = await syncAthlete(pool, inv.athleteId, opts);
-  return { ok: true, athleteName: inv.athleteName, agentName: inv.agentName, username: sync.username || null,
+  return { ok: true, athleteId: inv.athleteId, athleteName: inv.athleteName, agentName: inv.agentName, username: sync.username || null,
     followers: sync.ok ? sync.followers : null, synced: sync.ok, syncError: sync.ok ? null : sync.error };
 }
 
@@ -313,21 +365,44 @@ async function syncAthlete(pool, athleteId, opts = {}) {
   if (!c || c.status !== 'connected') return { ok: false, error: 'not connected' };
   const token = C.decrypt(c.access_token_enc);
   if (!token) return { ok: false, error: 'stored token could not be decrypted' };
+  const II = require('./instagramInsights');
   const s = await fetchStats(token, opts);
   if (!s.ok) {
-    await pool.query(`UPDATE instagram_connections SET last_sync_error = $2, updated_at = NOW() WHERE athlete_id = $1`, [athleteId, String(s.error).slice(0, 500)]);
-    if (s.invalidToken) {
+    const kind = s.kind || II.classify({ message: s.error, invalidToken: s.invalidToken });
+    await pool.query(`UPDATE instagram_connections SET last_sync_error = $2, last_error_kind = $3, updated_at = NOW() WHERE athlete_id = $1`,
+      [athleteId, String(s.error).slice(0, 500), kind]);
+    if (kind === 'token_expired') {
       await markStatus(pool, athleteId, 'expired', s.error);
       await alertTokenLost(pool, athleteId, s.error);
+    } else if (kind === 'personal_account') {
+      await markStatus(pool, athleteId, 'personal_account', II.KIND_WORDS.personal_account);
     } else {
-      require('./ourFault').record('instagram', `stats fetch failed for athlete ${athleteId}: ${s.error}`, 'instagram sync').catch(() => {});
+      require('./ourFault').record('instagram', `stats fetch failed for athlete ${athleteId} (${kind}: ${II.KIND_WORDS[kind]}): ${s.error}`, 'instagram sync').catch(() => {});
     }
-    return { ok: false, error: s.error };
+    return { ok: false, error: s.error, kind };
   }
+  // INSIGHTS, only where the athlete granted them. A connection on the basic
+  // scope keeps syncing the basic data and is marked for a new link.
+  const scopes = Array.isArray(c.scopes_granted) ? c.scopes_granted : null;
+  const hasInsights = scopes ? scopes.includes(INSIGHTS_SCOPE) : !c.needs_reconnect_for_insights;
+  let insightKinds = [];
+  if (hasInsights) {
+    s.insights = await II.fetchInsights(token, s.userId || c.ig_user_id, { fetch: opts.fetch, now: opts.now, followers: s.followers, posts: s.posts });
+    insightKinds = s.insights.errorKinds || [];
+    // Every account metric refused for want of the permission: the scope was not granted after all.
+    const acctErrors = (s.insights.errors || []).filter((e) => e.part === 'account');
+    if (acctErrors.length === II.ACCOUNT_METRICS.length && acctErrors.every((e) => e.kind === 'permission_blocked')) {
+      await pool.query(`UPDATE instagram_connections SET needs_reconnect_for_insights = TRUE WHERE athlete_id = $1 AND scopes_granted IS NULL`, [athleteId]).catch(() => {});
+    }
+  }
+  s.scopes = scopes;
   const at = await saveStats(pool, athleteId, s);
-  await pool.query(`UPDATE instagram_connections SET username = $2, ig_user_id = COALESCE($3, ig_user_id), last_synced_at = $4, last_sync_error = NULL, updated_at = NOW() WHERE athlete_id = $1`,
-    [athleteId, s.username, s.userId, at]);
-  return { ok: true, username: s.username, followers: s.followers, engagementRate: s.engagementRate, fetchedAt: at };
+  const lastKind = insightKinds.find((k) => k === 'permission_blocked') || null;
+  await pool.query(`UPDATE instagram_connections SET username = $2, ig_user_id = COALESCE($3, ig_user_id), last_synced_at = $4, last_sync_error = $5,
+                      last_error_kind = $6, account_type = COALESCE($7, account_type), updated_at = NOW() WHERE athlete_id = $1`,
+    [athleteId, s.username, s.userId, at, s.mediaError ? 'posts: ' + String(s.mediaError).slice(0, 400) : (lastKind ? II.KIND_WORDS[lastKind] : null), lastKind, s.accountType || null]);
+  if (lastKind) require('./ourFault').record('instagram', `insights refused for athlete ${athleteId}: ${II.KIND_WORDS[lastKind]}`, 'instagram sync').catch(() => {});
+  return { ok: true, username: s.username, followers: s.followers, engagementRate: s.engagementRate, fetchedAt: at, insights: hasInsights, insightKinds };
 }
 
 async function alertTokenLost(pool, athleteId, why) {
@@ -369,10 +444,11 @@ async function nightly(pool, opts = {}) {
   await ensureTables(pool);
   const refresh = await refreshDue(pool, opts);
   const ids = (await pool.query(`SELECT athlete_id FROM instagram_connections WHERE status = 'connected'`)).rows.map((r) => r.athlete_id);
-  const out = { refresh, synced: 0, failed: [] };
+  const out = { refresh, connected: ids.length, synced: 0, failed: [], failedByReason: {}, insightsRefused: 0 };
   for (const id of ids) {
     const r = await syncAthlete(pool, id, opts);
-    if (r.ok) out.synced++; else out.failed.push({ athleteId: id, error: r.error });
+    if (r.ok) { out.synced++; if ((r.insightKinds || []).includes('permission_blocked')) out.insightsRefused++; }
+    else { out.failed.push({ athleteId: id, error: r.error, kind: r.kind || 'other' }); out.failedByReason[r.kind || 'other'] = (out.failedByReason[r.kind || 'other'] || 0) + 1; }
   }
   return out;
 }
@@ -456,6 +532,7 @@ async function statusForAgent(pool, agentId) {
   await ensureTables(pool);
   const rows = (await pool.query(
     `SELECT a.id AS athlete_id, c.status, c.status_reason, c.username, c.last_synced_at, c.last_sync_error, c.token_expires_at,
+            c.needs_reconnect_for_insights, c.last_error_kind, c.account_type, a.data->>'name' AS athlete_name,
             s.followers_count, s.engagement_rate, s.fetched_at,
             (SELECT MAX(t.expires_at) FROM instagram_connect_tokens t WHERE t.athlete_id = a.id AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > NOW()) AS invite_expires_at
        FROM athletes a
@@ -466,8 +543,15 @@ async function statusForAgent(pool, agentId) {
   for (const r of rows) {
     const status = !r.status ? 'not_connected' : r.status;
     const live = status === 'connected';
+    // ONE PLAIN STATE FOR THE AGENT: connected / needs_new_link / personal_account / blocked / not_connected.
+    const display = status === 'personal_account' ? 'personal_account'
+      : (status === 'expired' || (live && r.needs_reconnect_for_insights)) ? 'needs_new_link'
+        : (live && r.last_error_kind === 'permission_blocked') ? 'blocked'
+          : live ? 'connected' : 'not_connected';
     out[r.athlete_id] = {
-      status, reason: r.status_reason || null, username: r.username || null,
+      status, display, needsReconnectForInsights: !!r.needs_reconnect_for_insights, lastErrorKind: r.last_error_kind || null,
+      athleteName: r.athlete_name || null,
+      reason: r.status_reason || null, username: r.username || null,
       lastSyncedAt: r.last_synced_at || null, lastSyncError: r.last_sync_error || null,
       followers: live && r.followers_count !== null ? Number(r.followers_count) : null,
       engagementRate: live && r.engagement_rate !== null ? Number(r.engagement_rate) : null,
@@ -485,18 +569,26 @@ async function isConnected(pool, athleteId) {
   } catch (_) { return false; }
 }
 
+// The latest numbers an athlete sent as screenshots (source 'screenshot'), or
+// null. Never presented as verified: "From the athlete's screenshot".
+async function latestScreenshotFor(pool, athleteId) {
+  await ensureTables(pool);
+  const r = await pool.query(`SELECT * FROM instagram_stats WHERE athlete_id = $1 AND source = 'screenshot' ORDER BY fetched_at DESC LIMIT 1`, [athleteId]);
+  return r.rows[0] || null;
+}
+
 // The latest stored numbers for the media kit, or null.
 async function latestFor(pool, athleteId) {
   await ensureTables(pool);
   const r = await pool.query(
     `SELECT s.*, c.status FROM instagram_stats s JOIN instagram_connections c ON c.athlete_id = s.athlete_id
-      WHERE s.athlete_id = $1 AND c.status = 'connected' ORDER BY s.fetched_at DESC LIMIT 1`, [athleteId]);
+      WHERE s.athlete_id = $1 AND c.status = 'connected' AND COALESCE(s.source, 'instagram') = 'instagram' ORDER BY s.fetched_at DESC LIMIT 1`, [athleteId]);
   return r.rows[0] || null;
 }
 
 module.exports = {
   ensureTables, createInvite, readInvite, authorizeUrl, exchangeCode, refreshToken, fetchStats, computeEngagement, saveStats,
   handleCallback, syncAthlete, refreshDue, nightly, tick, parseSignedRequest, deauthorize, deleteData, statusForAgent, isConnected,
-  latestFor, inviteMessage, configured, redirectUri, appId, SCOPE, AUTHORIZE_URL, TOKEN_URL, LONG_LIVED_URL, REFRESH_URL, GRAPH,
+  latestFor, latestScreenshotFor, inviteMessage, configured, redirectUri, appId, SCOPE, BASIC_SCOPE, INSIGHTS_SCOPE, MEDIA_LIMIT, ENGAGEMENT_POSTS, AUTHORIZE_URL, TOKEN_URL, LONG_LIVED_URL, REFRESH_URL, GRAPH,
   REFRESH_WHEN_DAYS_LEFT, INVITE_DAYS,
 };

@@ -882,7 +882,10 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
 
   // ── reach ─────────────────────────────────────────────────────────────────
   const ig = Number(a.instagram) || 0, tt = Number(a.tiktok) || 0;
-  const allowed = [ig, tt, ig + tt].filter((n) => n > 0);
+  // Verified by Instagram (a connected account): its follower count and its
+  // average reach and views per post are real numbers the pitch may state.
+  const v = a.igVerified || {};
+  const allowed = [ig, tt, ig + tt, Number(v.followers), Number(v.avgReachPerPost), Number(v.avgViewsPerPost)].filter((n) => Number.isFinite(n) && n > 0);
   const bizNums = (opts.businessNumbers || []).map(Number).filter((n) => Number.isFinite(n));
   for (const b of _bigNumbers(t)) {
     if (bizNums.some((n) => _near(b.n, n, 0.02))) continue;          // a business figure
@@ -1327,6 +1330,29 @@ function _signOffName(ctx) {
   return n;
 }
 
+// ── VERIFIED INSTAGRAM NUMBERS, ON A LOCAL PITCH ────────────────────────────
+// Only for a connected athlete (ctx.athlete.igVerified, from Instagram itself)
+// and a local business. One short line in plain words, e.g. "3,800 followers,
+// about 60% of them in Birmingham, averaging 2,100 people reached per post."
+// Not connected: nothing here, and the pitch is written exactly as before.
+function igVerifiedLine(ctx) {
+  const v = ctx && ctx.athlete && ctx.athlete.igVerified;
+  const b = (ctx && ctx.business) || {};
+  if (!v || !Number.isFinite(Number(v.followers)) || b.isLocal === false) return '';
+  const II = require('./instagramInsights');
+  const AR = require('./athleteRecord');
+  const city = (b.city || (b.address ? AR.cityStateFrom(b.address).city : null) || (ctx.athlete && ctx.athlete.schoolCity) || null);
+  const share = II.shareForCity(v, city);
+  const bits = [`${Number(v.followers).toLocaleString('en-US')} followers`];
+  if (share) bits.push(`about ${share.pct}% of them in ${share.city}`);
+  if (v.avgReachPerPost) bits.push(`averaging ${Number(v.avgReachPerPost).toLocaleString('en-US')} people reached per post`);
+  // No rate: the fact check verifies counts, not percentages, so a rate is never
+  // handed to the writer (tests/engrate.js). The media kit shows it, verified.
+  return `\nVERIFIED BY INSTAGRAM (${v.asOf}), the athlete connected their account: ${bits.join(', ')}.`
+    + `\nYou may state these in ONE short line, in plain words, exactly as given (for example "${bits.join(', ')}."). `
+    + 'Use no other audience number, and do not round or restate them differently.\n';
+}
+
 function buildPrompt(ctx) {
   const play = playbookFor(ctx.business && ctx.business.category);
   const learned = (ctx.learnedAngles && ctx.learnedAngles.length)
@@ -1354,7 +1380,7 @@ ${describeAthlete(ctx.athlete || {})}
 WHAT THIS CATEGORY TYPICALLY WANTS
 ${play.wants}. A fitting ask looks like: ${play.ask}.
 ${dealLines.length ? '\nWHAT WE ALREADY WORKED OUT\n' + dealLines.join('\n') + '\n' : ''}${learned}
-The agent's first name, for the sign-off: ${_signOffName(ctx)}
+${igVerifiedLine(ctx)}The agent's first name, for the sign-off: ${_signOffName(ctx)}
 ${ctx.hasSchedulingLink
     ? 'The agent HAS a scheduling link, and it is appended below your message. You may '
       + 'invite them to use it: "use my scheduling link below to set up a call".'

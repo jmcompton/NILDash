@@ -484,6 +484,13 @@ async function localContextFor(ath) {
     const cs = AR.cityStateFrom(r.region);
     if (cs.state) { profile.stateCode = cs.state; profile.stateNote = null; }
   }
+  // VERIFIED INSTAGRAM NUMBERS (services/instagramConnect), connected athletes
+  // only: the writer may cite them in one plain line on a local pitch. A
+  // failed read leaves the pitch exactly as it was.
+  try {
+    const athId = (ath && (ath.id || ath.athleteId)) || null;
+    if (athId) profile.igVerified = await require('../services/instagramInsights').verifiedFor(store.pool, athId);
+  } catch (e) { console.warn('[queue] instagram numbers unavailable: ' + e.message); }
   return { region: r.region, profile, geocoded: !!r.geocoded, fault: r.fault || null };
 }
 
@@ -1597,6 +1604,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
               // ONE thing the message may say about them.
               evidence: WriterEvidence.evidenceFor(cand),
               isFranchise: false,
+              isLocal: false,   // a brand programme: no verified-Instagram local line
             },
             athlete: { ...(ctx.athleteProfile || { name: athleteName }), partnershipCount,
               instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,
@@ -2037,6 +2045,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             isFranchise: !!(out && out.siteEmail && out.siteEmail.corporate),
             // Rung 6 of the ladder: a business in the athlete's HOMETOWN.
             inHometown: cand.hometown || null,
+            // The verified-Instagram line (pitchWriter.igVerifiedLine) is for local businesses only.
+            isLocal: !cand.lane || cand.lane === 'local' || cand.lane === 'hometown',
           },
           athlete: { ...(ctx.athleteProfile || { name: athleteName }), partnershipCount,
             instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,

@@ -188,8 +188,8 @@ async function main() {
 
       OUT.push('', '-- the audience, three states --');
       const igT = pubFull.tiles.find((t) => /instagram/i.test(t.text)), ttT = pubFull.tiles.find((t) => /tiktok/i.test(t.text)), xT = pubFull.tiles.find((t) => /^X /.test(t.text));
-      ok('VERIFIED: Instagram reads "Verified by NILDash" with the date pulled, and the connected number (12.4K), not the typed one',
-        igT && igT.state === 'verified' && /Verified by NILDash · Sep 30, 2026/.test(igT.text) && /12\.4K/.test(igT.text) && !/100K|99\.9K|99,999/.test(pubFull.text), igT);
+      ok('VERIFIED: Instagram reads "Verified by Instagram" with the date pulled, and the connected number (12.4K), not the typed one',
+        igT && igT.state === 'verified' && /Verified by Instagram · Sep 30, 2026/.test(igT.text) && /12\.4K/.test(igT.text) && !/100K|99\.9K|99,999/.test(pubFull.text), igT);
       ok('SELF-REPORTED: TikTok and X are shown, labelled "Self-reported", and quieter (the self style)',
         ttT && ttT.state === 'self-reported' && /Self-reported/.test(ttT.text) && /\bself\b/.test(ttT.cls) && xT && /Self-reported/.test(xT.text) && !/Verified/.test(ttT.text + xT.text), { ttT, xT });
       ok('  Total Reach says it includes self-reported counts', /Total Reach[\s\S]*Includes self-reported counts/i.test(pubFull.text));
