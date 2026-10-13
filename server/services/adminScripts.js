@@ -22,10 +22,14 @@
 // most call process.exit), so loading them to read a shape would run them.
 // A descriptor only describes.
 //
-// STRICT, AT BOOT. A file in the folder that is not a valid descriptor, two
-// descriptors with one name, or a descriptor whose script is missing stops the
-// registry from loading, with the reason: a script that silently fails to
-// register is a URL that silently 404s.
+// A BAD DESCRIPTOR NEVER STOPS THE APP. A file that does not load, a name that
+// does not match its file, a script that is missing or outside the repo, an
+// args that is not a function, or a second descriptor with a taken name:
+//   at runtime   that one descriptor is skipped, the reason is logged and
+//                recorded through ourFault (so it is in the morning alert),
+//                and every other script and the rest of the app run
+//   in tests     discover({ strict: true }) throws with every reason, so a bad
+//                file fails tests/adminscripts.js and is never merged
 const fs = require('fs');
 const path = require('path');
 
@@ -45,7 +49,8 @@ function problemsOf(def, fileName, repo) {
   return p;
 }
 
-// -> { name: { file, args } }. opts.dir / opts.repo for tests.
+// -> { name: { file, args } }. opts.strict (tests) throws on any problem;
+// opts.onProblem(reason) is told each skipped descriptor; opts.dir / opts.repo for tests.
 function discover(opts = {}) {
   const dir = opts.dir || DIR;
   const repo = opts.repo || REPO;
@@ -61,11 +66,28 @@ function discover(opts = {}) {
     if (reg[def.name]) { problems.push(`two descriptors are named "${def.name}"`); continue; }
     reg[def.name] = Object.freeze({ file: def.file, args: def.args });
   }
-  if (problems.length) throw new Error('admin scripts (server/scripts/admin): ' + problems.join('; '));
+  if (problems.length && opts.strict) throw new Error('admin scripts (server/scripts/admin): ' + problems.join('; '));
+  for (const p of problems) (opts.onProblem || (() => {}))(p);
   return Object.freeze(reg);
 }
 
+// The runtime registry: never throws. Each skipped descriptor is logged and
+// recorded as our fault (services/ourFault: the morning alert lists it).
 let _reg = null;
-function registry() { return _reg || (_reg = discover()); }
+function registry() {
+  if (_reg) return _reg;
+  try {
+    _reg = discover({ onProblem: (why) => {
+      console.error('[admin-scripts] skipped: ' + why);
+      try { require('./ourFault').record('admin-scripts', 'skipped a descriptor: ' + why, 'services/adminScripts').catch(() => {}); } catch (_) { /* recording is best effort */ }
+    } });
+  } catch (e) {
+    // The folder itself cannot be read: no admin scripts, the app still runs.
+    console.error('[admin-scripts] could not read ' + DIR + ': ' + e.message);
+    try { require('./ourFault').record('admin-scripts', 'could not read server/scripts/admin: ' + e.message, 'services/adminScripts').catch(() => {}); } catch (_) { /* best effort */ }
+    _reg = Object.freeze(Object.create(null));
+  }
+  return _reg;
+}
 
 module.exports = { discover, registry, problemsOf, DIR };
