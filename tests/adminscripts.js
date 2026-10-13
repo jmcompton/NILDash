@@ -28,7 +28,10 @@ const reg = AS.registry();
 const was = Object.keys(before.scripts).sort(), now = Object.keys(reg).sort();
 ok('THE REAL FOLDER IS CLEAN: every descriptor in server/scripts/admin/ is valid (strict)', strictErr === null, strictErr);
 ok(`every script that existed still exists (${was.length})`, was.every((n) => reg[n]), was.filter((n) => !reg[n]));
-ok('  and none appeared from nowhere', now.length === was.length, now.filter((n) => !before.scripts[n]));
+// A NEW SCRIPT IS JUST A NEW FILE: allowed, as long as it is a valid
+// descriptor (the strict check above). The snapshot guards the old ones only.
+ok('  new scripts are allowed (adding one is adding a file), each a valid descriptor', now.length >= was.length && strictErr === null,
+  now.filter((n) => !before.scripts[n]));
 for (const name of was) {
   const def = reg[name];
   if (!def) continue;

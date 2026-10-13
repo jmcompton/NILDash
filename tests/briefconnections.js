@@ -148,11 +148,15 @@ async function main() {
 
   // ── RUNNING ONE BRIEF ON DEMAND ────────────────────────────────────────
   OUT.push('', '-- the on-demand runner --');
-  ok('the four briefs are registered in the admin script runner', /^\s*brief: \{$/m.test(idx) && /tools\/briefs\/run-slot\.js/.test(idx));
-  ok('  it goes through run-slot --brief, the same entry point the cron uses', /return \['--brief', which\]/.test(idx));
+  // The brief's descriptor (services/adminScripts: one file per script).
+  const BRIEF = fs.readFileSync(REPO + 'server/scripts/admin/brief.js', 'utf8');
+  const briefDef = require(REPO + 'server/services/adminScripts.js').registry()['brief'];
+  ok('the four briefs are registered in the admin script runner', !!briefDef && briefDef.file === 'tools/briefs/run-slot.js');
+  ok('  it goes through run-slot --brief, the same entry point the cron uses', /return \['--brief', which\]/.test(BRIEF)
+    && JSON.stringify(briefDef.args({ which: 'news-watch' })) === '["--brief","news-watch"]');
   ok('AN UNKNOWN BRIEF NAME IS REFUSED, not interpolated into a command line',
-    /if \(!names\.includes\(which\)\)/.test(idx) && /e\.status = 400/.test(idx));
-  ok('  and the refusal names the four', /which must be one of \$\{names\.join\(', '\)\}/.test(idx));
+    /if \(!names\.includes\(which\)\)/.test(BRIEF) && /e\.status = 400/.test(BRIEF) && (() => { try { briefDef.args({ which: 'x; rm -rf /' }); return false; } catch (e) { return e.status === 400; } })());
+  ok('  and the refusal names the four', /which must be one of \$\{names\.join\(', '\)\}/.test(BRIEF));
   ok('a job is remembered by name AND arguments, so two briefs do not share one result',
     /const key = req\.params\.name \+ \(args\.length \? ' ' \+ args\.join\(' '\) : ''\)/.test(idx)
     && /_adminScriptJobs\.set\(key, job\)/.test(idx) && !/_adminScriptJobs\.set\(req\.params\.name/.test(idx));
@@ -163,7 +167,7 @@ async function main() {
   ok('RUN-SLOT\'S OWN --dry NEVER REACHES A BRIEF: it means "run nothing", not "draft nothing"',
     JSON.stringify(RS.briefFlags(['--dry'])) === '[]');
   ok('  the brief\'s own dry run is --brief-dry, translated on the way in',
-    JSON.stringify(RS.briefFlags(['--brief-dry'])) === '["--dry"]' && /q\.dry \? \['--brief-dry'\]/.test(idx));
+    JSON.stringify(RS.briefFlags(['--brief-dry'])) === '["--dry"]' && /q\.dry \? \['--brief-dry'\]/.test(BRIEF));
   ok('  a flag given twice is passed once', JSON.stringify(RS.briefFlags(['--debug', '--debug'])) === '["--debug"]');
 
   // ── THE SCHEDULE, THE POINT OF ALL OF THIS ─────────────────────────────
