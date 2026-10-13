@@ -55,6 +55,7 @@ async function main() {
   await clean();
   await P().query(`INSERT INTO users (id,name,email,password,role,report_tz) VALUES
     ($1,'Kay Reed','sq-a@x.com','x','agent','America/Chicago'),($2,'Lee Park','sq-b@x.com','x','agent','America/Chicago')`, [A, B]);
+  await P().query(`UPDATE users SET business_street = '1 Test St', business_city = 'Testville', business_state = 'AL', business_zip = '35201' WHERE id IN ($1, $2)`, [A, B]);   // both agents' own address (canSpam.senderAddress)
   await P().query(`INSERT INTO athletes (id,agent_id,data) VALUES
     ($1,$2,'{"name":"Amari Allen","school":"Alabama","sport":"Football","dob":"2003-01-01"}'),
     ($3,$4,'{"name":"Jo Doe","school":"Auburn University","sport":"Basketball","dob":"2002-05-05"}')`, [ATH_A, A, ATH_B, B]);
