@@ -1346,8 +1346,9 @@ function igVerifiedLine(ctx) {
   const bits = [`${Number(v.followers).toLocaleString('en-US')} followers`];
   if (share) bits.push(`about ${share.pct}% of them in ${share.city}`);
   if (v.avgReachPerPost) bits.push(`averaging ${Number(v.avgReachPerPost).toLocaleString('en-US')} people reached per post`);
-  return `\nVERIFIED BY INSTAGRAM (${v.asOf}), the athlete connected their account: ${bits.join(', ')}`
-    + (v.engagementPct ? `; engagement ${v.engagementPct}%` : '') + '.'
+  // No rate: the fact check verifies counts, not percentages, so a rate is never
+  // handed to the writer (tests/engrate.js). The media kit shows it, verified.
+  return `\nVERIFIED BY INSTAGRAM (${v.asOf}), the athlete connected their account: ${bits.join(', ')}.`
     + `\nYou may state these in ONE short line, in plain words, exactly as given (for example "${bits.join(', ')}."). `
     + 'Use no other audience number, and do not round or restate them differently.\n';
 }

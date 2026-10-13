@@ -225,9 +225,9 @@ function derive(stats, ctx = {}) {
 
 // ── FOR THE PITCH WRITER (services/pitchWriter) ─────────────────────────────
 // The latest numbers from a CONNECTED Instagram only (never a screenshot, never
-// a typed count): followers, average reach and views per post, engagement by
-// followers, and the follower-by-city rows so the writer can say the share for
-// the business's own city. null when not connected.
+// a typed count): followers, average reach and views per post, and the
+// follower-by-city rows so the writer can say the share for the business's own
+// city. No rate: the writer never cites one (tests/engrate.js). null when not connected.
 async function verifiedFor(pool, athleteId) {
   const row = await require('./instagramConnect').latestFor(pool, athleteId);
   if (!row || row.followers_count === null || row.followers_count === undefined) return null;
@@ -238,7 +238,6 @@ async function verifiedFor(pool, athleteId) {
     asOf: new Date(row.fetched_at).toISOString().slice(0, 10), followers: Number(row.followers_count),
     avgReachPerPost: d.avgReachPerPost === null ? null : Math.round(d.avgReachPerPost),
     avgViewsPerPost: d.avgViewsPerPost === null ? null : Math.round(d.avgViewsPerPost),
-    engagementPct: d.engagementByFollowers === null ? null : Math.round(d.engagementByFollowers * 1000) / 10,
     cityRows,
   };
 }

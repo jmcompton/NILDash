@@ -23,7 +23,10 @@ process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test-key-never
 //                                    tool; oneShotWebSearch would move it to
 //                                    DeepSeek + Serper, a change of provider
 //
-// Those two record their own ledger row from the response.
+//   instagramScreenshot              sends the athlete's Insights screenshots
+//                                    as image blocks; oneShot sends text only
+//
+// Those record their own ledger row from the response.
 const fs = require('fs');
 const Module = require('module');
 
@@ -52,8 +55,11 @@ function walk(d, out = []) {
     });
   }
   const files = [...new Set(direct.map((d) => d.split(':')[0]))].sort();
-  ok('EXACTLY THREE FILES STILL CALL messages.create DIRECTLY', JSON.stringify(files)
-    === JSON.stringify(['server/nilCompJob.js', 'server/services/contractExtraction.js', 'server/services/preflight.js']), direct);
+  ok('EXACTLY FOUR FILES STILL CALL messages.create DIRECTLY', JSON.stringify(files)
+    === JSON.stringify(['server/nilCompJob.js', 'server/services/contractExtraction.js', 'server/services/instagramScreenshot.js', 'server/services/preflight.js']), direct);
+  ok('  the Instagram screenshot reader records its own ledger row, labelled',
+    /require\('\.\/aiLedger'\)\.record\(resp, \{ model: MODEL, ms: Date\.now\(\) - t0, site: 'instagram\.screenshot' \}\)/.test(read('server/services/instagramScreenshot.js'))
+    && /guardAnthropic\(new Anthropic/.test(read('server/services/instagramScreenshot.js')));
   const pfl = read('server/services/preflight.js');
   ok('  the preflight pings record their own ledger rows, labelled',
     /require\('\.\/aiLedger'\)\.record\(resp, \{ model, ms: Date\.now\(\) - t0, site: 'preflight' \}\)/.test(pfl)
