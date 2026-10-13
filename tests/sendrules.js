@@ -64,6 +64,7 @@ const TUE = Date.parse('2026-08-25T15:00:00Z');
     ['sr:' + brand.toLowerCase(), brand, JSON.stringify({ found: true, types: ['restaurant'], name: brand })]);
   await clean();
   await P.query(`INSERT INTO users (id,name,email,password,role,report_tz) VALUES ($1,'Sr Agent',$2,'x','agent','America/Chicago')`, [AG, LUKE]);
+  await P.query(`UPDATE users SET business_street = '1 Test St', business_city = 'Testville', business_state = 'AL', business_zip = '35201' WHERE id = $1`, [AG]);   // the agent's own address (canSpam.senderAddress)
   for (const i of [1, 2]) {
     await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ($1,$2,$3::jsonb)`,
       ['sr-a' + i, AG, JSON.stringify({ name: 'Client ' + i, school: 'Auburn University' })]);

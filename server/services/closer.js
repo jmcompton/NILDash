@@ -401,6 +401,10 @@ async function approveBatch(pool, agentId, opts = {}) {
 
   const guard = await sendGuard.status(pool, agentId, opts);
   if (guard.blocked) return { approved: 0, scheduled: 0, blocked: true, note: guard.blockedReason };
+  // REQUIRED BEFORE THE FIRST SEND: the agent's own business address
+  // (services/canSpam.senderAddress). Refused up front, with the reason.
+  const sa = await require('./canSpam').senderAddress(pool, agentId);
+  if (!sa.ok) return { approved: 0, scheduled: 0, blocked: true, needsBusinessAddress: sa.code === 'NEEDS_BUSINESS_ADDRESS', note: sa.why };
 
   // Never approve more than the ceiling allows, even if the client posts more.
   const allowed = ids.slice(0, guard.remaining);
@@ -937,6 +941,19 @@ async function releaseDue(pool, opts = {}) {
       out.held++;
       out.detail.push({ id: log.id, result: 'held', why: `not due until ${new Date(log.next_follow_up_at).toISOString().slice(0, 10)}` });
       continue;
+    }
+    // ── THE SENDER'S POSTAL ADDRESS (services/canSpam.senderAddress) ─────
+    // The agent's own, from Settings; the NILDash fallback only for an agent
+    // who has sent before. Before an agent's first send with no address of
+    // their own, the email is held with the reason and looked at again later.
+    {
+      const sa = await require('./canSpam').senderAddress(pool, log.agent_id);
+      if (!sa.ok) {
+        await hold(pool, log, sa.why, new Date(nowMs + RECHECK_CEILING_MS));
+        out.held++; out.detail.push({ id: log.id, result: 'held', why: sa.why });
+        continue;
+      }
+      log.footerAddress = sa.address;
     }
     // ── THE COMPLIANCE GATE ──────────────────────────────────────────────
     // BEFORE the reservation, because a held message must not consume the day's

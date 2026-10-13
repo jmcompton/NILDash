@@ -478,8 +478,11 @@ router.post('/send', async (req, res) => {
     const canSpam = require('../services/canSpam');
     let outHtml = bodyHtml;
     if (canSpam.required(threadId ? 'reply' : 'compose') && recipients.length) {
+      // The sender's own postal address (canSpam.senderAddress).
+      const sa = await canSpam.senderAddress(require('../store').pool, req.session && req.session.userId);
+      if (!sa.ok) return res.status(400).json({ error: sa.why, reason: 'can-spam', code: sa.code });
       try {
-        outHtml = canSpam.appendHtml(bodyHtml, recipients[0]);
+        outHtml = canSpam.appendHtml(bodyHtml, recipients[0], { address: sa.address });
       } catch (e) {
         if (e && e.code === 'CANSPAM_UNCONFIGURED') {
           return res.status(400).json({ error: e.message, reason: 'can-spam' });
