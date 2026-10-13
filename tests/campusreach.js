@@ -164,7 +164,7 @@ async function main() {
   ok('  the cost, said: website fetches free, Places at list price, the writer per call', ap.usd.websites === 0 && ap.usd.places > 0 && ap.usd.writer > 0
     && /COST: \$\d+\.\d\d -- website fetches \$0\.00, Places details \$/.test(CR.format(ap)), CR.format(ap));
   ok('  and printed with the before and after', /with their own email +1 -> 3/.test(CR.format(ap)) && /own email addresses found +2/.test(CR.format(ap)) && /carry a DM option/.test(CR.format(ap)), CR.format(ap));
-  ok('the admin script is registered', /'campus-reach': \{ file: 'scripts\/campus-reach\.js'/.test(require('fs').readFileSync(REPO + 'server/index.js', 'utf8')));
+  ok('the admin script is registered', ((require(REPO + 'server/services/adminScripts.js').registry()['campus-reach'] || {}).file === 'scripts/campus-reach.js'));
   await clean();
 }
 

@@ -103,7 +103,7 @@ async function main() {
   ok('  and the limiter answers 204 too, so a limited page sees nothing',
     /const demoEventLimiter = rateLimit\(\{[\s\S]{0,200}handler: \(req, res\) => res\.status\(204\)\.end\(\)/.test(IDX));
   ok('  and it sits above the /api catch-all', at > 0 && at < IDX.indexOf("app.use('/api', (req, res) =>"));
-  ok('demo-stats is registered with the admin script runner', /'demo-stats': \{ file: 'scripts\/demo-stats\.js'/.test(IDX));
+  ok('demo-stats is registered with the admin script runner', ((require(REPO + 'server/services/adminScripts.js').registry()['demo-stats'] || {}).file === 'scripts/demo-stats.js'));
 
   // ── 6. THE REPORT ─────────────────────────────────────────────────────────
   OUT.push('', '-- demo-stats --');

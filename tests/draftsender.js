@@ -135,7 +135,7 @@ async function main() {
   const after = await bodies();
   ok('--apply re-signs the unsent drafts with the work mailbox', after['ds-l1'].includes(WORK) && after['ds-l2'].includes(WORK) && !after['ds-l1'].includes(LOGIN));
   ok('  and never touches one already sent', after['ds-l3'].includes(LOGIN));
-  ok('the admin runner has fix-draft-sender', /'fix-draft-sender': \{ file: 'scripts\/fix-draft-sender\.js'/.test(read('server/index.js')));
+  ok('the admin runner has fix-draft-sender', ((require(REPO + 'server/services/adminScripts.js').registry()['fix-draft-sender'] || {}).file === 'scripts/fix-draft-sender.js'));
 
   await clean();
 }

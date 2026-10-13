@@ -111,7 +111,7 @@ async function main() {
     /app\.get\('\/api\/agent\/athletes\/needs-fix', requireAuth/.test(idx) && /app\.post\('\/api\/agent\/athletes\/:id\/apply-fix', requireAuth/.test(idx));
   ok('Home loads it, with the fix button and Edit', /loadPinnedDeliverables\(\); loadNeedsFix\(\);/.test(html) && /id="home-needs-fix"/.test(html) && /applyNeedsFix\(/.test(html));
   ok('the nightly detail names the school problem', /schoolProblem: \(require\('..\/services\/localLaneCheck'\)\.problemFor\(ath/.test(job));
-  ok('both scripts are on the admin script list', /'nightly-coverage': \{ file: 'scripts\/nightly-coverage\.js'/.test(idx) && /'school-problems': \{ file: 'scripts\/school-problems\.js'/.test(idx));
+  ok('both scripts are on the admin script list', ((require(REPO + 'server/services/adminScripts.js').registry()['nightly-coverage'] || {}).file === 'scripts/nightly-coverage.js') && ((require(REPO + 'server/services/adminScripts.js').registry()['school-problems'] || {}).file === 'scripts/school-problems.js'));
 
   await clean();
 }
