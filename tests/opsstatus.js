@@ -159,8 +159,14 @@ async function main() {
   };
   const good = await onlyMine({ tokens: { refreshToken: 'rt' }, refresh: async () => ({ access_token: 'a' }) });
   ok('a mailbox Google accepts passes', good.ok, good);
+  // A REFUSED MAILBOX FAILS ONLY IF SOMETHING IS WAITING (services/mailboxNotice).
+  const revokedQuiet = await onlyMine({ tokens: { refreshToken: 'rt' }, refresh: async () => { throw new Error('invalid_grant: Token has been expired or revoked.'); } });
+  ok('  a revoked token with nothing waiting is a notice, not a failure', revokedQuiet.ok && /Ops Agent \(ops@gmail\.test\): gmail refused the token: invalid_grant.*nothing waiting/.test(revokedQuiet.detail || ''), revokedQuiet);
+  await P.query(`INSERT INTO outreach_queue (agent_id, athlete_id, slot, brand_key, brand_name, channel, state) VALUES ($1,'opsstatus-ath',1,'k:ops','Ops Cafe','email','queued')`, [AG]);
   const revoked = await onlyMine({ tokens: { refreshToken: 'rt' }, refresh: async () => { throw new Error('invalid_grant: Token has been expired or revoked.'); } });
-  ok('  a revoked token fails, naming the agent and Google\'s words', !revoked.ok && /Ops Agent \(ops@gmail\.test\): gmail refused the token: invalid_grant/.test(revoked.error), revoked);
+  ok('  a revoked token with a card waiting fails, naming the agent and Google\'s words', !revoked.ok && /Ops Agent \(ops@gmail\.test\): gmail refused the token: invalid_grant/.test(revoked.error), revoked);
+  await P.query(`DELETE FROM outreach_queue WHERE agent_id = $1`, [AG]);
+  await P.query(`DELETE FROM mailbox_notices WHERE user_id = $1`, [AG]).catch(() => {});
   ok('  and the alert says their approved emails will not send tonight', /Approved emails for the listed agents will not send tonight/.test(PF.CONSEQUENCE['mailbox-tokens']));
   const undec = await onlyMine({ tokens: null, refresh: async () => ({}) });
   ok('  a token that cannot be decrypted fails', !undec.ok && /could not be read|could be decrypted/.test(undec.error), undec);
