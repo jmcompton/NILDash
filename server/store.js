@@ -4369,6 +4369,9 @@ async function ensureMarketSightings() {
   // A card whose address the email finder verified for the named person
   // (jobs/outreachQueue, EMAIL_FIVE_ON): what "five verified emails" counts.
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`).catch(() => {});
+  // "General inbox" when the card goes to a verified info@ / hello@ / contact@
+  // because no named person's address could be verified (EMAIL_SMART_PICK).
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_label TEXT`).catch(() => {});
   // Why email was or was not offered on a card, in the agent's words
   // (services/emailValidation via services/outreachQueue.emailNoteOf), and the
   // deliverability verdict on a stored contact (services/contactDiscovery).

@@ -20,6 +20,7 @@ async function main() {
     concurrency: 4,
     // --base: the finder without EMAIL_FINDER_MORE's steps, for comparison.
     more: !process.argv.includes('--base'),
+    smart: !process.argv.includes('--base'),
   });
   console.log(D.format(out));
   process.exit(0);

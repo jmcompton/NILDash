@@ -386,11 +386,28 @@ async function finishLadder(args, deps) {
   const Q = args.Q || require('./outreachQueue');
   const credits = { search: 0, verify: 0, webSearch: 0 };
   const rec = { before: Q.channelFor(ladder, ig), after: null, verify: null, website: null, finder: null, credits };
+  // ── THE CONTACT ORDER (EMAIL_SMART_PICK): OWNER, MARKETING LEAD, GM ──────
+  // The first person tried is the owner when the ladder named one the guard
+  // would greet, then a marketing lead, then a general manager or manager.
+  const smart = !!args.smart;
+  if (smart) {
+    const order = smartPeople(ladder, Q);
+    if (order[0] && order[0] !== Q.greetRowOf(ladder)) ladder.greetPreferred = order[0];
+  }
   const person = Q.greetRowOf(ladder);
 
   // ── 4. THE ADDRESS THE CARD WOULD USE, VERIFIED ────────────────────────
   const inbox = Q.inboxOf(ladder);
-  if (inbox) {
+  // A DESK IS NEVER A PERSON'S ADDRESS. outreachQueue.addressIsTheirs matches
+  // a name inside the local part, so "customerservice@" reads as Tom's (it
+  // contains "tom"). customerservice@, support@, careers@ and the rest are
+  // refused here outright, without spending a check.
+  if (inbox && !inbox.general && isDesk(inbox.email)) {
+    const row = rowWith(ladder, inbox.email);
+    if (row) row.emailVerify = { verdict: 'not-checked', status: null, pass: false, why: `${localOf(inbox.email)}@ is a desk address, not a person` };
+    rec.verify = { email: inbox.email, kind: inbox.kind, verdict: 'not-checked', pass: false, why: `${localOf(inbox.email)}@ is a desk address, not a person`, cached: false };
+  }
+  if (inbox && !rec.verify) {
     const row = rowWith(ladder, inbox.email);
     const v = await deps.verify(inbox.email);
     if (v && !v.cached && !v.notRun) credits.verify++;
@@ -488,11 +505,11 @@ async function finishLadder(args, deps) {
   // check could not run or the domain is catch-all: neither changes for a
   // different name.
   const ALT_STOPS = /no format verified|no usable name|cost the person their greeting|per-business check limit/;
-  if (more && !rec.finder.email && ALT_STOPS.test(String(rec.finder.stop || ''))) {
+  if ((more || smart) && !rec.finder.email && ALT_STOPS.test(String(rec.finder.stop || ''))) {
     let left = ALT_MAX_VERIFIES;
     const tried = new Set(r.steps.map((x) => x.email).filter(Boolean));
     if (rec.verify && rec.verify.email) tried.add(lc(rec.verify.email));
-    const alts = alternatesFor(ladder, person, Q).slice(0, ALT_MAX_PEOPLE);
+    const alts = (smart ? smartPeople(ladder, Q).filter((x) => x !== person) : alternatesFor(ladder, person, Q)).slice(0, ALT_MAX_PEOPLE);
     rec.finder.alternates = [];
     for (const alt of alts) {
       if (left <= 0) break;
@@ -512,9 +529,76 @@ async function finishLadder(args, deps) {
       }
       delete ladder.greetPreferred;
     }
+    // Nobody else verified: back to the first person in the order.
+    if (!rec.finder.email && smart && person !== Q.greetRowOf(ladder)) ladder.greetPreferred = person;
+  }
+
+  // ── THE GENERAL INBOX, LAST, AND ONLY FOR A VERY SMALL BUSINESS ──────────
+  // EMAIL_SMART_PICK. Only when no named person's address verified (and not
+  // because the check could not run), only for a business of about five or
+  // fewer people, only info@ / hello@ / contact@ at the business's own domain,
+  // only VERIFIED VALID (a catch-all is not a confirmation), and only greeting
+  // the owner by name. The night allows one of these per athlete
+  // (args.allowGeneral). customerservice@, support@ and every other role or
+  // department address are never used.
+  if (smart && !rec.finder.email && !/could not run|catch-all/.test(String(rec.finder.stop || ''))) {
+    rec.finder.generalInbox = await generalInbox({ ladder, siteOut, out, domain, hunterKnown, type: args.type, brand, allowGeneral: args.allowGeneral !== false, Q }, deps, credits);
   }
   rec.after = Q.channelFor(ladder, ig);
   return rec;
+}
+
+// The people to try, in the contact order: owner (founder, officer), then a
+// marketing lead, then a general manager or manager. Only people the greeting
+// guard would open to, never a junior title.
+const NOT_A_LEAD = /\b(coordinator|intern|associate|specialist|assistant|representative|rep|clerk|cashier|crew|staff|team member|barista|server|stylist|technician|trainee)\b/i;
+function smartPeople(ladder, Q) {
+  const R = require('./reachability');
+  const GG = require('./greetingGuard');
+  let JUNIOR = null;
+  try { JUNIOR = require('./ownerNameSearch').JUNIOR_TITLE; } catch (_) { JUNIOR = null; }
+  const rows = Q.namedRows(ladder);
+  return rows
+    .map((r, i) => ({ r, i, cls: R.contactClass(r && r.title) }))
+    .filter((x) => x.r && x.r.name && realNameOf(x.r.name) && x.cls !== 'other')
+    .filter((x) => !(x.r.title && (NOT_A_LEAD.test(x.r.title) || (JUNIOR && JUNIOR.test(x.r.title)))))
+    .filter((x) => GG.greetableContacts([x.r]).length > 0)
+    .sort((a, b) => (R.CLASS_ORDER[a.cls] - R.CLASS_ORDER[b.cls]) || (a.i - b.i))
+    .map((x) => x.r);
+}
+
+const GENERAL_LOCALS = /^(info|hello|contact)$/;
+async function generalInbox({ ladder, siteOut, out, domain, hunterKnown, type, brand, allowGeneral, Q }, deps, credits) {
+  const R = require('./reachability');
+  const owner = smartPeople(ladder, Q).find((p) => R.contactClass(p.title) === 'owner') || null;
+  if (!allowGeneral) return { used: false, why: 'this athlete already has a general-inbox card tonight' };
+  if (!owner) return { used: false, why: 'no owner named to greet' };
+  const people = new Set();
+  for (const r of Q.namedRows(ladder)) if (r && r.name) people.add(lc(r.name));
+  for (const p of ((siteOut && siteOut.siteEmail && siteOut.siteEmail.people) || [])) if (p && p.name) people.add(lc(p.name));
+  for (const h of ((hunterKnown && hunterKnown.emails) || [])) if (h && h.firstName && h.type !== 'generic') people.add(lc(`${h.firstName} ${h.lastName || ''}`));
+  let chain = false;
+  try { chain = !!require('./nationalChains').isChainLocation(brand); } catch (_) { chain = false; }
+  const size = R.sizeBucket({ headcount: hunterKnown && hunterKnown.headcount, people: people.size, chain, type });
+  if (size !== 'about 5 or fewer') return { used: false, why: `not a business of about five or fewer people (${size})`, size };
+  const found = [];
+  const add = (e) => { const x = lc(e); if (x && sameDomain(x, domain) && GENERAL_LOCALS.test(localOf(x)) && !found.includes(x)) found.push(x); };
+  for (const t of ((ladder && ladder.tiers) || [])) for (const r of (t.rows || [])) if (r && r.email) add(r.email);
+  const se = siteOut && siteOut.siteEmail;
+  if (se) { add(se.roleEmail); add(se.email); }
+  if (out && out.genericInbox) add(out.genericInbox);
+  for (const h of ((hunterKnown && hunterKnown.emails) || [])) if (h && h.email) add(h.email);
+  if (!found.length) return { used: false, why: 'no info@, hello@ or contact@ at the business domain', size };
+  for (const e of found.slice(0, 2)) {
+    const v = await deps.verify(e);
+    if (v && !v.cached && !v.notRun) credits.verify++;
+    const verdict = verdictOf(v);
+    if (verdict !== 'valid') continue;
+    ladder.generalInbox = { email: e, verdict, owner: owner.name, size };
+    ladder.greetPreferred = owner;
+    return { used: true, email: e, owner: owner.name, size };
+  }
+  return { used: false, why: `${found.join(', ')} did not verify as valid`, size };
 }
 
 // Put a verified address on a person's row and mark it. Undone, and false
@@ -635,6 +719,6 @@ function corporateDomain(domain, brand, out) {
 
 module.exports = {
   find, finishLadder, findWebsite, liveDeps, passes, verdictOf, examplesOf, shapeOf, isNever, isDesk,
-  alternatesFor, attachTo, carriesName, ALT_MAX_PEOPLE, ALT_MAX_VERIFIES,
+  alternatesFor, attachTo, carriesName, ALT_MAX_PEOPLE, ALT_MAX_VERIFIES, smartPeople, generalInbox, GENERAL_LOCALS,
   corporateDomain, placeIsThisBusiness, sameNameLoose, COMMON_FORMATS, MAX_VERIFIES, NEVER_LOCAL,
 };

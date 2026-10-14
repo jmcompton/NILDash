@@ -70,11 +70,23 @@ const EF = require('../services/emailFinder');
 //                        Chains and lanes that cannot produce one (national and
 //                        social brands) are skipped before anything is spent.
 //                        Runs the finishing step whatever EMAIL_FINDER_ON says.
+//   EMAIL_SMART_PICK=1   SMART PICK (services/reachability): candidates are
+//                        ranked by how often their kind of business turned
+//                        into a verified email -- within the same type only,
+//                        never across types and never as a filter -- no more
+//                        than two of one type in an athlete's five, the
+//                        contact order owner > marketing lead > GM/manager,
+//                        and, last, a verified general inbox for a business
+//                        of about five or fewer people (one per athlete per
+//                        night). Runs the finishing step too.
 const FINDER = {
-  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1',
+  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1' || process.env.EMAIL_SMART_PICK === '1',
   more: () => process.env.EMAIL_FINDER_MORE === '1',
   five: () => process.env.EMAIL_FIVE_ON === '1',
+  smart: () => process.env.EMAIL_SMART_PICK === '1',
 };
+const Reach = require('../services/reachability');
+const TYPE_CAP = 2;
 const VERIFY_TRIES = 3;
 // Between tries of a check that could not run: long enough for Hunter to
 // finish a slow mail server (its 202) or come back from an outage.
@@ -742,8 +754,9 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
   const wrote = (ins.rowCount || 0) > 0;
   // VERIFIED BY THE EMAIL FINDER: a verified address for the named person.
   // What the five and the 5:30 list count (services/shortOfFive).
-  if (wrote && card.emailVerified === true && ins.rows[0] && ins.rows[0].id) {
-    await pool.query(`UPDATE outreach_queue SET email_verified = TRUE WHERE id = $1`, [ins.rows[0].id])
+  if (wrote && (card.emailVerified === true || card.emailLabel) && ins.rows[0] && ins.rows[0].id) {
+    await pool.query(`UPDATE outreach_queue SET email_verified = $2, email_label = $3 WHERE id = $1`,
+      [ins.rows[0].id, card.emailVerified === true, card.emailLabel || null])
       .catch((e) => console.error('[queue] email_verified not recorded: ' + e.message));
   }
   if (!wrote) {
@@ -1405,6 +1418,34 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // A growing list, not a fixed slate: refillSlate appends new candidates as
   // the fill drains it. Copied so the Scout's own array is never mutated.
   let cands = slate.picks.slice();
+  // ── SMART PICK: RANK WITHIN TYPE (services/reachability) ─────────────────
+  // The slate keeps its order of TYPES; within a type the more reachable
+  // business goes first. Never a filter: every candidate stays.
+  const _reachModel = FINDER.smart() ? await Reach.latest(pool).catch(() => null) : null;
+  const smartReorder = async (list) => {
+    if (!_reachModel || !list.length) return list;
+    const sig = await Reach.candidateSignals(pool, list).catch(() => new Map());
+    return Reach.smartOrder(list, (c) => Reach.scoreOf(_reachModel, sig.get(String(c.brand_name || '').trim().toLowerCase()) || { type: c.businessCategory || 'unknown' }));
+  };
+  // What smart pick did to the slate, for the run record (and the tests).
+  let _smartSlate = null;
+  if (_reachModel) {
+    const _before = cands.map((c) => c.brand_name);
+    cands = await smartReorder(cands);
+    _smartSlate = { before: _before.slice(0, 30), after: cands.map((c) => c.brand_name).slice(0, 30) };
+  }
+  // ── VARIETY: NO MORE THAN TWO OF ONE TYPE IN THE FIVE ────────────────────
+  // Counted from the cards the athlete already holds (the ones that count
+  // toward the five) plus tonight's. With five cards and two at most of any
+  // type, the five cover three types or more.
+  const typeCount = new Map();
+  let generalPlaced = 0;
+  if (FINDER.smart()) {
+    const held = (await pool.query(
+      `SELECT business_category FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'${FINDER.five() ? ' AND email_verified' : ''}`,
+      [athleteId]).catch(() => ({ rows: [] }))).rows;
+    for (const h of held) if (h.business_category) typeCount.set(h.business_category, (typeCount.get(h.business_category) || 0) + 1);
+  }
   if (!cands.length) {
     // NEVER EMPTY WITHOUT A REASON. A silent zero is what we spent a day
     // debugging; the shift report prints this verbatim. When the school is the
@@ -1460,7 +1501,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       if (ci >= cands.length) {
         const added = await refillSlate('slate drained');
         if (!added.length) { stop = 'ladder'; break; }
-        cands.push(...added);
+        cands.push(...(await smartReorder(added)));
       }
       const cand = cands[ci++];
       _sw.start(cand);
@@ -1511,6 +1552,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             lane: cand.lane || null, places: { found: false }, risk: 'normal' });
           continue;
         }
+      }
+      // ── VARIETY, BEFORE ANYTHING IS SPENT (EMAIL_SMART_PICK) ──────────────
+      if (FINDER.smart() && cand.businessCategory && (typeCount.get(cand.businessCategory) || 0) >= TYPE_CAP) {
+        const why = `variety: the five already hold ${TYPE_CAP} ${cand.businessCategory} cards`;
+        say(`${cand.brand_name}: skipped, ${why}`);
+        tried.push({ brand: cand.brand_name, result: 'skipped', stage: 'variety', reason: why, lane: cand.lane || null, places: { found: false }, risk: 'normal' });
+        continue;
       }
       // ── THE LANE DECIDES THE ROUTE ──────────────────────────────────────
       // A social or national brand goes nowhere near Places or the contact
@@ -2003,6 +2051,16 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         + (out.websiteDropped ? ` websiteDropped=${out.websiteDropped}` : '')
         + (_why.addressSteps.length ? ` [${_why.addressSteps.join(' | ')}]` : ''));
 
+      // ── WHAT THE LEARNING READS (services/reachability) ───────────────────
+      // Who the pitch would open to, what kind of business, how big it looks.
+      // Recorded on every attempt whatever the switches say: it is data.
+      const _placeType = place ? require('../services/businessCategory').categoryOf(place).category : null;
+      {
+        const _p = Q.greetRowOf(ladder) || Q.namedRows(ladder)[0] || null;
+        _why.person = _p ? { name: _p.name, title: _p.title || null, cls: Reach.contactClass(_p.title) } : null;
+        _why.type = _placeType || cand.businessCategory || null;
+        _why.size = Reach.sizeBucket({ people: Q.namedRows(ladder).length, chain: !!require('../services/nationalChains').isChainLocation(cand.brand_name), type: _why.type });
+      }
       if (!bar.ok) {
         // The ladder could not ASK (a source errored or timed out): our failure,
         // not a business with no contact (services/ourFault).
@@ -2094,7 +2152,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       if (FINDER.on()) {
         let _fin = null;
         try {
-          _fin = await EF.finishLadder({ ladder, out, ig, brand: cand.brand_name, region: cand.region || region || '', place, more: FINDER.more() },
+          _fin = await EF.finishLadder({ ladder, out, ig, brand: cand.brand_name, region: cand.region || region || '', place, more: FINDER.more(),
+            smart: FINDER.smart(), allowGeneral: generalPlaced < 1, type: _placeType || cand.businessCategory || null },
             EF.liveDeps(pool, { agentId, athleteId, business: cand.brand_name, source: 'nightly' }));
           _sw.lap('emailFinder');
         } catch (e) {
@@ -2119,6 +2178,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             + `; channel ${_was} -> ${channel}`);
           _verifiedEmail = verifiedNamedEmail(ladder, ig);
           _why.finder.verifiedNamed = _verifiedEmail;
+          // A VERIFIED GENERAL INBOX (EMAIL_SMART_PICK) fills a slot too: one of
+          // the five at most, greeting the owner by name.
+          const _ib = Q.inboxOf(ladder);
+          const _general = FINDER.smart() && channel === 'email' && !!(_ib && _ib.general);
+          _why.finder.generalInbox = _general || undefined;
+          if (_general) _verifiedEmail = true;
+          { const _p = Q.greetRowOf(ladder); if (_p) _why.person = { name: _p.name, title: _p.title || null, cls: _general ? 'general' : Reach.contactClass(_p.title) }; }
           // ── A CHECK THAT COULD NOT RUN IS ASKED AGAIN LATER TONIGHT ──────
           // A timeout or Hunter's "still verifying" is not an answer about the
           // business. Set aside, and fillAgent sends it round again after the
@@ -2161,6 +2227,12 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             }
           }
         }
+      }
+      if (FINDER.smart() && _placeType && (typeCount.get(_placeType) || 0) >= TYPE_CAP) {
+        const why = `variety: the five already hold ${TYPE_CAP} ${_placeType} cards`;
+        say(`${cand.brand_name}: skipped, ${why}`);
+        tried.push({ brand: cand.brand_name, result: 'skipped', stage: 'variety', reason: why, lane: cand.lane, places: facts, risk: pre.risk, why: _why });
+        continue;
       }
       tried.push({ brand: cand.brand_name, result: 'queued', reason: null, lane: cand.lane,
         places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
@@ -2315,7 +2387,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       if (dry) {
         // A dry run hands the card it would have queued to the caller.
         if (ctx.onCard) { try { await ctx.onCard({ ...card, slot }); } catch (_) { /* the caller's problem */ } }
-        say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; channels.push(card.channel); break;
+        say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; channels.push(card.channel);
+        if (card.businessCategory) typeCount.set(card.businessCategory, (typeCount.get(card.businessCategory) || 0) + 1);
+        if (card.emailLabel === 'General inbox') generalPlaced++;
+        break;
       }
       if (!(await slotStillOpen(pool, athleteId, slot))) {
         say(`slot ${slot}: taken by another fill while the writer ran; ${card.brandName} not offered`);
@@ -2324,6 +2399,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       if (await insertCard(pool, { agentId, athleteId, slot, card, marketKey: cand.hometown ? null : (profile && profile.marketKey) })) {
         placed = true; filled++; channels.push(card.channel);
+        if (card.businessCategory) typeCount.set(card.businessCategory, (typeCount.get(card.businessCategory) || 0) + 1);
+        if (card.emailLabel === 'General inbox') generalPlaced++;
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
           + (card.contactName ? `, ${card.contactName}` : ''));
       } else if (card._insertFault) {
@@ -2351,6 +2428,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     elapsedMs: Date.now() - _t0, costUsd: Math.round(athleteCost() * 1000) / 1000,
     held: Q.SLOTS_PER_ATHLETE - open.length + filled, floor: Q.SLOTS_PER_ATHLETE,
     tier: tierInfo.tier, tierWhy: tierInfo.why, ladder: ladder_.slice(),
+    smartSlate: _smartSlate,
     channels: channels.reduce((m, c) => { const k = c || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {}),
     byLane: tried.reduce((m, t) => {
       const k = (t && t.lane) || 'local';

@@ -711,14 +711,24 @@ function addressKind(email, name, brand) {
 }
 function inboxOf(ladder) {
   const rows = emailRowsOf(ladder);
-  if (!rows.length) return null;
   const person = greetRowOf(ladder) || namedRows(ladder)[0] || null;
-  const hit = !person
+  const hit = !rows.length ? null : !person
     ? rows[0]
     : rows.find((r) => r.row === person
         || (r.row && r.row.name && _sameName(r.row.name, person.name))
         || addressIsTheirs(r.email, person.name));
-  if (!hit) return null;
+  if (!hit) {
+    // ── THE GENERAL INBOX (services/emailFinder, EMAIL_SMART_PICK) ─────────
+    // Set only by the email finder, only after no named person's address
+    // verified, only for a business of about five or fewer people, only
+    // info@ / hello@ / contact@ VERIFIED VALID, greeting the owner by name.
+    const g = ladder && ladder.generalInbox;
+    if (g && g.email && g.verdict === 'valid' && person) {
+      return { email: g.email, kind: 'published', emailTier: 4, sourceUrl: g.sourceUrl || null,
+        tierReason: 'a general inbox, verified; no named person\'s address could be verified', general: true };
+    }
+    return null;
+  }
   // `kind` is the PROVENANCE now, not a label. It used to read
   // `row.kind || row.label`, neither of which tier 3 sets, so every email card
   // ever built recorded emailKind null.
@@ -826,7 +836,11 @@ function buildCard(cand, ladder, ig) {
     emailSourceUrl: inbox ? (inbox.sourceUrl || null)
       : (_generic ? (_generic.row.emailSourceUrl || _generic.row.sourceUrl || null) : null),
     // Why email was or was not offered, for the agent (services/emailValidation).
-    emailNote: emailNoteOf(ladder),
+    emailNote: inbox && inbox.general
+      ? `General inbox: ${inbox.email} (verified). No named person's address could be verified, so this goes to the shop's inbox, greeting ${top.name || 'the owner'} by name.`
+      : emailNoteOf(ladder),
+    // Said on the card beside the address: "General inbox" (EMAIL_SMART_PICK).
+    emailLabel: inbox && inbox.general ? 'General inbox' : null,
     subject: channel === 'email' ? subjectFor(c.brand || c.brandName) : null,
     channel,
     // Only written when it can actually be sent. A DM drafted for a corporate

@@ -15389,6 +15389,19 @@ try {
   console.error('[morning-alert] scheduler failed to start:', e.message);
 }
 
+// ── Reachability, recomputed weekly (services/reachability) ────────────────
+// Which kinds of business turn into a verified email, learned from our own
+// history. Read by EMAIL_SMART_PICK; recomputing it changes nothing on its
+// own. Checked every 6 hours; recomputes when the latest is a week old.
+try {
+  const RM = require('./services/reachability');
+  const rmTick = () => { RM.recomputeIfStale(store.pool).catch((e) => console.error('[reachability] tick failed:', e.message)); };
+  setTimeout(rmTick, 6 * 60 * 1000);
+  setInterval(rmTick, 6 * 60 * 60 * 1000);
+} catch (e) {
+  console.error('[reachability] scheduler failed to start:', e.message);
+}
+
 // ── Athletes short of five verified emails (services/shortOfFive) ──────────
 // EMAIL_FIVE_ON only: at 5:30am Central, once a day, the admin gets the list
 // of athletes holding fewer than five verified-email cards, with the reason

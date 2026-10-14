@@ -149,7 +149,7 @@ function classify(card, tried, look = {}) {
 async function gather(pool, { days = 7 } = {}) {
   const cards = (await pool.query(
     `SELECT q.id, q.agent_id, q.athlete_id, q.brand_name, q.brand_key, q.channel, q.lane, q.email_note, q.email_tier, q.created_at,
-            q.contact_name, q.contact_title, q.instagram, q.instagram_scope, q.phone,
+            q.contact_name, q.contact_title, q.instagram, q.instagram_scope, q.phone, q.business_category, q.email_verified, q.email,
             to_char((q.created_at AT TIME ZONE 'America/Chicago')::date, 'YYYY-MM-DD') AS night,
             date_trunc('month', q.created_at) = date_trunc('month', NOW()) AS "thisMonth", u.name AS agent_name,
             a.data->>'name' AS athlete_name
