@@ -361,16 +361,19 @@ async function findDomainEmails(domain, opts = {}) {
   })).filter((e) => e.email);
   // How this domain spells its people's addresses. Was discarded.
   const pattern = (d && typeof d.pattern === 'string' && d.pattern.trim()) ? d.pattern.trim() : null;
+  // The organisation's headcount band ("1-10", "11-50"...), when Hunter has
+  // one: the size signal services/reachability learns from.
+  const headcount = (d && typeof d.headcount === 'string' && d.headcount.trim()) ? d.headcount.trim() : null;
 
   if (!emails.length) {
     console.log(`[hunter] @${key} found=0${pattern ? ' pattern=' + pattern : ''} ms=${ms}`);
-    await _record(key, OUTCOME.NONE, { found: false, status: 200, ms, pattern });
-    return (opts.withPattern && pattern) ? { found: false, emails: [], pattern, status: 200, ms } : null;
+    await _record(key, OUTCOME.NONE, { found: false, status: 200, ms, pattern, headcount });
+    return (opts.withPattern && pattern) ? { found: false, emails: [], pattern, headcount, status: 200, ms } : null;
   }
 
   const p = emails.filter((e) => e.type === 'personal').length;
   console.log(`[hunter] @${key} found=${emails.length} personal=${p} generic=${emails.length - p} ms=${ms}`);
-  const out = { found: true, emails, pattern, status: 200, ms };
+  const out = { found: true, emails, pattern, headcount, status: 200, ms };
   await _record(key, OUTCOME.OK, out);
   return out;
 }

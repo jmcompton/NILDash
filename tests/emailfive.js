@@ -178,7 +178,7 @@ async function main() {
   ok('under the five rule the slate is drawn from the local lane only', /localOnly: FINDER\.five\(\)/.test(J)
     && /if \(ctx\.localOnly && subject && subject\.lanes\)/.test(require('fs').readFileSync(REPO + 'server/services/scout.js', 'utf8')));
   ok('  and the national and social rungs are not climbed', /if \(FINDER\.five\(\) && \(name === 'social' \|\| name === 'national'\)\) \{ rung\+\+; continue; \}/.test(J));
-  ok('a verified card is recorded as such (email_verified), which the 5:30 list counts', /UPDATE outreach_queue SET email_verified = TRUE WHERE id = \$1/.test(J)
+  ok('a verified card is recorded as such (email_verified), which the 5:30 list counts', /UPDATE outreach_queue SET email_verified = \$2, email_label = \$3 WHERE id = \$1/.test(J)
     && /ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE/.test(require('fs').readFileSync(REPO + 'server/store.js', 'utf8')));
 
   setFlags({});

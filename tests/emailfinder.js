@@ -426,6 +426,107 @@ const run = (ladder, d, extra) => EF.finishLadder({ ladder, out: (extra && extra
     if (was === undefined) delete process.env.EMAIL_FIVE_ON; else process.env.EMAIL_FIVE_ON = was;
   }
 
+  console.log('\nSMART PICK: THE CONTACT ORDER, OWNER > MARKETING LEAD > GM OR MANAGER');
+  const runSmart = (ladder, d, extra) => EF.finishLadder({ ladder, out: (extra && extra.out) || { website: ladder.businessDomain ? 'https://' + ladder.businessDomain : null },
+    ig: { instagram: 'joespizza', instagramScope: 'business' }, brand: "Joe's Pizza", region: 'Waco, TX', place: null, Q, smart: true,
+    allowGeneral: !(extra && extra.allowGeneral === false), type: (extra && extra.type) || 'restaurant' }, d);
+  const person = (name, title, extra) => ({ name, title, source: 'site', sources: ['site'], affiliationScope: 'this-location', email: null, ...(extra || {}) });
+  {
+    // The ladder put the GM first; the owner is tried first anyway.
+    const gmRow = person('Gina Moore', 'General Manager'), mk = person('Mia Kent', 'Marketing Director'), own = person('Tom Smith', 'Owner');
+    const L = ladderOf([gmRow, mk, own]);
+    ok(Q.greetRowOf(L) === gmRow, 'fixture: the ladder greets the GM first');
+    const d = deps({ verdicts: { 'tom.smith@joespizza.com': 'valid', 'gina.moore@joespizza.com': 'valid', 'mia.kent@joespizza.com': 'valid' } });
+    const r = await runSmart(L, d);
+    ok(Q.greetRowOf(L) === own && Q.inboxOf(L).email === 'tom.smith@joespizza.com' && r.after === 'email', 'the owner is tried first, and verifies: the card is his', [Q.greetNameOf(L), Q.inboxOf(L)]);
+    ok(d.calls.verify[0] === 'tom.smith@joespizza.com', '  his address was the first one checked', d.calls.verify);
+  }
+  {
+    const gmRow = person('Gina Moore', 'General Manager'), mk = person('Mia Kent', 'Marketing Director'), own = person('Tom Smith', 'Owner');
+    const L = ladderOf([gmRow, mk, own]);
+    const d = deps({ verdicts: { 'gina.moore@joespizza.com': 'valid', 'mia.kent@joespizza.com': 'valid' } });
+    const r = await runSmart(L, d);
+    ok(Q.greetRowOf(L) === mk && r.finder.switchedTo && r.finder.switchedTo.name === 'Mia Kent', 'the owner cannot be verified: the marketing lead next, before the GM', r.finder);
+  }
+  {
+    const gmRow = person('Gina Moore', 'General Manager'), coord = person('Sam Lee', 'Social Media Coordinator'), own = person('Tom Smith', 'Owner');
+    const L = ladderOf([coord, gmRow, own]);
+    const d = deps({ verdicts: { 'gina.moore@joespizza.com': 'valid', 'sam.lee@joespizza.com': 'valid' } });
+    const r = await runSmart(L, d);
+    ok(Q.greetRowOf(L) === gmRow && !d.calls.verify.some((e) => /sam/.test(e)), 'a coordinator is not a marketing lead: the GM is next after the owner', [r.finder, d.calls.verify]);
+  }
+
+  {
+    // "customerservice" contains "tom": the card's name match used to read it
+    // as Tom Smith's own address. The finder refuses it outright, unchecked.
+    const L = ladderOf([owner(), { name: null, title: 'Customer service', email: 'customerservice@joespizza.com', emailKind: 'published' }]);
+    ok(Q.inboxOf(L) && Q.inboxOf(L).email === 'customerservice@joespizza.com', 'fixture: the name match takes customerservice@ for Tom\'s');
+    const d = deps({ defaultVerdict: 'valid' });
+    const r = await run(L, d);
+    ok(r.verify && r.verify.pass === false && /desk address/.test(r.verify.why) && !d.calls.verify.includes('customerservice@joespizza.com'),
+      'the finder refuses customerservice@ as a desk, without spending a check', r.verify);
+    ok(Q.inboxOf(L) === null || Q.inboxOf(L).email !== 'customerservice@joespizza.com', '  and it is never the card\'s address', Q.inboxOf(L));
+  }
+
+  console.log('\nSMART PICK: THE GENERAL INBOX, LAST, ONLY FOR THE SMALLEST');
+  const withInfo = (rows, extra) => ladderOf([...rows, { name: null, title: 'General inbox', email: (extra && extra.inbox) || 'info@joespizza.com', emailKind: 'published' }]);
+  {
+    const own = person('Tom Smith', 'Owner');
+    const L = withInfo([own]);
+    const d = deps({ verdicts: { 'info@joespizza.com': 'valid' } });
+    const r = await runSmart(L, d);
+    ok(r.after === 'email' && r.finder.generalInbox && r.finder.generalInbox.used && Q.inboxOf(L).general === true, 'no named address verifies: a verified info@ fills the slot', r.finder.generalInbox);
+    ok(Q.greetRowOf(L) === own && Q.greetNameOf(L) === 'Tom', '  greeting the owner by name');
+    const card = Q.buildCard({ brand: "Joe's Pizza", pitch: { message: 'Hi Tom,\nx' } }, L, { instagram: 'joespizza' });
+    ok(card.channel === 'email' && card.email === 'info@joespizza.com' && card.emailLabel === 'General inbox' && card.contactName === 'Tom Smith' && card.emailTier === 4,
+      '  the card: to info@, labelled "General inbox", greeting Tom', card);
+    ok(/General inbox: info@joespizza\.com \(verified\)/.test(card.emailNote), '  and says why in its note', card.emailNote);
+  }
+  for (const desk of ['customerservice@joespizza.com', 'support@joespizza.com', 'sales@joespizza.com', 'orders@joespizza.com', 'careers@joespizza.com']) {
+    const L = withInfo([person('Tom Smith', 'Owner')], { inbox: desk });
+    const d = deps({ defaultVerdict: 'valid' });
+    d.verify = async (e) => { d.calls.verify.push(e); return /^tom|^t\.?smith|^tomsmith/.test(e) ? { result: 'invalid', status: 'invalid' } : { result: 'valid', status: 'valid' }; };
+    const r = await runSmart(L, d);
+    ok(!(r.finder.generalInbox && r.finder.generalInbox.used) && !d.calls.verify.includes(desk), `never ${desk.split('@')[0]}@: only info@, hello@ or contact@`, r.finder.generalInbox);
+  }
+  {
+    const many = ['Ann Bee', 'Cal Dee', 'Eve Fox', 'Gus Hay', 'Ivy Jo'].map((n) => person(n, 'Staff'));
+    const L = withInfo([person('Tom Smith', 'Owner'), ...many]);
+    const d = deps({ verdicts: { 'info@joespizza.com': 'valid' } });
+    const r = await runSmart(L, d);
+    ok(!r.finder.generalInbox.used && /about five or fewer/.test(r.finder.generalInbox.why), 'six people named: not a business of about five, no general inbox', r.finder.generalInbox);
+  }
+  {
+    const L = withInfo([person('Gina Moore', 'General Manager')]);
+    const d = deps({ verdicts: { 'info@joespizza.com': 'valid' } });
+    const r = await runSmart(L, d);
+    ok(!r.finder.generalInbox.used && /no owner named/.test(r.finder.generalInbox.why), 'no owner named to greet: no general inbox', r.finder.generalInbox);
+  }
+  {
+    const L = withInfo([person('Tom Smith', 'Owner')]);
+    const d = deps({ verdicts: { 'info@joespizza.com': 'accept_all' }, defaultVerdict: 'invalid' });
+    const r = await runSmart(L, d);
+    ok(!r.finder.generalInbox.used && r.after === 'dm', 'a catch-all info@ is not verified: not used', r.finder.generalInbox);
+  }
+  {
+    const L = withInfo([person('Tom Smith', 'Owner')]);
+    const d = deps({ verdicts: { 'info@joespizza.com': 'valid' } });
+    const r = await runSmart(L, d, { allowGeneral: false });
+    ok(!r.finder.generalInbox.used && /already has a general-inbox card tonight/.test(r.finder.generalInbox.why), 'one general inbox per athlete per night: a second is not used', r.finder.generalInbox);
+  }
+  {
+    const L = withInfo([person('Tom Smith', 'Owner')]);
+    const d = deps({ verdicts: { 'info@joespizza.com': 'valid' } });
+    const r = await runSmart(L, d, { type: 'bank' });
+    ok(!r.finder.generalInbox.used, 'a bank is never treated as a five-person business', r.finder.generalInbox);
+  }
+  {
+    const L = withInfo([person('Tom Smith', 'Owner')]);
+    const d = deps({ verdicts: { 'info@joespizza.com': 'valid' } });
+    const r = await run(L, d);
+    ok(r.after === 'dm' && !(r.finder && r.finder.generalInbox), 'with EMAIL_SMART_PICK off, never a general inbox', r.finder);
+  }
+
   console.log('\nTHE NIGHT\'S WIRING (jobs/outreachQueue)');
   {
     const job = require('fs').readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');

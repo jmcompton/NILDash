@@ -21718,6 +21718,7 @@ function hqEmailBody(c, i) {
     + '<dt>From</dt><dd>' + mailFromHtml(HQ.data && HQ.data.from) + '</dd>'
     // VERIFIED-BAD ADDRESSES NEVER GET HERE -- the gate holds those cards back.
     + '<dt>To</dt><dd>' + hqEscape(c.to || 'no address on this draft')
+    + (c.emailLabel ? ' <span style="color:var(--dim,#63635a)">&middot; ' + hqEscape(c.emailLabel) + ', greeting</span>' : '')
     + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '')
     + '</dd>'
     + '<dt>Subject</dt><dd><span class="hq-subj" id="hq-subj-' + i + '">'

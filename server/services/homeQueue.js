@@ -651,6 +651,9 @@ async function buildHome(pool, agentId, opts = {}) {
         // a DM or call card explains the address it is not using, an email
         // card says the address was checked (services/emailValidation).
         emailNote: c.emailNote || null,
+        // "General inbox": the card goes to the shop's verified info@ /
+        // hello@ / contact@, greeting the owner by name (EMAIL_SMART_PICK).
+        emailLabel: c.emailLabel || null,
         // ── AND WHEN IT IS A THIN ONE, THE CARD SAYS SO ────────────────────
         // A candidate with no marketing-activity evidence reaches a slot only
         // once the evidenced ones are gone (services/scout). The agent is the

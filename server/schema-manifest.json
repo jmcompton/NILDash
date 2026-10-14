@@ -1258,6 +1258,13 @@
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
       "verified_on": "DATE"
     },
+    "reachability_model": {
+      "attempts": "INT",
+      "computed_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "id": "BIGSERIAL",
+      "model": "JSONB",
+      "window_days": "INT"
+    },
     "referral_commissions": {
       "commission_amount_cents": "INTEGER",
       "commission_rate": "NUMERIC(5,4)",
