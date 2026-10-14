@@ -78,7 +78,10 @@ function reasonFor(d, held, run) {
     if (noName) parts.push(`${noName} with nobody to name`);
     bits.push(parts.join('; '));
   }
-  if (h.other > 0) bits.push(`${h.other} slot${h.other === 1 ? '' : 's'} held by earlier DM, call or unverified cards`
+  // Under EMAIL_FIVE_ON these no longer hold a slot (jobs/outreachQueue
+  // openSlotsFor): they are still on the agent's page, but they did not stop
+  // the night. Said so, so the line is not read as the reason.
+  if (h.other > 0) bits.push(`also on the page: ${h.other} earlier DM, call or unverified card${h.other === 1 ? '' : 's'}, which no longer hold a slot`
     + (h.otherExpires ? ` (first expires ${String(h.otherExpires).slice(0, 10)})` : ''));
   return bits.join('. ') + '.';
 }

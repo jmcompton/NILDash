@@ -982,10 +982,22 @@ function sortCards(cards) {
 
 // Which of the five slots are open. Only a QUEUED row holds a slot -- sent and
 // skipped rows stay for outcome tracking but free their slot for the next run.
-function slotsToFill(rows) {
-  const taken = new Set((rows || []).filter((r) => r && r.state === 'queued').map((r) => Number(r.slot)));
+//
+// opts.holds: which queued rows count against the five (EMAIL_FIVE_ON: only a
+// verified email card). The rest stay on the agent's page and hold nothing, but
+// their slot NUMBERS stay taken -- the unique index covers every queued row --
+// so the open numbers returned skip them and may run past five
+// (services/approvedBacklog already places cards above five the same way).
+function slotsToFill(rows, opts = {}) {
+  const queued = (rows || []).filter((r) => r && r.state === 'queued');
+  const taken = new Set(queued.map((r) => Number(r.slot)));
   const out = [];
-  for (let s = 1; s <= SLOTS_PER_ATHLETE; s++) if (!taken.has(s)) out.push(s);
+  if (typeof opts.holds !== 'function') {
+    for (let s = 1; s <= SLOTS_PER_ATHLETE; s++) if (!taken.has(s)) out.push(s);
+    return out;
+  }
+  const want = Math.max(0, SLOTS_PER_ATHLETE - queued.filter(opts.holds).length);
+  for (let s = 1; out.length < want; s++) if (!taken.has(s)) out.push(s);
   return out;
 }
 

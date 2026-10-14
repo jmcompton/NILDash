@@ -51,7 +51,7 @@ const AT = (hh, mm) => Date.parse(`${DAY}T${String(hh + 5).padStart(2, '0')}:${S
     ok(/stopped by every source of businesses, with nothing new left/.test(why), 'says what stopped the night', why);
     ok(/8 businesses tried; 3 dropped with no verified email \(2 no format verified, 1 no website found\)/.test(why), '  how many were dropped, and why, counted', why);
     ok(/1 chain or non-email lane skipped at selection/.test(why) && /1 check\(s\) that could not run, retried/.test(why) && /1 refused by the writer/.test(why), '  chains skipped, checks retried, writer refusals', why);
-    ok(/1 slot held by earlier DM, call or unverified cards \(first expires 2026-10-18\)/.test(why), '  and slots held by earlier cards that do not count', why);
+    ok(/also on the page: 1 earlier DM, call or unverified card, which no longer hold a slot \(first expires 2026-10-18\)/.test(why), '  and earlier cards that do not count, said as NOT holding a slot (they no longer do)', why);
     ok(/the fill crashed for this athlete: boom/.test(S5.reasonFor({ error: 'boom' }, null, { finished_at: new Date() })), 'a crash says so');
     ok(/did not run/.test(S5.reasonFor(null, null, null)), 'no run says so');
     ok(/had not finished by 5:30/.test(S5.reasonFor({ tried: [] }, null, { finished_at: null })), 'an unfinished run says so');
@@ -73,8 +73,8 @@ const AT = (hh, mm) => Date.parse(`${DAY}T${String(hh + 5).padStart(2, '0')}:${S
   const rep = await S5.collect(P, { now: AT(5, 45) });
   const mine = rep.short.filter((s) => /^s5-/.test(s.athleteId));
   ok(mine.length === 1 && mine[0].athlete === 'Two Short' && mine[0].verified === 2, 'the athlete with two verified is listed; the one with five is not', mine);
-  ok(/stopped by the per-athlete cost ceiling/.test(mine[0].reason) && /2 slots held by earlier DM, call or unverified cards/.test(mine[0].reason),
-    '  with the reason: the stop and the two slots that do not count (a DM and an unverified email)', mine[0].reason);
+  ok(/stopped by the per-athlete cost ceiling/.test(mine[0].reason) && /also on the page: 2 earlier DM, call or unverified cards, which no longer hold a slot/.test(mine[0].reason),
+    '  with the reason: the stop, and the two cards that do not count (a DM and an unverified email)', mine[0].reason);
   const msg = S5.render({ ...rep, short: mine, athletes: 2 });
   ok(/1 athlete under 5 verified emails \(2026-10-14\)/.test(msg.subject) && /Sam Agent\n  Two Short: 2 of 5 \(2 placed tonight\)\./.test(msg.text), 'the email names the agent and the athlete, with the count', msg.text.slice(0, 300));
 

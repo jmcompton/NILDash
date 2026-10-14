@@ -85,6 +85,17 @@ const FINDER = {
   five: () => process.env.EMAIL_FIVE_ON === '1',
   smart: () => process.env.EMAIL_SMART_PICK === '1',
 };
+// ── WHAT HOLDS ONE OF THE FIVE ──────────────────────────────────────────────
+// EMAIL_FIVE_ON: only a verified email card (a named person's address, or the
+// one General inbox card) holds a slot. A DM, call, program or unverified email
+// card stays on the agent's page until they work it or it expires, but it no
+// longer stops tonight's run from placing a verified email beside it. Off:
+// every queued card holds its slot, as before.
+const holdsUnderFive = (r) => r && r.channel === 'email' && r.email_verified === true;
+function openSlotsFor(heldRows) {
+  return FINDER.five() ? Q.slotsToFill(heldRows, { holds: holdsUnderFive }) : Q.slotsToFill(heldRows);
+}
+const HELD_SQL = `SELECT slot, state, channel, email_verified FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`;
 const Reach = require('../services/reachability');
 const TYPE_CAP = 2;
 const VERIFY_TRIES = 3;
@@ -1008,9 +1019,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     }
   }
 
-  const heldRows = (await pool.query(
-    `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
-    [athleteId])).rows;
+  const heldRows = (await pool.query(HELD_SQL, [athleteId])).rows;
   const heldPrograms = heldRows.filter((r) => r && r.channel === 'program').length;
   let programsPlaced = 0;
   // ── HOW MANY PROGRAM CARDS EACH BRAND ALREADY HAS TONIGHT ────────────────
@@ -1019,11 +1028,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // path has no run to share, so it reads the same answer from the database.
   const programBrandTally = ctx.programBrandTally
     || await loadProgramBrandTally(pool, agentId);
-  let open = Q.slotsToFill(heldRows);
+  let open = openSlotsFor(heldRows);
   if (!open.length) {
     // Says the real number. It said "three" while SLOTS_PER_ATHLETE was five,
     // which made a full athlete look like a bug in the slot count.
-    const msg = `all ${Q.SLOTS_PER_ATHLETE} slots already hold work you have not actioned`;
+    const msg = FINDER.five()
+      ? `all ${Q.SLOTS_PER_ATHLETE} slots already hold verified emails you have not actioned`
+      : `all ${Q.SLOTS_PER_ATHLETE} slots already hold work you have not actioned`;
     say(`${athleteName}: ${msg}`);
     return { filled: 0, open: 0, tried, note: msg, emptyReason: Scout.EMPTY.SLOTS_FULL };
   }
@@ -3103,9 +3114,8 @@ async function resumeAgent(pool, agentId, opts = {}) {
   const budget = opts.budget || Q.newBudget(CAP_USD);
   const out = { athletes: aths.length, withOpenSlots: 0, filled: 0, spent: 0, ms: 0 };
   for (const ath of aths) {
-    const held = (await pool.query(
-      `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`, [ath.id]).catch(() => ({ rows: [] }))).rows;
-    if (!Q.slotsToFill(held).length) continue;
+    const held = (await pool.query(HELD_SQL, [ath.id]).catch(() => ({ rows: [] }))).rows;
+    if (!openSlotsFor(held).length) continue;
     out.withOpenSlots++;
     if (budget.remaining() <= 0) { console.log(`[queue/resume] agent=${agentId}: budget spent, ${ath.name} left for tonight`); continue; }
     const r = await fillOnDemand(pool, ath, { keepStale: true, budget }).catch((e) => {
@@ -3130,6 +3140,7 @@ module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor, applyFaultRule,
   athleteState, recordAttempt, releasePause, expireStaleCards,
   insertCard, slotStillOpen, SLOT_TAKEN_REASON, NAME_REQUIRED, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
+  openSlotsFor, holdsUnderFive,
   DORMANT_EVERY_DAYS, dormantCadence, restartCardClock,
   loadAthletesForQueue, resumeAgent, localContextFor, athleteProfile,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,

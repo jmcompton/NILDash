@@ -120,7 +120,8 @@ async function main() {
   ok('a dormant agent\'s cards are NOT expired: expiry runs only inside the fill, and not on the weekly fill', (jobSrc.match(/expireStaleCards\(pool, \{ agentId \}\)/g) || []).length === 1 && /if \(!ctx\.keepStale\) \{\s*try \{ await expireStaleCards/.test(jobSrc));
   ok('  and the resume fill passes keepStale', /fillOnDemand\(pool, ath, \{ keepStale: true, budget \}\)/.test(jobSrc));
   ok('  under one shared budget the size of a night', /const budget = opts\.budget \|\| Q\.newBudget\(CAP_USD\);/.test(jobSrc));
-  ok('  only for athletes with an open slot', /if \(!Q\.slotsToFill\(held\)\.length\) continue;/.test(jobSrc));
+  ok('  only for athletes with an open slot (counted the same way as the night: openSlotsFor)', /if \(!openSlotsFor\(held\)\.length\) continue;/.test(jobSrc)
+    && /function openSlotsFor\(heldRows\) \{\s*return FINDER\.five\(\) \? Q\.slotsToFill\(heldRows, \{ holds: holdsUnderFive \}\) : Q\.slotsToFill\(heldRows\);/.test(jobSrc));
   ok('the on-demand fill marks the athlete as filling for the page, and records how long it took',
     /Q\.markFilling\(ath\.id\);[\s\S]*?Q\.unmarkFilling\(ath\.id\);/.test(jobSrc) && /SET filled = \$3, spent_usd = \$4, ms = \$5/.test(jobSrc));
   const Qs = require(REPO + 'server/services/outreachQueue.js');

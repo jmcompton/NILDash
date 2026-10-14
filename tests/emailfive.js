@@ -168,6 +168,31 @@ async function main() {
   const nr = (await P.query(`SELECT COUNT(*)::int n FROM service_faults WHERE service = 'nightly-floor' AND reason LIKE 'Ef5 ef5-a5:%'`)).rows[0].n;
   ok('  a retry pass does not raise the short-of-five alarm again', nr <= 1, nr);
 
+  // ── 4b. HELD DM, CALL AND UNVERIFIED CARDS NO LONGER HOLD A SLOT ──────────
+  OUT.push('', '-- EMAIL_FIVE_ON: DM, call and unverified cards no longer hold a slot --');
+  const held = [];
+  for (let i = 0; i < 7; i++) held.push(`Ef5 Heldwood ${i}`);
+  for (const i of [0, 2, 3, 5, 6]) VALID.add(`dana.reed@ef5heldwood${i}.com`);
+  await seed(held);
+  for (let s = 1; s <= 5; s++) {
+    await P.query(`INSERT INTO outreach_queue (agent_id, athlete_id, slot, brand_key, brand_name, channel, email, email_verified)
+      VALUES ($1, 'ef5-h1', $2, $3, $3, $4, $5, FALSE)`, [AG, s, `Ef5 Old ${s}`, s <= 3 ? 'dm' : s === 4 ? 'call' : 'email', s === 5 ? 'info@ef5old.com' : null]);
+  }
+  const heldNow = async () => (await P.query(`SELECT slot, brand_name, channel, email_verified FROM outreach_queue WHERE athlete_id = 'ef5-h1' AND state = 'queued' ORDER BY slot`)).rows;
+  setFlags({});
+  const h0 = await fill('ef5-h1');
+  ok('every switch off: five held DM, call and unverified cards still hold the five, as before', h0.filled === 0 && /all 5 slots already hold work you have not actioned/.test(h0.note || ''), { filled: h0.filled, note: h0.note });
+  setFlags({ EMAIL_FIVE_ON: 1 });
+  const h1 = await fill('ef5-h1');
+  const hc = await heldNow();
+  const placedV = hc.filter((c) => c.channel === 'email' && c.email_verified);
+  ok('EMAIL_FIVE_ON: they hold nothing, and five verified emails are placed beside them', h1.filled === 5 && placedV.length === 5, { filled: h1.filled, note: h1.note, hc });
+  ok('  numbered past the held ones, and the held cards are still on the page', JSON.stringify(placedV.map((c) => c.slot)) === '[6,7,8,9,10]'
+    && hc.filter((c) => /^Ef5 Old /.test(c.brand_name)).length === 5, hc.map((c) => `${c.slot}:${c.brand_name}`));
+  ok('  the loop counts five held', (h1.loop || {}).held === 5, h1.loop && h1.loop.held);
+  const h2 = await fill('ef5-h1');
+  ok('  and the next fill finds the five full of verified emails', h2.filled === 0 && /all 5 slots already hold verified emails/.test(h2.note || ''), { filled: h2.filled, note: h2.note });
+
   // ── 5. THE WIRING ─────────────────────────────────────────────────────────
   OUT.push('', '-- the wiring --');
   const J = require('fs').readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
