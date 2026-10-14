@@ -200,7 +200,9 @@ function normEmail(r) {
     // A FOLLOW-UP (services/followUps): touch 2 or 3 on a thread whose first
     // email went out. Ranked first, and the card says which one it is.
     touch: Number(r.touch_no || 1), parentId: r.parent_id || null,
-    contactName: r.contact_name || null, contactTitle: r.contact_title || null,
+    // The title as shown: a source note like "(per news)" is dropped on the
+    // card (services/cardTitle, CARD_RULES_ON); the record keeps it.
+    contactName: r.contact_name || null, contactTitle: require('./cardTitle').displayTitle(r.contact_title) || null,
     why: r.why || null, reasoning: r.reasoning || null,
     // Carried, not used for routing. This card is an email; these are what the
     // agent falls back to if it bounces or nobody answers.
@@ -223,7 +225,9 @@ function normQueue(r) {
     dmText: r.dm_text || null,
     instagram: r.instagram || null, instagramScope: r.instagram_scope || null,
     phone: r.phone || null, phoneAskFor: r.phone_ask_for || null,
-    contactName: r.contact_name || null, contactTitle: r.contact_title || null,
+    // The title as shown: a source note like "(per news)" is dropped on the
+    // card (services/cardTitle, CARD_RULES_ON); the record keeps it.
+    contactName: r.contact_name || null, contactTitle: require('./cardTitle').displayTitle(r.contact_title) || null,
     why: r.why || null, reasoning: null,
     sponsorNote: r.sponsor_note || null, sourceNote: r.source_note || null,
     affiliationScope: r.affiliation_scope || null, lane: r.lane || null,

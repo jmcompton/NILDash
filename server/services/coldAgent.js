@@ -500,7 +500,9 @@ function firstName(full) {
 }
 
 function bizLine(c) {
-  const who = [c.contactName, c.contactTitle].filter(Boolean).join(', ');
+  // The title as shown: "Owner (per news)" reads "Owner" in the email
+  // (services/cardTitle, CARD_RULES_ON); cold_demo_cards keeps the note.
+  const who = [c.contactName, require('./cardTitle').displayTitle(c.contactTitle)].filter(Boolean).join(', ');
   return `- ${c.brandName}: ${who}`;
 }
 
@@ -564,7 +566,7 @@ async function writeEmail(u, ctx, deps = {}) {
     const facts = {
       to: { firstName: firstName(u.name), firm: R.agency || u.agency_name || null, firmFact: R.firmFact || null, recent: R.recent || null },
       athlete: { name: subj.name, school: subj.school, sport: subj.sport, whose: subj.kind },
-      businesses: cards.map((c) => ({ name: c.brandName, person: c.contactName, title: c.contactTitle || null, why: c.why || null })),
+      businesses: cards.map((c) => ({ name: c.brandName, person: c.contactName, title: require('./cardTitle').displayTitle(c.contactTitle) || null, why: c.why || null })),
       hasAthletesOnFile: Number(u.athletes) > 0, touchNo, ranWhen: whenRan(), signOff: senderBlock(senderFull),
     };
     const prompt = `Write a short email from ${senderFull} at NILDash to one of our account holders. ${facts.ranWhen === 'this morning' ? 'This morning' : 'Today'} our agent ran a real market for an athlete and found the businesses below.

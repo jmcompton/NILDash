@@ -115,8 +115,26 @@ function chainLocation({ brand, title } = {}) {
   if (CORPORATE.test(String(title || ''))) return 'the title names the corporate parent';
   return null;
 }
+// ── STAFF AND CREATIVE ROLES (CARD_RULES_ON, from the Cypress review) ──────
+// "Staff", "employee", "team member", or a creative role (videographer,
+// photographer, designer) does not sign a sponsorship -- unless the title
+// also says owner, founder, general manager or marketing ("Owner &
+// Photographer" is the owner). One rule for agent and university cards alike:
+// campusQuality.refusedTitle reads it from here.
+const CREW_TITLE = /\b(staff( member)?|employee|team member|videographer|photographer|designer)\b/i;
+const CREW_SIGNS = /\b((co-?)?owner|(co-?)?founder|general manager|marketing)\b/i;
+const cardRulesOn = () => process.env.CARD_RULES_ON === '1';
+function crewProblem(t) {
+  if (!cardRulesOn()) return null;
+  const m = String(t || '').match(CREW_TITLE);
+  if (!m || CREW_SIGNS.test(t)) return null;
+  return `"${t}" is not a decision maker (${m[0].toLowerCase()}); we want the owner, a founder, the general manager or the marketing lead`;
+}
+
 function titleProblem(title, opts = {}) {
   const t = String(title || '').trim();
+  const crew = crewProblem(t);
+  if (crew) return crew;
   // THE OWNER WHO ALSO COACHES IS STILL THE OWNER. "Coach" is here for a
   // school's staff; "Founder & Coach" of a martial arts gym, or the owner of a
   // yoga studio who is also a health coach, is exactly who we want.
@@ -251,4 +269,4 @@ const NO_NAME_REASON = 'no contact name found after all sources, including the f
 // Never its owner or founder.
 const LARGE_ORDER = ['partnerships', 'marketing'];
 
-module.exports = { titleProblem, JUNIOR_TITLE, DEPT_TITLE, chainLocation, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };
+module.exports = { titleProblem, crewProblem, CREW_TITLE, CREW_SIGNS, JUNIOR_TITLE, DEPT_TITLE, chainLocation, NEVER_TITLE, LARGE_ORDER, findOwnerName, looksLikePerson, acceptableTitle, parseJson, ladderRowFor, attachToLadder, QUERIES, SYS, NO_NAME_REASON };
