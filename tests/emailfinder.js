@@ -133,6 +133,25 @@ const run = (ladder, d, extra) => EF.finishLadder({ ladder, out: (extra && extra
     ok(d.calls.emailFinder.length === 0 && r.finder.email === 'tom@joespizza.com', 'a first name only: no Email Finder (it needs a surname), first@ still tried', r.finder);
   }
 
+  {
+    // Hunter's domain search already ran on the ladder and came back with no
+    // addresses but a pattern: free to read, and a confirmed pattern.
+    const L = ladderOf([owner()]);
+    const d = deps({ defaultVerdict: 'accept_all' });
+    d.hunterCached = async () => ({ found: false, emails: [], pattern: '{first}.{last}', cached: true });
+    const r = await run(L, d);
+    ok(r.finder.email === 'tom.smith@joespizza.com' && r.finder.patternFrom === 'hunter' && r.finder.catchAllPass, 'Hunter empty but with a pattern (cached): Tom\'s address is built from it, catch-all passes as a confirmed pattern', r.finder);
+    ok(d.calls.domainSearch.length === 0 && d.calls.emailFinder.length === 0 && r.credits.search === 0, '  no search credit: the cached answer is read, not bought', r.credits);
+  }
+  {
+    // A cached verdict is free and does not count toward the per-business limit.
+    const L = ladderOf([owner()]);
+    const all = EF.COMMON_FORMATS.map((p) => require(REPO + 'server/services/emailPattern.js').construct(p, 'Tom Smith', 'joespizza.com'));
+    const d = deps({ cached: all, defaultVerdict: 'invalid', finder: { email: 'thomas@joespizza.com' } });
+    await run(L, d);
+    ok(d.calls.verify.length === all.length + 1, 'cached checks do not use up the limit', d.calls.verify);
+  }
+
   console.log('\n3. ROLE ADDRESS ONLY');
   {
     // No website on file; info@ at the business's domain names it.

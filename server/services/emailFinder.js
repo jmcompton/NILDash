@@ -170,7 +170,8 @@ async function find(ctx, deps) {
     if (isDesk(e)) { steps.push({ how, email: e, ok: false, why: 'a desk address, not a person' }); return null; }
     if (verifies >= MAX_VERIFIES) { steps.push({ how, email: e, ok: false, why: 'per-business check limit reached' }); return null; }
     const v = await deps.verify(e);
-    verifies++;
+    // The limit is on credits: a cached verdict is free and does not count.
+    if (!(v && v.cached)) verifies++;
     if (v && !v.cached && !v.notRun) credits.verify++;
     const verdict = verdictOf(v);
     const p = passes({ verdict, built: !!meta.built, patternConfirmed: !!meta.confirmed, realName: true,
@@ -406,8 +407,12 @@ async function finishLadder(args, deps) {
   }
 
   // ── 1 AND 2 ────────────────────────────────────────────────────────────
+  // What Hunter already told us about the domain, if the ladder asked: free,
+  // and its pattern is a confirmed one.
+  let hunterKnown = null;
+  if (typeof deps.hunterCached === 'function') { try { hunterKnown = await deps.hunterCached(domain); } catch (_) { hunterKnown = null; } }
   const examples = examplesOf(ladder, siteOut, domain, null);
-  const r = await find({ name: person.name, domain, examples, strictDomain: strict, roleOnly,
+  const r = await find({ name: person.name, domain, examples, strictDomain: strict, roleOnly, hunter: hunterKnown,
     skip: rec.verify && !rec.verify.pass ? [rec.verify.email] : [] }, deps);
   credits.search += r.credits.search;
   credits.verify += r.credits.verify;
@@ -475,6 +480,11 @@ function liveDeps(pool, { agentId = null, athleteId = null, business = null, sou
       return h && !h.fault ? h : null;
     },
     emailFinder: (first, last, domain) => H.findEmail(first, last, domain),
+    // Read only: never spends. The ladder's own Domain Search, when it ran.
+    hunterCached: async (domain) => {
+      const c = await require('../store').getBrandEvidence(String(domain).toLowerCase(), H.LANE, H.CACHE_DAYS);
+      return c && c.evidence && H.ANSWERED.has(c.outcome) ? { ...c.evidence, cached: true } : null;
+    },
     resolveDomain: async (brand, opts) => {
       const ai = require('../ai');
       return require('./domainResolve').resolveDomain(brand, { ...opts, webSearch: ai.webSearchJson, refreshNoneAfterDays: 7 });
