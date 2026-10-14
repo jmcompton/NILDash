@@ -151,8 +151,9 @@ async function gather(pool, { days = 7 } = {}) {
     `SELECT q.id, q.agent_id, q.athlete_id, q.brand_name, q.brand_key, q.channel, q.lane, q.email_note, q.email_tier, q.created_at,
             q.contact_name, q.contact_title, q.instagram, q.instagram_scope, q.phone,
             to_char((q.created_at AT TIME ZONE 'America/Chicago')::date, 'YYYY-MM-DD') AS night,
-            date_trunc('month', q.created_at) = date_trunc('month', NOW()) AS "thisMonth", u.name AS agent_name
-       FROM outreach_queue q LEFT JOIN users u ON u.id = q.agent_id
+            date_trunc('month', q.created_at) = date_trunc('month', NOW()) AS "thisMonth", u.name AS agent_name,
+            a.data->>'name' AS athlete_name
+       FROM outreach_queue q LEFT JOIN users u ON u.id = q.agent_id LEFT JOIN athletes a ON a.id = q.athlete_id
       WHERE q.created_at > NOW() - make_interval(days => $1)`, [days])).rows;
   const runs = (await pool.query(
     `SELECT agent_id, run_date, details FROM outreach_queue_runs WHERE run_date >= CURRENT_DATE - $1::int`, [days + 1])).rows;
@@ -207,7 +208,9 @@ async function gather(pool, { days = 7 } = {}) {
     return { ...c, ...classify(c, t, look) };
   });
   const mix = cards.reduce((o, c) => { o[c.channel] = (o[c.channel] || 0) + 1; return o; }, {});
-  return { days, cards: cards.length, mix, rows, budget, nights };
+  // The night's email cards too, for the dry run's per-athlete before/after.
+  const emailCards = cards.filter((c) => c.channel === 'email');
+  return { days, cards: cards.length, mix, rows, budget, nights, emailCards };
 }
 
 // Hunter's own account numbers (/v2/account: free to call).

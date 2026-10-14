@@ -4366,6 +4366,9 @@ async function ensureMarketSightings() {
   // Hunter's own word (valid, accept_all, webmail, invalid, unknown...). `result`
   // folds catch-all into unknown; the email finder needs to tell them apart.
   await pool.query(`ALTER TABLE email_verification ADD COLUMN IF NOT EXISTS status TEXT`).catch(() => {});
+  // A card whose address the email finder verified for the named person
+  // (jobs/outreachQueue, EMAIL_FIVE_ON): what "five verified emails" counts.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`).catch(() => {});
   // Why email was or was not offered on a card, in the agent's words
   // (services/emailValidation via services/outreachQueue.emailNoteOf), and the
   // deliverability verdict on a stored contact (services/contactDiscovery).

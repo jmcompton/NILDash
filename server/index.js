@@ -15389,6 +15389,20 @@ try {
   console.error('[morning-alert] scheduler failed to start:', e.message);
 }
 
+// ── Athletes short of five verified emails (services/shortOfFive) ──────────
+// EMAIL_FIVE_ON only: at 5:30am Central, once a day, the admin gets the list
+// of athletes holding fewer than five verified-email cards, with the reason
+// from the night's run record. Checked every 5 minutes; runOnce does nothing
+// while the switch is off or before 5:30.
+try {
+  const S5 = require('./services/shortOfFive');
+  const s5Tick = () => { S5.runOnce(store.pool).catch((e) => console.error('[short-of-five] tick failed:', e.message)); };
+  setTimeout(s5Tick, 4 * 60 * 1000);
+  setInterval(s5Tick, 5 * 60 * 1000);
+} catch (e) {
+  console.error('[short-of-five] scheduler failed to start:', e.message);
+}
+
 // ── Analyst refresh scheduler ────────────────────────────────────────────────
 // Once a day, an hour after the nightly queue window closes, so kits are current
 // before the agent opens the page in the morning.

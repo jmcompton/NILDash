@@ -674,7 +674,10 @@ const BI = require('./brandIdentity');
 async function assembleSlate(pool, ctx) {
   // An agent's athlete unless the caller hands a subject. The athlete path is
   // every existing caller (jobs/outreachQueue, the scripts) and is unchanged.
-  const subject = ctx.subject || athleteSubject(ctx.athlete, ctx.agentId);
+  let subject = ctx.subject || athleteSubject(ctx.athlete, ctx.agentId);
+  // FIVE VERIFIED EMAILS (jobs/outreachQueue, EMAIL_FIVE_ON): only the local
+  // lane can produce one, so the national and social pools are not drawn.
+  if (ctx.localOnly && subject && subject.lanes) subject = { ...subject, lanes: { ...subject.lanes, social: false, national: false } };
   const T = tablesOf(subject);
   const athlete = subject;
   const agentId = subject.agentId;

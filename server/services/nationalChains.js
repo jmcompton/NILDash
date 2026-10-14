@@ -74,11 +74,28 @@ const NATIONAL_CHAINS = [
 
 const _lc = NATIONAL_CHAINS.map((s) => String(s).toLowerCase());
 
+// ── CHAINS WHOSE NAME IS AN ORDINARY WORD ──────────────────────────────────
+// Matched as the WHOLE business name (optionally "The ...", or with a store
+// or mall suffix after " - ", " at ", "(" or "#"), never as a substring: a
+// substring "buckle" would flag Swashbuckler Pub. Added from the email finder
+// dry run (2026-10). Applied only while EMAIL_FINDER_MORE or EMAIL_FIVE_ON is
+// set, so merging changes nothing until the switch does.
+const EXACT_NAME_CHAINS = ['buckle'];
+function _exactOn() { return process.env.EMAIL_FINDER_MORE === '1' || process.env.EMAIL_FIVE_ON === '1'; }
+function exactNameChain(name, opts) {
+  if (!_exactOn() && !(opts && opts.always)) return null;
+  const n = String(name || '').toLowerCase().replace(/[’']/g, "'").trim();
+  for (const c of EXACT_NAME_CHAINS) {
+    if (new RegExp('^(the\\s+)?' + c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "('s|s)?\\s*($|\\s-\\s|\\sat\\s|\\s*\\(|\\s*#)").test(n)) return c;
+  }
+  return null;
+}
+
 // True when a business name contains any national-chain marker.
 function isNationalChain(name) {
   const n = String(name || '').toLowerCase();
   if (!n) return false;
-  return _lc.some((c) => n.indexOf(c) !== -1);
+  return _lc.some((c) => n.indexOf(c) !== -1) || !!exactNameChain(name);
 }
 
 // ── IS THIS BUSINESS ACTUALLY A CHAIN OR FRANCHISE LOCATION? ───────────────
@@ -103,13 +120,14 @@ const NOT_EVIDENCE = new Set(['crossfit', 'ymca', 'ross', 'gap', 'target', 'at h
   'journeys', 'dsw', 'cvs', 'kfc', 'ihop', 'f45', 'midas', 'aldi', 'ulta', 'heb', 'denny', 'wendy', 'arby', 'culver', 'hardee', 'outback']);
 const _starts = [...new Set(_lc.filter((c) => !NOT_EVIDENCE.has(c)).concat(FRANCHISORS))];
 function _esc(x) { return x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-function isChainLocation(name) {
+// opts.always: apply the exact-name list whatever the switches say (reports).
+function isChainLocation(name, opts) {
   const n = String(name || '').toLowerCase().replace(/[’']/g, "'").trim();
   if (!n) return null;
   for (const c of _starts) {
     if (new RegExp('^(the\\s+)?' + _esc(c) + "('s|s)?\\b").test(n)) return c;
   }
-  return null;
+  return exactNameChain(name, opts);
 }
 
-module.exports = { NATIONAL_CHAINS, isNationalChain, isChainLocation, FRANCHISORS };
+module.exports = { NATIONAL_CHAINS, isNationalChain, isChainLocation, exactNameChain, EXACT_NAME_CHAINS, FRANCHISORS };

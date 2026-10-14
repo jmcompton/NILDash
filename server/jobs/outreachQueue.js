@@ -56,6 +56,39 @@ const { resolveSchool } = require('../services/schoolResolver');
 const ONS = require('../services/ownerNameSearch');
 const EVAL = require('../services/emailValidation');
 const EF = require('../services/emailFinder');
+
+// ── THE EMAIL FINDER'S SWITCHES (all off unless set) ────────────────────────
+//   EMAIL_FINDER_ON=1    the finishing step runs (services/emailFinder)
+//   EMAIL_FINDER_MORE=1  and does more when it misses: a check that could not
+//                        run is retried later the same night (up to 3 tries),
+//                        another named decision maker is tried, and a business
+//                        with no website is looked up on Places and Facebook
+//   EMAIL_FIVE_ON=1      FIVE VERIFIED EMAILS: only an email card with a
+//                        verified address for a named person fills a slot. A
+//                        business that cannot get one is dropped and the next
+//                        one pulled; no slot is filled with a DM or a call.
+//                        Chains and lanes that cannot produce one (national and
+//                        social brands) are skipped before anything is spent.
+//                        Runs the finishing step whatever EMAIL_FINDER_ON says.
+const FINDER = {
+  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1',
+  more: () => process.env.EMAIL_FINDER_MORE === '1',
+  five: () => process.env.EMAIL_FIVE_ON === '1',
+};
+const VERIFY_TRIES = 3;
+// Between tries of a check that could not run: long enough for Hunter to
+// finish a slow mail server (its 202) or come back from an outage.
+const RETRY_GAP_MS = parseInt(process.env.FINDER_RETRY_GAP_MS, 10) || 4 * 60 * 1000;
+// Whether a business's card would carry a verified address for the person it
+// greets: the email channel, the greeted row's own address, and that address
+// passed the mailbox check (services/emailFinder rule 4).
+function verifiedNamedEmail(ladder, ig) {
+  if (Q.channelFor(ladder, ig) !== 'email') return false;
+  const person = Q.greetRowOf(ladder);
+  const inbox = Q.inboxOf(ladder);
+  return !!(person && inbox && person.email && String(person.email).toLowerCase() === String(inbox.email).toLowerCase()
+    && person.emailVerify && person.emailVerify.pass);
+}
 // ALWAYS ON. OUTREACH_NAME_REQUIRED=0 used to turn the requirement off, and a
 // card that greets nobody is not a card whatever the environment says. The
 // constant stays so the pre-writer name search keeps its shape; insertCard
@@ -707,6 +740,12 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
      card.sizeBand || (card.lane === 'local' ? 'local' : null),
      card.signingEvidence ? JSON.stringify(card.signingEvidence) : null]);
   const wrote = (ins.rowCount || 0) > 0;
+  // VERIFIED BY THE EMAIL FINDER: a verified address for the named person.
+  // What the five and the 5:30 list count (services/shortOfFive).
+  if (wrote && card.emailVerified === true && ins.rows[0] && ins.rows[0].id) {
+    await pool.query(`UPDATE outreach_queue SET email_verified = TRUE WHERE id = $1`, [ins.rows[0].id])
+      .catch((e) => console.error('[queue] email_verified not recorded: ' + e.message));
+  }
   if (!wrote) {
     console.log(`[queue] athlete=${athleteId} slot=${slot} "${card.brandName}" not written `
       + `(identity=${identity} already queued, or the slot was taken)`);
@@ -995,8 +1034,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // is unchanged.
   const PL = require('../services/proLane');
   const proLane = PL.isPro(profile) || PL.isPro(ctx.athleteRow || {});
-  let slate = await Scout.assembleSlate(pool, {
+  // A SAME-NIGHT RETRY (fillAgent): the businesses whose mailbox check could
+  // not run earlier tonight are the whole slate, and nothing new is drawn.
+  const _retrying = Array.isArray(ctx.retryCands) && ctx.retryCands.length > 0;
+  let slate = _retrying ? { picks: ctx.retryCands.slice(), laneCounts: { retry: ctx.retryCands.length }, faults: [] } : await Scout.assembleSlate(pool, {
     agentId, athlete: profile, store,
+    // FIVE VERIFIED EMAILS: only the local lane can produce one.
+    localOnly: FINDER.five(),
     limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
     // The program cap is known before the slate is built. Passing it lets the
     // Scout drop program-only brands that cannot become a card tonight, instead
@@ -1041,8 +1085,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   const bk = (name) => String(name || '').trim().toLowerCase();
 
   async function redraw() {
+    if (_retrying) return { fresh: slate, added: [] };
     const fresh = await Scout.assembleSlate(pool, {
-      agentId, athlete: profile, store, limit: slateLimit * 2,
+      agentId, athlete: profile, store, limit: slateLimit * 2, localOnly: FINDER.five(),
       heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
       // Everything handed out tonight, so the read moves on to rows not yet
       // seen instead of returning the same top of the pool every time.
@@ -1325,6 +1370,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   const tierInfo = require('../services/athleteTier').tierOf(profile || {});
   const ladder_ = require('../services/athleteTier').ladderFor(tierInfo);
   async function refillSlate(why) {
+    // A same-night retry draws nothing new: its slate is what was set aside.
+    if (_retrying) return [];
     const { fresh: f, added } = await redraw();
     slate = f;
     if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) from the pool (${why})`); return added; }
@@ -1333,6 +1380,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       const name = ladder_[rung];
       if (!name) break;
       let got = [];
+      // Under FIVE, the national and social rungs cannot produce an email card.
+      if (FINDER.five() && (name === 'social' || name === 'national')) { rung++; continue; }
       if (name === 'local-wide') got = await localRefill(why, { skipRedraw: true });
       else if (name === 'places-refresh') { fire(name); got = await placesRefresh(); }
       else if (name === 'social' || name === 'national') { fire(name); got = await laneRung(name); }
@@ -1349,7 +1398,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // Seed the known set with the first slate, and refill up front when the Scout
   // already says the pool is spent -- same moment the old widen fired.
   for (const c of (slate.picks || [])) knownBrands.add(bk(c.brand_name));
-  if (slate.localExhausted && profile.hasLocalMarket && !ctx.noWiden) {
+  if (!_retrying && slate.localExhausted && profile.hasLocalMarket && !ctx.noWiden) {
     const added = await refillSlate('pool spent at the start');
     if (added.length) slate = { ...slate, picks: (slate.picks || []).concat(added) };
   }
@@ -1376,6 +1425,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   say(`${athleteName}: slate of ${cands.length} — `
     + Object.keys(slate.laneCounts).map((k) => `${slate.laneCounts[k]} ${k}`).join(', '));
   let ci = 0, filled = 0;
+  // Businesses whose mailbox check could not run, set aside for a retry later
+  // tonight (EMAIL_FINDER_MORE). fillAgent sends them round again.
+  const deferred = [];
 
   // ── FIVE, OR A REASON ────────────────────────────────────────────────────
   // Not "three attempts a slot". Each open slot keeps drawing until something
@@ -1437,6 +1489,25 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         if (rx) {
           say(`${cand.brand_name}: not a card, ${rx.why}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', restricted: rx.key, reason: 'restricted: ' + rx.why,
+            lane: cand.lane || null, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+      }
+      // ── FIVE VERIFIED EMAILS: SKIPPED AT SELECTION, NOT AFTER ────────────
+      // Nothing is spent on a business that cannot become a verified email
+      // card: a national brand (reached by a programme form or a DM, never a
+      // named person's verified address) or a chain location (its domain is
+      // the parent company's).
+      if (FINDER.five()) {
+        let _skip = null;
+        if (cand.lane && cand.lane !== 'local' && cand.lane !== 'hometown') _skip = `a ${cand.lane} brand, which is reached by a programme or a DM, not a named person's verified email`;
+        else {
+          const _chain = require('../services/nationalChains').isChainLocation(cand.brand_name);
+          if (_chain) _skip = `a national chain location (${_chain}), skipped before any lookup`;
+        }
+        if (_skip) {
+          say(`${cand.brand_name}: skipped, ${_skip}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'selection', reason: _skip,
             lane: cand.lane || null, places: { found: false }, risk: 'normal' });
           continue;
         }
@@ -1742,7 +1813,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         tried.push({ brand: cand.brand_name, result: 'skipped', reason: 'excluded by the caller', lane: cand.lane, places: facts, risk: pre.risk });
         continue;
       }
-      if (!(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
+      // A SAME-NIGHT RETRY was claimed on its first try and is researched
+      // again on purpose: its lookups are cached; only the check is re-asked.
+      if (!cand._verifyTry && !(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
         say(`${cand.brand_name}: skipped, already researched for ${athleteName} tonight`);
         tried.push({ brand: cand.brand_name, result: 'skipped', reason: Claims.RESEARCHED_TONIGHT_REASON, lane: cand.lane, places: facts, risk: pre.risk });
         continue;
@@ -2015,15 +2088,22 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // before until the dry run (admin script email-finder-dryrun, which
       // calls the same finishing step whatever this says) has been read in
       // production and the switch is set on purpose.
-      if (process.env.EMAIL_FINDER_ON === '1') {
+      let _verifiedEmail = false;
+      if (FINDER.on()) {
         let _fin = null;
         try {
-          _fin = await EF.finishLadder({ ladder, out, ig, brand: cand.brand_name, region: cand.region || region || '', place },
+          _fin = await EF.finishLadder({ ladder, out, ig, brand: cand.brand_name, region: cand.region || region || '', place, more: FINDER.more() },
             EF.liveDeps(pool, { agentId, athleteId, business: cand.brand_name, source: 'nightly' }));
           _sw.lap('emailFinder');
         } catch (e) {
           say(`${cand.brand_name}: the email finder failed on our side (${e.message})`);
           OF.record('email-finder', e.message, cand.brand_name);
+        }
+        if (!_fin && FINDER.five()) {
+          const why = 'the email finder failed on our side, so no verified address';
+          tried.push({ brand: cand.brand_name, result: 'error', stage: 'email', reason: why, fault: true, lane: cand.lane,
+            places: facts, risk: pre.risk, why: _why });
+          continue;
         }
         if (_fin) {
           const _was = channel;
@@ -2035,6 +2115,36 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           say(`${cand.brand_name}: email finder: ${_fin.verify ? `${_fin.verify.email} ${_fin.verify.verdict}${_fin.verify.pass ? ' (passes)' : ' (not used)'}; ` : ''}`
             + (_f.email ? `found ${_f.email} by ${_f.how} (${_f.verdict})` : (_f.stop ? `no address: ${_f.stop}` : 'not needed'))
             + `; channel ${_was} -> ${channel}`);
+          _verifiedEmail = verifiedNamedEmail(ladder, ig);
+          _why.finder.verifiedNamed = _verifiedEmail;
+          // ── A CHECK THAT COULD NOT RUN IS ASKED AGAIN LATER TONIGHT ──────
+          // A timeout or Hunter's "still verifying" is not an answer about the
+          // business. Set aside, and fillAgent sends it round again after the
+          // roster has had its turn: up to VERIFY_TRIES tries in all. On the
+          // last try it is decided like any other business.
+          const _try = cand._verifyTry || 1;
+          _why.finder.try = _try;
+          const _couldNotRun = !_verifiedEmail && ((_fin.verify && _fin.verify.verdict === 'not-run') || /could not run/.test(String(_f.stop || '')));
+          if (FINDER.more() && _couldNotRun && _try < VERIFY_TRIES) {
+            const why = `the mailbox check could not run (try ${_try} of ${VERIFY_TRIES}); tried again later tonight`;
+            say(`${cand.brand_name}: ${why}`);
+            deferred.push({ ...cand, _verifyTry: _try + 1, _deferredAt: Date.now() });
+            tried.push({ brand: cand.brand_name, result: 'deferred', stage: 'verify', reason: why, lane: cand.lane,
+              places: facts, risk: pre.risk, why: _why });
+            continue;
+          }
+          // ── FIVE VERIFIED EMAILS: ANYTHING ELSE IS DROPPED ───────────────
+          // The next business is pulled instead. Never a DM or a call card to
+          // make up the five.
+          if (FINDER.five() && !_verifiedEmail) {
+            const _r = _couldNotRun ? `the mailbox check could not run after ${_try} tr${_try === 1 ? 'y' : 'ies'}`
+              : (_f.stop || (_fin.verify && !_fin.verify.pass ? `${_fin.verify.email}: ${_fin.verify.why || _fin.verify.verdict}` : 'no address found'));
+            const why = `no verified email for a named person (${_r})`;
+            say(`${cand.brand_name}: dropped, ${why}`);
+            tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'email', reason: why, lane: cand.lane,
+              places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
+            continue;
+          }
           // A CARD NEEDS A WAY THROUGH. When the only way in was an address
           // that did not pass, and there is no handle or number either, the
           // business is not a card.
@@ -2185,6 +2295,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       card.lane = cand.lane || null;
       card.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
       card.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
+      // Verified by the email finder: what the five and the 5:30 list count.
+      card.emailVerified = card.channel === 'email' && _verifiedEmail;
       // ── THE KIND, AND WHETHER IT IS A THIN ONE ─────────────────────────
       // The Scout resolved both while ranking. The Places answer is better than
       // anything the slate had, though -- primaryType is a lookup where the
@@ -2269,14 +2381,15 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     // athlete got no card -- a two-candidate night that refuses both for the
     // same reason is the same bug.
     const identical = refused.length >= 1 && refused.length === atWriter.length && reasons.size === 1;
-    if (!dry && identical && (refused.length >= 3 || filled === 0)) {
+    if (!dry && !_retrying && identical && (refused.length >= 3 || filled === 0)) {
       loop.writerRefusedAll = { count: refused.length, reason: [...reasons][0] };
       say(`${athleteName}: ALARM -- the writer refused all ${refused.length} businesses for one reason: ${[...reasons][0]}`);
       OF.record('writer-refusal', `${athleteName}: the writer refused every business that reached it (${refused.length}) for one identical reason: `
         + `${[...reasons][0]}`.slice(0, 600), 'fill athlete=' + athleteId).catch(() => {});
     }
   }
-  if (loop.held < loop.floor && !dry) {
+  // Not again on a same-night retry: the first pass already said so.
+  if (loop.held < loop.floor && !dry && !_retrying) {
     OF.record('nightly-floor', `${loop.held === 0 ? 'EMERGENCY, ZERO CARDS. ' : ''}${athleteName}: ${loop.held} of ${loop.floor} cards after ${loop.candidates} candidate(s); `
       + `stopped by ${stop ? STOP_TEXT[stop] || stop : 'unknown'}; rungs tried: ${loop.rungs.join(', ')}`, 'fill athlete=' + athleteId)
       .catch(() => {});
@@ -2284,7 +2397,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   if (capStop) {
     return { filled, open: open.length, cappedOut: capStop.potGone, shareSpent: !capStop.potGone,
       tried, note: capStop.why, spendLog, emptyReason: filled ? null : Scout.EMPTY.CAPPED,
-      faults: tried.filter((t) => t && t.fault).length, loop, stop };
+      faults: tried.filter((t) => t && t.fault).length, loop, stop, deferred };
   }
 
   // OUR FAILURES, COUNTED. A lookup that threw is not a business that could not
@@ -2338,7 +2451,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     // from the run row rather than the process log.
     lanes: slate.lanes || null, dropped: slate.dropped || null,
     // Which stop ended the night, if one did, and the pass rate that decided it.
-    stop: stop || null, loop,
+    stop: stop || null, loop, deferred,
     discoveryUsd: (budget.discoverySpent ? budget.discoverySpent() : 0) + (budget.widenSpent ? budget.widenSpent() : 0) };
 }
 
@@ -2397,6 +2510,36 @@ async function fillAgent(pool, agent, opts) {
   const _placesRefreshed = new Set();
   const _refillFaults = new Map();   // market -> why its refill failed on our side tonight
 
+  // One athlete's fill context, the same for the night's pass and for a
+  // same-night retry (extra fields, e.g. retryCands, are merged in).
+  const ctxFor = (ath, _ctx, extra) => ({
+        agentId: agent.id, athleteId: ath.id, athleteName: ath.name, runDate,
+        athleteProfile: _ctx.profile, agentFirstName: agentFirst,
+        // The raw stored athlete, for the widened re-scan only. getDealRecommendations
+        // reads school/sport/instagram/tiktok off the record itself.
+        athleteRow: ath.data || null,
+        // Resolved per athlete. Passing opts.region here meant passing undefined.
+        budget, region: _ctx.region, dryRun: dry, regionFault: _ctx.fault || null,
+        // A DORMANT ACCOUNT'S CARDS DO NOT AGE. The weekly fill only tops up
+        // open slots; what is already queued is kept for the agent's return.
+        keepStale: !!opts.dormant,
+        // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
+        // Scout is asked for, so raising it is what lets the night evaluate
+        // dozens of businesses rather than three.
+        maxSlots: Q.NIGHTLY_SLOTS, signature,
+        refilledMarkets: _refilledMarkets, refillFaults: _refillFaults,
+        // Shared by the whole run (run()), so a mid-run Places refresh happens
+        // once per market and within the run's allowance.
+        placesRefreshed: opts.placesRefreshed || _placesRefreshed,
+        // Shared across the roster — see loadProgramBrandTally.
+        programBrandTally,
+        onProgress: (m) => console.log('[queue] ' + m),
+      ...(extra || {}),
+  });
+  // Businesses set aside tonight because their mailbox check could not run
+  // (EMAIL_FINDER_MORE), by athlete, for the retry passes below.
+  const deferredBy = new Map();
+
   for (let ai2 = 0; ai2 < athletes.length; ai2++) {
     const ath = athletes[ai2];
     const before = budget.spent();
@@ -2422,29 +2565,7 @@ async function fillAgent(pool, agent, opts) {
     const _ctx = await localContextFor(ath);
     let r = null;
     try {
-      r = await fillAthlete(pool, {
-        agentId: agent.id, athleteId: ath.id, athleteName: ath.name, runDate,
-        athleteProfile: _ctx.profile, agentFirstName: agentFirst,
-        // The raw stored athlete, for the widened re-scan only. getDealRecommendations
-        // reads school/sport/instagram/tiktok off the record itself.
-        athleteRow: ath.data || null,
-        // Resolved per athlete. Passing opts.region here meant passing undefined.
-        budget, region: _ctx.region, dryRun: dry, regionFault: _ctx.fault || null,
-        // A DORMANT ACCOUNT'S CARDS DO NOT AGE. The weekly fill only tops up
-        // open slots; what is already queued is kept for the agent's return.
-        keepStale: !!opts.dormant,
-        // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
-        // Scout is asked for, so raising it is what lets the night evaluate
-        // dozens of businesses rather than three.
-        maxSlots: Q.NIGHTLY_SLOTS, signature,
-        refilledMarkets: _refilledMarkets, refillFaults: _refillFaults,
-        // Shared by the whole run (run()), so a mid-run Places refresh happens
-        // once per market and within the run's allowance.
-        placesRefreshed: opts.placesRefreshed || _placesRefreshed,
-        // Shared across the roster — see loadProgramBrandTally.
-        programBrandTally,
-        onProgress: (m) => console.log('[queue] ' + m),
-      });
+      r = await fillAthlete(pool, ctxFor(ath, _ctx));
     } catch (e) {
       console.error(`[queue] agent=${agent.id} athlete=${ath.id} (${ath.name}) failed: ${e.message}`);
       details.push({
@@ -2469,6 +2590,7 @@ async function fillAgent(pool, agent, opts) {
     }
 
     filled += r.filled;
+    if (Array.isArray(r.deferred) && r.deferred.length) deferredBy.set(ath.id, r.deferred);
     details.push({
       athleteId: ath.id, athleteName: ath.name, filled: r.filled, open: r.open,
       note: r.note || null, tried: r.tried || [], paused: !!r.paused,
@@ -2524,6 +2646,49 @@ async function fillAgent(pool, agent, opts) {
     if (r.cappedOut) {
       console.log('[queue] nightly cap reached, stopping the run');
       break;
+    }
+  }
+
+  // ── SAME-NIGHT RETRIES: A CHECK THAT COULD NOT RUN IS ASKED AGAIN ────────
+  // EMAIL_FINDER_MORE. A business whose mailbox check timed out, or that
+  // Hunter was still verifying, was set aside rather than decided. Once the
+  // roster has had its turn -- and at least RETRY_GAP_MS after it was set
+  // aside -- it goes round again with only those businesses as its slate,
+  // into whatever slots are still open: VERIFY_TRIES tries in all, and the
+  // last try is decided like any other business. Its lookups are cached; only
+  // the check is asked again.
+  for (let pass = 2; pass <= VERIFY_TRIES && deferredBy.size && !dry; pass++) {
+    const due = [...deferredBy.entries()];
+    deferredBy.clear();
+    const earliest = Math.min(...due.flatMap(([, cs]) => cs.map((c) => c._deferredAt || Date.now())));
+    const wait = Math.min(RETRY_GAP_MS, Math.max(0, earliest + RETRY_GAP_MS - Date.now()));
+    console.log(`[queue] agent=${agent.id} retry pass ${pass} of ${VERIFY_TRIES}: ${due.reduce((n, [, cs]) => n + cs.length, 0)} business(es) `
+      + `for ${due.length} athlete(s)${wait ? `, after ${Math.round(wait / 1000)}s` : ''}`);
+    if (wait > 0) await new Promise((res) => setTimeout(res, wait));
+    for (let i = 0; i < due.length; i++) {
+      const [athId, cands] = due[i];
+      const ath = athletes.find((a) => a.id === athId);
+      const d = details.find((x) => x && x.athleteId === athId);
+      if (!ath || !d) continue;
+      if (budget.openFor) budget.openFor(due.length - i);
+      const before = budget.spent();
+      let r2 = null;
+      try {
+        r2 = await fillAthlete(pool, ctxFor(ath, await localContextFor(ath), { retryCands: cands, noWiden: true, keepStale: true }));
+      } catch (e) {
+        console.error(`[queue] agent=${agent.id} athlete=${athId} retry pass ${pass} failed: ${e.message}`);
+        d.retryErrors = (d.retryErrors || []).concat(e.message);
+        continue;
+      }
+      filled += r2.filled;
+      d.filled = (d.filled || 0) + r2.filled;
+      d.tried = (d.tried || []).concat((r2.tried || []).map((t) => ({ ...t, retryPass: pass })));
+      d.spentUsd = Math.round(((d.spentUsd || 0) + (budget.spent() - before)) * 10000) / 10000;
+      d.retryPasses = (d.retryPasses || 0) + 1;
+      const a = attempts.find((x) => x.athleteId === athId);
+      if (a) { a.filled += r2.filled; a.spent += budget.spent() - before; a.tried = a.tried.concat(r2.tried || []); }
+      if (Array.isArray(r2.deferred) && r2.deferred.length) deferredBy.set(athId, r2.deferred);
+      if (r2.cappedOut) break;
     }
   }
 
