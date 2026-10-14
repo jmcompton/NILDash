@@ -173,7 +173,8 @@ async function main() {
   const J = require('fs').readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
   ok('fillAgent sends set-aside businesses round again after the roster, up to three tries, after a gap',
     /for \(let pass = 2; pass <= VERIFY_TRIES && deferredBy\.size && !dry; pass\+\+\)/.test(J) && /retryCands: cands, noWiden: true, keepStale: true/.test(J) && /const VERIFY_TRIES = 3;/.test(J));
-  ok('  a retry is researched again on purpose (its first try claimed it)', /if \(!cand\._verifyTry && !\(await Claims\.claimResearch/.test(J));
+  ok('  a retry is researched again on purpose (its first try claimed it)', /if \(cand\._verifyTry\) \{[\s\S]{0,80}\} else if \(!\(await Claims\.claimResearch/.test(J));
+  ok('  and reuses the athlete\'s context from the night\'s pass', /ctxFor\(ath, ctxBy\.get\(athId\), \{ retryCands: cands/.test(J));
   ok('under the five rule the slate is drawn from the local lane only', /localOnly: FINDER\.five\(\)/.test(J)
     && /if \(ctx\.localOnly && subject && subject\.lanes\)/.test(require('fs').readFileSync(REPO + 'server/services/scout.js', 'utf8')));
   ok('  and the national and social rungs are not climbed', /if \(FINDER\.five\(\) && \(name === 'social' \|\| name === 'national'\)\) \{ rung\+\+; continue; \}/.test(J));

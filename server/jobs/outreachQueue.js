@@ -1815,7 +1815,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       // A SAME-NIGHT RETRY was claimed on its first try and is researched
       // again on purpose: its lookups are cached; only the check is re-asked.
-      if (!cand._verifyTry && !(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
+      if (cand._verifyTry) {
+        // Retried: claimed on its first try tonight.
+      } else if (!(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
         say(`${cand.brand_name}: skipped, already researched for ${athleteName} tonight`);
         tried.push({ brand: cand.brand_name, result: 'skipped', reason: Claims.RESEARCHED_TONIGHT_REASON, lane: cand.lane, places: facts, risk: pre.risk });
         continue;
@@ -2539,6 +2541,8 @@ async function fillAgent(pool, agent, opts) {
   // Businesses set aside tonight because their mailbox check could not run
   // (EMAIL_FINDER_MORE), by athlete, for the retry passes below.
   const deferredBy = new Map();
+  // Each athlete's resolved context from the night's pass, reused by a retry.
+  const ctxBy = new Map();
 
   for (let ai2 = 0; ai2 < athletes.length; ai2++) {
     const ath = athletes[ai2];
@@ -2563,6 +2567,7 @@ async function fillAgent(pool, agent, opts) {
     // Region and profile together, so a geocoded school gives a local lane the
     // Scout will actually search. One Places call, cached 180 days per school.
     const _ctx = await localContextFor(ath);
+    ctxBy.set(ath.id, _ctx);
     let r = null;
     try {
       r = await fillAthlete(pool, ctxFor(ath, _ctx));
@@ -2669,12 +2674,12 @@ async function fillAgent(pool, agent, opts) {
       const [athId, cands] = due[i];
       const ath = athletes.find((a) => a.id === athId);
       const d = details.find((x) => x && x.athleteId === athId);
-      if (!ath || !d) continue;
+      if (!ath || !d || !ctxBy.get(athId)) continue;
       if (budget.openFor) budget.openFor(due.length - i);
       const before = budget.spent();
       let r2 = null;
       try {
-        r2 = await fillAthlete(pool, ctxFor(ath, await localContextFor(ath), { retryCands: cands, noWiden: true, keepStale: true }));
+        r2 = await fillAthlete(pool, ctxFor(ath, ctxBy.get(athId), { retryCands: cands, noWiden: true, keepStale: true }));
       } catch (e) {
         console.error(`[queue] agent=${agent.id} athlete=${athId} retry pass ${pass} failed: ${e.message}`);
         d.retryErrors = (d.retryErrors || []).concat(e.message);
