@@ -4363,6 +4363,9 @@ async function ensureMarketSightings() {
     )
   `).then(() => console.log('[init] email_verification table ready'))
     .catch(e => console.error('[init] email_verification:', e.message));
+  // Hunter's own word (valid, accept_all, webmail, invalid, unknown...). `result`
+  // folds catch-all into unknown; the email finder needs to tell them apart.
+  await pool.query(`ALTER TABLE email_verification ADD COLUMN IF NOT EXISTS status TEXT`).catch(() => {});
   // Why email was or was not offered on a card, in the agent's words
   // (services/emailValidation via services/outreachQueue.emailNoteOf), and the
   // deliverability verdict on a stored contact (services/contactDiscovery).
