@@ -2187,8 +2187,11 @@ app.get('/api/agent/setup', requireAuth, async (req, res) => {
 app.post('/api/agent/sign-first-name', requireAuth, async (req, res) => {
   try {
     const raw = String((req.body && req.body.signFirstName) || '');
+    // Refused, not "cleaned": jm@x.com would otherwise become the name "jmx.com".
+    if (raw.trim() && (/[^A-Za-z .'-]/.test(raw.trim()) || raw.trim().length > 40)) {
+      return res.status(400).json({ error: 'Use letters only, written exactly the way you sign.' });
+    }
     const v = require('./services/coldAgent').cleanSignName(raw);
-    if (raw.trim() && !v) return res.status(400).json({ error: 'Use letters only, as you want it written (for example JohnMark).' });
     await store.pool.query(`UPDATE users SET sign_first_name = $2, updated_at = NOW() WHERE id = $1`, [req.session.userId, v]);
     res.json({ ok: true, signFirstName: v });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -15246,9 +15249,11 @@ app.get('/reconnect-mailbox', (req, res) => {
   // back=setup: from the connect page or the first-session setup. The return
   // path carries a # so the page sees the "connected" marker (routes/email
   // withMarker puts it in the hash only when the path has one).
-  const back = req.query.back === 'setup' ? 'setup' : null;
-  const self = '/reconnect-mailbox?provider=' + p + (back ? '&back=setup' : '');
-  if (!req.session || !req.session.userId) return res.redirect('/?next=' + encodeURIComponent(self));
+  const back = req.query.back === 'setup';
+  if (!req.session || !req.session.userId) {
+    if (back) return res.redirect('/?next=' + encodeURIComponent('/reconnect-mailbox?provider=' + p + '&back=setup'));
+    return res.redirect('/?next=' + encodeURIComponent('/reconnect-mailbox?provider=' + p));
+  }
   res.redirect(`/api/email/oauth/${p}?returnTo=${encodeURIComponent(back ? '/#setup' : '/')}`);
 });
 

@@ -57,7 +57,9 @@ function _engagementLine(a) {
 const AgentName = require('./agentName');
 
 async function generatePitch(inputs) {
-  const { athlete, enrichment, matchScore, contact, dealScanData, agentName, agentEmail } = inputs;
+  // agentSignOff: their "First name for sign-offs" (services/agentName
+  // .signOffSetting, AGENT_SETUP_ON), or null for the model's usual sign-off.
+  const { athlete, enrichment, matchScore, contact, dealScanData, agentName, agentEmail, agentSignOff } = inputs;
   const athleteData = extractAthleteData(athlete);
   // NO STAND-IN SENDER. This read agentName || 'Your Agent', and the model was
   // told to write the email "from Your Agent". Refused through the same path as
@@ -209,7 +211,7 @@ MATCH ANALYSIS:
 
 AGENT SIGNING THIS EMAIL:
 - Name: ${agentSignature}
-- Title: ${agentTitle}
+- Title: ${agentTitle}${agentSignOff ? `\n- Sign off with this first name, exactly as written: ${agentSignOff}` : ''}
 
 Generate this exact JSON:
 {

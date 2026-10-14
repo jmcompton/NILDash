@@ -2569,7 +2569,9 @@ async function fillAgent(pool, agent, opts) {
             data->>'school' AS school
        FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
     [agent.id])).rows;
-  const agentFirst = AgentName.agentFirstName(agent);
+  // The sign-off: their "First name for sign-offs" under AGENT_SETUP_ON when
+  // set (services/agentName.pitchSignOffName), else their first name.
+  const agentFirst = AgentName.pitchSignOffName(agent);
   // ONCE PER RUN. The signature is the same for every card this agent gets, so
   // reading it per business would be 45 identical queries a night.
   const signature = SIG.signatureOf(agent);
@@ -2934,10 +2936,10 @@ async function run(opts = {}) {
     // signature_text / scheduling_url travel with the agent so fillAgent can read
     // them once rather than querying per business.
     ? (await pool.query(
-      `SELECT id, name, email, signature_text, scheduling_url, last_login FROM users WHERE id = $1`,
+      `SELECT id, name, email, signature_text, scheduling_url, last_login, sign_first_name FROM users WHERE id = $1`,
       [opts.agentId])).rows
     : (await pool.query(
-      `SELECT id, name, email, signature_text, scheduling_url, last_login FROM users
+      `SELECT id, name, email, signature_text, scheduling_url, last_login, sign_first_name FROM users
         WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
   let filled = 0, spent = 0, skipped = 0;
   // Shared by every agent and athlete tonight: a market refreshed from Places
@@ -2954,7 +2956,7 @@ async function run(opts = {}) {
     // forced or single-agent run refuses too: every card this agent could get
     // tonight would be signed by nobody. Recorded as the night's note, so Home
     // says why the queue is empty rather than showing a blank page.
-    const nameless = AgentName.agentFirstName(a) ? null : AgentName.NO_AGENT_NAME_REASON;
+    const nameless = AgentName.pitchSignOffName(a) ? null : AgentName.NO_AGENT_NAME_REASON;
     const runDate = opts.runDate || today();
     const skipRow = async (why) => {
       skipped++;
@@ -3027,7 +3029,7 @@ async function fillOnDemand(pool, ath, opts = {}) {
   const runDate = opts.runDate || today();
   // Refused BEFORE the claim, so adding a name later the same day still gets
   // this athlete a fill, and nothing is spent on cards nobody can sign.
-  const agentFirstName = AgentName.agentFirstName({ name: ath.agent_name, email: ath.agent_email });
+  const agentFirstName = AgentName.pitchSignOffName({ name: ath.agent_name, email: ath.agent_email, sign_first_name: ath.agent_sign_first_name });
   if (!agentFirstName) return { filled: 0, spent: 0, claimed: false, reason: AgentName.NO_AGENT_NAME_REASON };
   const claim = await pool.query(
     `INSERT INTO outreach_queue_ondemand (athlete_id, run_date) VALUES ($1,$2)
@@ -3094,7 +3096,7 @@ async function loadAthletesForQueue(pool, agentId, athleteId) {
   const r = await pool.query(
     `SELECT a.id, a.agent_id, a.data, a.data->>'name' AS name,
             a.data->>'hometown' AS hometown, a.data->>'school' AS school,
-            u.name AS agent_name, u.email AS agent_email,
+            u.name AS agent_name, u.email AS agent_email, u.sign_first_name AS agent_sign_first_name,
             u.signature_text, u.scheduling_url
        FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
       WHERE a.agent_id = $1 ${athleteId ? 'AND a.id = $2' : ''} ORDER BY a.created_at ASC`,

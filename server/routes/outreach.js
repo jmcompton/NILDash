@@ -293,11 +293,13 @@ router.post('/pitch', async (req, res) => {
     // An athlete pitching for herself is not in the users table; she signs it.
     const senderRow = req.principal.kind === 'athlete'
       ? await pool.query(`SELECT data->>'name' AS name, email FROM athletes WHERE id=$1`, [req.principal.id])
-      : await pool.query('SELECT name, email FROM users WHERE id=$1', [req.principal.id]);
+      : await pool.query('SELECT name, email, sign_first_name FROM users WHERE id=$1', [req.principal.id]);
     const agentName  = senderRow.rows[0]?.name  || null;
     const agentEmail = senderRow.rows[0]?.email || null;
+    // Their "First name for sign-offs" (AGENT_SETUP_ON), when set.
+    const agentSignOff = req.principal.kind === 'athlete' ? null : require('../services/agentName').signOffSetting(senderRow.rows[0] || null);
 
-    const pitch = await pitchSvc.generatePitch({ athlete, enrichment, matchScore, contact, dealScanData: {}, agentName, agentEmail });
+    const pitch = await pitchSvc.generatePitch({ athlete, enrichment, matchScore, contact, dealScanData: {}, agentName, agentEmail, agentSignOff });
     // Refused rather than flagged: no draft is created. See pitchGeneration.
     if (pitch && pitch.refused) {
       return res.status(422).json({
