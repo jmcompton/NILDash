@@ -2936,10 +2936,10 @@ async function run(opts = {}) {
     // signature_text / scheduling_url travel with the agent so fillAgent can read
     // them once rather than querying per business.
     ? (await pool.query(
-      `SELECT id, name, email, signature_text, scheduling_url, last_login, sign_first_name FROM users WHERE id = $1`,
+      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login FROM users WHERE id = $1`,
       [opts.agentId])).rows
     : (await pool.query(
-      `SELECT id, name, email, signature_text, scheduling_url, last_login, sign_first_name FROM users
+      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login FROM users
         WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
   let filled = 0, spent = 0, skipped = 0;
   // Shared by every agent and athlete tonight: a market refreshed from Places

@@ -76,7 +76,7 @@ async function main() {
   off();
   const J = read('server/jobs/outreachQueue.js');
   ok('  the nightly signs with it: fillAgent reads the setting with the agent row and passes pitchSignOffName to the writer',
-    /const agentFirst = AgentName\.pitchSignOffName\(agent\);/.test(J) && (J.match(/scheduling_url, last_login, sign_first_name FROM users/g) || []).length === 2
+    /const agentFirst = AgentName\.pitchSignOffName\(agent\);/.test(J) && (J.match(/SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login FROM users/g) || []).length === 2
     && /AgentName\.pitchSignOffName\(\{ name: ath\.agent_name, email: ath\.agent_email, sign_first_name: ath\.agent_sign_first_name \}\)/.test(J));
   ok('  and the proof fill', /pitchSignOffName\(\{ name: ath\.agent_name, email: ath\.agent_email, sign_first_name: ath\.agent_sign_first_name \}\)/.test(read('server/services/engineProof.js'))
     && /u\.sign_first_name AS agent_sign_first_name/.test(read('server/services/engineProof.js')));
