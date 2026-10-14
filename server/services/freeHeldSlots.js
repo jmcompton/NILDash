@@ -48,7 +48,8 @@ const UNTOUCHED_SQL = `q.state = 'queued' AND q.sent_at IS NULL AND q.sent_via I
 async function gather(pool, opts = {}) {
   const params = [];
   let scope = '';
-  if (opts.agentId) { params.push(opts.agentId); scope = ` AND q.agent_id = $${params.length}`; }
+  const agents = opts.agentIds || (opts.agentId ? [opts.agentId] : null);
+  if (agents) { params.push(agents.map(String)); scope = ` AND q.agent_id = ANY($${params.length}::text[])`; }
   return (await pool.query(
     `SELECT q.id, q.agent_id, q.athlete_id, q.slot, q.brand_name, q.channel, q.state,
             COALESCE(NULLIF(TRIM(q.email), ''), l.sent_to_email) AS email,
@@ -145,7 +146,7 @@ function plan(rows) {
 }
 
 // ── RUN ─────────────────────────────────────────────────────────────────────
-// opts: { apply, agentId }
+// opts: { apply, agentId } (agentIds: several, for tests)
 async function run(pool, opts = {}) {
   const rows = await gather(pool, opts);
   const p = plan(rows);

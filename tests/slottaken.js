@@ -59,7 +59,11 @@ async function main() {
   ok('  local site: after the writer returned and the card was built, before insertCard', /slotStillOpen/.test(local) && /loseSlot\(cand\.brand_name, slot, card\.lane, pitch\)/.test(local));
   const beforeWriterLocal = src.slice(src.indexOf("tried.push({ brand: cand.brand_name, result: 'queued', reason: null,\n        places: facts"), src.indexOf('const card = Q.buildCard({'));
   ok('  and NOT before the writer runs', !/slotStillOpen/.test(beforeWriterLocal));
-  ok('the up-front slot list is unchanged', /let open = Q\.slotsToFill\(heldRows\);/.test(src) && /if \(ctx\.maxSlots && open\.length > ctx\.maxSlots\) open = open\.slice\(0, ctx\.maxSlots\);/.test(src));
+  // openSlotsFor: Q.slotsToFill(heldRows) exactly, unless EMAIL_FIVE_ON (where
+  // only a verified email card holds a slot; tests/freeheldslots, emailfive).
+  ok('the up-front slot list is unchanged', /let open = openSlotsFor\(heldRows\);/.test(src)
+    && /return FINDER\.five\(\) \? Q\.slotsToFill\(heldRows, \{ holds: holdsUnderFive \}\) : Q\.slotsToFill\(heldRows\);/.test(src)
+    && /if \(ctx\.maxSlots && open\.length > ctx\.maxSlots\) open = open\.slice\(0, ctx\.maxSlots\);/.test(src));
   ok('a taken slot ends that slot and moves on (break), not the athlete', (src.match(/slotLost = true; break;/g) || []).length === 2);
   ok('  and is not reported as "nothing passed the bar"', /if \(!placed && !slotLost\) say\(`slot \$\{slot\}: nothing passed the bar`\);/.test(src));
 

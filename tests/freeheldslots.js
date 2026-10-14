@@ -130,7 +130,8 @@ const AA = 'fh-agent-a', AB = 'fh-agent-b';
 
   console.log('\nthe dry run');
   const before = JSON.stringify(await snap());
-  const dry = mine(await FH.run(P, {}));
+  const ONLY = { agentIds: [AA, AB] };   // the test database holds other suites' cards
+  const dry = mine(await FH.run(P, { ...ONLY }));
   ok(JSON.stringify(await snap()) === before, 'a dry run changes nothing: no card, no draft, no flag');
   const would = dry.cards.filter((c) => c.decision.action === 'retire').map((c) => Object.keys(ids).find((k) => ids[k] === c.id)).sort();
   ok(JSON.stringify(would) === JSON.stringify(RETIRE.slice().sort()), 'it would retire exactly the DM, call and unverified email cards nobody has touched', would);
@@ -153,7 +154,7 @@ const AA = 'fh-agent-a', AB = 'fh-agent-b';
   console.log('\napply');
   // The agent works a card between the read and the write: it is not retired.
   const racing = { query: (...a) => P.query(...a), connect: async () => { await P.query(`UPDATE outreach_queue SET replied_at = NOW() WHERE id = $1`, [ids['a2-free']]); return P.connect(); } };
-  const app = mine(await FH.run(racing, { apply: true }));
+  const app = mine(await FH.run(racing, { ...ONLY, apply: true }));
   const rows = new Map((await P.query(`SELECT id, state, outcome, email_verified FROM outreach_queue WHERE agent_id IN ($1,$2)`, [AA, AB])).rows.map((r) => [r.id, r]));
   const retired = Object.keys(ids).filter((k) => rows.get(ids[k]).state === 'retired').sort();
   ok(JSON.stringify(retired) === JSON.stringify(RETIRE.filter((k) => k !== 'a2-free').sort()), 'apply retires exactly those cards', retired);
@@ -168,7 +169,7 @@ const AA = 'fh-agent-a', AB = 'fh-agent-b';
   ok(!logs.get('fh-log-appr').cadence_stopped_at && !logs.get('fh-log-edit').cadence_stopped_at && logs.get('fh-log-appr').status === 'approved', '  an approved or edited draft is not touched');
   const atext = FH.format(app);
   ok(/^FREE HELD SLOTS: APPLIED/.test(atext) && /RETIRED: 5\n/.test(atext) && /older verified named cards flagged verified: 1/.test(atext) && /not retired, because the agent acted on them since the read: 1/.test(atext), 'the printout says what was done', atext.slice(0, 600));
-  const again = mine(await FH.run(P, { apply: true }));
+  const again = mine(await FH.run(P, { ...ONLY, apply: true }));
   ok(again.retired === 0 && again.cards.filter((c) => c.decision.action === 'retire').length === 0, 'a second apply finds nothing to retire');
 
   console.log('\none agent only');
