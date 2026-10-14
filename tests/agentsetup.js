@@ -165,7 +165,7 @@ async function main() {
   ok('Home asks for the setup before anything else is decided', /_setup = await fetch\(`\$\{API_BASE\}\/api\/agent\/setup`\)/.test(page) && /window\.agentSetup\.start\(_setup\)/.test(page)
     && /<script src="\/agent-setup\.js"><\/script>/.test(page));
   ok('  it replaces the 3-step wizard', /if \(window\.__agentSetup && window\.__agentSetup\.on\) return;/.test(page));
-  ok('  and the assistant no longer takes over Home', /onboarding: !\(_setup && _setup\.on\) && currentUser\.role === 'agent'/.test(page));
+  ok('  and the assistant no longer takes over Home', /onboarding: currentUser\.role === 'agent' && currentUser\.athleteCount === 0 && !\(_setup && _setup\.on\)/.test(page));
   const js = read('public/agent-setup.js');
   ok('  no skip button anywhere in it', !/skip/i.test(js.replace(/\/\*[\s\S]*?\*\//, '').replace(/\/\/.*$/gm, '')));
   ok('  back from Google or Microsoft to the setup, not Settings', /returnTo=' \+ encodeURIComponent\('\/#setup'\)/.test(js)
@@ -206,6 +206,9 @@ async function main() {
     const sf = await (await call('/api/agent/sign-first-name', { method: 'POST', body: JSON.stringify({ signFirstName: 'JohnMark' }) })).json();
     const sg = await (await call('/api/agent/signature')).json();
     ok('Settings: "First name for sign-offs" saves exactly as typed', sf.ok && sf.signFirstName === 'JohnMark' && sg.signFirstName === 'JohnMark', [sf, sg.signFirstName]);
+    const bad = await call('/api/agent/sign-first-name', { method: 'POST', body: JSON.stringify({ signFirstName: 'jm@x.com' }) });
+    const after = await (await call('/api/agent/signature')).json();
+    ok('  an address is refused in plain words, not "cleaned" into a name, and the saved one is kept', bad.status === 400 && after.signFirstName === 'JohnMark', [bad.status, after.signFirstName]);
     const tExp = await issue(EMAIL(U.ready), DAY);
     await P().query(`UPDATE password_resets SET expires_at = NOW() - INTERVAL '1 hour' WHERE token_hash = $1`, [PR.hashToken(tExp)]);
     const rst = await (await fetch(base + '/api/auth/reset-status?token=' + tExp)).json();
@@ -236,23 +239,56 @@ async function main() {
     ok('  fits a phone: no sideways scroll', await pg.evaluate(() => document.getElementById('agentSetup').scrollWidth <= window.innerWidth + 1));
     // Back from Google (the connect itself is the provider's page).
     await mailbox(U.browser);
+    // THE RACE THAT WIPED A TYPED ADDRESS. Coming back from the provider draws
+    // the step at boot, and again when the "connected" marker asks the server;
+    // that second answer is held back here so it lands while the agent is
+    // typing. The saved-address prefill is held back too, carrying a stale
+    // street. And the agent types slowly, one key at a time, as a person does.
+    let setupCalls = 0, prefills = 0;
+    const setupRoute = async (route) => { setupCalls++; if (setupCalls === 2) await new Promise((r) => setTimeout(r, 1500)); await route.continue(); };
+    const addrRoute = async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      prefills++;
+      await new Promise((r) => setTimeout(r, 2500));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ street: '9 Old Rd', city: '', state: '', zip: '', set: false, needed: true }) });
+    };
+    await pg.route('**/api/agent/setup', setupRoute);
+    await pg.route('**/api/agent/business-address', addrRoute);
     // The provider's redirect is a full page load, not a hash change.
     await pg.goto('about:blank');
     await pg.goto(base + '/#setup?emailConnected=gmail', { waitUntil: 'domcontentloaded' });
     await pg.waitForFunction(() => /Your business address/.test((document.getElementById('agentSetup') || {}).innerText || ''), null, { timeout: 30000 }).catch(() => {});
     const t2 = await text();
     ok('back from the provider: the address step, "1 of 3 done" (it resumes where they were)', /Your business address/.test(t2) && /1 of 3 done/.test(t2), t2.slice(0, 200));
-    await pg.fill('#as-street', '1 Main St'); await pg.fill('#as-city', 'Auburn'); await pg.fill('#as-state', 'AL'); await pg.fill('#as-zip', '3683');
+    const slow = { delay: 90 };
+    const typeInto = async (sel, v) => { await pg.click(sel); await pg.keyboard.type(v, slow); };
+    const values = () => pg.evaluate(() => ['as-street', 'as-city', 'as-state', 'as-zip'].map((id) => (document.getElementById(id) || {}).value));
+    await typeInto('#as-street', '1 Main St');
+    await pg.evaluate(() => window.agentSetupRefresh());   // one more draw of the same step, mid-typing
+    await typeInto('#as-city', 'Auburn');
+    await typeInto('#as-state', 'AL');
+    await typeInto('#as-zip', '3683');
+    await pg.waitForTimeout(1500);                           // every held-back answer has landed by now
+    const typed = await values();
+    ok('TYPED SLOWLY THROUGH TWO LATE REDRAWS AND A LATE PREFILL: every field still holds what was typed',
+      JSON.stringify(typed) === JSON.stringify(['1 Main St', 'Auburn', 'AL', '3683']), typed);
+    ok('  the late answers really did arrive mid-typing (the race was run, not avoided)', setupCalls >= 3 && prefills >= 1, { setupCalls, prefills });
     await pg.click('#agentSetup >> text=Save and continue');
     await pg.waitForFunction(() => { const e = document.getElementById('as-err'); return e && e.style.display === 'block'; }, null, { timeout: 10000 }).catch(() => {});
-    ok('  a bad ZIP is refused in plain words, and they stay on the step', /ZIP is five digits/.test(await text()));
-    await pg.fill('#as-zip', '36830');
+    ok('  a bad ZIP is refused in plain words, and they stay on the step with what they typed', /ZIP is five digits/.test(await text())
+      && !/all required/.test(await text()) && (await values())[0] === '1 Main St', [await text(), await values()]);
+    await pg.click('#as-zip', { clickCount: 3 });
+    await pg.keyboard.type('36830', slow);
     await pg.click('#agentSetup >> text=Save and continue');
     await pg.waitForFunction(() => /Add your athletes/.test((document.getElementById('agentSetup') || {}).innerText || ''), null, { timeout: 15000 }).catch(() => {});
     const t3 = await text();
     ok('  saved: the athlete step, "2 of 3 done", with the add form, the import and the assistant', /Add your athletes/.test(t3) && /2 of 3 done/.test(t3)
       && /Add an athlete/.test(t3) && /Import a roster/.test(t3) && /assistant/.test(t3), t3.slice(0, 300));
-    ok('  the address is saved on the account', (await P().query(`SELECT business_zip FROM users WHERE id = $1`, [U.browser])).rows[0].business_zip === '36830');
+    const saved = (await P().query(`SELECT business_street, business_city, business_state, business_zip FROM users WHERE id = $1`, [U.browser])).rows[0];
+    ok('  the account holds exactly what was typed, not the stale prefill', saved.business_street === '1 Main St' && saved.business_city === 'Auburn'
+      && saved.business_state === 'AL' && saved.business_zip === '36830', saved);
+    await pg.unroute('**/api/agent/setup', setupRoute);
+    await pg.unroute('**/api/agent/business-address', addrRoute);
     await pg.click('#agentSetup >> text=Add an athlete');
     await pg.waitForTimeout(500);
     ok('"Add an athlete" opens the existing add-athlete form, the setup stepping aside', !(await shown())

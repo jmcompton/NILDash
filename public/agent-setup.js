@@ -17,7 +17,9 @@
  */
 (function () {
   'use strict';
-  var S = { state: null, hidden: false, poll: null, el: null };
+  // shownStep: the step on screen now. The screen is rebuilt only when the
+  // step changes, never on a repeat draw of the same one (see draw()).
+  var S = { state: null, hidden: false, poll: null, el: null, shownStep: null };
   var esc = function (x) { return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
 
   function css() {
@@ -64,7 +66,7 @@
     if (k === 'mailbox') {
       return '<h1>Connect your email</h1>'
         + '<p>Your pitches go out from your own inbox, so replies come straight to you. Pick the one you use for work.</p>'
-        + (st.mailboxCannotSend ? '<div class="as-err">Your inbox is connected, but we did not get permission to send from it. Connect it again and allow sending.</div>' : '')
+        + '<div class="as-err" id="as-mbx-note"' + (st.mailboxCannotSend ? '' : ' style="display:none"') + '>Your inbox is connected, but we did not get permission to send from it. Connect it again and allow sending.</div>'
         + '<button class="as-btn go" onclick="agentSetup.connect(\'gmail\')">Connect Gmail</button>'
         + '<button class="as-btn" onclick="agentSetup.connect(\'outlook\')">Connect Outlook</button>'
         + '<div class="as-note">You will go to Google or Microsoft to say yes, then come straight back here. We only send what you approve.</div>';
@@ -86,29 +88,57 @@
       + '<button class="as-btn" onclick="agentSetup.askAssistant()">Have the assistant look them up</button>';
   }
 
-  function draw(st) {
-    var el = root();
-    var dots = (st.steps || []).map(function (s) {
+  function dotsHtml(st) {
+    return (st.steps || []).map(function (s) {
       return '<div class="as-dot' + (s.done ? ' done' : (s.key === st.current ? ' now' : '')) + '" title="' + esc(s.label) + '"></div>';
     }).join('');
-    el.innerHTML = '<div class="as-box">'
-      + '<div class="as-top"><div style="flex:1"><div class="as-progress">' + esc(st.progress || '') + '</div><div class="as-dots">' + dots + '</div></div>'
-      + '<img src="/images/nildash-logo-header.png" alt="NILDash" style="height:26px;width:auto"></div>'
-      + stepBody(st)
-      + '<div class="as-note">You can leave and come back; we will pick up where you left off. '
-      + '<button class="as-link" onclick="doLogout()">Sign out</button></div>'
-      + '</div>';
+  }
+
+  // NEVER OVER WHAT THEY TYPED. The same step can be drawn twice in a row --
+  // boot draws it, and coming back from Google or Microsoft asks the server
+  // again a moment later -- and rebuilding the screen the second time wiped
+  // an address being typed, so Save said every field was missing. The screen
+  // is rebuilt only when the STEP changes; a repeat draw of the step on
+  // screen updates the progress line and nothing else.
+  function draw(st) {
+    var el = root();
+    var same = S.shownStep === st.current && !!el.firstChild;
+    if (same) {
+      var pr = document.getElementById('as-progress'); if (pr) pr.textContent = st.progress || '';
+      var dt = document.getElementById('as-dots'); if (dt) dt.innerHTML = dotsHtml(st);
+      var mn = document.getElementById('as-mbx-note'); if (mn) mn.style.display = st.mailboxCannotSend ? 'block' : 'none';
+    } else {
+      el.innerHTML = '<div class="as-box">'
+        + '<div class="as-top"><div style="flex:1"><div class="as-progress" id="as-progress">' + esc(st.progress || '') + '</div><div class="as-dots" id="as-dots">' + dotsHtml(st) + '</div></div>'
+        + '<img src="/images/nildash-logo-header.png" alt="NILDash" style="height:26px;width:auto"></div>'
+        + stepBody(st)
+        + '<div class="as-note">You can leave and come back; we will pick up where you left off. '
+        + '<button class="as-link" onclick="doLogout()">Sign out</button></div>'
+        + '</div>';
+      S.shownStep = st.current;
+      if (st.current === 'address') {
+        // A field they have typed in (or cleared) is theirs from then on.
+        ['as-street', 'as-city', 'as-state', 'as-zip'].forEach(function (id) {
+          var i = document.getElementById(id);
+          if (i) i.addEventListener('input', function () { i.setAttribute('data-touched', '1'); });
+        });
+        prefillAddress();
+      }
+    }
     el.style.display = 'block';
     S.hidden = false;
     stopPoll();
-    if (st.current === 'address') prefillAddress();
   }
 
+  // What is already on the account, in the fields they have not touched.
+  // Arrives whenever the server answers, so it checks each field at that
+  // moment: never one they typed in, cleared, or that already has a value.
   function prefillAddress() {
     fetch('/api/agent/business-address').then(function (r) { return r.json(); }).then(function (d) {
       if (!d) return;
       [['as-street', d.street], ['as-city', d.city], ['as-state', d.state], ['as-zip', d.zip]].forEach(function (p) {
-        var i = document.getElementById(p[0]); if (i && !i.value && p[1]) i.value = p[1];
+        var i = document.getElementById(p[0]);
+        if (i && p[1] && !i.value && i.getAttribute('data-touched') !== '1' && document.activeElement !== i) i.value = p[1];
       });
     }).catch(function () {});
   }
@@ -124,6 +154,7 @@
 
   function finish() {
     stopPoll();
+    S.shownStep = null;
     var was = !!(S.el && (S.el.style.display === 'block' || S.hidden));
     if (S.el) S.el.style.display = 'none';
     S.hidden = false;
