@@ -177,9 +177,10 @@ async function main() {
   const src = (p) => fs.readFileSync(REPO + p, 'utf8');
   const jobSrc = src('server/jobs/outreachQueue.js');
   ok('the job checks every address right after the ladder is built, before the bar', /const ev = await EVAL\.validateLadder\(pool, ladder\);/.test(jobSrc) && jobSrc.indexOf('EVAL.validateLadder(pool, ladder)') < jobSrc.indexOf('const bar = Q.passesBar(ladder, ig);'));
-  // Three entries: the bar's rejection, the email finder's (the only address
-  // did not pass verification) and the queued card.
-  ok('  the attempt on the run row carries the verdicts', (jobSrc.match(/emailCheck: ladder\.emailCheck \|\| null/g) || []).length === 3);
+  // Four entries: the bar's rejection, the email finder's two (the only
+  // address did not pass verification; under EMAIL_FIVE_ON, no verified email
+  // for a named person) and the queued card.
+  ok('  the attempt on the run row carries the verdicts', (jobSrc.match(/emailCheck: ladder\.emailCheck \|\| null/g) || []).length === 4);
   ok('emailRowsOf refuses an undeliverable row', /if \(r\.emailCheck && r\.emailCheck\.ok === false\) continue;/.test(src('server/services/outreachQueue.js')));
   ok('the contact merge checks addresses before the evidence is stored, and the cache carries the verdicts', /EVAL\.validateMany\(store\.pool, addrs\)/.test(src('server/ai.js')) && /genericInboxCheck, personalInboxCheck, businessPhone, phoneUnconfirmed \}/.test(src('server/ai.js')) && /genericInboxCheck: ev\.genericInboxCheck \|\| null/.test(src('server/ai.js')));
   ok('  the ladder copies the verdict onto its rows', /emailCheck: c\.email \? \(c\.emailCheck \|\| null\) : null/.test(src('server/services/contactLadder.js')) && /emailCheck: r\.genericInboxCheck \|\| null/.test(src('server/services/contactLadder.js')) && /emailCheck: r\.personalInboxCheck \|\| null/.test(src('server/services/contactLadder.js')));

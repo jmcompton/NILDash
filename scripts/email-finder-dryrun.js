@@ -3,7 +3,7 @@
 // (services/emailFinderDryRun). No card is changed and nothing is sent.
 // It spends Hunter verifications and searches (logged as 'finder-dryrun').
 //
-//   node scripts/email-finder-dryrun.js [--days 7] [--limit 50] [--max-verify 900]
+//   node scripts/email-finder-dryrun.js [--days 7] [--limit 50] [--max-verify 900] [--base]
 //   /api/admin/scripts/email-finder-dryrun?text=1&days=7
 const path = require('path');
 const ROOT = path.join(__dirname, '..') + path.sep;
@@ -18,6 +18,8 @@ async function main() {
     limit: parseInt(arg('limit'), 10) || 0,
     maxVerify: parseInt(arg('max-verify'), 10) || 900,
     concurrency: 4,
+    // --base: the finder without EMAIL_FINDER_MORE's steps, for comparison.
+    more: !process.argv.includes('--base'),
   });
   console.log(D.format(out));
   process.exit(0);

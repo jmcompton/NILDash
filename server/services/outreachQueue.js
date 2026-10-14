@@ -345,7 +345,13 @@ function greetNameOf(ladder) {
 function greetRowOf(ladder) {
   try {
     const GG = require('./greetingGuard');
-    const ok = GG.greetableContacts(namedRows(ladder));
+    const rows = namedRows(ladder);
+    // ANOTHER DECISION MAKER, CHOSEN BY THE EMAIL FINDER (services/emailFinder):
+    // the first person's address could not be verified and this one's could.
+    // Honoured only while the guard would greet them and they are on the ladder.
+    const pref = ladder && ladder.greetPreferred;
+    if (pref && rows.includes(pref) && GG.greetableContacts([pref]).length) return pref;
+    const ok = GG.greetableContacts(rows);
     return ok.length ? ok[0] : null;
   } catch (_) { return null; }
 }

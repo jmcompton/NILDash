@@ -168,7 +168,7 @@ async function find(ctx, deps) {
     tried.add(e);
     if (!sameDomain(e, domain)) { steps.push({ how, email: e, ok: false, why: 'not at the business domain' }); return null; }
     if (isDesk(e)) { steps.push({ how, email: e, ok: false, why: 'a desk address, not a person' }); return null; }
-    if (verifies >= MAX_VERIFIES) { steps.push({ how, email: e, ok: false, why: 'per-business check limit reached' }); return null; }
+    if (verifies >= (ctx.maxVerifies || MAX_VERIFIES)) { steps.push({ how, email: e, ok: false, why: 'per-business check limit reached' }); return null; }
     const v = await deps.verify(e);
     // The limit is on credits: a cached verdict is free and does not count.
     if (!(v && v.cached)) verifies++;
@@ -298,9 +298,15 @@ function placeIsThisBusiness(brand, place) {
   const a = _nameKey(brand), b = _nameKey(place.name);
   return !!a && !!b && (a === b || (a.length >= 6 && b.includes(a)) || (b.length >= 6 && a.includes(b)));
 }
-async function findWebsite({ brand, region, place }, deps) {
+async function findWebsite({ brand, region, place, more }, deps) {
   const checkDomain = deps.checkDomain;
   const tried = [];
+  // THE PLACES RECORD'S WEBSITE FIELD, ASKED FOR WHEN THE NIGHT HAD NO RECORD
+  // (a Places outage, or a lookup that came back empty). Cached 30 days.
+  let placeLooked = false;
+  if (more && (!place || !place.website) && typeof deps.placeLookup === 'function') {
+    try { const p2 = await deps.placeLookup(brand, region); if (p2 && (p2.website || !place)) place = p2; placeLooked = true; } catch (_) { /* no record */ }
+  }
   const placesSite = place && place.website ? place.website : null;
   if (placesSite) {
     const v = checkDomain(brand, placesSite);
@@ -329,7 +335,42 @@ async function findWebsite({ brand, region, place }, deps) {
       return { website: placesSite, via: `the Places record for "${place.name}" (domain not confirmed by name)`, strict: true, tried };
     }
   }
-  return { website: null, via: null, strict: false, tried, why: placesSite ? 'the Places website is not this business\'s own and the search found none' : 'no website on the Places record and the search found none' };
+  // ── THE BUSINESS'S OWN FACEBOOK PAGE ───────────────────────────────────
+  // What its Intro lists: a website, an email, or both (services/facebookPage).
+  // A website it lists that the gate confirms, or that Google's record agrees
+  // with, is the business's; one the gate cannot confirm is used with only a
+  // valid mailbox accepted on it. An email at a domain of its own names that
+  // domain the same way.
+  let fb = null;
+  if (more && typeof deps.facebookPage === 'function') {
+    try { fb = await deps.facebookPage(brand, { city: region }); } catch (_) { fb = null; }
+    const fbSearched = !!(fb && !fb.cached && fb.searches);
+    if (fb && fb.website) {
+      const v = checkDomain(brand, fb.website);
+      const agrees = placesSite && rootOf(placesSite) === rootOf(fb.website);
+      if (v.code !== 'third-party-host' && v.code !== 'no-domain') {
+        return { website: fb.website, via: `its Facebook page${v.ok ? '' : agrees ? ' (the Places record agrees)' : ' (domain not confirmed by name)'}`,
+          strict: !(v.ok || agrees), searched: fbSearched, fbEmail: fb.email || null, facebookUrl: fb.facebookUrl, tried };
+      }
+      tried.push({ url: fb.website, from: 'facebook', code: v.code });
+    }
+    if (fb && fb.email && !ET.isFreeMail(fb.email)) {
+      const d = rootOf(domainOf(fb.email));
+      const v = d ? checkDomain(brand, 'https://' + d) : { ok: false, code: 'no-domain' };
+      if (d && v.code !== 'third-party-host' && v.code !== 'no-domain') {
+        return { website: 'https://' + d, via: `the email on its Facebook page (${fb.email})`, strict: !v.ok, searched: fbSearched,
+          fbEmail: fb.email, facebookUrl: fb.facebookUrl, tried };
+      }
+    }
+    if (fb && fb.email) {
+      return { website: null, via: null, strict: false, searched: fbSearched, fbEmail: fb.email, facebookUrl: fb.facebookUrl, tried,
+        why: `no website; its Facebook page lists only ${fb.email}` };
+    }
+    if (fbSearched) tried.push({ url: (fb && fb.facebookUrl) || null, from: 'facebook', code: (fb && fb.facebookUrl) ? 'no-website-listed' : 'no-page' });
+  }
+  const fbWhy = more ? (fb && fb.facebookUrl ? '; its Facebook page lists no website' : '; no Facebook page found') : '';
+  return { website: null, via: null, strict: false, tried, searched: !!(fb && !fb.cached && fb.searches), placeLooked,
+    why: (placesSite ? 'the Places website is not this business\'s own and the search found none' : 'no website on the Places record and the search found none') + fbWhy };
 }
 
 // ── THE NIGHT'S FINISHING STEP ──────────────────────────────────────────────
@@ -371,10 +412,25 @@ async function finishLadder(args, deps) {
   let domain = (ladder && ladder.businessDomain) || (out && out.website ? rootOf(out.website) : null);
   let strict = false;
   let siteOut = out;
+  const more = !!args.more;
   if (!domain && typeof deps.checkDomain === 'function') {
-    const w = await findWebsite({ brand, region, place }, deps);
+    const w = await findWebsite({ brand, region, place, more }, deps);
     if (w.searched) credits.webSearch++;
-    rec.website = { website: w.website, via: w.via, strict: w.strict, why: w.why || null };
+    rec.website = { website: w.website, via: w.via, strict: w.strict, why: w.why || null, facebookUrl: w.facebookUrl || null, fbEmail: w.fbEmail || null };
+    // THE OWNER'S OWN MAILBOX, LISTED ON THE BUSINESS'S FACEBOOK PAGE: a
+    // personal address (gmail and the like) that carries their name. Used
+    // only once it verifies; an unnamed one (joespizza@gmail.com) is a desk.
+    if (more && w.fbEmail && ET.isFreeMail(w.fbEmail) && carriesName(w.fbEmail, person.name)) {
+      const v = await deps.verify(w.fbEmail);
+      if (v && !v.cached && !v.notRun) credits.verify++;
+      const verdict = verdictOf(v);
+      if (verdict === 'valid') {
+        const ok = attachTo(ladder, person, { email: lc(w.fbEmail), kind: 'bio', verdict, how: 'listed on their Facebook page', sourceUrl: w.facebookUrl || null }, Q);
+        rec.finder = { domain: null, email: ok ? lc(w.fbEmail) : null, how: 'listed on their Facebook page', verdict, kind: 'bio',
+          stop: ok ? null : 'the found address would cost the person their greeting, so it was not used', steps: [`facebook: ${w.fbEmail} ${verdict}${ok ? ' OK' : ''}`] };
+        if (ok) { rec.after = Q.channelFor(ladder, ig); return rec; }
+      }
+    }
     if (w.website) {
       domain = rootOf(w.website);
       strict = !!w.strict;
@@ -420,31 +476,94 @@ async function finishLadder(args, deps) {
     kind: r.kind || null, pattern: r.pattern || null, patternFrom: r.patternFrom || null, catchAll: !!r.catchAll,
     catchAllPass: !!r.catchAllPass, stop: r.stop || null, heldStated: r.steps.some((s) => s.heldStated),
     steps: r.steps.map((s) => `${s.how}: ${s.email || ''}${s.verdict ? ' ' + s.verdict : ''}${s.ok ? ' OK' : (s.why ? ' (' + s.why + ')' : '')}`).slice(0, 10) };
-  if (r.email) {
-    const was = { email: person.email || null, emailKind: person.emailKind || null, emailPattern: person.emailPattern || null,
-      emailVerify: person.emailVerify || null, emailCheck: person.emailCheck || null, emailSourceUrl: person.emailSourceUrl };
-    if (person.email && lc(person.email) !== r.email) person.emailRejected = { email: person.email, verdict: person.emailVerify ? person.emailVerify.verdict : null };
-    person.email = r.email;
-    person.emailKind = r.kind === 'pattern' ? 'pattern' : (r.kind || 'hunter');
-    person.emailPattern = r.pattern ? { pattern: r.pattern, from: r.patternFrom, example: null } : null;
-    person.emailSourceUrl = r.sourceUrl || null;
-    person.emailVerify = { verdict: r.verdict, pass: true, catchAll: !!r.catchAllPass, how: r.how };
-    person.emailCheck = { ok: true, reason: r.verdict === 'valid' ? 'the verifier confirmed the mailbox' : 'catch-all domain, built from its confirmed pattern', source: 'hunter' };
-    delete person.emailTier;
-    ET.annotateLadder(ladder);
-    // THE GREETING MUST SURVIVE. A person greetable only through a published
-    // address would lose that standing to a built one; undo rather than end
-    // up with an email card nobody can be greeted on.
-    if (Q.greetRowOf(ladder) !== person) {
-      Object.assign(person, was);
-      delete person.emailTier;
-      ET.annotateLadder(ladder);
-      rec.finder.email = null;
-      rec.finder.stop = 'the found address would cost the person their greeting, so it was not used';
+  if (r.email && !attachTo(ladder, person, r, Q)) {
+    rec.finder.email = null;
+    rec.finder.stop = 'the found address would cost the person their greeting, so it was not used';
+  }
+
+  // ── ANOTHER NAMED DECISION MAKER AT THE SAME BUSINESS ──────────────────
+  // The person the pitch would open to cannot be verified; a general manager,
+  // a marketing lead or a manager the ladder also named, on the same domain,
+  // may be. The card then goes to them, greeted by name. Not tried when the
+  // check could not run or the domain is catch-all: neither changes for a
+  // different name.
+  const ALT_STOPS = /no format verified|no usable name|cost the person their greeting|per-business check limit/;
+  if (more && !rec.finder.email && ALT_STOPS.test(String(rec.finder.stop || ''))) {
+    let left = ALT_MAX_VERIFIES;
+    const tried = new Set(r.steps.map((x) => x.email).filter(Boolean));
+    if (rec.verify && rec.verify.email) tried.add(lc(rec.verify.email));
+    const alts = alternatesFor(ladder, person, Q).slice(0, ALT_MAX_PEOPLE);
+    rec.finder.alternates = [];
+    for (const alt of alts) {
+      if (left <= 0) break;
+      const ra = await find({ name: alt.name, domain, examples, strictDomain: strict, hunter: hunterKnown, skip: [...tried], maxVerifies: left }, deps);
+      credits.search += ra.credits.search;
+      credits.verify += ra.credits.verify;
+      left -= ra.credits.verify;
+      for (const x of ra.steps) if (x.email) tried.add(x.email);
+      rec.finder.alternates.push({ name: alt.name, title: alt.title || null, email: ra.email || null, stop: ra.stop || null });
+      if (!ra.email) continue;
+      ladder.greetPreferred = alt;
+      if (attachTo(ladder, alt, ra, Q)) {
+        Object.assign(rec.finder, { email: ra.email, how: `${ra.how}, for ${alt.name} (${alt.title || 'named at the business'}) instead of ${person.name}`,
+          verdict: ra.verdict, kind: ra.kind, pattern: ra.pattern || null, patternFrom: ra.patternFrom || null, catchAllPass: !!ra.catchAllPass,
+          stop: null, switchedTo: { name: alt.name, title: alt.title || null, from: person.name } });
+        break;
+      }
+      delete ladder.greetPreferred;
     }
   }
   rec.after = Q.channelFor(ladder, ig);
   return rec;
+}
+
+// Put a verified address on a person's row and mark it. Undone, and false
+// returned, when it would cost the person their greeting: a person greetable
+// only through a published address would lose that standing to a built one.
+function attachTo(ladder, row, r, Q) {
+  const was = { email: row.email || null, emailKind: row.emailKind || null, emailPattern: row.emailPattern || null,
+    emailVerify: row.emailVerify || null, emailCheck: row.emailCheck || null, emailSourceUrl: row.emailSourceUrl };
+  if (row.email && lc(row.email) !== r.email) row.emailRejected = { email: row.email, verdict: row.emailVerify ? row.emailVerify.verdict : null };
+  row.email = r.email;
+  row.emailKind = r.kind === 'pattern' ? 'pattern' : (r.kind || 'hunter');
+  row.emailPattern = r.pattern ? { pattern: r.pattern, from: r.patternFrom, example: null } : null;
+  row.emailSourceUrl = r.sourceUrl || null;
+  row.emailVerify = { verdict: r.verdict, pass: true, catchAll: !!r.catchAllPass, how: r.how };
+  row.emailCheck = { ok: true, reason: r.verdict === 'valid' ? 'the verifier confirmed the mailbox' : 'catch-all domain, built from its confirmed pattern', source: 'hunter' };
+  delete row.emailTier;
+  ET.annotateLadder(ladder);
+  if (Q.greetRowOf(ladder) === row) return true;
+  Object.assign(row, was);
+  delete row.emailTier;
+  ET.annotateLadder(ladder);
+  return false;
+}
+
+// The other people the ladder named who can say yes and can be greeted:
+// owner, officer, general manager, marketing, manager -- never a junior or
+// staff title -- best first.
+const ALT_MAX_PEOPLE = 2;
+const ALT_MAX_VERIFIES = parseInt(process.env.FINDER_ALT_MAX_VERIFIES, 10) || 4;
+function alternatesFor(ladder, person, Q) {
+  const CR = require('./contactRank');
+  const GG = require('./greetingGuard');
+  let JUNIOR = null;
+  try { JUNIOR = require('./ownerNameSearch').JUNIOR_TITLE; } catch (_) { JUNIOR = null; }
+  const pk = person ? lc(person.name) : '';
+  return Q.namedRows(ladder)
+    .filter((r) => r && r !== person && r.name && lc(r.name) !== pk && realNameOf(r.name))
+    .filter((r) => CR.authorityOf(r.title).rank <= CR.RANK.MANAGER)
+    .filter((r) => !(JUNIOR && r.title && JUNIOR.test(r.title)))
+    .filter((r) => GG.greetableContacts([r]).length > 0)
+    .sort((a, b) => CR.authorityOf(a.title).rank - CR.authorityOf(b.title).rank);
+}
+
+// The local part carries a first or last name of three letters or more.
+function carriesName(email, name) {
+  const local = localOf(email).replace(/[^a-z]/g, '');
+  const n = EP.splitName(name);
+  if (!local || !n) return false;
+  return [n.first, n.last].filter((t) => t && t.length >= 3).some((t) => local.includes(t));
 }
 
 function rowWith(ladder, email) {
@@ -490,6 +609,8 @@ function liveDeps(pool, { agentId = null, athleteId = null, business = null, sou
       return require('./domainResolve').resolveDomain(brand, { ...opts, webSearch: ai.webSearchJson, refreshNoneAfterDays: 7 });
     },
     checkDomain: (brand, url) => require('./domainGate').checkDomain(brand, url),
+    placeLookup: async (brand, region) => (await require('./placesLookup').lookupPlaceResult(brand, region)).place,
+    facebookPage: (brand, opts) => require('./facebookPage').findFacebookPage(brand, { ...opts, webSearch: require('../ai').webSearchJson }),
     siteEmail: (website) => require('./siteEmail').findSiteEmail(website, { brand: business }),
     corporate: (domain, brand, out) => corporateDomain(domain, brand, out),
   };
@@ -514,5 +635,6 @@ function corporateDomain(domain, brand, out) {
 
 module.exports = {
   find, finishLadder, findWebsite, liveDeps, passes, verdictOf, examplesOf, shapeOf, isNever, isDesk,
+  alternatesFor, attachTo, carriesName, ALT_MAX_PEOPLE, ALT_MAX_VERIFIES,
   corporateDomain, placeIsThisBusiness, sameNameLoose, COMMON_FORMATS, MAX_VERIFIES, NEVER_LOCAL,
 };

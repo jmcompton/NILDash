@@ -1444,6 +1444,17 @@
       "local_date": "DATE",
       "sent_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "short_five_alerts": {
+      "alert_date": "DATE",
+      "athletes": "INT DEFAULT 0",
+      "attempts": "INT DEFAULT 0",
+      "body": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "error": "TEXT",
+      "sent_at": "TIMESTAMPTZ",
+      "status": "TEXT",
+      "subject": "TEXT"
+    },
     "site_email_jobs": {
       "collapsed": "INT DEFAULT 0",
       "corporate": "INT DEFAULT 0",

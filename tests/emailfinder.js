@@ -311,6 +311,121 @@ const run = (ladder, d, extra) => EF.finishLadder({ ladder, out: (extra && extra
     ok(d.calls.verify.length <= EF.MAX_VERIFIES, `no more than ${EF.MAX_VERIFIES} checks for one business`, d.calls.verify.length);
   }
 
+  console.log('\nMORE (EMAIL_FINDER_MORE): ANOTHER NAMED DECISION MAKER');
+  const gm = (extra) => ({ name: 'Gina Moore', title: 'General Manager', source: 'site', sources: ['site'], affiliationScope: 'this-location', email: null, ...(extra || {}) });
+  const runMore = (ladder, d, extra) => EF.finishLadder({ ladder, out: (extra && extra.out) || { website: ladder.businessDomain ? 'https://' + ladder.businessDomain : null },
+    ig: (extra && extra.ig) || { instagram: 'joespizza', instagramScope: 'business' }, brand: (extra && extra.brand) || "Joe's Pizza", region: 'Waco, TX', place: (extra && extra.place) || null, Q, more: true }, d);
+  {
+    const tom = owner(); const gina = gm();
+    const L = ladderOf([tom, gina]);
+    const d = deps({ verdicts: { 'gina.moore@joespizza.com': 'valid' } });
+    const r = await runMore(L, d);
+    ok(r.after === 'email' && r.finder.switchedTo && r.finder.switchedTo.name === 'Gina Moore', 'Tom cannot be verified; the general manager Gina can: the card goes to her', r.finder);
+    ok(Q.greetRowOf(L) === gina && Q.greetNameOf(L) === 'Gina' && Q.inboxOf(L).email === 'gina.moore@joespizza.com', '  and she is the person greeted by name, at her verified address', [Q.greetNameOf(L), Q.inboxOf(L)]);
+    ok(Q.buildCard({ brand: "Joe's Pizza", pitch: { message: 'Hi Gina,\nx' } }, L, { instagram: 'joespizza' }).contactName === 'Gina Moore', '  the card names her');
+    ok(d.calls.verify.filter((e) => /gina/.test(e)).length <= EF.ALT_MAX_VERIFIES, `  no more than ${EF.ALT_MAX_VERIFIES} checks spent on the other people`, d.calls.verify);
+  }
+  {
+    const L = ladderOf([owner(), gm()]);
+    const d = deps({ verdicts: { 'gina.moore@joespizza.com': 'valid' } });
+    const r = await run(L, d);
+    ok(r.after === 'dm' && !r.finder.switchedTo, 'with EMAIL_FINDER_MORE off, nobody else is tried', r.finder);
+  }
+  {
+    const L = ladderOf([owner(), gm({ name: 'Al Barista', title: 'Barista' }), gm({ name: 'Amy Assistant', title: 'Assistant Manager' })]);
+    const d = deps({ defaultVerdict: 'valid' });
+    d.verify = async (e) => { d.calls.verify.push(e); return /tom|smith/.test(e) ? { result: 'invalid', status: 'invalid' } : { result: 'valid', status: 'valid' }; };
+    const r = await runMore(L, d);
+    ok(!r.finder.switchedTo && r.after === 'dm', 'a barista or an assistant manager is never the fallback: not a decision maker', r.finder);
+  }
+  {
+    // Someone the guard would not greet (no source it trusts) is not used.
+    const L = ladderOf([owner(), gm({ source: 'news', sources: ['news'] })]);
+    const d = deps({ verdicts: { 'gina.moore@joespizza.com': 'valid' } });
+    const r = await runMore(L, d);
+    ok(!r.finder.switchedTo, 'a manager the greeting guard would not open to is not used', r.finder);
+  }
+  {
+    const L = ladderOf([owner(), gm()]);
+    const d = deps({ defaultVerdict: 'accept_all' });
+    const r = await runMore(L, d);
+    ok(!r.finder.switchedTo && d.calls.verify.length === 1, 'a catch-all domain: no other name can be confirmed either, so nobody else is tried', d.calls.verify);
+  }
+
+  console.log('\nMORE: NO WEBSITE -- THE PLACES FIELD AND THE FACEBOOK PAGE');
+  {
+    const L = ladderOf([owner()], null);
+    const d = deps({ defaultVerdict: 'valid' });
+    d.placeLookup = async () => ({ name: "Joe's Pizza", website: 'https://joespizza.com' });
+    const r = await runMore(L, d, { out: { website: null }, place: null });
+    ok(r.website.website === 'https://joespizza.com' && r.after === 'email', 'no Places record on the night: the website field is asked for', r.website);
+  }
+  {
+    const L = ladderOf([owner()], null);
+    const d = deps({ defaultVerdict: 'valid' });
+    d.facebookPage = async () => ({ facebookUrl: 'https://www.facebook.com/joespizzawaco', website: 'https://joespizzawaco.com', email: null, cached: false, searches: 1 });
+    const r = await runMore(L, d, { out: { website: null } });
+    ok(r.website.website === 'https://joespizzawaco.com' && /Facebook/.test(r.website.via) && r.website.strict === false, 'the website the Facebook page lists, confirmed by the gate', r.website);
+    ok(r.after === 'email' && r.credits.webSearch >= 1, '  then the finder runs on it; the search is counted', r.credits);
+  }
+  {
+    const L = ladderOf([owner()], null);
+    const d = deps({ defaultVerdict: 'accept_all' });
+    d.facebookPage = async () => ({ facebookUrl: 'https://www.facebook.com/x', website: 'https://bestpiewaco.com', email: null });
+    const r = await runMore(L, d, { out: { website: null } });
+    ok(r.website.strict === true && r.after === 'dm', 'a Facebook website the gate cannot confirm: only a valid mailbox would count there', r.website);
+  }
+  {
+    const L = ladderOf([owner()], null);
+    const d = deps({ verdicts: { 'tomsmith.pizza@gmail.com': 'valid' } });
+    d.facebookPage = async () => ({ facebookUrl: 'https://www.facebook.com/x', website: null, email: 'tomsmith.pizza@gmail.com' });
+    const r = await runMore(L, d, { out: { website: null } });
+    ok(r.after === 'email' && Q.inboxOf(L).email === 'tomsmith.pizza@gmail.com' && /Facebook/.test(r.finder.how), 'the owner\'s own mailbox, listed on the page and carrying his name, verified: used', r.finder);
+  }
+  {
+    const L = ladderOf([owner()], null);
+    const d = deps({ defaultVerdict: 'valid' });
+    d.facebookPage = async () => ({ facebookUrl: 'https://www.facebook.com/x', website: null, email: 'joespizzawaco@gmail.com' });
+    const r = await runMore(L, d, { out: { website: null } });
+    ok(r.after === 'dm' && !d.calls.verify.includes('joespizzawaco@gmail.com'), 'an unnamed gmail on the page is the shop\'s desk, not a person: not used', r.finder);
+  }
+  {
+    const L = ladderOf([owner()], null);
+    const d = deps({ verdicts: { 'tom.smith@joespizza.biz': 'valid' } });
+    d.facebookPage = async () => ({ facebookUrl: 'https://www.facebook.com/x', website: null, email: 'hello@joespizza.biz' });
+    const r = await runMore(L, d, { out: { website: null } });
+    ok(r.website.website === 'https://joespizza.biz' && r.after === 'email', 'an email at a domain of its own names the domain; the finder runs on it', [r.website, r.finder && r.finder.email]);
+  }
+  {
+    const L = ladderOf([owner()], null);
+    const d = deps({ defaultVerdict: 'valid' });
+    let fbAsked = 0, placeAsked = 0;
+    d.facebookPage = async () => { fbAsked++; return null; };
+    d.placeLookup = async () => { placeAsked++; return null; };
+    await run(L, d, { out: { website: null } });
+    ok(fbAsked === 0 && placeAsked === 0, 'with EMAIL_FINDER_MORE off, neither Places nor Facebook is asked');
+  }
+  {
+    const FB = require(REPO + 'server/services/facebookPage.js');
+    ok(FB.clean({ facebookUrl: 'https://www.yelp.com/biz/x', website: 'https://x.com' }).facebookUrl === null, 'facebookPage: a page that is not on Facebook is no page');
+    const c = FB.clean({ facebookUrl: 'https://www.facebook.com/joes', website: 'https://www.instagram.com/joes', email: 'not an email' });
+    ok(c.facebookUrl && c.website === null && c.email === null, '  a "website" that is another social page, and a non-address, are dropped', c);
+    ok(FB.clean({ facebookUrl: 'https://m.facebook.com/joes', website: 'joespizza.com', email: 'Tom@JoesPizza.com' }).website === 'https://joespizza.com', '  a bare domain is read as a website');
+  }
+
+  console.log('\nCHAINS: BUCKLE');
+  {
+    const NC = require(REPO + 'server/services/nationalChains.js');
+    const was = process.env.EMAIL_FIVE_ON;
+    delete process.env.EMAIL_FIVE_ON; delete process.env.EMAIL_FINDER_MORE;
+    ok(!NC.isChainLocation('Buckle'), 'Buckle is not on the list until a switch is on (merging changes nothing)');
+    process.env.EMAIL_FIVE_ON = '1';
+    ok(['Buckle', 'The Buckle', 'Buckle - Waco Mall', 'Buckle (Central Texas Marketplace)', 'Buckle #213'].every((n) => NC.isChainLocation(n) === 'buckle'), 'Buckle, in every store-name form, is a chain location');
+    ok(!NC.isChainLocation('Swashbuckler Pub') && !NC.isChainLocation('Buckle Up Saloon') && !NC.isNationalChain('Swashbuckler Pub'), '  and Swashbuckler Pub or Buckle Up Saloon is not');
+    ok(/chain/.test(EF.corporateDomain('buckle.com', 'Buckle', null) || ''), '  buckle.com is its corporate domain');
+    if (was === undefined) delete process.env.EMAIL_FIVE_ON; else process.env.EMAIL_FIVE_ON = was;
+  }
+
   console.log('\nTHE NIGHT\'S WIRING (jobs/outreachQueue)');
   {
     const job = require('fs').readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
@@ -320,7 +435,9 @@ const run = (ladder, d, extra) => EF.finishLadder({ ladder, out: (extra && extra
     const iWriter = job.indexOf('\n        pitch = await PW.writePitch(', iQueued);
     ok(iName > 0 && iFin > iName && iQueued > iFin && iWriter > iQueued, 'after the bar and the name, before the card is queued and the writer runs', { iName, iFin, iQueued, iWriter });
     ok(/EF\.liveDeps\(pool, \{ agentId, athleteId, business: cand\.brand_name, source: 'nightly' \}\)/.test(job), 'credits are charged to the agent, the athlete and the business, tagged nightly');
-    ok(/if \(process\.env\.EMAIL_FINDER_ON === '1'\) \{/.test(job) && !/EMAIL_FINDER_OFF/.test(job), 'off by default: the night runs it only with EMAIL_FINDER_ON=1');
+    ok(/on: \(\) => process\.env\.EMAIL_FINDER_ON === '1' \|\| process\.env\.EMAIL_FIVE_ON === '1'/.test(job)
+      && /more: \(\) => process\.env\.EMAIL_FINDER_MORE === '1'/.test(job) && /five: \(\) => process\.env\.EMAIL_FIVE_ON === '1'/.test(job)
+      && /if \(FINDER\.on\(\)\) \{/.test(job) && !/EMAIL_FINDER_OFF/.test(job), 'off by default: the night runs it only with EMAIL_FINDER_ON=1 (or EMAIL_FIVE_ON=1)');
     // The dry run calls the same step with no switch in the way.
     const dry = require('fs').readFileSync(REPO + 'server/services/emailFinderDryRun.js', 'utf8');
     const efSrc = require('fs').readFileSync(REPO + 'server/services/emailFinder.js', 'utf8');
