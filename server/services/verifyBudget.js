@@ -93,6 +93,9 @@ async function ensureTable(pool) {
     ON email_verify_credit_log (athlete_id, local_date)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_verify_credit_at
     ON email_verify_credit_log (checked_at DESC)`).catch(() => {});
+  // Which run spent it (a nightly run id, the reserve refill, a cleanup), so
+  // spend is reported per run (scripts/delivery-report).
+  await pool.query(`ALTER TABLE email_verify_credit_log ADD COLUMN IF NOT EXISTS run TEXT`).catch(() => {});
 }
 
 // The agent's own calendar date, from sendGuard.localDate, because there is
@@ -218,14 +221,14 @@ async function accountStatus(pool) {
 // the error, so on a broken log every credit was spent and none was counted --
 // which is precisely how the account could empty while every counter in the
 // product reported it healthy. The caller refuses to spend when this is false.
-async function record(pool, { agentId, athleteId, business, email, day, source }) {
+async function record(pool, { agentId, athleteId, business, email, day, source, run }) {
   try {
     await pool.query(
       `INSERT INTO email_verify_credit_log
-         (agent_id, athlete_id, business, email, source, local_date)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
+         (agent_id, athlete_id, business, email, source, local_date, run)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       [agentId || null, athleteId || null, business || null,
-        String(email || '').trim().toLowerCase(), source || 'home', day]);
+        String(email || '').trim().toLowerCase(), source || 'home', day, run || null]);
     return true;
   } catch (e) {
     console.error('[verifyBudget] FAULT: could not record a verification credit — '
@@ -302,7 +305,7 @@ function limiter(pool, opts = {}) {
       // an invisible one, and invisible credits are how the account emptied
       // while every counter read healthy. The refusal is returned as `unknown`,
       // so the card appears unverified rather than not at all.
-      const wrote = await record(pool, { agentId, athleteId: who, business, email: addr, day, source });
+      const wrote = await record(pool, { agentId, athleteId: who, business, email: addr, day, source, run: opts.run || null });
       if (!wrote) {
         accountLeft = 0;              // stop the whole pass, not just this one
         if (who) per.set(who, mine);  // give the credit back, it was never spent

@@ -403,7 +403,7 @@ async function verifyEmail(email) {
     const j = await resp.json();
     const status = j && j.data && j.data.status;
     console.log(`[hunter-verify] ${addr} -> ${status || 'no status'}`);
-    return { ok: true, status: status || null, score: (j && j.data && j.data.score) || null };
+    return { ok: true, status: status || null, result: (j && j.data && j.data.result) || null, score: (j && j.data && j.data.score) || null };
   } catch (e) {
     const why = (e && e.name === 'AbortError') ? 'Hunter timed out' : `Hunter call failed: ${e.message}`;
     console.warn(`[hunter-verify] ${addr}: ${why}`);

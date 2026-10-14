@@ -4361,7 +4361,11 @@ async function ensureMarketSightings() {
       source      TEXT,
       checked_at  TIMESTAMPTZ DEFAULT NOW()
     )
-  `).then(() => console.log('[init] email_verification table ready'))
+  `).then(async () => {
+    // The verifier's own word (accept_all, webmail...): the rules need it.
+    await pool.query(`ALTER TABLE email_verification ADD COLUMN IF NOT EXISTS status TEXT`).catch(() => {});
+    console.log('[init] email_verification table ready');
+  })
     .catch(e => console.error('[init] email_verification:', e.message));
   // Why email was or was not offered on a card, in the agent's words
   // (services/emailValidation via services/outreachQueue.emailNoteOf), and the
@@ -4415,6 +4419,8 @@ async function ensureMarketSightings() {
     // that grows for the life of the account.
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_verify_credit_athlete_day
       ON email_verify_credit_log (athlete_id, local_date)`).catch(() => {});
+    // Which run spent the credit (nightly run, reserve refill, cleanup).
+    await pool.query(`ALTER TABLE email_verify_credit_log ADD COLUMN IF NOT EXISTS run TEXT`).catch(() => {});
     // The month's account total, and the burn report, both read by time.
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_verify_credit_at
       ON email_verify_credit_log (checked_at DESC)`).catch(() => {});

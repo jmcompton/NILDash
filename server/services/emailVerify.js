@@ -52,7 +52,7 @@ async function cached(pool, emails) {
   if (!list.length) return new Map();
   try {
     const rows = (await pool.query(
-      `SELECT email, result, detail, source FROM email_verification
+      `SELECT email, result, detail, source, status FROM email_verification
         WHERE email = ANY($1::text[])
           AND checked_at > NOW() - ($2 || ' days')::interval`,
       [list, String(CACHE_DAYS)])).rows;
@@ -63,15 +63,19 @@ async function cached(pool, emails) {
   }
 }
 
-async function record(pool, email, result, detail, source) {
+// status: the verifier's own word (valid, invalid, accept_all, webmail,
+// disposable, unknown). Kept beside the three-way result because the rules
+// need it: a catch-all domain is acceptable for a named person's address and
+// not for a general inbox (services/realContact).
+async function record(pool, email, result, detail, source, status) {
   try {
     await pool.query(
-      `INSERT INTO email_verification (email, result, detail, source, checked_at)
-       VALUES ($1,$2,$3,$4, NOW())
+      `INSERT INTO email_verification (email, result, detail, source, status, checked_at)
+       VALUES ($1,$2,$3,$4,$5, NOW())
        ON CONFLICT (email) DO UPDATE
          SET result = EXCLUDED.result, detail = EXCLUDED.detail,
-             source = EXCLUDED.source, checked_at = NOW()`,
-      [norm(email), result, detail || null, source || null]);
+             source = EXCLUDED.source, status = EXCLUDED.status, checked_at = NOW()`,
+      [norm(email), result, detail || null, source || null, status || null]);
   } catch (e) { console.error('[email-verify] write:', e.message); }
 }
 
@@ -162,10 +166,14 @@ async function hasMx(domain, memo) {
 const HUNTER_INVALID = new Set(['invalid', 'disposable']);
 const HUNTER_VALID = new Set(['valid']);
 
-function mapHunter(status) {
+function mapHunter(status, deliverability) {
   const s = String(status || '').trim().toLowerCase();
-  if (HUNTER_INVALID.has(s)) return { result: 'invalid', detail: `the verifier says ${s}` };
+  const r = String(deliverability || '').trim().toLowerCase();
+  if (HUNTER_INVALID.has(s) || r === 'undeliverable') return { result: 'invalid', detail: `the verifier says ${s || r}` };
   if (HUNTER_VALID.has(s)) return { result: 'valid', detail: 'the verifier confirmed the mailbox' };
+  // A webmail address (an owner's own Gmail) the verifier says is deliverable
+  // is a confirmed mailbox: that is what an owner's own address looks like.
+  if (s === 'webmail' && r === 'deliverable') return { result: 'valid', detail: 'the verifier confirmed the mailbox (webmail)' };
   // accept_all, webmail, unknown, and anything new Hunter adds later.
   return { result: 'unknown', detail: s ? `the verifier says ${s}` : 'the verifier could not say' };
 }
@@ -196,7 +204,7 @@ async function verifyMany(pool, emails, opts = {}) {
 
   const one = async (email) => {
     const hit = known.get(email);
-    if (hit) { out.set(email, { result: hit.result, detail: hit.detail, source: hit.source, cached: true }); return; }
+    if (hit) { out.set(email, { result: hit.result, detail: hit.detail, source: hit.source, status: hit.status || null, cached: true }); return; }
 
     if (outOfTime()) {
       out.set(email, { result: 'unknown', detail: 'the check ran out of time', source: 'deadline' });
@@ -254,9 +262,9 @@ async function verifyMany(pool, emails, opts = {}) {
       out.set(email, { result: 'unknown', detail: (v && v.why) || 'the verifier could not be reached', source: 'hunter' });
       return;
     }
-    const m = mapHunter(v.status);
-    await record(pool, email, m.result, m.detail, 'hunter');
-    out.set(email, { ...m, source: 'hunter' });
+    const m = mapHunter(v.status, v.result);
+    await record(pool, email, m.result, m.detail, 'hunter', String(v.status || '').toLowerCase() || null);
+    out.set(email, { ...m, source: 'hunter', status: String(v.status || '').toLowerCase() || null });
   };
 
   let next = 0;
@@ -276,4 +284,4 @@ async function verifyMany(pool, emails, opts = {}) {
   return out;
 }
 
-module.exports = { verifyMany, hasMx, mapHunter, domainOf, norm, CACHE_DAYS, _isNullMx: isNullMx };
+module.exports = { verifyMany, cached, hasMx, mapHunter, domainOf, norm, CACHE_DAYS, _isNullMx: isNullMx };
