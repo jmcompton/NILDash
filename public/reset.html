@@ -39,6 +39,13 @@ a{color:#C8F135;text-decoration:none;font-size:12px}
     <input type="password" id="confirm-password" placeholder="Confirm password">
     <button class="btn" onclick="doReset()">Set Password</button>
   </div>
+  <!-- A link that ran out or was used: one button, never a dead end (AGENT_SETUP_ON). -->
+  <div id="expired-view" style="display:none;text-align:center;padding:8px 0">
+    <div style="font-size:16px;font-weight:700;color:#F0EDE6;margin-bottom:8px">This link has run out</div>
+    <div style="font-size:13px;color:rgba(240,237,230,0.6);margin-bottom:20px;line-height:1.5">It has expired or was already used. We'll email a fresh one to the same address.</div>
+    <button class="btn" id="resend-btn" onclick="resendLink()">Send me a new link</button>
+    <div style="text-align:center;margin-top:16px"><a href="/">Back to Sign In</a></div>
+  </div>
   <div id="success-view" style="display:none;text-align:center;padding:20px 0">
     <div style="font-size:32px;margin-bottom:16px">&#10003;</div>
     <div style="font-size:16px;font-weight:700;color:#F0EDE6;margin-bottom:8px" id="success-msg">Done!</div>
@@ -48,10 +55,42 @@ a{color:#C8F135;text-decoration:none;font-size:12px}
 </div>
 <script>
 var token = new URLSearchParams(window.location.search).get("token");
+var noDeadEnds = false;
 if (token) {
   document.getElementById("forgot-form").style.display = "none";
   document.getElementById("reset-form").style.display = "block";
   document.getElementById("page-sub").textContent = "Choose a password for your NILDash account";
+  // Ask first whether the link still works, so an expired one says so before
+  // anyone types a password (off: on:false, and nothing changes here).
+  fetch("/api/auth/reset-status?token=" + encodeURIComponent(token)).then(function (r) { return r.json(); }).then(function (d) {
+    if (!d || !d.on) return;
+    noDeadEnds = true;
+    if (d.state === "expired" || d.state === "used") showExpired();
+    else if (d.state === "unknown") {
+      document.getElementById("reset-form").style.display = "none";
+      document.getElementById("forgot-form").style.display = "block";
+      document.getElementById("page-sub").textContent = "Reset your password";
+      showMsg("That link doesn't work. Enter your email and we'll send you a new one.", "error");
+    }
+  }).catch(function () {});
+}
+function showExpired() {
+  document.getElementById("reset-form").style.display = "none";
+  document.getElementById("forgot-form").style.display = "none";
+  document.getElementById("msg").style.display = "none";
+  document.getElementById("expired-view").style.display = "block";
+  document.getElementById("page-sub").textContent = "Your login link";
+}
+async function resendLink() {
+  var btn = document.getElementById("resend-btn");
+  btn.disabled = true; btn.textContent = "Sending...";
+  try {
+    await fetch("/api/auth/reset-resend", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ token: token }) });
+  } catch (e) {}
+  document.getElementById("expired-view").style.display = "none";
+  document.getElementById("success-view").style.display = "block";
+  document.getElementById("success-msg").textContent = "Check your email";
+  document.getElementById("success-sub").textContent = "A new link is on its way to the same address.";
 }
 function showMsg(text, type) {
   var el = document.getElementById("msg");
@@ -107,6 +146,8 @@ async function doReset() {
       document.getElementById("success-view").style.display = "block";
       document.getElementById("success-msg").textContent = "Password updated!";
       document.getElementById("success-sub").textContent = "Your password has been reset. Sign in with your new password.";
+    } else if (noDeadEnds && /invalid or expired/i.test(data.error || "")) {
+      showExpired();
     } else {
       showMsg(data.error || "Something went wrong", "error");
     }

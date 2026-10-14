@@ -35,6 +35,12 @@ const bcrypt = require('bcryptjs');
 const TOKEN_BYTES = 32;
 const DEFAULT_TTL_MS = 60 * 60 * 1000;          // a forgot-password link: 1 hour
 const ONBOARDING_TTL_MS = 7 * 24 * 60 * 60 * 1000; // a set-password link on a new account: 7 days
+// A NEW AGENT'S INVITE (AGENT_SETUP_ON): 30 days, not 7. Off: 7, as before.
+const AGENT_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SETUP_ON = () => process.env.AGENT_SETUP_ON === '1';
+function agentInviteTtlMs() { return SETUP_ON() ? AGENT_INVITE_TTL_MS : ONBOARDING_TTL_MS; }
+// A new link is not sent twice inside this window, whoever presses the button.
+const RESEND_GAP_MS = 2 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 6;                   // matches /api/auth/change-password and the page copy
 
 // Lower-case and trimmed, or null. A mobile keyboard's trailing space and a
@@ -118,9 +124,13 @@ async function requestReset({ pool, email, appUrl, findUser, findAthlete, sendMa
   return { ok: true, sent: true, kind };
 }
 
-function renderResetEmail(url, ttlMs) {
+function expiryWords(ttlMs) {
   const hours = Math.round((ttlMs || DEFAULT_TTL_MS) / 3600000);
-  const expiry = hours >= 24 ? `${Math.round(hours / 24)} day${hours >= 48 ? 's' : ''}` : `${hours} hour${hours === 1 ? '' : 's'}`;
+  return hours >= 24 ? `${Math.round(hours / 24)} day${hours >= 48 ? 's' : ''}` : `${hours} hour${hours === 1 ? '' : 's'}`;
+}
+
+function renderResetEmail(url, ttlMs) {
+  const expiry = expiryWords(ttlMs);
   const subject = 'Reset your NILDash password';
   const html = '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;max-width:500px;margin:0 auto;padding:40px 24px;color:#111">' +
     '<h2 style="color:#111;margin:0 0 12px">NILDash</h2>' +
@@ -133,6 +143,64 @@ function renderResetEmail(url, ttlMs) {
   const text = `Someone asked to reset the password for this address. If that was you, set a new one here:\n\n${url}\n\n` +
     `This link works once and expires in ${expiry}. If you did not ask for this, ignore it — your password has not changed.`;
   return { subject, html, text };
+}
+
+// For someone who has never signed in: not "reset", their first way in.
+function renderLoginEmail(url, ttlMs) {
+  const expiry = expiryWords(ttlMs);
+  const subject = 'Your NILDash login link';
+  const html = '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;max-width:500px;margin:0 auto;padding:40px 24px;color:#111">' +
+    '<h2 style="color:#111;margin:0 0 12px">NILDash</h2>' +
+    '<p style="line-height:1.5">Here\'s your new login link. Your account is set up and waiting: choose a password and you\'re in.</p>' +
+    '<a href="' + url + '" style="display:inline-block;margin:20px 0;padding:12px 24px;background:#C8F135;color:#000;text-decoration:none;border-radius:40px;font-weight:700">Set your password</a>' +
+    '<p style="color:#666;font-size:12px;line-height:1.5">This link works once and lasts ' + expiry + '.</p>' +
+    '<p style="color:#999;font-size:11px;word-break:break-all">' + url + '</p>' +
+    '</div>';
+  const text = `Here's your new login link. Your account is set up and waiting: choose a password and you're in.\n\n${url}\n\nThis link works once and lasts ${expiry}.`;
+  return { subject, html, text };
+}
+
+// ── A LINK THAT NO LONGER WORKS IS NOT A DEAD END (AGENT_SETUP_ON) ─────────
+// What the page can say about a link before anyone types a password. Says
+// nothing about whose it is.
+async function linkStatus(pool, token) {
+  const raw = String(token || '').trim();
+  if (!/^[a-f0-9]{16,128}$/i.test(raw)) return { state: 'unknown' };
+  const r = (await pool.query(`SELECT used, expires_at FROM password_resets WHERE token_hash = $1 LIMIT 1`, [hashToken(raw)])).rows[0];
+  if (!r) return { state: 'unknown' };
+  if (r.used) return { state: 'used' };
+  if (new Date(r.expires_at).getTime() <= Date.now()) return { state: 'expired' };
+  return { state: 'valid' };
+}
+
+// "Send me a new link": the address comes from the old link itself, so the
+// new one can only ever go to the account's own inbox. Someone who has never
+// signed in gets a login link that lasts as long as an invite; anyone else a
+// normal reset. Never says whether anything was sent (the response is the
+// same either way), and never sends twice inside RESEND_GAP_MS.
+async function resendFor({ pool, token, appUrl, findUser, sendMail }) {
+  const raw = String(token || '').trim();
+  if (!/^[a-f0-9]{16,128}$/i.test(raw)) return { ok: true, sent: false, reason: 'bad_token' };
+  const r = (await pool.query(`SELECT email FROM password_resets WHERE token_hash = $1 LIMIT 1`, [hashToken(raw)])).rows[0];
+  if (!r || !r.email) return { ok: true, sent: false, reason: 'unknown_token' };
+  const email = normEmail(r.email);
+  const recent = (await pool.query(`SELECT 1 FROM password_resets WHERE LOWER(TRIM(email)) = $1 AND created_at > NOW() - ($2 || ' milliseconds')::interval LIMIT 1`,
+    [email, String(RESEND_GAP_MS)])).rowCount;
+  if (recent) return { ok: true, sent: false, reason: 'just_sent' };
+  const user = await findUser(email);
+  if (!user) return { ok: true, sent: false, reason: 'no_account' };
+  const firstTime = !user.last_login;
+  const ttlMs = firstTime ? agentInviteTtlMs() : DEFAULT_TTL_MS;
+  const { token: fresh } = await issueResetToken(pool, { email, ttlMs });
+  const url = resetUrl(appUrl, fresh);
+  const mail = firstTime ? renderLoginEmail(url, ttlMs) : renderResetEmail(url, ttlMs);
+  try {
+    await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+  } catch (e) {
+    console.error(`[reset-resend] SEND FAILED for ${email}: ${e.message}`);
+    return { ok: true, sent: false, reason: 'send_failed' };
+  }
+  return { ok: true, sent: true, firstTime, ttlMs };
 }
 
 // ── COMPLETE ────────────────────────────────────────────────────────────────
@@ -211,6 +279,6 @@ async function endOtherSessions(pool, userId) {
 
 module.exports = { landingFor, UNIVERSITY_ROLES,
   normEmail, hashToken, issueResetToken, requestReset, completeReset, endOtherSessions,
-  renderResetEmail, resetUrl,
-  DEFAULT_TTL_MS, ONBOARDING_TTL_MS, MIN_PASSWORD_LENGTH,
+  renderResetEmail, resetUrl, renderLoginEmail, expiryWords, linkStatus, resendFor, agentInviteTtlMs,
+  DEFAULT_TTL_MS, ONBOARDING_TTL_MS, AGENT_INVITE_TTL_MS, RESEND_GAP_MS, MIN_PASSWORD_LENGTH,
 };

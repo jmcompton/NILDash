@@ -1021,7 +1021,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   const _wasDormant = (() => {
     try { return ['agent', 'admin'].includes(user.role) && !!require('./jobs/outreachQueue').inactiveSkip(user); } catch (_) { return false; }
   })();
-  store.pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]).catch(() => {});
+  // first_login_at: the onboarding funnel's "first login" (services/onboardingFunnel).
+  store.pool.query('UPDATE users SET last_login = NOW(), first_login_at = COALESCE(first_login_at, NOW()) WHERE id = $1', [user.id]).catch(() => {});
   // The cards that waited for them start their seven days now.
   if (_wasDormant) require('./jobs/outreachQueue').restartCardClock(store.pool, user.id).catch((e) => console.error('[queue/resume] clock:', e.message));
   if (_wasDormant && OQfillOnDemandEnabled()) {
@@ -2129,7 +2130,7 @@ app.get('/api/agent/signature', requireAuth, async (req, res) => {
   try {
     const SIG = require('./services/signature');
     const r = await store.pool.query(
-      'SELECT name, signature_text, scheduling_url FROM users WHERE id = $1', [req.session.userId]);
+      'SELECT name, signature_text, scheduling_url, sign_first_name FROM users WHERE id = $1', [req.session.userId]);
     const u = r.rows[0] || {};
     const sig = SIG.signatureOf(u);
     res.json({
@@ -2139,6 +2140,7 @@ app.get('/api/agent/signature', requireAuth, async (req, res) => {
       // rather than describe it.
       previewText: SIG.renderText(sig), previewHtml: SIG.renderHtml(sig),
       agentName: u.name || null,
+      signFirstName: u.sign_first_name || '',
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2168,6 +2170,28 @@ app.post('/api/agent/signature', requireAuth, async (req, res) => {
     console.error('[agent/signature]', e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── THE FIRST SESSION (services/agentSetup, AGENT_SETUP_ON) ─────────────
+// Where the agent is in the three required steps. The page asks on every
+// boot; off, required is always false.
+app.get('/api/agent/setup', requireAuth, async (req, res) => {
+  try { res.json(await require('./services/agentSetup').state(store.pool, req.session.userId)); }
+  catch (e) { console.error('[agent/setup]', e.message); res.json({ on: false, required: false, why: 'could not read the setup state' }); }
+});
+
+// ── FIRST NAME FOR SIGN-OFFS (Settings, every agent) ─────────────────────
+// Kept exactly as typed: "JohnMark" stays "JohnMark". Empty clears it (stored
+// as '' so the one-time default is not put back). The cold agent signs with
+// the admin's (services/coldAgent, COLD_AGENT_REACH_ON).
+app.post('/api/agent/sign-first-name', requireAuth, async (req, res) => {
+  try {
+    const raw = String((req.body && req.body.signFirstName) || '');
+    const v = require('./services/coldAgent').cleanSignName(raw);
+    if (raw.trim() && !v) return res.status(400).json({ error: 'Use letters only, as you want it written (for example JohnMark).' });
+    await store.pool.query(`UPDATE users SET sign_first_name = $2, updated_at = NOW() WHERE id = $1`, [req.session.userId, v]);
+    res.json({ ok: true, signFirstName: v });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── THE AGENT'S BUSINESS ADDRESS (services/canSpam.senderAddress) ────────
@@ -4924,12 +4948,41 @@ app.post('/api/auth/reset-password', resetLimiter, async (req, res) => {
       if (err) { console.error('[reset-password] session:', err.message); return res.json({ ok: true, role: land.role }); }
       req.session.userId = land.userId;
       req.session.role = land.role;
-      store.pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [land.userId]).catch(() => {});
+      store.pool.query('UPDATE users SET last_login = NOW(), first_login_at = COALESCE(first_login_at, NOW()) WHERE id = $1', [land.userId]).catch(() => {});
       req.session.save(() => res.json({ ok: true, role: land.role, signedIn: true, redirect: land.redirect }));
     });
   } catch (e) {
     console.error('[reset-password] failed:', e.message);
     res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// ── NO DEAD ENDS (AGENT_SETUP_ON) ───────────────────────────────────────────
+// The reset page asks first whether its link still works; one that expired or
+// was used shows a single button, "Send me a new link", which emails a fresh
+// one to the address the old link belonged to (services/passwordReset
+// .resendFor). Off: on:false, and the page behaves as it always did.
+app.get('/api/auth/reset-status', resetLimiter, async (req, res) => {
+  try {
+    if (process.env.AGENT_SETUP_ON !== '1') return res.json({ on: false });
+    const st = await pwReset.linkStatus(store.pool, req.query.token);
+    res.json({ on: true, state: st.state });
+  } catch (e) { res.json({ on: false }); }
+});
+app.post('/api/auth/reset-resend', resetLimiter, async (req, res) => {
+  if (process.env.AGENT_SETUP_ON !== '1') return res.status(404).json({ error: 'Not available' });
+  try {
+    const out = await pwReset.resendFor({
+      pool: store.pool, token: req.body && req.body.token, appUrl: process.env.APP_URL,
+      findUser: (norm) => store.getUserByEmail(norm),
+      sendMail: (m) => resend.emails.send({ from: 'NILDash <noreply@mynildash.com>', ...m }),
+    });
+    // The outcome is for the log; the page always says the same thing.
+    console.log(`[reset-resend] ${out.sent ? 'sent' : 'not sent'}${out.reason ? ` (${out.reason})` : ''}`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[reset-resend] unexpected:', e.message);
+    res.json({ ok: true });
   }
 });
 
@@ -5666,9 +5719,11 @@ app.post('/api/admin/create-comped-agent', async (req, res) => {
     await store.pool.query('UPDATE users SET comped=TRUE, password_reset_required=TRUE WHERE id=$1', [id]);
 
     // Set-password link, reusing the password reset token flow (7 day window so
-    // onboarding is not rushed). Issued through the service so the token is
+    // onboarding is not rushed; 30 under AGENT_SETUP_ON, passwordReset
+    // .agentInviteTtlMs). Issued through the service so the token is
     // hashed at rest like every other one -- the reset route only matches hashes.
-    const { token } = await pwReset.issueResetToken(store.pool, { email, ttlMs: pwReset.ONBOARDING_TTL_MS });
+    const inviteTtl = pwReset.agentInviteTtlMs();
+    const { token } = await pwReset.issueResetToken(store.pool, { email, ttlMs: inviteTtl });
     const resetUrl = pwReset.resetUrl(process.env.APP_URL, token);
 
     // Best-effort welcome email. If email is not configured or fails, the admin
@@ -5686,14 +5741,16 @@ app.post('/api/admin/create-comped-agent', async (req, res) => {
           '<p>Your NILDash agent account is set up with full, complimentary access. No credit card is needed.</p>' +
           '<p>Set your password to log in:</p>' +
           '<a href="' + resetUrl + '" style="display:inline-block;margin:20px 0;padding:12px 24px;background:#C8F135;color:#000;text-decoration:none;border-radius:40px;font-weight:700">Set your password</a>' +
-          '<p style="color:#666;font-size:12px">This link expires in 7 days. After that, use "Forgot password" at ' + (process.env.APP_URL || 'https://mynildash.com') + '.</p>' +
+          (process.env.AGENT_SETUP_ON === '1'
+            ? '<p style="color:#666;font-size:12px">This link lasts ' + pwReset.expiryWords(inviteTtl) + '. If it has run out, open it anyway and press "Send me a new link".</p>'
+            : '<p style="color:#666;font-size:12px">This link expires in 7 days. After that, use "Forgot password" at ' + (process.env.APP_URL || 'https://mynildash.com') + '.</p>') +
           '</div>'
       });
       emailed = true;
     } catch (e) { console.error('[create-comped-agent] email failed (link still returned):', e.message); }
 
     console.log('[admin] created comped agent', id, email, 'emailed=' + emailed);
-    res.json({ ok: true, userId: id, name, email, resetUrl, emailed });
+    res.json({ ok: true, userId: id, name, email, resetUrl, emailed, expiresInDays: Math.round(inviteTtl / 86400000) });
   } catch (e) { console.error('[create-comped-agent]', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -15186,9 +15243,20 @@ app.patch('/api/athlete-messages/:id/read', requireAuth, async (req, res) => {
 // screen; signed out, the sign-in page first, then back here.
 app.get('/reconnect-mailbox', (req, res) => {
   const p = req.query.provider === 'gmail' ? 'gmail' : 'outlook';
-  if (!req.session || !req.session.userId) return res.redirect('/?next=' + encodeURIComponent('/reconnect-mailbox?provider=' + p));
-  res.redirect(`/api/email/oauth/${p}?returnTo=${encodeURIComponent('/')}`);
+  // back=setup: from the connect page or the first-session setup. The return
+  // path carries a # so the page sees the "connected" marker (routes/email
+  // withMarker puts it in the hash only when the path has one).
+  const back = req.query.back === 'setup' ? 'setup' : null;
+  const self = '/reconnect-mailbox?provider=' + p + (back ? '&back=setup' : '');
+  if (!req.session || !req.session.userId) return res.redirect('/?next=' + encodeURIComponent(self));
+  res.redirect(`/api/email/oauth/${p}?returnTo=${encodeURIComponent(back ? '/#setup' : '/')}`);
 });
+
+// ── CONNECT YOUR EMAIL: ONE PAGE, TWO BUTTONS ──────────────────────────────
+// The link the cold agent's "connect your mailbox" email carries
+// (services/coldAgent.mailboxLink). Gmail or Outlook; each signs in first if
+// needed, then goes straight to the provider and back to the setup.
+app.get('/connect-mailbox', (req, res) => res.sendFile(path.join(__dirname, '../public/connect-mailbox.html')));
 
 // All email routes isolated in server/routes/email.js — no existing logic touched.
 const emailRoutes = require('./routes/email');

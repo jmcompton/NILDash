@@ -4395,6 +4395,17 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
     </div>
 
+    <!-- ══ FIRST NAME FOR SIGN-OFFS — exactly as typed, capitals and all
+         ("JohnMark" stays "JohnMark"). POST /api/agent/sign-first-name. ══ -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <label class="form-label-sm" for="sign-first-name" style="font-size:13px;font-weight:700;color:var(--text)">First name for sign-offs</label>
+      <div style="font-size:11px;color:var(--muted);margin:4px 0 10px">How your first name is written when we sign an email for you, capitals included: JohnMark stays JohnMark.</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="sign-first-name" class="input-sm" maxlength="40" placeholder="JohnMark" style="flex:1;min-width:160px;max-width:280px">
+        <button class="run-btn" style="padding:8px 18px" onclick="saveSignFirstName()">Save</button>
+        <span id="sign-first-status" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+    </div>
     <!-- ══ SIGNATURE — the only part of an outbound message that is the same
          every time. Set once here, appended to every pitch. Deliberately NOT
          written by the model: a signature that varies is a signature nobody
@@ -5581,7 +5592,7 @@ async function doLogin() {
     if (data.role === 'university' || data.role === 'university_admin') { window.location.assign('/university'); return; }
     // Signed in from a reconnect link (services/mailboxNotice): back to it.
     const _next = new URLSearchParams(window.location.search).get('next') || '';
-    if (/^\/reconnect-mailbox\?provider=(gmail|outlook)$/.test(_next)) { window.location.assign(_next); return; }
+    if (/^\/reconnect-mailbox\?provider=(gmail|outlook)(&back=setup)?$/.test(_next)) { window.location.assign(_next); return; }
     currentUser = data;
     bootApp();
   } catch(e) { err.textContent = 'Connection error. Is the server running?'; }
@@ -6081,7 +6092,16 @@ async function bootApp() {
   document.getElementById('appScreen').classList.add('visible');
   document.body.classList.add('app-active'); // shows the mobile topbar (gated in CSS)
   document.getElementById('userName').textContent = currentUser.name || (currentUser.email || '').split('@')[0] || 'Agent';
-  if (currentUser.role === 'agent' || currentUser.role === 'admin') setTimeout(promptBusinessAddress, 400);
+  // THE FIRST SESSION (public/agent-setup.js, services/agentSetup;
+  // AGENT_SETUP_ON). Asked before anything else is decided: when the switch is
+  // on it replaces the old wizard and the assistant's takeover of Home, and an
+  // agent who still needs it gets the three steps instead of the address banner.
+  let _setup = null;
+  if (currentUser.role === 'agent') {
+    try { _setup = await fetch(`${API_BASE}/api/agent/setup`).then((r) => r.json()); } catch (e) { _setup = null; }
+  }
+  window.__agentSetup = _setup;
+  if ((currentUser.role === 'agent' || currentUser.role === 'admin') && !(_setup && _setup.required)) setTimeout(promptBusinessAddress, 400);
   setTimeout(loadHomeIgLine, 700);   // Home is the first view: its Instagram line loads here too
   try {
     const subBtn = document.getElementById('agentSubscribeBtn');
@@ -6104,8 +6124,10 @@ async function bootApp() {
   // place of the empty dashboard, until their first athlete exists (assistant.js,
   // services/assistantOnboarding). athleteCount rides on /api/auth/me so the
   // decision is made before anything is drawn. Once they have one, never again.
-  try { if (window.nilAssistant) window.nilAssistant.init({ autoOpen: currentUser.assistantAutoOpen,
-    onboarding: currentUser.role === 'agent' && currentUser.athleteCount === 0 }); }
+  // With the first-session setup on, the assistant never takes over Home: it
+  // is the athlete step's helper, opened from there as the usual side panel.
+  try { if (window.nilAssistant) window.nilAssistant.init({ autoOpen: currentUser.assistantAutoOpen && !(_setup && _setup.required),
+    onboarding: !(_setup && _setup.on) && currentUser.role === 'agent' && currentUser.athleteCount === 0 }); }
   catch (e) { console.warn('[assistant]', e.message); }
   document.getElementById('userRole').textContent = currentUser.role;
   (function(){
@@ -6189,6 +6211,8 @@ async function bootApp() {
     // Normal agent — land on Home
     showView('home', document.getElementById('homeNavBtn'));
     loadAgentHome();
+    // ...with the three setup steps in front of it until they are done.
+    if (_setup && _setup.required && window.agentSetup) window.agentSetup.start(_setup);
   }
 
   // Check AI status
@@ -15055,6 +15079,9 @@ window.addEventListener('DOMContentLoaded', checkSession);
       // Getting Started checklist (onboarding.js) is separate and unchanged.
       if (document.body.classList.contains('na-onboarding')) return;
       if (currentUser && currentUser.role === 'agent' && currentUser.athleteCount === 0) return;
+      // REPLACED by the first-session setup (public/agent-setup.js) when
+      // AGENT_SETUP_ON is set: this wizard is never shown to anyone then.
+      if (window.__agentSetup && window.__agentSetup.on) return;
       try {
         let state = null;
         try { state = await fetch(`${API_BASE}/api/onboarding`).then(r => r.ok ? r.json() : null); } catch(_) {}
@@ -15531,6 +15558,7 @@ function exportCommissionCSV() {
 <script src="/kit-builder.js"></script>
 <script src="/assistant.js"></script>
 <script src="/onboarding.js"></script>
+<script src="/agent-setup.js"></script>
 
 <!-- ── Athlete Emails Module ──────────────────────────────────────────────── -->
 <script>
@@ -18705,8 +18733,29 @@ async function loadSignature() {
     var d = await r.json();
     t.value = d.signatureText || '';
     u.value = d.schedulingUrl || '';
+    var fn = document.getElementById('sign-first-name');
+    if (fn) fn.value = d.signFirstName || '';
     renderSignaturePreview(d);
   } catch (e) { /* Settings still works without it */ }
+}
+
+async function saveSignFirstName() {
+  var i = document.getElementById('sign-first-name');
+  var st = document.getElementById('sign-first-status');
+  if (!i) return;
+  if (st) { st.style.color = 'var(--muted)'; st.textContent = 'Saving...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/sign-first-name', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ signFirstName: i.value }),
+    });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not save');
+    i.value = d.signFirstName || '';
+    if (st) { st.style.color = 'var(--accent)'; st.textContent = 'Saved.'; }
+  } catch (e) {
+    if (st) { st.style.color = '#f87171'; st.textContent = e.message; }
+  }
 }
 
 function renderSignaturePreview(d) {

@@ -37,6 +37,15 @@
       "local_date": "DATE",
       "sent": "INT DEFAULT 0"
     },
+    "agent_setup": {
+      "address_at": "TIMESTAMPTZ",
+      "athlete_at": "TIMESTAMPTZ",
+      "done_at": "TIMESTAMPTZ",
+      "mailbox_at": "TIMESTAMPTZ",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "user_id": "TEXT"
+    },
     "ai_call_ledger": {
       "agent_id": "TEXT",
       "at": "TIMESTAMPTZ DEFAULT NOW()",

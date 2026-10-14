@@ -127,7 +127,10 @@ const exists = (p) => fs.existsSync(REPO + p);
   // kit-builder.js is a library the media kit builder calls (no init of its
   // own), loaded once like the rest.
   ok('kit-builder.js is loaded exactly once', tags.filter((t) => t === '/kit-builder.js').length === 1);
-  ok('  and nothing else is loaded from a tag we did not count', tags.length === NINE.length + 1, tags);
+  // agent-setup.js draws the first-session setup (AGENT_SETUP_ON); it has no
+  // init of its own until bootApp hands it the state. Loaded once.
+  ok('agent-setup.js is loaded exactly once', tags.filter((t) => t === '/agent-setup.js').length === 1);
+  ok('  and nothing else is loaded from a tag we did not count', tags.length === NINE.length + 2, tags);
   // A second <script src> is one way to run an init twice; injecting one at
   // runtime is the other. Neither happens.
   ok('NO SCRIPT IS INJECTED AT RUNTIME, so the rendered DOM cannot grow a second copy',
