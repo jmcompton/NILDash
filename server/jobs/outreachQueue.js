@@ -2009,8 +2009,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // pattern, asks Hunter Email Finder, then tries the common formats,
       // each verified. Verification here is charged to the month's pool,
       // never to the per-athlete daily budget, so a budget is not the reason
-      // a card is a DM. EMAIL_FINDER_OFF=1 switches it off.
-      if (process.env.EMAIL_FINDER_OFF !== '1') {
+      // a card is a DM.
+      //
+      // OFF UNLESS EMAIL_FINDER_ON=1. Shipped dark: the night runs exactly as
+      // before until the dry run (admin script email-finder-dryrun, which
+      // calls the same finishing step whatever this says) has been read in
+      // production and the switch is set on purpose.
+      if (process.env.EMAIL_FINDER_ON === '1') {
         let _fin = null;
         try {
           _fin = await EF.finishLadder({ ladder, out, ig, brand: cand.brand_name, region: cand.region || region || '', place },

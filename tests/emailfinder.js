@@ -320,7 +320,11 @@ const run = (ladder, d, extra) => EF.finishLadder({ ladder, out: (extra && extra
     const iWriter = job.indexOf('\n        pitch = await PW.writePitch(', iQueued);
     ok(iName > 0 && iFin > iName && iQueued > iFin && iWriter > iQueued, 'after the bar and the name, before the card is queued and the writer runs', { iName, iFin, iQueued, iWriter });
     ok(/EF\.liveDeps\(pool, \{ agentId, athleteId, business: cand\.brand_name, source: 'nightly' \}\)/.test(job), 'credits are charged to the agent, the athlete and the business, tagged nightly');
-    ok(/process\.env\.EMAIL_FINDER_OFF !== '1'/.test(job), 'one switch turns it off');
+    ok(/if \(process\.env\.EMAIL_FINDER_ON === '1'\) \{/.test(job) && !/EMAIL_FINDER_OFF/.test(job), 'off by default: the night runs it only with EMAIL_FINDER_ON=1');
+    // The dry run calls the same step with no switch in the way.
+    const dry = require('fs').readFileSync(REPO + 'server/services/emailFinderDryRun.js', 'utf8');
+    const efSrc = require('fs').readFileSync(REPO + 'server/services/emailFinder.js', 'utf8');
+    ok(/EF\.finishLadder\(/.test(dry) && !/EMAIL_FINDER_ON/.test(dry) && !/EMAIL_FINDER_ON/.test(efSrc), 'the dry run works whether the switch is on or off');
     ok(/channel = Q\.channelFor\(ladder, ig\);\s*_why\.channel = channel;/.test(job.slice(iFin)), 'the channel the writer is told is the one after the finder');
     ok(/_why\.finder = \{/.test(job), 'what it did is recorded on the run row (email-finder-report reads it)');
     ok(/stage: 'verify', reason: why/.test(job), 'no way through after verification: the business is not a card');

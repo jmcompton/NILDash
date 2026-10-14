@@ -80,7 +80,7 @@ async function main() {
   ok('the name check sits after the bar and before the writer', /if \(NAME_REQUIRED && !Q\.greetNameOf\(ladder\)\)/.test(site) && site.indexOf('greetNameOf') < site.indexOf("result: 'queued'"));
   ok('  the last door runs under the contacts.finalname label with the metered search', /found = await finalNameFor\(cand\.brand_name/.test(site) && /async function finalNameFor[\s\S]*?site: 'contacts\.finalname'[\s\S]*?search: ai\.webSearchJson/.test(job));
   ok('  a person found joins the ladder and is recorded on the attempt', /ONS\.attachToLadder\(ladder, found\)/.test(site) && /_why\.finalName = \{ name: found\.name/.test(site));
-  ok('  nothing found: the business is skipped, logged, and counted as no_name', /result: 'no_name', reason/.test(site) && /skipped, no name found/.test(site) && /continue;\s*\}\s*\}\s*(\/\/[^\n]*\n\s*)*if \(process\.env\.EMAIL_FINDER_OFF !== '1'\)/.test(site)
+  ok('  nothing found: the business is skipped, logged, and counted as no_name', /result: 'no_name', reason/.test(site) && /skipped, no name found/.test(site) && /continue;\s*\}\s*\}\s*(\/\/[^\n]*\n\s*)*if \(process\.env\.EMAIL_FINDER_ON === '1'\)/.test(site)
     // The email finder (services/emailFinder) runs between the name and the card.
     && site.indexOf('EF.finishLadder(') < site.indexOf("tried.push({ brand: cand.brand_name, result: 'queued', reason: null, lane: cand.lane,"));
   ok('  the reason is one sentence, fixed', ONS.NO_NAME_REASON === 'no contact name found after all sources, including the final owner and marketing-director search');
