@@ -10,8 +10,10 @@
 //   1  signed up, never added an athlete
 //   2  has athletes, has not logged in for 14+ days
 //   3  has athletes, logged in, has never approved a card
-// NEVER: anyone who logged in this week; anyone paying (a live subscription);
-// comped accounts; our own people and test accounts; a suppressed address
+//   4  has athletes, logged in, never connected a mailbox (COLD_AGENT_REACH_ON)
+// NEVER: anyone who logged in this week (except group 4); anyone paying (a
+// live subscription); comped accounts (eligible under COLD_AGENT_REACH_ON when
+// they are not active); our own people and test accounts; a suppressed address
 // (bounce, unsubscribe, "no" -- the one list every sender checks); anyone at
 // 3 touches; anyone touched in the last 10 days; anyone who replied.
 //
@@ -55,6 +57,29 @@ const NO_DEMO_RETRY_DAYS = 14;
 // the partner code a signup came through. Not a setting: the admin's best
 // channel is never risked by a slider. Add people by hand with holdEmails.
 const HELD_PARTNERS = ['pliable'];
+
+// ── REACHING THE PEOPLE WHO NEED IT (COLD_AGENT_REACH_ON=1, off by default) ─
+// Off, every rule below is exactly as it was. On:
+//   - a comped account is eligible when it is not active: never logged in, no
+//     login in 14+ days, or logged in but never connected a mailbox;
+//   - someone who cannot log in is no longer held: the email carries a fresh
+//     personal set-password link, issued at send time and valid 30 days. The
+//     draft says where it goes (LOGIN_LINE); the link itself is never stored,
+//     shown on the admin page or logged -- it exists only in the sent email;
+//   - group 4, "logged in, has athletes, never connected a mailbox", is emailed
+//     even if they logged in this week, and the ask is to connect it;
+//   - the sign-off defaults to the admin's "First name for sign-offs".
+// Every other exclusion is unchanged.
+const REACH = () => process.env.COLD_AGENT_REACH_ON === '1';
+const LOGIN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const LOGIN_LINE = "Here's your login link, it's set up and waiting:";
+// Who is picked first when perRun is small. Group 4 needs the mailbox before a
+// card can go out, so it comes before "never approved a card".
+const GROUP_RANK = { 1: 1, 2: 2, 4: 3, 3: 4 };
+function appUrl() { return String(process.env.APP_URL || 'https://mynildash.com').replace(/\/+$/, ''); }
+// The connect step: one page, Gmail or Outlook, sign-in first if needed.
+function mailboxLink() { return appUrl() + '/connect-mailbox'; }
+const MAILBOX_ASK = () => `Connect your email (Gmail or Outlook) so these go out from you; it takes a minute: ${mailboxLink()}`;
 
 const DEFAULTS = {
   enabled: true,
@@ -101,6 +126,9 @@ function ensureTables(pool) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), decided_at TIMESTAMPTZ, sent_at TIMESTAMPTZ,
       send_claimed_at TIMESTAMPTZ, send_error TEXT, message_id TEXT)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS cold_drafts_user ON cold_drafts (user_id, created_at DESC)`);
+    // The draft says a login link goes in (LOGIN_LINE); the link itself is
+    // issued at send time and never stored here.
+    await pool.query(`ALTER TABLE cold_drafts ADD COLUMN IF NOT EXISTS login_link BOOLEAN NOT NULL DEFAULT FALSE`);
     // The businesses the demo night returned, one row each: what the email
     // is allowed to name.
     await pool.query(`CREATE TABLE IF NOT EXISTS cold_demo_cards (
@@ -165,7 +193,8 @@ async function candidates(pool) {
            -- (password_resets, the evidence the signup funnel reads).
            u.password_reset_required,
            pr.tokens AS reset_tokens, pr.any_used AS reset_used, pr.any_valid AS reset_valid, pr.last_expires AS reset_expires,
-           u.referred_by, rp.name AS referred_by_name
+           u.referred_by, rp.name AS referred_by_name,
+           EXISTS (SELECT 1 FROM email_accounts ea WHERE ea.user_id = u.id AND COALESCE(ea.status, 'active') <> 'disconnected' AND ea.can_send IS NOT FALSE) AS has_mailbox
       FROM users u LEFT JOIN cold_prospects cp ON cp.user_id = u.id
       LEFT JOIN (SELECT LOWER(TRIM(email)) AS email, COUNT(*)::int AS tokens, BOOL_OR(used) AS any_used,
                         BOOL_OR(NOT COALESCE(used, FALSE) AND expires_at > NOW()) AS any_valid, MAX(expires_at) AS last_expires
@@ -207,7 +236,8 @@ function loginProblem(u, now = new Date()) {
 }
 
 function heldFor(u, settings) {
-  const lp = loginProblem(u);
+  // Under COLD_AGENT_REACH_ON they are emailed instead, with a login link.
+  const lp = REACH() ? null : loginProblem(u);
   if (lp) return { why: 'cannot log in: ' + lp, hold: 'login', detail: lp };
   const partner = lc(u.referred_by);
   if (partner && HELD_PARTNERS.includes(partner)) {
@@ -217,9 +247,30 @@ function heldFor(u, settings) {
   return null;
 }
 
+// They have never signed in and never used a set-password link: the email
+// carries one (COLD_AGENT_REACH_ON). A link from an earlier touch that they
+// never used does not count -- the email they open has to work.
+function needsLoginLink(u) {
+  return REACH() && !u.last_login && !u.reset_used;
+}
+
+// COMPED, BUT NOT ACTIVE (COLD_AGENT_REACH_ON): never logged in, no login in
+// 14+ days, or logged in but never connected a mailbox. null = eligible.
+function compedActive(u, days) {
+  if (!u.last_login) return null;
+  if (days(u.last_login) >= DORMANT_DAYS) return null;
+  if (!u.has_mailbox) return null;
+  return 'comped and active (logged in within 14 days, mailbox connected)';
+}
+
 // The reason a person is NOT eligible, or null with their group. Pure, so the
 // rules are tested directly and an empty run can say exactly why.
 function classify(u, settings, now = new Date()) {
+  const c = classifyBase(u, settings, now);
+  if (c.group && needsLoginLink(u)) return { ...c, loginLink: true };
+  return c;
+}
+function classifyBase(u, settings, now = new Date()) {
   const t = now.getTime();
   const days = (d) => (d ? (t - new Date(d).getTime()) / 86400000 : Infinity);
   if (String(u.role || '') !== 'agent') return { why: 'not an agent account' };
@@ -227,7 +278,11 @@ function classify(u, settings, now = new Date()) {
   const internal = isInternal(u, settings);
   if (internal) return { why: internal };
   if (PAYING.has(lc(u.subscription_status))) return { why: 'paying customer' };
-  if (u.comped) return { why: 'comped (free access we gave them)' };
+  if (u.comped) {
+    if (!REACH()) return { why: 'comped (free access we gave them)' };
+    const active = compedActive(u, days);
+    if (active) return { why: active };
+  }
   if (u.suppressed) return { why: 'suppressed (bounced, unsubscribed or said no)' };
   if (u.prospect_status && u.prospect_status !== 'open') return { why: `stopped: ${u.stop_reason || u.prospect_status}` };
   // ── HELD FOR THE ADMIN ──────────────────────────────────────────────────
@@ -238,6 +293,12 @@ function classify(u, settings, now = new Date()) {
   if (days(u.last_touch_at) < GAP_DAYS) return { why: `contacted in the last ${GAP_DAYS} days` };
   if (u.open_draft) return { why: 'a draft is already waiting for approval' };
   if (days(u.last_no_demo_at) < NO_DEMO_RETRY_DAYS) return { why: `no demo on the last try (tried again after ${NO_DEMO_RETRY_DAYS} days)` };
+  // GROUP 4: signed in within 14 days, has athletes, no mailbox -- nothing they
+  // approve can go out. Emailed even if they signed in this week: they are the
+  // most likely to act on it.
+  if (REACH() && Number(u.athletes) > 0 && u.last_login && days(u.last_login) < DORMANT_DAYS && !u.has_mailbox) {
+    return { group: 4, why: `has ${u.athletes} athlete${Number(u.athletes) === 1 ? '' : 's'}, logged in, never connected a mailbox` };
+  }
   if (days(u.last_login) < ACTIVE_DAYS) return { why: 'logged in this week' };
   if (Number(u.athletes) === 0) return { group: 1, why: 'signed up, never added an athlete' };
   if (days(u.last_login) >= DORMANT_DAYS) return { group: 2, why: `has ${u.athletes} athlete${u.athletes === 1 ? '' : 's'}, has not logged in for 14+ days` };
@@ -253,13 +314,13 @@ async function pick(pool, { limit, now, settings, onlyIds } = {}) {
   const picked = [], skipped = {}, held = [];
   for (const u of rows) {
     const c = classify(u, s, now);
-    if (c.group) { picked.push({ ...u, group: c.group, groupWhy: c.why }); continue; }
+    if (c.group) { picked.push({ ...u, group: c.group, groupWhy: c.why, loginLink: !!c.loginLink }); continue; }
     // Counted by kind, not by each person's own sentence.
     const key = c.hold === 'login' ? 'cannot log in' : c.hold ? 'held for you (' + (c.hold === 'referral' ? c.detail + "'s referrals" : 'hold list') + ')' : c.why;
     skipped[key] = (skipped[key] || 0) + 1;
     if (c.hold) held.push({ id: u.id, name: u.name, email: u.email, hold: c.hold, why: c.why, athletes: Number(u.athletes) || 0, signedUp: u.created_at });
   }
-  picked.sort((a, b) => (a.group - b.group) || (new Date(a.created_at) - new Date(b.created_at)));
+  picked.sort((a, b) => ((GROUP_RANK[a.group] || 9) - (GROUP_RANK[b.group] || 9)) || (new Date(a.created_at) - new Date(b.created_at)));
   const n = Number.isFinite(limit) ? limit : s.perRun;
   return { picked: picked.slice(0, n), eligible: picked.length, skipped, held };
 }
@@ -427,13 +488,21 @@ function checkEmail(subject, body, names, research) {
   return problems;
 }
 
+// The sign-off name as typed: letters, spaces, apostrophes, dots and hyphens.
+// Case is kept ("JohnMark"); it is never lowercased or re-capitalised.
+function cleanSignName(x) {
+  return String(x || '').replace(/[^A-Za-z .'-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
 function firstName(full) {
   const f = String(full || '').trim().split(/\s+/)[0] || '';
   return /^[A-Za-z][A-Za-z'.-]{1,}$/.test(f) ? f.charAt(0).toUpperCase() + f.slice(1) : null;
 }
 
 function bizLine(c) {
-  const who = [c.contactName, c.contactTitle].filter(Boolean).join(', ');
+  // The title as shown: "Owner (per news)" reads "Owner" in the email
+  // (services/cardTitle, CARD_RULES_ON); cold_demo_cards keeps the note.
+  const who = [c.contactName, require('./cardTitle').displayTitle(c.contactTitle)].filter(Boolean).join(', ');
   return `- ${c.brandName}: ${who}`;
 }
 
@@ -447,7 +516,9 @@ function senderBlock(senderFull) { return `${senderFull}\nNILDash`; }
 // The fallback, and the shape the writer is held to: them first (the firm
 // fact, only if research found one), then what the night found, one line on
 // what it is, one small ask, a full name.
-function templateEmail({ u, subject: subj, cards, senderFull, touchNo, research, now }) {
+// ask: the one ask, when a group has its own (group 4: connect the mailbox).
+// loginLine: the line the send-time login link follows (COLD_AGENT_REACH_ON).
+function templateEmail({ u, subject: subj, cards, senderFull, touchNo, research, now, ask, loginLine }) {
   const first = firstName(u.name);
   const n = cards.length;
   const word = ['No', 'One', 'Two', 'Three', 'Four', 'Five'][n] || String(n);
@@ -460,30 +531,42 @@ function templateEmail({ u, subject: subj, cards, senderFull, touchNo, research,
   lines.push(`Here's what our agent turned up ${whenRan(now)}${touchNo > 1 ? ' on another market' : ''} for ${forWhom}. ${word} local businesses, each with a named person and a way to reach them:`, '');
   lines.push(...cards.map(bizLine), '');
   lines.push('That runs every night for every athlete on a roster, and it is waiting in the morning.', '');
-  lines.push(Number(u.athletes) > 0
+  lines.push(ask || (Number(u.athletes) > 0
     ? "Log in to see yours, or send me the rest of your roster and I'll load them in myself today."
-    : "Send me your roster and I'll load them in myself today.");
+    : "Send me your roster and I'll load them in myself today."));
+  if (loginLine) lines.push('', LOGIN_LINE);
   lines.push('', senderBlock(senderFull));
   const subject = subj.name ? `${n} businesses for ${subj.name}` : `${n} businesses near ${subj.school}`;
   return { subject, body: lines.join('\n') };
 }
 
+// What a group's email must carry word for word: its own ask (with the link),
+// and the line the login link follows.
+function missingRequired(body, ctx) {
+  const b = String(body || '');
+  const out = [];
+  if (ctx && ctx.ask && !b.includes(ctx.ask)) out.push('leaves out the ask this group needs: ' + ctx.ask);
+  if (ctx && ctx.loginLine && !b.includes(LOGIN_LINE)) out.push('leaves out the line the login link goes under');
+  return out;
+}
+
 async function writeEmail(u, ctx, deps = {}) {
-  const { cards, subject: subj, research: found, touchNo, senderFull } = ctx;
+  const { cards, subject: subj, research: found, touchNo, senderFull, ask, loginLine } = ctx;
   const names = cards.map((c) => c.brandName);
   const R = found || {};
+  const check = (sj, bd) => checkEmail(sj, bd, names, R).concat(missingRequired(bd, ctx));
   if (deps.write) {
     const w = await deps.write(u, ctx);
-    return { ...w, problems: checkEmail(w.subject, w.body, names, R), by: 'injected' };
+    return { ...w, problems: check(w.subject, w.body), by: 'injected' };
   }
-  const base = templateEmail({ u, subject: subj, cards, senderFull, touchNo, research: R });
+  const base = templateEmail({ u, subject: subj, cards, senderFull, touchNo, research: R, ask, loginLine });
   try {
     const ai = require('../ai');
     const scanMeter = require('../scanMeter');
     const facts = {
       to: { firstName: firstName(u.name), firm: R.agency || u.agency_name || null, firmFact: R.firmFact || null, recent: R.recent || null },
       athlete: { name: subj.name, school: subj.school, sport: subj.sport, whose: subj.kind },
-      businesses: cards.map((c) => ({ name: c.brandName, person: c.contactName, title: c.contactTitle || null, why: c.why || null })),
+      businesses: cards.map((c) => ({ name: c.brandName, person: c.contactName, title: require('./cardTitle').displayTitle(c.contactTitle) || null, why: c.why || null })),
       hasAthletesOnFile: Number(u.athletes) > 0, touchNo, ranWhen: whenRan(), signOff: senderBlock(senderFull),
     };
     const prompt = `Write a short email from ${senderFull} at NILDash to one of our account holders. ${facts.ranWhen === 'this morning' ? 'This morning' : 'Today'} our agent ran a real market for an athlete and found the businesses below.
@@ -493,8 +576,8 @@ Shape, in this order:
 2. ${facts.to.firmFact ? 'One or two short sentences built on firmFact, in your own words, keeping its specifics (numbers, sport, level). That is the opening: them, not us.' : 'No opening line about them: there is no fact to use. Go straight to the businesses.'}
 3. One sentence: what our agent turned up ${facts.ranWhen} and for whom, then the businesses, one per line starting "- " as "Business: Person, Title".
 4. One sentence: it runs every night for every athlete on a roster and is waiting in the morning.
-5. One small ask: ${facts.hasAthletesOnFile ? 'log in to see theirs, or send the rest of the roster and he will load them himself today' : 'send their roster and he will load them himself today'}.
-6. The sign-off exactly: ${JSON.stringify(facts.signOff)}
+5. One small ask: ${ask ? 'exactly this sentence, word for word: ' + JSON.stringify(ask) : facts.hasAthletesOnFile ? 'log in to see theirs, or send the rest of the roster and he will load them himself today' : 'send their roster and he will load them himself today'}.
+${loginLine ? `5b. Then exactly this line on its own, word for word: ${JSON.stringify(LOGIN_LINE)}\n` : ''}6. The sign-off exactly: ${JSON.stringify(facts.signOff)}
 Rules: under 120 words. Every line says something specific or it is cut; no pleasantries and no filler sentences ("worth a conversation", "real people in your region"). Never say how long it has been or anything about their usage. Never say last night. No marketing language.
 Return ONLY JSON: {"subject":"under 8 words, names the athlete or the school","body":"the email text with \\n line breaks"}`;
     const raw = await scanMeter.label({ site: 'cold-agent.write', agentId: SANDBOX_AGENT, brand: u.email },
@@ -502,26 +585,29 @@ Return ONLY JSON: {"subject":"under 8 words, names the athlete or the school","b
     const m = String(raw || '').match(/\{[\s\S]*\}/);
     const j = m ? JSON.parse(m[0]) : null;
     if (j && j.subject && j.body) {
-      const problems = checkEmail(j.subject, j.body, names, R);
+      const problems = check(j.subject, j.body);
       if (!problems.length) return { subject: String(j.subject).trim(), body: String(j.body).trim(), problems: [], by: 'writer' };
-      return { ...base, problems: checkEmail(base.subject, base.body, names, R), by: 'template', writerProblems: problems };
+      return { ...base, problems: check(base.subject, base.body), by: 'template', writerProblems: problems };
     }
   } catch (e) {
-    return { ...base, problems: checkEmail(base.subject, base.body, names, R), by: 'template', writerError: String(e.message || e).slice(0, 200) };
+    return { ...base, problems: check(base.subject, base.body), by: 'template', writerError: String(e.message || e).slice(0, 200) };
   }
-  return { ...base, problems: checkEmail(base.subject, base.body, names, R), by: 'template' };
+  return { ...base, problems: check(base.subject, base.body), by: 'template' };
 }
 
 async function adminUser(pool) {
-  return (await pool.query(`SELECT id, name, email, signature_text, scheduling_url FROM users WHERE LOWER(email) = $1 LIMIT 1`, [adminEmail()])).rows[0] || null;
+  return (await pool.query(`SELECT id, name, email, signature_text, scheduling_url, sign_first_name FROM users WHERE LOWER(email) = $1 LIMIT 1`, [adminEmail()])).rows[0] || null;
 }
 
 // ── ONE PERSON ─────────────────────────────────────────────────────────────
 async function prepare(pool, u, { runId, deps = {} } = {}) {
   const admin = await adminUser(pool);
   const settings = await getSettings(pool);
-  // A FULL NAME, so a person who signed up months ago knows who is writing.
-  const senderFull = deps.senderFull || settings.signName || String((admin && admin.name) || '').trim() || 'John Compton';
+  // The "Sign as" box on the page wins. Under COLD_AGENT_REACH_ON the default
+  // is the admin's "First name for sign-offs" from Settings, as typed; off, the
+  // admin account's full name, as before.
+  const signFirst = REACH() && admin ? cleanSignName(admin.sign_first_name) : '';
+  const senderFull = deps.senderFull || settings.signName || signFirst || String((admin && admin.name) || '').trim() || 'John Compton';
   const senderFirst = firstName(senderFull) || 'John';
   const found = await research(u, deps);
   const subj = await demoSubject(pool, u, found);
@@ -547,16 +633,18 @@ async function prepare(pool, u, { runId, deps = {} } = {}) {
     return noDemo(`the demo night for ${subj.name || subj.school} found ${cards.length} business${cards.length === 1 ? '' : 'es'} with a named person and a way to reach them, out of ${demo.tried || 0} tried (an email needs ${MIN_DEMO_CARDS})`, demoInfo, cards);
   }
   const touchNo = Number(u.touches || 0) + 1;
-  const mail = await writeEmail(u, { cards, subject: subj, research: found, touchNo, senderFirst, senderFull }, deps);
+  const ask = REACH() && u.group === 4 ? MAILBOX_ASK() : null;
+  const loginLine = !!u.loginLink;
+  const mail = await writeEmail(u, { cards, subject: subj, research: found, touchNo, senderFirst, senderFull, ask, loginLine }, deps);
   if (mail.problems && mail.problems.length) return { ok: false, why: 'the email failed its own checks: ' + mail.problems.join('; ') };
   const id = 'cold_' + crypto.randomBytes(8).toString('hex');
   await pool.query(
-    `INSERT INTO cold_drafts (id, run_id, user_id, email, name, grp, why, research, demo, subject, body_text, touch_no, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending')`,
+    `INSERT INTO cold_drafts (id, run_id, user_id, email, name, grp, why, research, demo, subject, body_text, touch_no, status, login_link)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13)`,
     [id, runId || null, u.id, lc(u.email), u.name || null, u.group, u.groupWhy, JSON.stringify(found || {}),
       JSON.stringify({ athlete: { name: subj.name, school: subj.school, sport: subj.sport, kind: subj.kind }, demoAthleteId: demo.demoAthleteId,
         tried: demo.tried, ms: demo.ms, writtenBy: mail.by, writerProblems: mail.writerProblems || null }),
-      mail.subject, mail.body, touchNo]);
+      mail.subject, mail.body, touchNo, loginLine]);
   for (const c of cards) await saveDemoCard(pool, id, runId, demo.demoAthleteId, c);
   return { ok: true, draftId: id, cards: cards.length };
 }
@@ -671,8 +759,32 @@ async function approve(pool, draftId, { subject, body } = {}, deps = {}) {
 
 function textToHtml(t) {
   const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // A link on its own (the login link, the connect-your-mailbox link) is
+  // clickable, not only text a mail client may or may not turn into one.
+  const linkify = (h) => h.replace(/https:\/\/[^\s<]+/g, (u) => `<a href="${u}">${u}</a>`);
   return String(t || '').replace(/\r\n/g, '\n').split(/\n\s*\n+/).map((p) => p.trim()).filter(Boolean)
-    .map((p) => '<p>' + esc(p).replace(/\n/g, '<br>') + '</p>').join('');
+    .map((p) => '<p>' + linkify(esc(p)).replace(/\n/g, '<br>') + '</p>').join('');
+}
+
+// ── THE LOGIN LINK, AT SEND TIME ONLY ──────────────────────────────────────
+// The URL goes on the line after LOGIN_LINE, or -- if the admin's edit took
+// the line out -- the line and the URL go in before the sign-off. Never
+// written back to the draft.
+function withLoginLink(text, url) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  const want = LOGIN_LINE.replace(/[:.]$/, '');
+  const i = lines.findIndex((l) => l.trim().replace(/[:.]$/, '') === want);
+  if (i > -1) { lines[i] = LOGIN_LINE; lines.splice(i + 1, 0, url); return lines.join('\n'); }
+  const paras = lines.join('\n').split(/\n\s*\n/);
+  const at = Math.max(0, paras.length - 1);
+  paras.splice(at, 0, LOGIN_LINE + '\n' + url);
+  return paras.join('\n\n');
+}
+// They signed in after the draft was written: no link, and no line about one.
+function withoutLoginLine(text) {
+  const want = LOGIN_LINE.replace(/[:.]$/, '');
+  return String(text || '').replace(/\r\n/g, '\n').split('\n').filter((l) => l.trim().replace(/[:.]$/, '') !== want).join('\n')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 const FOOTER_WHY = 'You received this because you have a NILDash account.';
@@ -680,24 +792,46 @@ const FOOTER_WHY = 'You received this because you have a NILDash account.';
 async function sendOne(pool, d, deps = {}) {
   const sendRules = require('./sendRules');
   const canSpam = require('./canSpam');
+  const PR = require('./passwordReset');
+  // A login link issued for this send and then not sent is retired, so it is
+  // never a live way in that nobody received -- and the next draft gets one.
+  let issued = null;
+  const retire = async () => {
+    if (!issued) return;
+    await pool.query(`UPDATE password_resets SET used = TRUE WHERE token_hash = $1`, [PR.hashToken(issued.token)]).catch(() => {});
+    issued = null;
+  };
   const fail = async (msg) => {
+    await retire();
     await pool.query(`UPDATE cold_drafts SET status = 'failed', send_error = $2, send_claimed_at = NULL WHERE id = $1`, [d.id, String(msg).slice(0, 300)]);
     return { ok: false, error: msg };
+  };
+  // The text that goes out. With a login link: issued now, valid 30 days, in
+  // the email and nowhere else (not the draft, not the page, not a log line).
+  const bodyForSend = async () => {
+    if (!d.login_link) return d.body_text;
+    const still = (await pool.query(`SELECT last_login FROM users WHERE id = $1`, [d.user_id])).rows[0];
+    if (still && still.last_login) return withoutLoginLine(d.body_text);
+    issued = await PR.issueResetToken(pool, { email: d.email, ttlMs: LOGIN_TTL_MS });
+    return withLoginLink(d.body_text, PR.resetUrl(appUrl(), issued.token));
   };
   try {
     const rule = await sendRules.check(pool, { email: d.email, subject: d.subject, system: SYSTEM, refId: d.id });
     if (!rule.ok) return fail('Not sent: ' + rule.reason);
     const admin = await adminUser(pool);
-    const html = canSpam.appendHtml(textToHtml(d.body_text), d.email, { why: FOOTER_WHY });
     let res;
-    if (deps.send) res = await deps.send({ to: d.email, subject: d.subject, html, text: d.body_text });
-    else {
+    if (deps.send) {
+      const text = await bodyForSend();
+      const html = canSpam.appendHtml(textToHtml(text), d.email, { why: FOOTER_WHY });
+      res = await deps.send({ to: d.email, subject: d.subject, html, text });
+    } else {
       if (!admin) return fail('No admin account to send from (ADMIN_EMAIL).');
       const emailStore = require('./emailStore');
       const acct = emailStore.pickSendingAccount(await emailStore.getEmailAccountsByUser(admin.id));
       if (!acct) return fail('Your mailbox is not connected: connect it in Settings so these go out from you.');
       const full = await emailStore.getEmailAccountWithTokens(acct.id);
       const provider = require('../jobs/closerRelease').providerFor(full);
+      const html = canSpam.appendHtml(textToHtml(await bodyForSend()), d.email, { why: FOOTER_WHY });
       const args = { to: [d.email], subject: d.subject, bodyHtml: html, attachments: [], replyTo: null, messageId: null };
       res = full.provider === 'imap' && !require('./providers/fakeSend').active()
         ? await provider.sendEmail(full.email_address, full.accessToken, full.refreshToken ? JSON.parse(full.refreshToken) : {}, args)
@@ -716,7 +850,8 @@ async function sendOne(pool, d, deps = {}) {
   } catch (e) {
     const sendGuard = require('./sendGuard');
     const c = sendGuard.classifyError(e);
-    return fail('Send failed: ' + (c.kind === 'other' ? (e.message || 'unknown') : c.detail));
+    // Never the body in an error: with a login link it holds the link.
+    return fail('Send failed: ' + String(c.kind === 'other' ? (e.message || 'unknown') : c.detail).replace(/https?:\/\/\S*token=\S+/g, '[link removed]'));
   }
 }
 
@@ -807,4 +942,6 @@ module.exports = {
   listDrafts, listRuns, centralNow, dueAt, pastDeadline, tick, start,
   SANDBOX_AGENT, SYSTEM, MAX_TOUCHES, GAP_DAYS, ACTIVE_DAYS, DORMANT_DAYS, PAYING, DEFAULTS, INTERNAL_NAMES, FOOTER_WHY,
   loginProblem, heldFor, MIN_DEMO_CARDS, NO_DEMO_RETRY_DAYS, HELD_PARTNERS, usesFirmFact, numbersIn, whenRan, BANNED, textToHtml, adminEmail,
+  needsLoginLink, compedActive, withLoginLink, withoutLoginLine, missingRequired, cleanSignName, mailboxLink, MAILBOX_ASK,
+  LOGIN_LINE, LOGIN_TTL_MS, GROUP_RANK, REACH,
 };

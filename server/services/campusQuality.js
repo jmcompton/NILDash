@@ -84,10 +84,15 @@ function bucketOf(row) {
 // driver, sponsorship partner" at Freeway Insurance) is the Phil Knight
 // error again. So is a creative or front-line role.
 const REFUSED_TITLE = /\b(athlete|driver|player|spokes(person|man|woman)|brand ambassador|ambassador|sponsorship partner|sponsored|endorser|endorsement|influencer|videographer|photographer|content creator|creator|editor|designer|intern|barista|cashier|server|bartender|associate|technician|stylist|receptionist|front desk)\b/i;
+// CARD_RULES_ON: videographer, photographer and designer move to the shared
+// check (ownerNameSearch.crewProblem), which lets "Owner & Photographer"
+// through and refuses "staff", "employee" and "team member" as well -- the
+// same rule on agent and university cards.
+const REFUSED_TITLE_SHARED = /\b(athlete|driver|player|spokes(person|man|woman)|brand ambassador|ambassador|sponsorship partner|sponsored|endorser|endorsement|influencer|content creator|creator|editor|intern|barista|cashier|server|bartender|associate|technician|stylist|receptionist|front desk)\b/i;
 function refusedTitle(title) {
   const t = String(title || '');
   if (!t) return null;
-  const m = t.match(REFUSED_TITLE);
+  const m = t.match(process.env.CARD_RULES_ON === '1' ? REFUSED_TITLE_SHARED : REFUSED_TITLE);
   if (m) return `"${t}" is not a decision maker (${m[0].toLowerCase()})`;
   try { const tp = require('./ownerNameSearch').titleProblem(t); if (tp) return tp; } catch (_) { /* no helper */ }
   return null;

@@ -91,11 +91,30 @@ function exactNameChain(name, opts) {
   return null;
 }
 
+// ── ADDED FROM THE CYPRESS REVIEW (2026-10-14) ─────────────────────────────
+// DSW's parent, Designer Brands, and DXL / Destination XL. Matched as whole
+// words ("dxl" is not a substring anywhere it should not be). Applied only
+// while CARD_RULES_ON is set, so merging changes nothing until the switch does.
+const CARD_RULES_CHAINS = ['designer brands', 'destination xl', 'dxl'];
+function _cardRulesOn() { return process.env.CARD_RULES_ON === '1'; }
+// opts.start: only at the start of the name (evidence for isChainLocation).
+function cardRulesChain(name, opts) {
+  if (!_cardRulesOn() && !(opts && opts.always)) return null;
+  const n = String(name || '').toLowerCase().replace(/[’']/g, "'").trim();
+  for (const c of CARD_RULES_CHAINS) {
+    const re = opts && opts.start
+      ? new RegExp('^(the\\s+)?' + c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b')
+      : new RegExp('(^|[^a-z0-9])' + c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z0-9]|$)');
+    if (re.test(n)) return c;
+  }
+  return null;
+}
+
 // True when a business name contains any national-chain marker.
 function isNationalChain(name) {
   const n = String(name || '').toLowerCase();
   if (!n) return false;
-  return _lc.some((c) => n.indexOf(c) !== -1) || !!exactNameChain(name);
+  return _lc.some((c) => n.indexOf(c) !== -1) || !!exactNameChain(name) || !!cardRulesChain(name);
 }
 
 // ── IS THIS BUSINESS ACTUALLY A CHAIN OR FRANCHISE LOCATION? ───────────────
@@ -127,7 +146,7 @@ function isChainLocation(name, opts) {
   for (const c of _starts) {
     if (new RegExp('^(the\\s+)?' + _esc(c) + "('s|s)?\\b").test(n)) return c;
   }
-  return exactNameChain(name, opts);
+  return exactNameChain(name, opts) || cardRulesChain(name, { ...(opts || {}), start: true });
 }
 
-module.exports = { NATIONAL_CHAINS, isNationalChain, isChainLocation, exactNameChain, EXACT_NAME_CHAINS, FRANCHISORS };
+module.exports = { NATIONAL_CHAINS, isNationalChain, isChainLocation, exactNameChain, EXACT_NAME_CHAINS, FRANCHISORS, CARD_RULES_CHAINS, cardRulesChain };

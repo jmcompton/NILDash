@@ -1824,6 +1824,22 @@ async function init() {
   }
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS business_address_at TIMESTAMPTZ`)
     .catch((e) => console.error('[init] users.business_address_at:', e.message));
+  // THE FIRST NAME FOR SIGN-OFFS, exactly as the agent types it ("JohnMark":
+  // never lowercased, never re-capitalised). Settings, for every agent. The
+  // cold agent signs with the admin's (services/coldAgent, COLD_AGENT_REACH_ON).
+  // The admin's is set once; '' means cleared on purpose and is left alone.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sign_first_name TEXT`)
+    .catch((e) => console.error('[init] users.sign_first_name:', e.message));
+  await pool.query(`UPDATE users SET sign_first_name = 'JohnMark' WHERE LOWER(TRIM(email)) = $1 AND sign_first_name IS NULL`,
+    [require('./services/coldAgent').adminEmail()]).catch((e) => console.error('[init] admin sign_first_name:', e.message));
+  // THE ONBOARDING FUNNEL (services/onboardingFunnel). last_login moves on
+  // every sign-in; this is the first one. When each set-password link was
+  // issued: older links stay NULL rather than being dated today.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_login_at TIMESTAMPTZ`)
+    .catch((e) => console.error('[init] users.first_login_at:', e.message));
+  await pool.query(`ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ`)
+    .catch((e) => console.error('[init] password_resets.created_at:', e.message));
+  await pool.query(`ALTER TABLE password_resets ALTER COLUMN created_at SET DEFAULT NOW()`).catch(() => {});
   console.log('[init] users signature columns ready');
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_enabled BOOLEAN DEFAULT TRUE`).catch(() => {});
   // One row per agent per local day. The double-send guard: recurring work runs

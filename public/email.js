@@ -515,10 +515,13 @@ function handleEmailOAuthRedirect() {
     const provider = hash.match(/emailConnected=([^&]+)/)?.[1];
     if (provider) {
       emailToast(`${provider} connected! Syncing your inbox…`);
+      const fromSetup = /^#setup\b/.test(hash);
       // Clean hash
       history.replaceState(null, '', window.location.pathname);
-      // Switch to settings integrations tab
-      if (typeof showView === 'function') showView('settings', null);
+      // Back from the first-session setup: the setup takes the next step.
+      // Otherwise switch to settings integrations tab, as before.
+      if (fromSetup && typeof window.agentSetupRefresh === 'function') window.agentSetupRefresh();
+      else if (typeof showView === 'function') showView('settings', null);
     }
   }
   if (hash.includes('emailError=')) {

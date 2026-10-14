@@ -119,7 +119,7 @@ function present(r) {
     brand: r.brand, category: r.category, kind: r.primary_type_label || r.category || null, address: r.address,
     miles: r.distance_m === null || r.distance_m === undefined ? null : Math.round((Number(r.distance_m) / MI) * 10) / 10,
     rating: r.rating === null ? null : Number(r.rating), reviews: r.user_ratings_total,
-    contact: { name: r.contact_name || null, title: r.contact_title || null, email: r.email || null, sharedEmail: r.generic_email || null, phone: r.phone || null,
+    contact: { name: r.contact_name || null, title: require('./cardTitle').displayTitle(r.contact_title) || null, email: r.email || null, sharedEmail: r.generic_email || null, phone: r.phone || null,
       instagram: r.instagram || null, website: r.website || null, facebook: r.facebook || null, linkedin: r.linkedin || null,
       reachable: !!r.reachable, status: r.contact_status },
     athleteHistory: r.athlete_history === true, athleteHistoryNote: r.athlete_history_note || null,
@@ -272,6 +272,9 @@ function cardForPortal(d, universityName) {
   const channel = d.channel || CHN.campusChannelOf({ email: d.contact_email, phone: d.contact_phone, instagram: d.contact_instagram,
     programUrl: d.lane === 'social' ? d.program_url : null, social: d.lane === 'social', brand: d.lane === 'social' ? null : d.brand_name });
   const out = { ...d, channel, sendable: channel === 'email' };
+  // The title as shown: a source note like "(state filing)" is dropped on the
+  // card (services/cardTitle, CARD_RULES_ON); university_drafts keeps it.
+  if (d.contact_title) out.contact_title = require('./cardTitle').displayTitle(d.contact_title);
   if (channel === 'call' && !d.talking_points) {
     out.best_time = d.best_time || CHN.bestTime(String(d.why || '') + ' ' + String(d.brand_name || ''));
     out.talking_points = CHN.talkingPoints({ who: `${universityName} Athletics`, subject: d.team_label ? `the ${d.team_label} program` : 'the athletics program',
