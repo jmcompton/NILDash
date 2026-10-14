@@ -217,7 +217,8 @@ function card(d) {
       : '<h3>The email</h3>')
     + (d.status === 'no_demo' ? '' : pending
       ? '<input type="text" id="sub-' + esc(d.id) + '" value="' + esc(d.subject) + '" aria-label="Subject"><textarea id="body-' + esc(d.id) + '" aria-label="Email" style="margin-top:8px">' + esc(d.body_text) + '</textarea>'
-        + '<div class="small" style="margin-top:4px">Sent from your mailbox, with the unsubscribe footer added.</div>'
+        + '<div class="small" style="margin-top:4px">Sent from your mailbox, with the unsubscribe footer added.'
+        + (d.login_link ? ' A personal login link goes under &ldquo;Here&rsquo;s your login link&rdquo; when it is sent: created at that moment, valid 30 days, never shown here.' : '') + '</div>'
       : '<div class="meta"><b>' + esc(d.subject) + '</b></div><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.5;margin-top:6px">' + esc(d.body_text) + '</pre>')
     + (d.send_error ? '<div class="err">' + esc(d.send_error) + '</div>' : '') + (d.status_note && d.status !== 'sent' && d.status !== 'no_demo' ? '<div class="err">' + esc(d.status_note) + '</div>' : '')
     + '<div class="actions">'
