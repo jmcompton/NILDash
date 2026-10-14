@@ -11,8 +11,8 @@ const path = require('path');
 const REPO = path.join(__dirname, '..') + path.sep;
 const R = require(REPO + 'server/services/emailFinderReport.js');
 
-let F = 0;
-const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) F++; };
+let F = 0, N = 0;
+const ok = (c, m) => { N++; console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) F++; };
 const card = { channel: 'dm', lane: 'local', email_note: null, email_tier: null };
 const steps = (s1, s2, s3) => [`1:website, named person=${s1}`, `2:Hunter=${s2}`, `3:web search=${s3 || 'skipped'}`];
 const tried = (why, extra) => ({ brand: 'Joe\'s Pizza', result: 'queued', why: { website: 'https://www.joespizza.com', ladderEmails: [], refusedKinds: [], addressSteps: steps('miss (fetched-empty)', 'miss (no surname match and no pattern)'), ...why }, ...(extra || {}) });
@@ -51,5 +51,5 @@ ok(R.REASONS.every((k) => text.includes(k)), 'every reason is printed');
 ok(/per-athlete daily verify budget hit: cannot cause/.test(text) && /catch-all: cannot cause/.test(text), 'the two impossible reasons say why');
 ok(/10 of the 1800/.test(text) && /searches: 400 used of 500/.test(text), 'Hunter: our count and the plan');
 
-console.log(F ? `\n${F} FAILED` : '\nALL PASS');
+console.log(`\n${N - F}/${N} passed`);
 process.exit(F ? 1 : 0);
