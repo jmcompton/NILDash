@@ -44,6 +44,20 @@ const LANE = 'hunter';
 // Default 1,800 leaves 200 in reserve, which is what a manual backfill or a
 // debugging session costs. Set HUNTER_MONTHLY_BUDGET to change it.
 const MONTHLY_BUDGET = parseInt(process.env.HUNTER_MONTHLY_BUDGET, 10) || 1800;
+// ── TWO POOLS, NOT ONE ──────────────────────────────────────────────────────
+// The plan bills SEARCHES (Domain Search and Email Finder: 2,000 a month) and
+// VERIFICATIONS (the mailbox check: 4,000 a month) separately. Counting both
+// against the 1,800 search ceiling meant that verifying the cards we send
+// would starve the lookups that find the addresses -- so every email card
+// could not be verified without breaking the ladder. Each pool now has its own
+// ceiling, each with a 10% reserve for manual runs.
+//   HUNTER_MONTHLY_BUDGET          searches, default 1,800 of 2,000
+//   HUNTER_MONTHLY_VERIFY_BUDGET   verifications, default 3,600 of 4,000
+const VERIFY_MONTHLY_BUDGET = parseInt(process.env.HUNTER_MONTHLY_VERIFY_BUDGET, 10) || 3600;
+// Both Hunter search products write a row per credit spent: Domain Search to
+// lane 'hunter' (by domain), Email Finder to lane 'hunterfinder' (by name and
+// domain). The search ceiling counts both.
+const SEARCH_LANES = ['hunter', 'hunterfinder'];
 // A COUNT per lookup would be silly on the scan path; 60s of staleness cannot
 // overshoot by more than the concurrency.
 let _budgetCache = { at: 0, used: 0 };
@@ -67,8 +81,8 @@ async function creditsThisMonth(force) {
         try {
           const r = await store.pool.query(
             `SELECT COUNT(*)::int AS n FROM brand_evidence_cache
-              WHERE lane = $1 AND outcome <> 'NO_KEY'
-                AND refreshed_at >= date_trunc('month', NOW())`, [LANE]);
+              WHERE lane = ANY($1::text[]) AND outcome <> 'NO_KEY'
+                AND refreshed_at >= date_trunc('month', NOW())`, [SEARCH_LANES]);
           _budgetCache = { at: Date.now(), used: r.rows[0].n };
         } catch (e) {
           console.error('[hunter] budget read failed: ' + e.message);
@@ -168,18 +182,23 @@ async function reserveCredit(force) {
   // not for what they return.
   await Promise.all([creditsThisMonth(force), verifyCreditsThisMonth(force)]);
   // ── NO await, NO yield, FROM HERE TO THE ++ ──────────────────────────────
+  // SEARCHES ONLY. Verifications are their own pool (VERIFY_MONTHLY_BUDGET);
+  // they are reported alongside, never subtracted from this one.
   const ladder = _budgetCache.used;
   const verify = _verifyCache.used;
-  const used = ladder + verify + _reserved;
+  const used = ladder + _reserved;
   if (used >= MONTHLY_BUDGET) return { ok: false, used, ladder, verify };
   _reserved++;
   return { ok: true, used, ladder, verify };
 }
 
+// used / budget / remaining are SEARCHES. verifyUsed / verifyBudget /
+// verifyRemaining are the verification pool.
 async function budgetStatus() {
   const a = await accountUsedThisMonth(true);
-  return { used: a.used, ladderUsed: a.ladder, verifyUsed: a.verify,
-    budget: MONTHLY_BUDGET, remaining: Math.max(0, MONTHLY_BUDGET - a.used) };
+  return { used: a.ladder, ladderUsed: a.ladder, verifyUsed: a.verify,
+    budget: MONTHLY_BUDGET, remaining: Math.max(0, MONTHLY_BUDGET - a.ladder),
+    verifyBudget: VERIFY_MONTHLY_BUDGET, verifyRemaining: Math.max(0, VERIFY_MONTHLY_BUDGET - a.verify) };
 }
 
 // Outcomes written to brand_evidence_cache.outcome. OK and NONE are answers;
@@ -372,6 +391,11 @@ async function findDomainEmails(domain, opts = {}) {
 // search path refuses: a run that quietly costs money is the problem this
 // budget exists to prevent.
 const VERIFY_URL = 'https://api.hunter.io/v2/email-verifier';
+// A mailbox check waits on the business's own mail server, which can take far
+// longer than a search: Hunter allows it about 20 seconds. Cut off at the
+// search timeout, a slow server read as "could not check", and the card lost
+// its email for our impatience.
+const VERIFY_TIMEOUT_MS = parseInt(process.env.HUNTER_VERIFY_TIMEOUT_MS, 10) || 22000;
 
 async function verifyEmail(email) {
   const key = process.env.HUNTER_API_KEY;
@@ -380,18 +404,24 @@ async function verifyEmail(email) {
   if (!addr) return { ok: false, why: 'no address' };
 
   const b = await budgetStatus().catch(() => null);
-  if (b && b.remaining <= 0) {
-    console.warn(`[hunter-verify] refused: monthly budget spent (${b.used}/${b.budget}`
-      + ` — ${b.ladderUsed} domain searches, ${b.verifyUsed} verifications)`);
-    return { ok: false, why: `this month's Hunter budget is spent (${b.used}/${b.budget})` };
+  if (b && b.verifyRemaining <= 0) {
+    console.warn(`[hunter-verify] refused: monthly verification budget spent (${b.verifyUsed}/${b.verifyBudget})`);
+    require('./ourFault').record('hunter', `verification budget spent (${b.verifyUsed}/${b.verifyBudget})`, '@' + addr.split('@')[1]);
+    return { ok: false, why: `this month's Hunter verification budget is spent (${b.verifyUsed}/${b.verifyBudget})`, budget: true };
   }
 
   const url = `${VERIFY_URL}?email=${encodeURIComponent(addr)}&api_key=${encodeURIComponent(key)}`;
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    const t = setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS);
     const resp = await fetch(url, { signal: ctrl.signal });
     clearTimeout(t);
+    // 202: Hunter is still waiting on the mail server. Not a verdict; asked
+    // again next time (not cached, not a fault).
+    if (resp.status === 202) {
+      console.warn(`[hunter-verify] ${addr}: still verifying (202)`);
+      return { ok: false, why: 'Hunter is still verifying this address' };
+    }
     if (!resp.ok) {
       const why = resp.status === 401 || resp.status === 403 ? 'Hunter rejected the key'
         : resp.status === 429 ? 'Hunter rate limited or out of credits'
@@ -401,9 +431,13 @@ async function verifyEmail(email) {
       return { ok: false, why };
     }
     const j = await resp.json();
-    const status = j && j.data && j.data.status;
-    console.log(`[hunter-verify] ${addr} -> ${status || 'no status'}`);
-    return { ok: true, status: status || null, score: (j && j.data && j.data.score) || null };
+    const d = (j && j.data) || {};
+    const status = d.status;
+    console.log(`[hunter-verify] ${addr} -> ${status || 'no status'}${d.result ? ' (' + d.result + ')' : ''}`);
+    // `result` (deliverable / undeliverable / risky) is what tells a webmail
+    // address that Hunter could check apart from one it could not.
+    return { ok: true, status: status || null, result: d.result || null, score: d.score || null,
+      acceptAll: d.accept_all === true };
   } catch (e) {
     const why = (e && e.name === 'AbortError') ? 'Hunter timed out' : `Hunter call failed: ${e.message}`;
     console.warn(`[hunter-verify] ${addr}: ${why}`);
@@ -411,8 +445,90 @@ async function verifyEmail(email) {
   }
 }
 
+// ── EMAIL FINDER: ONE NAMED PERSON AT ONE DOMAIN ────────────────────────────
+// Domain Search lists who Hunter has seen at a domain. Email Finder asks for one
+// person by name: Hunter combines the domain's pattern with every source it has
+// for that name and returns its best address, with a score. A search credit,
+// reserved the same way Domain Search reserves one, and cached 30 days by name
+// and domain (lane 'hunterfinder') so the same owner costs one credit a month
+// however many athletes reach the business.
+//
+// What comes back is a CANDIDATE, never a finding: the caller verifies it
+// before it can be an email card (services/emailFinder).
+//   -> { email, score, sources, acceptAll, cached } | { email: null, ... } | { fault }
+const FINDER_URL = 'https://api.hunter.io/v2/email-finder';
+const FINDER_LANE = 'hunterfinder';
+
+async function findEmail(firstName, lastName, domain, opts = {}) {
+  const first = String(firstName || '').trim();
+  const last = String(lastName || '').trim();
+  const dom = String(domain || '').trim().toLowerCase().replace(/^www\./, '');
+  if (!first || !last || !dom) return { email: null, why: 'needs a first name, a last name and a domain' };
+  const key = `${first.toLowerCase()} ${last.toLowerCase()} @ ${dom}`;
+  const apiKey = process.env.HUNTER_API_KEY;
+  if (!apiKey) return { email: null, fault: { service: 'hunter', outcome: OUTCOME.NO_KEY, reason: 'HUNTER_API_KEY is not set' } };
+  if (_breaker && Date.now() < _breaker.until) {
+    return { email: null, fault: { service: 'hunter', outcome: _breaker.outcome, reason: _breaker.reason } };
+  }
+  if (!opts.force) {
+    try {
+      const c = await store.getBrandEvidence(key, FINDER_LANE, CACHE_DAYS);
+      if (c && c.evidence && ANSWERED.has(c.outcome)) return { ...c.evidence, cached: true };
+    } catch (_) { /* a cache problem never blocks the call */ }
+  }
+  const acct = await reserveCredit();
+  if (!acct.ok) {
+    console.warn(`[hunter-finder] ${key} SKIPPED: monthly search budget spent (${acct.used}/${MONTHLY_BUDGET})`);
+    require('./ourFault').record('hunter', `search budget spent (${acct.used}/${MONTHLY_BUDGET})`, '@' + dom);
+    return { email: null, budget: true, why: `this month's Hunter search budget is spent (${acct.used}/${MONTHLY_BUDGET})` };
+  }
+  const params = new URLSearchParams({ domain: dom, first_name: first, last_name: last, api_key: apiKey });
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  let resp;
+  try {
+    resp = await (opts.fetchImpl || fetch)(FINDER_URL + '?' + params.toString(), { signal: ctrl.signal });
+  } catch (e) {
+    clearTimeout(t);
+    const oc = e && (e.name === 'AbortError' || /abort/i.test(e.message || '')) ? OUTCOME.TIMEOUT : OUTCOME.ERROR;
+    return { email: null, ..._fault(dom, oc, 'email finder: ' + e.message) };
+  }
+  clearTimeout(t);
+  if (!resp.ok) {
+    // 404 is Hunter's "no address for this person", an answer, not a fault.
+    if (resp.status === 404) {
+      const ev = { email: null, score: null, sources: 0, acceptAll: null, status: 404 };
+      await _recordFinder(key, OUTCOME.NONE, ev);
+      return ev;
+    }
+    const oc = _outcomeForStatus(resp.status);
+    let detail = null;
+    try { const j = await resp.json(); detail = j && j.errors && j.errors[0] && j.errors[0].details; } catch (_) {}
+    require('./ourFault').providerError('hunter', { status: resp.status, message: detail || ('HTTP ' + resp.status) }, 'hunterLookup.findEmail');
+    return { email: null, ..._fault(dom, oc, 'email finder: ' + (detail || ('HTTP ' + resp.status))) };
+  }
+  let j;
+  try { j = await resp.json(); } catch (_) { return { email: null, ..._fault(dom, OUTCOME.ERROR, 'email finder: unreadable body') }; }
+  const d = (j && j.data) || {};
+  const ev = { email: d.email ? String(d.email).toLowerCase() : null, score: typeof d.score === 'number' ? d.score : null,
+    sources: Array.isArray(d.sources) ? d.sources.length : 0,
+    sourceUrl: (Array.isArray(d.sources) && d.sources[0] && d.sources[0].uri) || null,
+    acceptAll: d.accept_all === true ? true : (d.accept_all === false ? false : null),
+    hunterStatus: (d.verification && d.verification.status) || null, status: 200 };
+  console.log(`[hunter-finder] ${key} -> ${ev.email || 'none'}${ev.score != null ? ' score=' + ev.score : ''}`);
+  await _recordFinder(key, ev.email ? OUTCOME.OK : OUTCOME.NONE, ev);
+  return ev;
+}
+
+async function _recordFinder(key, outcome, evidence) {
+  try {
+    await store.saveBrandEvidence(key, FINDER_LANE, key, null, { ...evidence, outcome, at: new Date().toISOString() }, outcome, { confirmed: true });
+  } catch (e) { console.error('[hunter-finder] cache write failed ' + key + ': ' + e.message); }
+}
+
 module.exports = {
-  findDomainEmails, verifyEmail, VERIFY_URL, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
+  findDomainEmails, findEmail, FINDER_URL, FINDER_LANE, SEARCH_LANES, VERIFY_MONTHLY_BUDGET,
+  verifyEmail, VERIFY_URL, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
   creditsThisMonth, verifyCreditsThisMonth, accountUsedThisMonth, budgetStatus, MONTHLY_BUDGET,
   _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
   _resetBreaker: () => { _breaker = null; }, BREAKER_MIN,

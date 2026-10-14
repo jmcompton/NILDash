@@ -11,8 +11,8 @@ const path = require('path');
 const REPO = path.join(__dirname, '..') + path.sep;
 const R = require(REPO + 'server/services/emailFinderReport.js');
 
-let F = 0;
-const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) F++; };
+let F = 0, N = 0;
+const ok = (c, m) => { N++; console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) F++; };
 const card = { channel: 'dm', lane: 'local', email_note: null, email_tier: null };
 const steps = (s1, s2, s3) => [`1:website, named person=${s1}`, `2:Hunter=${s2}`, `3:web search=${s3 || 'skipped'}`];
 const tried = (why, extra) => ({ brand: 'Joe\'s Pizza', result: 'queued', why: { website: 'https://www.joespizza.com', ladderEmails: [], refusedKinds: [], addressSteps: steps('miss (fetched-empty)', 'miss (no surname match and no pattern)'), ...why }, ...(extra || {}) });
@@ -48,8 +48,17 @@ ok(R.classify(card, tried({})).site === 'fetched-empty', 'carries the site outco
 const text = R.format({ days: 7, cards: 3, mix: { dm: 2, email: 1 }, rows: [{ ...card, brand_name: 'Joe', night: '2026-10-13', agent_name: 'A', ...R.classify(card, null) }], budget: { used: 10, ladderUsed: 8, verifyUsed: 2, budget: 1800, remaining: 1790 } },
   { plan: 'Starter', resetDate: '2026-11-01', searches: { used: 400, available: 500 } });
 ok(R.REASONS.every((k) => text.includes(k)), 'every reason is printed');
-ok(/per-athlete daily verify budget hit: cannot cause/.test(text) && /catch-all: cannot cause/.test(text), 'the two impossible reasons say why');
+ok(/per-athlete daily verify budget hit: cannot cause/.test(text), 'the impossible reason says why');
+
+// After the email finder: its record on the card says why.
+const fin = (finder, verify) => tried({ finder: { before: 'dm', after: 'dm', verify: verify || null, finder } });
+is(R.classify(card, fin({ stop: 'catch-all domain, and no confirmed pattern built a passing address' })), 'verification said unknown / catch-all', 'finder: catch-all domain');
+is(R.classify(card, fin({ stop: 'verification could not run' })), 'verification could not run', 'finder: verification could not run');
+is(R.classify(card, fin({ stop: 'no format verified', steps: ['common format ({first}.{last}): tom.smith@x.com invalid'] })), 'every likely address tried, none verified', 'finder: every format invalid');
+is(R.classify(card, fin({ stop: "Domino's is a chain location and dominos.com is the chain's corporate domain" })), "a chain's corporate domain", 'finder: corporate domain');
+is(R.classify(card, fin({ stop: 'no website found' })), 'no website or domain found', 'finder: no website found');
+is(R.classify(card, fin(null, { email: 'tom@x.com', verdict: 'invalid', pass: false })), 'email found but verification said invalid', 'finder: the card\'s own address invalid');
 ok(/10 of the 1800/.test(text) && /searches: 400 used of 500/.test(text), 'Hunter: our count and the plan');
 
-console.log(F ? `\n${F} FAILED` : '\nALL PASS');
+console.log(`\n${N - F}/${N} passed`);
 process.exit(F ? 1 : 0);

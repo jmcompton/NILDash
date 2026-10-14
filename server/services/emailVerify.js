@@ -52,7 +52,7 @@ async function cached(pool, emails) {
   if (!list.length) return new Map();
   try {
     const rows = (await pool.query(
-      `SELECT email, result, detail, source FROM email_verification
+      `SELECT email, result, detail, source, status FROM email_verification
         WHERE email = ANY($1::text[])
           AND checked_at > NOW() - ($2 || ' days')::interval`,
       [list, String(CACHE_DAYS)])).rows;
@@ -63,16 +63,26 @@ async function cached(pool, emails) {
   }
 }
 
-async function record(pool, email, result, detail, source) {
+async function record(pool, email, result, detail, source, status) {
   try {
     await pool.query(
-      `INSERT INTO email_verification (email, result, detail, source, checked_at)
-       VALUES ($1,$2,$3,$4, NOW())
+      `INSERT INTO email_verification (email, result, detail, source, status, checked_at)
+       VALUES ($1,$2,$3,$4,$5, NOW())
        ON CONFLICT (email) DO UPDATE
          SET result = EXCLUDED.result, detail = EXCLUDED.detail,
-             source = EXCLUDED.source, checked_at = NOW()`,
-      [norm(email), result, detail || null, source || null]);
+             source = EXCLUDED.source, status = EXCLUDED.status, checked_at = NOW()`,
+      [norm(email), result, detail || null, source || null, status || null]);
   } catch (e) { console.error('[email-verify] write:', e.message); }
+}
+
+// Hunter's status for a stored verdict. Rows written before the status column
+// carry it only in the detail text ("the verifier says accept_all").
+function statusOf(row) {
+  if (!row) return null;
+  if (row.status) return String(row.status).toLowerCase();
+  const m = String(row.detail || '').match(/the verifier says ([a-z_]+)/i);
+  if (m) return m[1].toLowerCase();
+  return row.result === 'valid' ? 'valid' : row.result === 'invalid' && row.source === 'mx' ? 'no-mx' : null;
 }
 
 // ── Step 1: MX ──────────────────────────────────────────────────────────────
@@ -162,10 +172,16 @@ async function hasMx(domain, memo) {
 const HUNTER_INVALID = new Set(['invalid', 'disposable']);
 const HUNTER_VALID = new Set(['valid']);
 
-function mapHunter(status) {
+// `deliverability` is Hunter's `result` field. A webmail address (gmail,
+// yahoo) comes back status 'webmail'; when Hunter could still check the
+// mailbox it says deliverable, and that is a confirmed mailbox.
+function mapHunter(status, deliverability) {
   const s = String(status || '').trim().toLowerCase();
   if (HUNTER_INVALID.has(s)) return { result: 'invalid', detail: `the verifier says ${s}` };
   if (HUNTER_VALID.has(s)) return { result: 'valid', detail: 'the verifier confirmed the mailbox' };
+  if (s === 'webmail' && String(deliverability || '').toLowerCase() === 'deliverable') {
+    return { result: 'valid', detail: 'the verifier confirmed the mailbox (webmail, deliverable)' };
+  }
   // accept_all, webmail, unknown, and anything new Hunter adds later.
   return { result: 'unknown', detail: s ? `the verifier says ${s}` : 'the verifier could not say' };
 }
@@ -196,7 +212,7 @@ async function verifyMany(pool, emails, opts = {}) {
 
   const one = async (email) => {
     const hit = known.get(email);
-    if (hit) { out.set(email, { result: hit.result, detail: hit.detail, source: hit.source, cached: true }); return; }
+    if (hit) { out.set(email, { result: hit.result, detail: hit.detail, source: hit.source, status: statusOf(hit), cached: true }); return; }
 
     if (outOfTime()) {
       out.set(email, { result: 'unknown', detail: 'the check ran out of time', source: 'deadline' });
@@ -205,8 +221,8 @@ async function verifyMany(pool, emails, opts = {}) {
 
     const mx = await hasMx(domainOf(email), memo);
     if (mx.ok === false) {
-      await record(pool, email, 'invalid', mx.why, 'mx');
-      out.set(email, { result: 'invalid', detail: mx.why, source: 'mx' });
+      await record(pool, email, 'invalid', mx.why, 'mx', 'no-mx');
+      out.set(email, { result: 'invalid', detail: mx.why, source: 'mx', status: 'no-mx' });
       return;
     }
     if (mx.ok === null) {
@@ -251,12 +267,13 @@ async function verifyMany(pool, emails, opts = {}) {
     }
     if (!v || v.ok === false) {
       // The call failed, or a budget refused it. Not a verdict, not cached.
-      out.set(email, { result: 'unknown', detail: (v && v.why) || 'the verifier could not be reached', source: 'hunter' });
+      out.set(email, { result: 'unknown', detail: (v && v.why) || 'the verifier could not be reached', source: 'hunter', status: null, notRun: true, budget: !!(v && v.budget) });
       return;
     }
-    const m = mapHunter(v.status);
-    await record(pool, email, m.result, m.detail, 'hunter');
-    out.set(email, { ...m, source: 'hunter' });
+    const m = mapHunter(v.status, v.result);
+    const st = v.status ? String(v.status).toLowerCase() : null;
+    await record(pool, email, m.result, m.detail, 'hunter', st);
+    out.set(email, { ...m, source: 'hunter', status: st });
   };
 
   let next = 0;
@@ -276,4 +293,4 @@ async function verifyMany(pool, emails, opts = {}) {
   return out;
 }
 
-module.exports = { verifyMany, hasMx, mapHunter, domainOf, norm, CACHE_DAYS, _isNullMx: isNullMx };
+module.exports = { verifyMany, hasMx, mapHunter, statusOf, cached, domainOf, norm, CACHE_DAYS, _isNullMx: isNullMx };

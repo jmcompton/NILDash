@@ -606,6 +606,9 @@ function emailRowsOf(ladder) {
       // address stays on the row so the card can say why; it never becomes
       // the channel. An unchecked or unverified address (ok null) still is.
       if (r.emailCheck && r.emailCheck.ok === false) continue;
+      // FAILED THE MAILBOX CHECK (services/emailFinder, rule 4): invalid, a
+      // catch-all guess, or a check that could not run. Never the email.
+      if (r.emailVerify && r.emailVerify.pass === false) continue;
       // A GENERIC MAILBOX IS NOT OFFERED EITHER. See genericRowsOf.
       const emailTier = _tierOf(r, ladder);
       if (emailTier === 4) continue;
@@ -628,16 +631,18 @@ function emailNoteOf(ladder) {
   for (const t of ((ladder && ladder.tiers) || [])) {
     for (const r of (t.rows || [])) {
       if (!r || !r.email) continue;
-      all.push({ email: String(r.email).trim().toLowerCase(), kind: r.emailKind || 'published', check: r.emailCheck || null });
+      all.push({ email: String(r.email).trim().toLowerCase(), kind: r.emailKind || 'published', check: r.emailCheck || null, verify: r.emailVerify || null });
     }
   }
   if (!all.length) return null;
   const offered = emailRowsOf(ladder)[0] || null;
   if (offered) {
     const c = offered.row.emailCheck;
+    const vf = offered.row.emailVerify;
     // An implicit-MX address (RFC 5321: no MX record, but the domain resolves)
     // carries its line word for word from services/emailValidation.
-    const head = c && c.ok === true ? `Email checked: ${offered.email} (${c.reason})`
+    const head = vf && vf.pass ? `Email verified: ${offered.email} (${vf.verdict === 'catch-all' ? 'catch-all domain, built from its confirmed pattern' : 'the verifier confirmed the mailbox'})`
+      : c && c.ok === true ? `Email checked: ${offered.email} (${c.reason})`
       : c && c.ok === null && c.note ? c.note
       : c && c.ok === null ? `Email unverified: ${offered.email} (${c.reason})`
       : `Email: ${offered.email} (not checked)`;
@@ -646,7 +651,8 @@ function emailNoteOf(ladder) {
   }
   const parts = [];
   for (const a of all) {
-    if (a.check && a.check.ok === false) parts.push(`${a.email} is undeliverable (${a.check.reason})`);
+    if (a.verify && a.verify.pass === false) parts.push(`${a.email} did not pass verification (${a.verify.why || a.verify.verdict})`);
+    else if (a.check && a.check.ok === false) parts.push(`${a.email} is undeliverable (${a.check.reason})`);
     else if (ET.isGeneric(a.email)) parts.push(`${a.email} is a generic mailbox (Tier 4), and we only email a named person`);
     else if (!SENDABLE_EMAIL_KINDS.has(a.kind)) parts.push(`${a.email} was not published by a source we send to (${a.kind})`);
     else parts.push(`${a.email} could not be used`);

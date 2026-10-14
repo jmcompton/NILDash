@@ -55,6 +55,7 @@ const { resolveSchool } = require('../services/schoolResolver');
 // The last door for a contact name (see the local write site).
 const ONS = require('../services/ownerNameSearch');
 const EVAL = require('../services/emailValidation');
+const EF = require('../services/emailFinder');
 // ALWAYS ON. OUTREACH_NAME_REQUIRED=0 used to turn the requirement off, and a
 // card that greets nobody is not a card whatever the environment says. The
 // constant stays so the pre-writer name search keeps its shape; insertCard
@@ -1998,6 +1999,55 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           console.log(`[queue] athlete=${athleteId} "${cand.brand_name}": skipped, no name found (ladder empty; owner and marketing-director searches returned nothing)`);
           tried.push({ brand: cand.brand_name, result: 'no_name', reason, places: facts, risk: pre.risk, why: _why });
           continue;
+        }
+      }
+      // ── A VERIFIED ADDRESS FOR THE PERSON THE PITCH OPENS TO ───────────
+      // services/emailFinder. The business is already chosen and the person
+      // known; this decides which address reaches them. The card's address
+      // is verified (valid passes; catch-all only when built from a confirmed
+      // pattern); with no passing address, the finder reads the domain's
+      // pattern, asks Hunter Email Finder, then tries the common formats,
+      // each verified. Verification here is charged to the month's pool,
+      // never to the per-athlete daily budget, so a budget is not the reason
+      // a card is a DM.
+      //
+      // OFF UNLESS EMAIL_FINDER_ON=1. Shipped dark: the night runs exactly as
+      // before until the dry run (admin script email-finder-dryrun, which
+      // calls the same finishing step whatever this says) has been read in
+      // production and the switch is set on purpose.
+      if (process.env.EMAIL_FINDER_ON === '1') {
+        let _fin = null;
+        try {
+          _fin = await EF.finishLadder({ ladder, out, ig, brand: cand.brand_name, region: cand.region || region || '', place },
+            EF.liveDeps(pool, { agentId, athleteId, business: cand.brand_name, source: 'nightly' }));
+          _sw.lap('emailFinder');
+        } catch (e) {
+          say(`${cand.brand_name}: the email finder failed on our side (${e.message})`);
+          OF.record('email-finder', e.message, cand.brand_name);
+        }
+        if (_fin) {
+          const _was = channel;
+          channel = Q.channelFor(ladder, ig);
+          _why.channel = channel;
+          _why.emailRoute = Q.routeOf(ladder, ig);
+          _why.finder = { before: _fin.before, after: channel, verify: _fin.verify, website: _fin.website, finder: _fin.finder, credits: _fin.credits };
+          const _f = _fin.finder || {};
+          say(`${cand.brand_name}: email finder: ${_fin.verify ? `${_fin.verify.email} ${_fin.verify.verdict}${_fin.verify.pass ? ' (passes)' : ' (not used)'}; ` : ''}`
+            + (_f.email ? `found ${_f.email} by ${_f.how} (${_f.verdict})` : (_f.stop ? `no address: ${_f.stop}` : 'not needed'))
+            + `; channel ${_was} -> ${channel}`);
+          // A CARD NEEDS A WAY THROUGH. When the only way in was an address
+          // that did not pass, and there is no handle or number either, the
+          // business is not a card.
+          if (channel !== 'email') {
+            const _b2 = Q.passesBar(ladder, ig);
+            if (!_b2.ok) {
+              const why = 'the only address did not pass verification, and there is no phone or Instagram';
+              say(`${cand.brand_name}: skipped, ${why}`);
+              tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'verify', reason: why,
+                places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
+              continue;
+            }
+          }
         }
       }
       tried.push({ brand: cand.brand_name, result: 'queued', reason: null, lane: cand.lane,

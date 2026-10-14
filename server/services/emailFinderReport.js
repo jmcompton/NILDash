@@ -36,21 +36,24 @@
 //   Hunter search empty    Hunter answered: no address at the domain
 //   site scrape found nothing  the site was read (or could not be) and Hunter
 //                          was not the step that missed
-// Two of the asked-for reasons cannot be the cause on a nightly card, and the
+// One of the asked-for reasons cannot be the cause on a nightly card, and the
 // report says so rather than print a zero that reads as "measured": the
-// per-athlete verification budget and an unknown / catch-all verdict. No
-// mailbox verifier runs in the nightly fill (only an MX check), and the
-// per-athlete budget applies only to drafts opened on Home.
+// per-athlete verification budget, which applies only to drafts opened on
+// Home. Before the email finder shipped, no mailbox verifier ran at night, so
+// an unknown / catch-all verdict appears only on nights after it.
 
 const REASONS = [
   'never tried', 'timed out', 'no website or domain found', 'email found but verification said invalid',
   'rejected as a role address', 'rejected as domain mismatch', "an address was found, but not the named person's",
   'found by web search (a kind never sent to)', 'owner name missing so no pattern guess', 'Hunter monthly budget hit (inferred)',
   'Hunter not asked, with no record why', 'Hunter domain search empty', 'site scrape found nothing',
+  // Nights after the email finder shipped (services/emailFinder), read from
+  // the finder's own record on the card.
+  'verification said unknown / catch-all', 'verification could not run', 'every likely address tried, none verified',
+  "a chain's corporate domain",
 ];
 const NOT_POSSIBLE = {
-  'per-athlete daily verify budget hit': 'cannot cause a DM or call card: that budget applies only to drafts opened on Home, never to the overnight fill',
-  'verification said unknown / catch-all': 'cannot cause a DM or call card: the overnight fill runs no mailbox verifier (an MX check only), and an unverified address is still offered as email',
+  'per-athlete daily verify budget hit': 'cannot cause a DM or call card: that budget applies only to drafts opened on Home; the overnight fill verifies against the month\'s pool',
 };
 
 // "1:website, named person=miss (fetched-empty)" -> { n, label, state, detail }
@@ -86,6 +89,26 @@ function classify(card, tried, look = {}) {
 
   if (!tried) return out('never tried', card.lane === 'program' ? 'a program card: no address search is made for it' : 'no record of this business in the night\'s run (an on-demand fill, or the run record is missing)');
   if (!why) return out('never tried', 'the run recorded the card with no address search');
+  if (!steps.length && !why.finder) return out('never tried', 'the address ladder did not run for this business');
+  // ── AFTER THE EMAIL FINDER: ITS OWN RECORD SAYS WHY ───────────────────
+  const fin = why.finder;
+  if (fin) {
+    const ff = fin.finder || {};
+    const st = String(ff.stop || '');
+    if (/no website|no domain/.test(st)) return out('no website or domain found', st + (fin.website && fin.website.why ? `: ${fin.website.why}` : ''));
+    if (/corporate|chain/.test(st)) return out("a chain's corporate domain", st);
+    if (/could not run/.test(st)) return out('verification could not run', st);
+    if (/catch-all/.test(st)) return out('verification said unknown / catch-all', st);
+    if (/nobody named|no usable name/.test(st)) return out('owner name missing so no pattern guess', st);
+    if (/no format verified/.test(st)) return out('every likely address tried, none verified', (ff.steps || []).slice(0, 4).join('; '));
+    if (/greeting/.test(st)) return out("an address was found, but not the named person's", st);
+    if (fin.verify && !fin.verify.pass) {
+      const v = fin.verify.verdict;
+      if (v === 'invalid') return out('email found but verification said invalid', `${fin.verify.email}: ${fin.verify.why || v}`);
+      if (v === 'not-run') return out('verification could not run', `${fin.verify.email}: ${fin.verify.why || v}`);
+      return out('verification said unknown / catch-all', `${fin.verify.email}: ${fin.verify.why || v}`);
+    }
+  }
   if (!steps.length) return out('never tried', 'the address ladder did not run for this business');
   if (steps.some((s) => /TIMEOUT|timed out/i.test(s.detail)) || (host && look.hunterTimeouts && look.hunterTimeouts.has(host))) {
     return out('timed out', (steps.find((s) => /TIMEOUT|timed out/i.test(s.detail)) || {}).detail || 'Hunter timed out for this domain');
@@ -126,6 +149,7 @@ function classify(card, tried, look = {}) {
 async function gather(pool, { days = 7 } = {}) {
   const cards = (await pool.query(
     `SELECT q.id, q.agent_id, q.athlete_id, q.brand_name, q.brand_key, q.channel, q.lane, q.email_note, q.email_tier, q.created_at,
+            q.contact_name, q.contact_title, q.instagram, q.instagram_scope, q.phone,
             to_char((q.created_at AT TIME ZONE 'America/Chicago')::date, 'YYYY-MM-DD') AS night,
             date_trunc('month', q.created_at) = date_trunc('month', NOW()) AS "thisMonth", u.name AS agent_name
        FROM outreach_queue q LEFT JOIN users u ON u.id = q.agent_id
@@ -134,11 +158,26 @@ async function gather(pool, { days = 7 } = {}) {
     `SELECT agent_id, run_date, details FROM outreach_queue_runs WHERE run_date >= CURRENT_DATE - $1::int`, [days + 1])).rows;
   // agent|athlete|brand(lower) -> latest queued tried entry
   const triedOf = new Map();
+  // ── PER NIGHT: EMAIL CARDS WITH A VERIFIED ADDRESS FOR THE NAMED PERSON ──
+  // From the night's own record. A night before the email finder shipped has
+  // no `why.finder` on its cards, so its email cards read "not verified".
+  const nights = {};
   for (const r of runs) {
+    const night = r.run_date instanceof Date ? r.run_date.toISOString().slice(0, 10) : String(r.run_date).slice(0, 10);
     for (const d of (Array.isArray(r.details) ? r.details : [])) {
       for (const t of (d && Array.isArray(d.tried) ? d.tried : [])) {
         if (!t || t.result !== 'queued' || !t.brand) continue;
         triedOf.set(`${r.agent_id}|${d.athleteId}|${String(t.brand).toLowerCase()}`, t);
+        const n = (nights[night] = nights[night] || { cards: 0, emailVerified: 0, emailUnverified: 0, dm: 0, call: 0, other: 0, finderFound: 0, finderRan: 0 });
+        n.cards++;
+        const ch = t.why && t.why.channel;
+        const f = t.why && t.why.finder;
+        if (f) n.finderRan++;
+        if (f && f.finder && f.finder.email && ch === 'email') n.finderFound++;
+        if (ch === 'email') {
+          const ok = f && ((f.verify && f.verify.pass) || (f.finder && f.finder.email));
+          if (ok) n.emailVerified++; else n.emailUnverified++;
+        } else if (ch === 'dm') n.dm++; else if (ch === 'call') n.call++; else n.other++;
       }
     }
   }
@@ -168,7 +207,7 @@ async function gather(pool, { days = 7 } = {}) {
     return { ...c, ...classify(c, t, look) };
   });
   const mix = cards.reduce((o, c) => { o[c.channel] = (o[c.channel] || 0) + 1; return o; }, {});
-  return { days, cards: cards.length, mix, rows, budget };
+  return { days, cards: cards.length, mix, rows, budget, nights };
 }
 
 // Hunter's own account numbers (/v2/account: free to call).
@@ -208,6 +247,13 @@ function format(r, account) {
     else {
       L.push(`  Hunter's account: plan ${account.plan || '?'}, resets ${account.resetDate || '?'}`);
       for (const k of ['credits', 'searches', 'verifications']) if (account[k]) L.push(`    ${k}: ${account[k].used} used of ${account[k].available}`);
+    }
+  }
+  if (r.nights && Object.keys(r.nights).length) {
+    L.push('', 'BY NIGHT (from the run record): email cards with a verified address for the named person');
+    L.push('  night        cards  email-verified  email-unverified   dm  call  found-by-finder');
+    for (const [k, n] of Object.entries(r.nights).sort((a, b) => b[0].localeCompare(a[0]))) {
+      L.push(`  ${k}  ${String(n.cards).padStart(5)}  ${String(n.emailVerified).padStart(6)} (${pct(n.emailVerified, n.cards).padStart(4)})  ${String(n.emailUnverified).padStart(16)}  ${String(n.dm).padStart(3)}  ${String(n.call).padStart(4)}  ${String(n.finderFound).padStart(15)}${n.finderRan ? '' : '   (before the finder)'}`);
     }
   }
   L.push('', 'EXAMPLES (up to 5 per reason):');

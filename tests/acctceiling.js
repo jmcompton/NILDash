@@ -34,11 +34,17 @@ const out=[]; const check=(n,c,d)=>{out.push({n,ok:!!c});console.log((c?'  PASS 
   console.log('   account=' + VB.ACCOUNT_MONTHLY + '  verifyCap=' + VB.VERIFY_MONTHLY_CAP
     + '  ladderReserve=' + Math.round(VB.ACCOUNT_MONTHLY*VB.LADDER_RESERVE_PCT)
     + '  perAthleteDay=' + VB.PER_ATHLETE_DAY);
-  check('verification cannot claim the whole account',
+  // TWO POOLS. The plan bills 2,000 searches and 4,000 verifications a month
+  // separately (services/hunterLookup); verification's ceiling sits under its
+  // own pool and takes nothing from the searches that find addresses.
+  check('verification cannot claim its whole pool',
     VB.VERIFY_MONTHLY_CAP < VB.ACCOUNT_MONTHLY, VB.VERIFY_MONTHLY_CAP+'/'+VB.ACCOUNT_MONTHLY);
-  check('the ladder keeps a real reserve',
-    VB.ACCOUNT_MONTHLY - VB.VERIFY_MONTHLY_CAP >= 700,
+  check('a reserve under the verification plan for manual runs',
+    VB.ACCOUNT_MONTHLY - VB.VERIFY_MONTHLY_CAP >= 300,
     'reserve=' + (VB.ACCOUNT_MONTHLY - VB.VERIFY_MONTHLY_CAP));
+  check('the verification pool is the 4,000 plan, not the 2,000 search plan',
+    VB.ACCOUNT_MONTHLY === 4000 && VB.VERIFY_MONTHLY_CAP === require(ROOT + 'server/services/hunterLookup.js').VERIFY_MONTHLY_BUDGET,
+    VB.ACCOUNT_MONTHLY + ' / ' + VB.VERIFY_MONTHLY_CAP);
 
   console.log('\n2. A fresh month');
   await fill(0);
@@ -59,8 +65,8 @@ const out=[]; const check=(n,c,d)=>{out.push({n,ok:!!c});console.log((c?'  PASS 
   check('remaining is zero', a.remaining === 0, 'remaining='+a.remaining);
   check('exhausted is stated, not inferred', a.exhausted === true);
   check('the line says cards still appear', /Cards still appear/.test(a.line), a.line);
-  check('and that address finding is protected',
-    a.ladderReserve === Math.round(VB.ACCOUNT_MONTHLY*VB.LADDER_RESERVE_PCT), 'reserve='+a.ladderReserve);
+  check('and address finding is untouched: searches are a separate pool',
+    a.ladderReserve === 0, 'reserve='+a.ladderReserve);
 
   console.log('\n5. The per-athlete budget yields to the account');
   const perAthleteLeft = VB.PER_ATHLETE_DAY;
@@ -88,8 +94,11 @@ const out=[]; const check=(n,c,d)=>{out.push({n,ok:!!c});console.log((c?'  PASS 
     console.log('   ' + String(n).padStart(2) + ' athletes/day: worst case ' + String(worst).padStart(5)
       + '/mo vs a ' + VB.VERIFY_MONTHLY_CAP + ' share — share lasts ~' + days + ' days');
   }
-  check('20 athletes exhausts the share before the month ends',
-    VB.VERIFY_MONTHLY_CAP/(VB.PER_ATHLETE_DAY*20) < 30);
+  // With the verification pool at 3,600 (its own 4,000 plan, not a share of
+  // the 2,000 searches), 20 athletes' Home worst case is half of it, leaving
+  // the rest for verifying every nightly email card.
+  check('20 athletes\' Home worst case fits in the verification pool, with room for the nightly',
+    VB.PER_ATHLETE_DAY*20*30 <= VB.VERIFY_MONTHLY_CAP/2, (VB.PER_ATHLETE_DAY*20*30) + ' of ' + VB.VERIFY_MONTHLY_CAP);
 
   await fill(0);
   const bad=out.filter(x=>!x.ok);

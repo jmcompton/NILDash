@@ -217,12 +217,16 @@ async function draftsFor(P, athleteId, n, tag) {
   check('the account total counts verifications', acct.verify === 6, JSON.stringify(acct));
   check('  separately from domain searches', typeof acct.ladder === 'number', JSON.stringify(acct));
   check('  and sums them', acct.used === acct.ladder + acct.verify, JSON.stringify(acct));
+  // TWO POOLS (2,000 searches, 4,000 verifications): each reported against
+  // its own ceiling, and verifications never spend the search ceiling.
   const bs = await hunter.budgetStatus();
-  check('budgetStatus reports the shared plan, not one consumer',
-    bs.used === acct.used && bs.verifyUsed === 6, JSON.stringify(bs));
+  check('budgetStatus reports each pool against its own ceiling',
+    bs.used === acct.ladder && bs.verifyUsed === 6 && bs.verifyBudget === hunter.VERIFY_MONTHLY_BUDGET
+      && bs.verifyRemaining === hunter.VERIFY_MONTHLY_BUDGET - 6, JSON.stringify(bs));
   const hlSrc = require('fs').readFileSync(ROOT + 'server/services/hunterLookup.js', 'utf8');
-  check('THE REGRESSION GUARD: the ceiling check reads both consumers',
-    /const acct = await accountUsedThisMonth\(\);/.test(hlSrc) && /acct\.used >= MONTHLY_BUDGET/.test(hlSrc));
+  check('THE REGRESSION GUARD: the search ceiling counts searches, verification checks its own pool',
+    /const used = ladder \+ _reserved;/.test(hlSrc) && /if \(used >= MONTHLY_BUDGET\)/.test(hlSrc)
+      && /b\.verifyRemaining <= 0/.test(hlSrc));
 
   // ── 6. A CREDIT THAT CANNOT BE RECORDED IS NOT SPENT ──────────────────────
   console.log('\n6. NEVER SPEND WHAT YOU CANNOT COUNT');

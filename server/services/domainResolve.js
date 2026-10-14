@@ -83,7 +83,12 @@ async function resolveDomain(brand, opts = {}) {
   if (!opts.force) {
     try {
       const c = await store.getBrandEvidence(cacheKey, LANE, CACHE_DAYS);
-      if (c && c.evidence && c.evidence.v === CACHE_V) {
+      // A "no website" answer can be asked again sooner than a found one
+      // (opts.refreshNoneAfterDays): a small business's site goes up, and a
+      // month is a long time to keep reading it as having none.
+      const _age = c && c.refreshed_at ? (Date.now() - new Date(c.refreshed_at).getTime()) / 86400000 : 0;
+      const _staleNone = c && c.evidence && !c.evidence.website && opts.refreshNoneAfterDays > 0 && _age > opts.refreshNoneAfterDays;
+      if (c && c.evidence && c.evidence.v === CACHE_V && !_staleNone) {
         return { ...c.evidence, cached: true, searches: 0 };
       }
     } catch (_) { /* a cache miss is not a failure */ }

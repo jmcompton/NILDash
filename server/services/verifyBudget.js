@@ -61,18 +61,19 @@ const sendGuard = require('./sendGuard');
 
 const PER_ATHLETE_DAY = parseInt(process.env.HOME_VERIFY_PER_ATHLETE_DAY, 10) || 3;
 
-// The real plan. Set HUNTER_ACCOUNT_MONTHLY if the plan changes -- this is the
-// number on the invoice, not a policy choice.
-const ACCOUNT_MONTHLY = parseInt(process.env.HUNTER_ACCOUNT_MONTHLY, 10) || 2000;
-// Held back for Domain Search. 40% of a 2,000 account is 800 lookups a month
-// for the ladder, which at the current scan rate is the binding number for
-// whether addresses get found at all.
-const LADDER_RESERVE_PCT = Number(process.env.HUNTER_LADDER_RESERVE_PCT || 0.40);
-// Verification's own hard share, independent of what the ladder happens to have
-// spent. Two limits rather than one because a quiet ladder month must not
-// silently license verification to spend the whole account.
+// ── THE PLAN HAS TWO POOLS ──────────────────────────────────────────────────
+// Everything above was written for one 2,000-credit account shared by search
+// and verification. The plan bills them separately: 2,000 searches and 4,000
+// verifications a month. So verification no longer borrows from, or holds a
+// reserve back for, the ladder; it has its own pool. Set HUNTER_VERIFY_MONTHLY
+// if the plan changes -- that is the number on the invoice.
+const ACCOUNT_MONTHLY = parseInt(process.env.HUNTER_VERIFY_MONTHLY, 10) || 4000;
+// Search has its own ceiling in hunterLookup; nothing is held back here for it.
+const LADDER_RESERVE_PCT = 0;
+// Verification's ceiling, 10% under the plan for manual runs. The same number
+// hunterLookup.verifyEmail refuses at, so the two can never disagree.
 const VERIFY_MONTHLY_CAP = parseInt(process.env.HOME_VERIFY_MONTHLY_CAP, 10)
-  || Math.round(ACCOUNT_MONTHLY * (1 - LADDER_RESERVE_PCT));
+  || parseInt(process.env.HUNTER_MONTHLY_VERIFY_BUDGET, 10) || 3600;
 // Warn from here. 75% of the way through the month's verification share is
 // early enough to do something about and late enough not to cry wolf.
 const WARN_AT_PCT = Number(process.env.HOME_VERIFY_WARN_AT_PCT || 0.75);
@@ -186,14 +187,10 @@ async function accountStatus(pool) {
     };
   }
 
-  const accountUsed = verifyUsed + ladderUsed;
-  const accountLeft = Math.max(0, ACCOUNT_MONTHLY - accountUsed);
-  const reserve = Math.round(ACCOUNT_MONTHLY * LADDER_RESERVE_PCT);
-  // Verification stops at whichever bites first: its own share, or the point
-  // where continuing would eat into the ladder's reserve.
-  const shareLeft = Math.max(0, VERIFY_MONTHLY_CAP - verifyUsed);
-  const reserveLeft = Math.max(0, accountLeft - Math.max(0, reserve - ladderUsed));
-  const remaining = Math.min(shareLeft, reserveLeft);
+  // ITS OWN POOL. Searches (ladderUsed) are reported, never subtracted.
+  const accountUsed = verifyUsed;
+  const reserve = 0;
+  const remaining = Math.max(0, VERIFY_MONTHLY_CAP - verifyUsed);
   const usedPct = VERIFY_MONTHLY_CAP > 0 ? verifyUsed / VERIFY_MONTHLY_CAP : 1;
 
   return {
@@ -207,8 +204,7 @@ async function accountStatus(pool) {
     // thing rather than inventing its own phrasing.
     line: remaining <= 0
       ? `Address verification is paused for the rest of the month — ${verifyUsed} of `
-        + `${VERIFY_MONTHLY_CAP} checks used, and the rest of the Hunter account is held `
-        + 'back for finding addresses. Cards still appear; they are marked unverified.'
+        + `${VERIFY_MONTHLY_CAP} checks used. Cards still appear; they are marked unverified.`
       : `Address verification has used ${verifyUsed} of ${VERIFY_MONTHLY_CAP} checks this `
         + `month (${Math.round(usedPct * 100)}%). At this rate it runs out before the month does.`,
   };
