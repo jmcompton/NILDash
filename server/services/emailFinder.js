@@ -85,8 +85,12 @@ function verdictOf(v) {
 //   everything else                                  does not
 // `strictDomain`: the domain was accepted on weaker evidence (a Places record
 // whose own website the domain gate could not confirm). Only valid passes there.
-function passes({ verdict, built, patternConfirmed, realName, stated, strictDomain }) {
+// `validOnly`: a brand's partnerships or marketing contact (MARKET_MIX_ON,
+// services/dealMix). Only a mailbox the verifier calls valid is used: a
+// catch-all accepts any guess, so on a brand's domain it proves nothing.
+function passes({ verdict, built, patternConfirmed, realName, stated, strictDomain, validOnly }) {
   if (verdict === 'valid') return { ok: true };
+  if (validOnly && verdict === 'catch-all') return { ok: false, why: 'catch-all, and a brand contact\'s address must verify as valid' };
   if (verdict === 'catch-all') {
     if (strictDomain) return { ok: false, why: 'catch-all, and the domain is not confirmed as the business\'s own, so only a valid mailbox is used' };
     if (built && patternConfirmed && realName) return { ok: true, catchAll: true };
@@ -175,7 +179,7 @@ async function find(ctx, deps) {
     if (v && !v.cached && !v.notRun) credits.verify++;
     const verdict = verdictOf(v);
     const p = passes({ verdict, built: !!meta.built, patternConfirmed: !!meta.confirmed, realName: true,
-      stated: !!meta.stated, strictDomain: !!ctx.strictDomain });
+      stated: !!meta.stated, strictDomain: !!ctx.strictDomain, validOnly: !!ctx.validOnly });
     steps.push({ how, email: e, verdict, ok: p.ok, why: p.why || null, cached: !!(v && v.cached), heldStated: !!p.heldStated });
     if (verdict === 'catch-all') catchAll = true;
     if (verdict === 'not-run') notRun = true;
@@ -415,7 +419,7 @@ async function finishLadder(args, deps) {
     const ep = row && row.emailPattern;
     const p = passes({ verdict, built: !!(row && row.emailKind === 'pattern'),
       patternConfirmed: !!(ep && (ep.from === 'hunter' || ep.from === 'inferred')),
-      realName: !!(row && realNameOf(row.name)), stated: !!(row && TRUSTED_KINDS.has(row.emailKind || 'published')), strictDomain: false });
+      realName: !!(row && realNameOf(row.name)), stated: !!(row && TRUSTED_KINDS.has(row.emailKind || 'published')), strictDomain: false, validOnly: !!args.validOnly });
     if (row) row.emailVerify = { verdict, status: (v && v.status) || null, pass: p.ok, why: p.why || null, catchAll: !!p.catchAll };
     rec.verify = { email: inbox.email, kind: inbox.kind, verdict, pass: p.ok, why: p.why || null, heldStated: !!p.heldStated, cached: !!(v && v.cached) };
     if (p.ok) { rec.after = Q.channelFor(ladder, ig); return rec; }
@@ -486,7 +490,7 @@ async function finishLadder(args, deps) {
   if (typeof deps.hunterCached === 'function') { try { hunterKnown = await deps.hunterCached(domain); } catch (_) { hunterKnown = null; } }
   const examples = examplesOf(ladder, siteOut, domain, null);
   const r = await find({ name: person.name, domain, examples, strictDomain: strict, roleOnly, hunter: hunterKnown,
-    skip: rec.verify && !rec.verify.pass ? [rec.verify.email] : [] }, deps);
+    skip: rec.verify && !rec.verify.pass ? [rec.verify.email] : [], validOnly: !!args.validOnly }, deps);
   credits.search += r.credits.search;
   credits.verify += r.credits.verify;
   rec.finder = { domain, roleOnly, examples: examples.length, email: r.email || null, how: r.how || null, verdict: r.verdict || null,
@@ -513,7 +517,7 @@ async function finishLadder(args, deps) {
     rec.finder.alternates = [];
     for (const alt of alts) {
       if (left <= 0) break;
-      const ra = await find({ name: alt.name, domain, examples, strictDomain: strict, hunter: hunterKnown, skip: [...tried], maxVerifies: left }, deps);
+      const ra = await find({ name: alt.name, domain, examples, strictDomain: strict, hunter: hunterKnown, skip: [...tried], maxVerifies: left, validOnly: !!args.validOnly }, deps);
       credits.search += ra.credits.search;
       credits.verify += ra.credits.verify;
       left -= ra.credits.verify;

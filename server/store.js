@@ -1905,6 +1905,11 @@ async function init() {
   // the evidence it signs athletes like this one (services/signingEvidence),
   // so reply rate can be read by band.
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS size_band TEXT`).catch(() => {});
+  // The deal mix (MARKET_MIX_ON, services/dealMix): the Market Score tier a
+  // card was placed for, the brand's size, and why the athlete fits it.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS market_tier TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS brand_size TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS fit_reasons JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS signing_evidence JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS ask TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ`).catch(() => {});

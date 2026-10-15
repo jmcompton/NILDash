@@ -15475,6 +15475,18 @@ try {
   console.error('[reachability] scheduler failed to start:', e.message);
 }
 
+// ── The Market Score, recomputed weekly (services/marketScore) ─────────────
+// MARKET_MIX_ON only. Each athlete's score is recomputed when it is a week
+// old, with one news search per athlete; checked every 6 hours.
+try {
+  const MS = require('./services/marketScore');
+  const msTick = () => { if (MS.ON()) MS.recomputeIfStale(store.pool).catch((e) => console.error('[marketScore] tick failed:', e.message)); };
+  setTimeout(msTick, 9 * 60 * 1000);
+  setInterval(msTick, 6 * 60 * 60 * 1000);
+} catch (e) {
+  console.error('[marketScore] scheduler failed to start:', e.message);
+}
+
 // ── Athletes short of five verified emails (services/shortOfFive) ──────────
 // EMAIL_FIVE_ON only: at 5:30am Central, once a day, the admin gets the list
 // of athletes holding fewer than five verified-email cards, with the reason
