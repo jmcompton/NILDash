@@ -149,8 +149,13 @@ async function main() {
     const hit = stripComments(read(f)).split('\n').find((l) => STANDINS.test(l));
     ok(`${f.split('/').pop()}: no stand-in name`, !hit, hit);
   }
-  ok('"JohnMark" appears nowhere in server code outside comments',
-    files.every((f) => !/JohnMark/.test(stripComments(read(f)))));
+  // ONE EXCEPTION, AND ONLY ONE: store.js sets the ADMIN's own "First name for
+  // sign-offs" to JohnMark once (a value on his own account, asked for by him,
+  // never a fallback for anyone else's pitch). Any other occurrence fails.
+  const ADMIN_SIGN_OFF = /^\s*await pool\.query\(`UPDATE users SET sign_first_name = 'JohnMark' WHERE LOWER\(TRIM\(email\)\) = \$1 AND sign_first_name IS NULL`,$/;
+  const johnMark = files.flatMap((f) => stripComments(read(f)).split('\n').filter((l) => /JohnMark/.test(l)).map((l) => ({ f, l })));
+  ok('"JohnMark" appears nowhere in server code outside comments, except the admin\'s own one-time sign-off setting',
+    johnMark.every((x) => x.f === 'server/store.js' && ADMIN_SIGN_OFF.test(x.l)) && johnMark.length <= 1, johnMark);
   const idx = read('server/index.js');
   ok('the contract names a real agent party or refuses', /Add your name in Settings before generating a contract/.test(idx)
     && /- Agent\/Manager: \$\{partyAgentName\} \(\$\{partyAgentEmail\}\)/.test(idx));

@@ -137,7 +137,7 @@ async function materialFor(pool, root) {
        FROM outreach_queue WHERE outreach_log_id = $1 ORDER BY id DESC LIMIT 1`, [root.id]).catch(() => ({ rows: [] }))).rows[0] || {};
   const ath = (await pool.query(`SELECT data FROM athletes WHERE id = $1`, [root.athlete_id]).catch(() => ({ rows: [] }))).rows[0];
   const a = (ath && ath.data) || {};
-  const agent = (await pool.query(`SELECT name, signature_text, scheduling_url FROM users WHERE id = $1`, [root.agent_id]).catch(() => ({ rows: [] }))).rows[0] || {};
+  const agent = (await pool.query(`SELECT name, email, signature_text, scheduling_url, sign_first_name FROM users WHERE id = $1`, [root.agent_id]).catch(() => ({ rows: [] }))).rows[0] || {};
   const category = card.business_category || card.category_key || root.category_key || null;
   // ANOTHER BUSINESS NEARBY THAT FITS THEM: same market, a different kind of
   // business (never a competitor), one the agent has not pitched for this
@@ -163,7 +163,9 @@ async function materialFor(pool, root) {
       knownFor: a.knownFor ? String(a.knownFor).replace(/\s+/g, ' ').trim().slice(0, 140) : null },
     deliverable: deliverableFor(category, root.brand_name),
     nearby,
-    agentFirst: String(agent.name || '').split(/\s+/)[0] || null,
+    // Their "First name for sign-offs" under AGENT_SETUP_ON when set
+    // (services/agentName.signOffSetting); otherwise the first word, as before.
+    agentFirst: require('./agentName').signOffSetting(agent) || String(agent.name || '').split(/\s+/)[0] || null,
     signature: SIG.signatureOf(agent),
   };
 }

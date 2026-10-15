@@ -45,10 +45,29 @@ function agentFirstName(user) {
   return n ? n.split(' ')[0] : null;
 }
 
+// ── THE NAME A PITCH IS SIGNED WITH (AGENT_SETUP_ON) ───────────────────────
+// The agent's own "First name for sign-offs" (Settings, users.sign_first_name),
+// exactly as typed -- "JohnMark" stays "JohnMark" -- when it is set and
+// AGENT_SETUP_ON is on. Otherwise, and for anything that is not a name, the
+// first word of their name, as before. Only pitches use it (the nightly
+// writer, follow-ups, the outreach pitch); a greeting TO the agent keeps
+// agentFirstName.
+function signOffSetting(user) {
+  if (process.env.AGENT_SETUP_ON !== '1' || !user) return null;
+  const raw = String((user.sign_first_name != null ? user.sign_first_name : user.signFirstName) || '').replace(/\s+/g, ' ').trim();
+  // Only a name: letters, spaces, apostrophes, dots, hyphens. Anything else
+  // (an address, a number) is not used rather than "cleaned" into one.
+  if (!raw || raw.length > 40 || /[^A-Za-z .'-]/.test(raw)) return null;
+  return cleanName(raw, user.email);
+}
+function pitchSignOffName(user) {
+  return signOffSetting(user) || agentFirstName(user);
+}
+
 // For a caller that holds only a string (the writer's ctx.agentFirstName).
 function firstNameOrNull(raw) {
   const n = cleanName(raw, null);
   return n ? n.split(' ')[0] : null;
 }
 
-module.exports = { agentFullName, agentFirstName, firstNameOrNull, NO_AGENT_NAME_REASON, PLACEHOLDERS };
+module.exports = { agentFullName, agentFirstName, firstNameOrNull, pitchSignOffName, signOffSetting, NO_AGENT_NAME_REASON, PLACEHOLDERS };

@@ -38,7 +38,7 @@ async function pick(pool) {
   const AgentName = require('./agentName');
   const rows = (await pool.query(
     `SELECT a.id, a.agent_id, a.data, a.data->>'name' AS name, a.data->>'school' AS school, a.data->>'hometown' AS hometown,
-            u.name AS agent_name, u.email AS agent_email
+            u.name AS agent_name, u.email AS agent_email, u.sign_first_name AS agent_sign_first_name
        FROM athletes a JOIN users u ON u.id = a.agent_id
       WHERE COALESCE(u.role, 'agent') NOT IN ('university', 'university_admin')`)).rows;
   const counts = new Map((await pool.query(`SELECT market_key, COUNT(*)::int n FROM market_business_seen GROUP BY 1`)).rows.map((r) => [r.market_key, r.n]));
@@ -47,7 +47,7 @@ async function pick(pool) {
   const heldBy = new Map((await pool.query(`SELECT athlete_id, COUNT(*)::int n FROM outreach_queue WHERE state = 'queued' GROUP BY 1`)).rows.map((r) => [r.athlete_id, r.n]));
   const cands = [];
   for (const r of rows) {
-    if (!AgentName.agentFirstName({ name: r.agent_name, email: r.agent_email })) continue;
+    if (!AgentName.pitchSignOffName({ name: r.agent_name, email: r.agent_email, sign_first_name: r.agent_sign_first_name })) continue;
     let p;
     try { p = job.athleteProfile(r); } catch (_) { continue; }
     if (!p || !p.hasLocalMarket || !p.marketKey) continue;
@@ -121,7 +121,7 @@ async function runAthlete(pool, athleteId, opts = {}) {
   const owner = (await pool.query(`SELECT agent_id FROM athletes WHERE id = $1`, [athleteId])).rows[0];
   if (!owner) return { ok: false, error: `no athlete ${athleteId}` };
   const ath = (await job.loadAthletesForQueue(pool, owner.agent_id, athleteId))[0];
-  const agentFirstName = AgentName.agentFirstName({ name: ath.agent_name, email: ath.agent_email });
+  const agentFirstName = AgentName.pitchSignOffName({ name: ath.agent_name, email: ath.agent_email, sign_first_name: ath.agent_sign_first_name });
   if (!agentFirstName) return { ok: false, error: AgentName.NO_AGENT_NAME_REASON };
   let expired = 0;
   if (opts.fresh && opts.allowFreshOnRealQueues === true) {

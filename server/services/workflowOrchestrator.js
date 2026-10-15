@@ -110,7 +110,7 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownCon
   // Who signs the pitch. A self-managed athlete has no agent, and her id is not in
   // the users table -- looking her up there returned nothing and the email went out
   // unsigned. She signs it herself, which is the whole point of self-management.
-  const { agentName, agentEmail } = await loadSenderIdentity(agentId, senderIsAthlete, athlete);
+  const { agentName, agentEmail, agentSignOff } = await loadSenderIdentity(agentId, senderIsAthlete, athlete);
 
   async function step(name, fn) {
     try {
@@ -170,6 +170,7 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownCon
       dealScanData: dealScanResult,
       agentName,
       agentEmail,
+      agentSignOff: agentSignOff || null,
     })
   );
   // A REFUSAL ENDS THE RUN. The writer would not produce copy that names a price
@@ -297,9 +298,11 @@ async function loadSenderIdentity(ownerId, isAthlete, athleteRow) {
     // personal Gmail, telling brands to reply somewhere else. The sign-off is
     // the active sending mailbox (emailStore.sendingMailbox, the send's own
     // choice); users.email only when no mailbox is connected at all.
-    const r = await pool.query('SELECT name, email FROM users WHERE id=$1', [ownerId]);
+    const r = await pool.query('SELECT name, email, sign_first_name FROM users WHERE id=$1', [ownerId]);
     const mb = await require('./emailStore').sendingMailbox(ownerId).catch(() => null);
-    return { agentName: r.rows[0]?.name || null, agentEmail: (mb && mb.address) || r.rows[0]?.email || null };
+    return { agentName: r.rows[0]?.name || null, agentEmail: (mb && mb.address) || r.rows[0]?.email || null,
+      // Their "First name for sign-offs" (AGENT_SETUP_ON), when set.
+      agentSignOff: require('./agentName').signOffSetting(r.rows[0] || null) };
   } catch (e) {
     return { agentName: null, agentEmail: null };   // non-fatal: the pitch falls back
   }
