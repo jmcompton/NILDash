@@ -1112,7 +1112,60 @@ function newBudget(capUsd, discoveryCapUsd, opts = {}) {
     widenSpent: () => widenUsed,
     canSpendWiden: (amount) => widenUsed + (amount || 0) <= widenCap + 1e-9,
     spendWiden: (amount) => { widenUsed += (amount || 0); return widenUsed; },
+
+    // ── ONE ATHLETE'S VIEW, FOR ATHLETES RUN SIDE BY SIDE ──────────────────
+    // openFor() keeps ONE current share on the budget: right while athletes
+    // run one at a time, wrong when several run at once (each would reset the
+    // others' share). lane(n) gives one athlete its OWN share of what is left
+    // -- the pot less what the athletes already running still hold, divided by
+    // the athletes not yet started, this one included -- with its own
+    // counters, charging the same pot. Everything about the pot (cap, spent,
+    // remaining, discovery and widen pots) is the pot's. close() hands back
+    // what the lane did not use, for the athletes still to start.
+    lane: (athletesRemaining) => {
+      const n = Math.max(1, Number(athletesRemaining) || 1);
+      const lShare = Math.max(0, cap - used - held.lookup) / n;
+      const lDisc = Math.max(0, discoveryCap - discoveryUsed - held.discovery) / n;
+      let lUsed = 0, lDiscUsed = 0, open = true;
+      held.lookup += lShare; held.discovery += lDisc;
+      const L = {
+        ...b,
+        openFor: () => lShare,
+        spend: (amount) => { const a = amount || 0; used += a; lUsed += a; if (open) held.lookup = Math.max(0, held.lookup - a); return used; },
+        mine: () => lUsed,
+        shareLeft: () => Math.max(0, lShare - lUsed),
+        shareOf: () => lShare,
+        canSpend: (amount) => {
+          const a = amount || 0;
+          if (used + a > cap + 1e-9) return false;
+          return lUsed + a <= lShare + 1e-9;
+        },
+        discoveryShareLeft: () => Math.max(0, lDisc - lDiscUsed),
+        canSpendDiscovery: (amount) => {
+          const a = amount || 0;
+          if (discoveryUsed + a > discoveryCap + 1e-9) return false;
+          return lDiscUsed + a <= lDisc + 1e-9;
+        },
+        spendDiscovery: (amount) => { const a = amount || 0; discoveryUsed += a; lDiscUsed += a; if (open) held.discovery = Math.max(0, held.discovery - a); return discoveryUsed; },
+        discoveryRefusal: (amount) => {
+          const a = amount || 0;
+          if (discoveryUsed + a > discoveryCap + 1e-9) return `the night's discovery pot is spent ($${discoveryUsed.toFixed(2)} of $${discoveryCap.toFixed(2)})`;
+          return `this athlete's discovery share is $${Math.max(0, lDisc - lDiscUsed).toFixed(2)} and this costs about $${a.toFixed(2)} `
+            + `(pot $${discoveryUsed.toFixed(2)} of $${discoveryCap.toFixed(2)} used)`;
+        },
+        close: () => {
+          if (!open) return;
+          open = false;
+          held.lookup = Math.max(0, held.lookup - Math.max(0, lShare - lUsed));
+          held.discovery = Math.max(0, held.discovery - Math.max(0, lDisc - lDiscUsed));
+        },
+      };
+      return L;
+    },
+    held: () => ({ ...held }),
   };
+  // What the lanes still running hold of the pot, unspent (see lane()).
+  const held = { lookup: 0, discovery: 0 };
   return b;
 }
 
@@ -1170,6 +1223,9 @@ function priceOf(meter) {
 // athlete stops the moment they hold five.
 const ATHLETE_TIME_CEILING_MS = parseInt(process.env.OUTREACH_ATHLETE_TIME_CEILING_MS, 10) || 8 * 60 * 1000;
 const ATHLETE_COST_CEILING_USD = parseFloat(process.env.OUTREACH_ATHLETE_COST_CEILING_USD) || 2.50;
+// EMAIL_FIVE_ON: 15 minutes, not 8 (jobs/outreachQueue fillAthlete). The cost
+// ceiling above is the same either way.
+const FIVE_TIME_CEILING_MS = parseInt(process.env.OUTREACH_FIVE_TIME_CEILING_MS, 10) || 15 * 60 * 1000;
 // Where the replacements come from, in order. The bar never moves; only the
 // place the next candidate is drawn from does.
 //   local          the athlete's market pool at the normal radius (the slate, re-drawn)
@@ -1343,6 +1399,6 @@ module.exports = {
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,
   WAITING_AFTER_DAYS, OUTCOMES,
-  NIGHTLY_SLOTS, DEFAULT_ONDEMAND_USD, BACKOFF_NIGHTS,
+  NIGHTLY_SLOTS, DEFAULT_ONDEMAND_USD, BACKOFF_NIGHTS, FIVE_TIME_CEILING_MS,
   EXPIRE_AFTER_DAYS, EXPIRE_COOLDOWN_DAYS,
 };

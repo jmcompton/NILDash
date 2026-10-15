@@ -125,7 +125,7 @@ async function clean(P) {
   ok(EF.verdictOf(slow) === 'not-run', 'Hunter still verifying (202) is not a verdict', slow);
   ok(!(await P.query(`SELECT 1 FROM email_verification WHERE email = $1`, [`${TAG}slowserver@fbtest.com`])).rows.length, '  and is not cached');
   const hlSrc = require('fs').readFileSync(REPO + 'server/services/hunterLookup.js', 'utf8');
-  ok(/setTimeout\(\(\) => ctrl\.abort\(\), VERIFY_TIMEOUT_MS\)/.test(hlSrc) && /\|\| 22000/.test(hlSrc), 'a mailbox check waits up to 22s, not the 8s search timeout');
+  ok(/_call\('verifier', url, \{ timeoutMs: VERIFY_TIMEOUT_MS/.test(hlSrc) && /setTimeout\(\(\) => ctrl\.abort\(\), timeoutMs\)/.test(hlSrc) && /\|\| 22000/.test(hlSrc), 'a mailbox check waits up to 22s, not the 8s search timeout');
 
   console.log('\n4. THE VERIFICATION POOL REFUSES AT ITS OWN CEILING');
   await P.query(`INSERT INTO email_verify_credit_log (agent_id, athlete_id, business, email, source, local_date)

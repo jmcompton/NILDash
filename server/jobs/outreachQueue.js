@@ -913,7 +913,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // shared by every athlete in it.
   const _t0 = Date.now();
   // Overridable per call (an on-demand fill, a test); the job's defaults otherwise.
-  const TIME_CEILING_MS = Number(ctx.timeCeilingMs) > 0 ? Number(ctx.timeCeilingMs) : Q.ATHLETE_TIME_CEILING_MS;
+  // 15 minutes under EMAIL_FIVE_ON (Q.FIVE_TIME_CEILING_MS): a verified named
+  // address takes a mailbox check, and athletes now run side by side. The
+  // $2.50 cost ceiling is unchanged.
+  const TIME_CEILING_MS = Number(ctx.timeCeilingMs) > 0 ? Number(ctx.timeCeilingMs) : (FINDER.five() ? Q.FIVE_TIME_CEILING_MS : Q.ATHLETE_TIME_CEILING_MS);
   const COST_CEILING_USD = Number(ctx.costCeilingUsd) > 0 ? Number(ctx.costCeilingUsd) : Q.ATHLETE_COST_CEILING_USD;
   const athleteCost = () => spendLog.reduce((sum, x) => sum + (x && x.lane !== 'market-refresh' ? (Number(x.cost) || 0) : 0), 0);
 
@@ -2635,16 +2638,23 @@ async function fillAgent(pool, agent, opts) {
   // Each athlete's resolved context from the night's pass, reused by a retry.
   const ctxBy = new Map();
 
-  for (let ai2 = 0; ai2 < athletes.length; ai2++) {
-    const ath = athletes[ai2];
-    const before = budget.spent();
-    // EACH ATHLETE GETS A SHARE OF WHAT IS LEFT, recomputed against the number
-    // still to come. Last night the first athletes spent the whole cap and the
-    // last ones were told "budget cap reached" -- which is not a budget, it is a
-    // race decided by the roster's ORDER BY. Unspent share flows forward
-    // automatically because this divides the REMAINING pot, not the original.
-    budget.openFor(athletes.length - ai2);
+  // ── ATHLETES SIDE BY SIDE (EMAIL_FIVE_ON) ──────────────────────────────────
+  // One at a time, a 50-athlete roster at the 8-minute ceiling is a 6.7-hour
+  // night, and the five rule needs longer per athlete, not shorter. Under
+  // EMAIL_FIVE_ON, ATHLETE_CONC athletes of one agent run at once, each on its
+  // own lane of the budget (services/outreachQueue newBudget.lane): its own
+  // share of what is left, the same pot, the same $2.50 per-athlete ceiling
+  // (read from the athlete's own spend log). What they share is safe to share:
+  // the once-per-market refills and Places refreshes are claimed before any
+  // await, research claims are per athlete in the database, and Hunter's pace
+  // is held in one place (services/hunterLookup). Off: one at a time, as before.
+  const ATHLETE_CONC = FINDER.five() && !dry ? Math.max(1, parseInt(process.env.OUTREACH_ATHLETE_CONCURRENCY, 10) || 3) : 1;
+  // Through the module, so a test can stand in for the fill.
+  const _fillAthlete = (...a) => module.exports.fillAthlete(...a);
 
+  // One athlete's pass. b: the budget it spends from (the budget itself one at
+  // a time, its own lane side by side); spentSince(): what it has spent.
+  const runOne = async (ath, b, spentSince) => {
     // ── ONE ATHLETE'S CRASH COSTS ONE ATHLETE ────────────────────────────────
     // run() already wraps fillAgent so one agent cannot take down the others.
     // This loop had no such wrapper, so a throw anywhere inside fillAthlete --
@@ -2661,7 +2671,7 @@ async function fillAgent(pool, agent, opts) {
     ctxBy.set(ath.id, _ctx);
     let r = null;
     try {
-      r = await fillAthlete(pool, ctxFor(ath, _ctx));
+      r = await _fillAthlete(pool, ctxFor(ath, _ctx, { budget: b }));
     } catch (e) {
       console.error(`[queue] agent=${agent.id} athlete=${ath.id} (${ath.name}) failed: ${e.message}`);
       details.push({
@@ -2674,7 +2684,7 @@ async function fillAgent(pool, agent, opts) {
         tried: [], paused: false,
         // Whatever it spent before it threw. Dropping this would make the
         // per-night cost read low by exactly the amount the crash wasted.
-        spentUsd: Math.round((budget.spent() - before) * 10000) / 10000,
+        spentUsd: Math.round(spentSince() * 10000) / 10000,
         spendLog: [],
       });
       // NO recordAttempt ON AN ERROR, deliberately. That counter feeds the
@@ -2682,7 +2692,7 @@ async function fillAgent(pool, agent, opts) {
       // evidence about OUR code, not about this athlete's market. A bug that
       // threw for everyone would otherwise pause the whole roster in three
       // nights and look like a market problem.
-      continue;
+      return { capped: false };
     }
 
     filled += r.filled;
@@ -2718,7 +2728,7 @@ async function fillAgent(pool, agent, opts) {
       nextRetryAt: r.nextRetryAt || null,
       // The measured figure for THIS athlete, so "what does a night cost per
       // athlete" is answerable from the run row rather than estimated.
-      spentUsd: Math.round((budget.spent() - before) * 10000) / 10000,
+      spentUsd: Math.round(spentSince() * 10000) / 10000,
       spendLog: r.spendLog || [],
       // THE LOOP (see the fill): what stopped it, how many candidates it
       // chewed through, how many it took to reach five, which rungs fired,
@@ -2735,14 +2745,49 @@ async function fillAgent(pool, agent, opts) {
     // the whole roster is looked at once the run is done.
     if (!dry && !r.paused) {
       attempts.push({ athleteId: ath.id, filled: r.filled,
-        spent: budget.spent() - before, faults: r.faults || 0, tried: r.tried || [] });
+        spent: spentSince(), faults: r.faults || 0, tried: r.tried || [] });
     }
     // Only the AGENT'S cap ends the night. An athlete who used their share is
     // done for the evening; the next one still has theirs.
     if (r.cappedOut) {
-      console.log('[queue] nightly cap reached, stopping the run');
-      break;
+      return { capped: true };
     }
+    return { capped: false };
+  
+  };
+
+  if (ATHLETE_CONC <= 1) {
+    for (let ai2 = 0; ai2 < athletes.length; ai2++) {
+      const ath = athletes[ai2];
+      const before = budget.spent();
+      // EACH ATHLETE GETS A SHARE OF WHAT IS LEFT, recomputed against the number
+      // still to come. Last night the first athletes spent the whole cap and the
+      // last ones were told "budget cap reached" -- which is not a budget, it is a
+      // race decided by the roster's ORDER BY. Unspent share flows forward
+      // automatically because this divides the REMAINING pot, not the original.
+      budget.openFor(athletes.length - ai2);
+      const out = await runOne(ath, budget, () => budget.spent() - before);
+      // Only the AGENT'S cap ends the night. An athlete who used their share is
+      // done for the evening; the next one still has theirs.
+      if (out.capped) { console.log('[queue] nightly cap reached, stopping the run'); break; }
+    }
+  } else {
+    console.log(`[queue] agent=${agent.id} ${athletes.length} athlete(s), ${ATHLETE_CONC} at a time`);
+    let next = 0, stop = false;
+    await Promise.all(Array.from({ length: Math.min(ATHLETE_CONC, athletes.length) }, async () => {
+      while (!stop && next < athletes.length) {
+        const ai2 = next++;
+        const lane = budget.lane(athletes.length - ai2);
+        let out = null;
+        try { out = await runOne(athletes[ai2], lane, () => lane.mine()); }
+        finally { lane.close(); }
+        if (out && out.capped && !stop) { stop = true; console.log('[queue] nightly cap reached, stopping the run'); }
+      }
+    }));
+    // In roster order, as one at a time would have written them.
+    const order = new Map(athletes.map((a, i) => [a.id, i]));
+    details.sort((x, y) => (order.get(x.athleteId) || 0) - (order.get(y.athleteId) || 0));
+    attempts.sort((x, y) => (order.get(x.athleteId) || 0) - (order.get(y.athleteId) || 0));
   }
 
   // ── SAME-NIGHT RETRIES: A CHECK THAT COULD NOT RUN IS ASKED AGAIN ────────
@@ -2770,7 +2815,7 @@ async function fillAgent(pool, agent, opts) {
       const before = budget.spent();
       let r2 = null;
       try {
-        r2 = await fillAthlete(pool, ctxFor(ath, ctxBy.get(athId), { retryCands: cands, noWiden: true, keepStale: true }));
+        r2 = await _fillAthlete(pool, ctxFor(ath, ctxBy.get(athId), { retryCands: cands, noWiden: true, keepStale: true }));
       } catch (e) {
         console.error(`[queue] agent=${agent.id} athlete=${athId} retry pass ${pass} failed: ${e.message}`);
         d.retryErrors = (d.retryErrors || []).concat(e.message);
