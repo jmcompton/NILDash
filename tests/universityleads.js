@@ -35,6 +35,9 @@ async function freePort() { return new Promise((r) => { const s = net.createServ
 async function main() {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));
   const P = store.pool;
+  // The migrations' tables (university_teams and friends), as the server
+  // builds them at boot: this suite inserts before it boots the server.
+  await require('./helpers/migrate').migrate(P);
   await TS.ensureTables(P); await CP.ensureTables(P);
   const clean = async () => {
     for (const t of ['university_crm_touches', 'university_crm', 'university_drafts', 'university_contacts', 'university_staff']) await P.query(`DELETE FROM ${t} WHERE university_id = ANY($1)`, [[A, B]]).catch(() => {});
@@ -115,7 +118,19 @@ async function main() {
     ok('  the numbers: 3 leads this morning for two teams, 12 businesses near campus, 8 with a named person, 2 teams',
       /LEADS THIS MORNING 3 for two teams/.test(home.kpi[0]) && /BUSINESSES NEAR CAMPUS 12/.test(home.kpi[1]) && /WITH A NAMED PERSON 8/.test(home.kpi[2]) && /YOUR TEAMS 2/.test(home.kpi[3]), home.kpi);
     ok('  three steps, in plain words', /1\. Read the lead/.test(home.text) && /2\. Send the email/.test(home.text) && /3\. Mark it contacted/.test(home.text));
-    ok('the leads, grouped by team: Softball (1) and Women\'s Basketball (2)', JSON.stringify(home.teams) === JSON.stringify(['Softball', "Women's Basketball"]) && home.leads === 3, home.teams);
+    // THE TEAM PICKER (since cd3761b): Home opens on the best leads across
+    // every team, and each team's own leads are one click away.
+    ok('the leads: the best across both teams first, all three of them', JSON.stringify(home.teams) === JSON.stringify(['Best ten today']) && home.leads === 3
+      && /3 leads across two teams/.test(home.text), { teams: home.teams, leads: home.leads });
+    const byTeam = {};
+    for (const t of ['Softball', "Women's Basketball"]) {
+      await page.click(`[data-hometeam="${t}"]`);
+      await page.waitForFunction((tt) => [...document.querySelectorAll('.teamhead h3')].some((h) => h.textContent === tt), t, { timeout: 5000 });
+      byTeam[t] = await page.evaluate(() => document.querySelectorAll('.lead').length);
+    }
+    ok('  and by team: Softball (1) and Women\'s Basketball (2)', byTeam.Softball === 1 && byTeam["Women's Basketball"] === 2, byTeam);
+    await page.click('[data-hometeam=""]');
+    await page.waitForFunction(() => [...document.querySelectorAll('.teamhead h3')].some((h) => /^Best/.test(h.textContent)), null, { timeout: 5000 });
     ok('  each lead: the business, the person and title, email and phone, why it fits', /Lead Biz 0/.test(home.text) && /Dana Reed\s*·\s*Owner/.test(home.text) && /dana0@biz\.test/.test(home.text)
       && /\(714\) 555-0100/.test(home.text) && /a gym: players train there/.test(home.text), home.text.slice(home.text.indexOf('Lead Biz'), home.text.indexOf('Lead Biz') + 300));
     ok('  "Open in email" is the department\'s own mail with the lead\'s email in it', /^mailto:dana2%40biz\.test\?subject=Backing%20the%20team%20this%20season&body=Hi%20Dana/.test(home.mailto) || /^mailto:dana\d%40biz\.test\?subject=Backing/.test(home.mailto), home.mailto);
@@ -132,10 +147,15 @@ async function main() {
     await page.waitForFunction(() => /businesses/.test((document.querySelector('.stats') || {}).innerText || '') && !/Loading/.test(document.querySelector('.stats').innerText), null, { timeout: 10000 });
     const sp = await page.evaluate(() => ({ stats: document.querySelector('.stats').innerText, rows: document.querySelectorAll('.tablewrap tbody tr').length,
       first: (document.querySelector('.tablewrap tbody tr') || {}).innerText || '', csv: (document.querySelector('a[href*="format=csv"]') || {}).getAttribute('href') }));
-    ok('every business with a named person, nearest first, with who and how to reach', /8 businesses/.test(sp.stats) && sp.rows === 8 && /Lead Biz 0/.test(sp.first) && /Dana Reed/.test(sp.first), sp);
+    // SPONSOR SCAN OPENS ON EVERY BUSINESS (since 90d15a4), named or not.
+    ok('Sponsor Scan opens on every business near campus, all 12', /12 businesses/.test(sp.stats) && sp.rows === 12, { stats: sp.stats, rows: sp.rows });
+    await page.check('#spcontact');
+    await page.waitForFunction(() => /\b8 businesses/.test(document.querySelector('.stats').innerText), null, { timeout: 10000 });
+    const named = await page.evaluate(() => ({ rows: document.querySelectorAll('.tablewrap tbody tr').length, first: (document.querySelector('.tablewrap tbody tr') || {}).innerText || '' }));
+    ok('  ticking "With a named person": the 8 with one, nearest first, with who and how to reach', named.rows === 8 && /Lead Biz 0/.test(named.first) && /Dana Reed/.test(named.first), named);
     await page.uncheck('#spcontact');
     await page.waitForFunction(() => /12 businesses/.test(document.querySelector('.stats').innerText), null, { timeout: 10000 });
-    ok('  unticking "With a named person" shows all 12', true);
+    ok('  unticking it shows all 12 again', true);
     await page.selectOption('select[data-stage="Lead Biz 5"]', 'in_talks');
     await page.waitForTimeout(700);
     const st5 = (await P.query(`SELECT stage FROM university_crm WHERE university_id = $1 AND brand = 'Lead Biz 5'`, [A])).rows[0];

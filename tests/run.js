@@ -164,6 +164,10 @@ if (UPDATE) {
   // A suite is only rewritten if it ran. Everything else is carried forward
   // exactly as recorded, including the FAULTs that predate any of this.
   const merged = Object.assign({}, base.suites, now);
+  // A SUITE THAT NO LONGER EXISTS IS NOT A KNOWN FAILURE. Carrying forward kept
+  // a deleted file's FAULT in the baseline forever. An entry whose file is gone
+  // is dropped; one that exists and simply did not run this time is kept.
+  for (const k of Object.keys(merged)) if (!fs.existsSync(path.join(HERE, k))) delete merged[k];
   // Ordered so a full run and a one-suite update produce the same file rather
   // than a diff full of moved lines.
   const suitesOut = {};

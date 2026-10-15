@@ -135,7 +135,7 @@ async function main() {
   OUT.push('', '-- the social lane is half the supply where the tier allows it --');
   await P.query(`INSERT INTO market_business_seen (market_key, brand, category) SELECT 'enslate, ga', 'EN Local ' || g, 'restaurant' FROM generate_series(0, 9) g ON CONFLICT DO NOTHING`);
   // Each social brand has evidence it signs athletes like this one (services/signingEvidence).
-  const EVID = require('./_evidence');
+  const EVID = require('./helpers/evidence');
   const EN_EV = Array.from({ length: 6 }, (_, i) => `EN Social ${i}`).concat(Array.from({ length: 6 }, (_, i) => `EN Social Brand ${i}`));
   await EVID.seed(P, EN_EV);
   const socialStore = { ...store, getSocialBrandPool: async () => Array.from({ length: 6 }, (_, i) => ({ brand: `EN Social ${i}`, brandKey: `en-social-${i}`, fitScore: 40 })),
@@ -433,7 +433,7 @@ async function main() {
 main().catch((e) => { F++; OUT.push('FAIL threw: ' + (e && e.stack || e)); }).finally(async () => {
   const pass = OUT.filter((l) => l.startsWith('PASS')).length;
   console.log(OUT.join('\n'));
-  await require('./_evidence').clear(store.pool, Array.from({ length: 6 }, (_, i) => `EN Social ${i}`).concat(Array.from({ length: 6 }, (_, i) => `EN Social Brand ${i}`)));
+  await require('./helpers/evidence').clear(store.pool, Array.from({ length: 6 }, (_, i) => `EN Social ${i}`).concat(Array.from({ length: 6 }, (_, i) => `EN Social Brand ${i}`)));
   console.log(`\n${pass} passed\nfailures: ${F}`);
   try { await store.pool.end(); } catch (_) {}
   process.exit(F ? 1 : 0);

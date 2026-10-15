@@ -11,13 +11,15 @@ const REPO = _tp.join(__dirname, '..') + _tp.sep;
 process.env.PGHOST = process.env.PGHOST || '/tmp';
 process.env.PGPORT = process.env.PGPORT || '55432';
 process.env.PGUSER = process.env.PGUSER || 'postgres';
-process.env.PGDATABASE = process.env.PGDATABASE || 'postgres';
+// Its own database, schema built fresh: it empties whole tables and renames
+// one, which it must never do to the database every other suite shares.
+process.env.PGDATABASE = require('./helpers/freshDb').freshDb('shiftreport', { schema: true });
 const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 // The shift report, against real Postgres. The load-bearing assertion is the one
 // the whole product rests on: A ROLE WITH NO ROWS REPORTS NOTHING, and a role
 // with rows reports exactly what the rows say. Everything else is secondary.
-const fs = require('fs'); const http = require('http');
+const fs = require('fs');
 const ROOT = REPO;
 const Module = require('module');
 const realLoad = Module._load;
@@ -38,20 +40,19 @@ const RUN_AT = '2026-08-20 03:10:00+00';
 async function main() {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));
 
-  const app = require('express')();
-  app.use((q, _r, next) => { q.session = { userId: AG }; next(); });
-  const requireAuth = (_q, _r, next) => next();
+  // The page and the 5:30 email are both built by services/shiftReport, and
+  // the route only serves it (the five role cards go to the detail page). The
+  // report is read from that one source. This used to eval a block of
+  // server/index.js that has since moved into the service, so no route was
+  // mounted and every read was express's HTML 404.
   const SRC = fs.readFileSync(ROOT + 'server/index.js', 'utf8');
-  const s = SRC.indexOf('const SHIFT_PRE_HOURS');
-  const e = SRC.indexOf("app.get('/api/agent/home-metrics'");
-  ok('the shift-report block is present', s > 0 && e > s);
-  eval(SRC.slice(s, e));
-
-  const srv = http.createServer(app);
-  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-  const PORT = srv.address().port;
-  const get = async () => (await fetch(`http://127.0.0.1:${PORT}/api/agent/shift-report`)).json();
+  const route = SRC.slice(SRC.indexOf("app.get('/api/agent/shift-report'"), SRC.indexOf("app.get('/api/agent/shift-report'") + 600);
+  ok('the shift-report route serves the one service', /shiftReport\.buildShiftReport\(store\.pool, req\.session\.userId\)/.test(route), route.slice(0, 200));
+  const SR = require(ROOT + 'server/services/shiftReport.js');
+  const get = async () => SR.buildShiftReport(store.pool, AG);
   const role = (d, k) => (d.roles || []).find((x) => x.key === k) || null;
+  // The queue is { items, overflow, total } now, capped in items.
+  const NY = (d) => (d.needsYou && d.needsYou.items) || [];
 
   const wipe = async () => {
     for (const t of ['outreach_queue_runs', 'outreach_queue', 'outreach_logs', 'brand_engagement',
@@ -74,7 +75,7 @@ async function main() {
     [AG, JSON.stringify([{ athleteId: ATH, athleteName: 'Jane' }, { athleteId: 'x', athleteName: 'Bo' }]), RUN_AT]);
   d = await get();
   ok('a recorded run reports ran:true', d.run.ran === true, d.run);
-  ok('  athletes covered comes from the run details (2)', d.run.athletesCovered === 2, d.run.athletesCovered);
+  ok('  athletes covered comes from the run details (2)', d.coverage && d.coverage.attempted === 2, d.coverage);
   ok('  five role cards are emitted', (d.roles || []).length === 5, (d.roles || []).length);
   ok('  ALL FIVE report ran:false with no work behind them',
     d.roles.every((r) => r.ran === false), d.roles.map((r) => [r.key, r.ran]));
@@ -110,12 +111,13 @@ async function main() {
   let sc = role(d, 'scout');
   ok('Scout reports once it has rows', sc.ran === true, sc);
   ok('  kept = 3 queue cards', sc.value === 3, sc.value);
-  ok('  checked counts only brands in THIS agent\'s ledger (4 of 5)', /4 businesses checked/.test(sc.detail), sc.detail);
-  ok('  and names the athletes covered', /1 athlete/.test(sc.detail), sc.detail);
+  ok('  checked counts only brands in THIS agent\'s ledger (4 of 5)', /\b(4|four) businesses checked/.test(sc.detail), sc.detail);
+  // The athletes covered moved from the card's detail line to the coverage line.
+  ok('  and counts the athletes it covered', d.coverage && d.coverage.withWork === 1, d.coverage);
 
   // The 5th places row belongs to no agent and must never be credited.
   const other = role(await get(), 'scout');
-  ok('  a places row with no ledger entry is NOT counted', !/5 businesses/.test(other.detail), other.detail);
+  ok('  a places row with no ledger entry is NOT counted', !/\b(5|five) businesses/.test(other.detail), other.detail);
 
   // ── RESEARCHER ────────────────────────────────────────────────────────────
   await store.pool.query(
@@ -151,7 +153,7 @@ async function main() {
   d = await get();
   const cl = role(d, 'closer');
   ok('Closer counts sends in the window', cl.value >= 1, cl.value);
-  ok('  and replies that came back', /1 reply came back/.test(cl.detail), cl.detail);
+  ok('  and replies that came back', /\b(1|one) reply came back/.test(cl.detail), cl.detail);
 
   // ── ANALYST ───────────────────────────────────────────────────────────────
   let an = role(d, 'analyst');
@@ -183,16 +185,28 @@ async function main() {
   ok('another agent\'s queue card is not counted', role(d, 'scout').value === 3, role(d, 'scout').value);
 
   // ── NEEDS YOU ────────────────────────────────────────────────────────────
-  ok('the queue is capped at five', d.needsYou.length <= 5, d.needsYou.length);
-  const kinds = d.needsYou.map((x) => x.kind);
+  // What waits is what Home would show (services/actionable, one predicate
+  // for both), not raw rows: a DM card needs its handle and its message, an
+  // email draft its address. The report used to count raw drafts and queued
+  // rows and said 118 while Home showed five. So the fixture cards get what
+  // makes them workable, and one program card is queued: program cards are
+  // counted separately, as their own item.
+  await store.pool.query(`UPDATE outreach_queue SET instagram = 'brand' || slot WHERE agent_id = $1 AND dm_text IS NOT NULL`, [AG]);
+  await store.pool.query(`UPDATE outreach_logs SET sent_to_email = 'dana@brandzeroshop.com' WHERE id = 'ol1'`);
+  await store.pool.query(
+    `INSERT INTO outreach_queue (agent_id, athlete_id, slot, brand_key, brand_name, channel, state, created_at)
+     VALUES ($1,$2,7,'prog1','Prog One','program','queued',$3)`, [AG, ATH, RUN_AT]);
+  d = await get();
+  ok('the queue is capped at five', NY(d).length <= 5, NY(d).length);
+  const kinds = NY(d).map((x) => x.kind);
   ok('  a reply becomes an item', kinds.includes('reply'), kinds);
-  ok('  drafts waiting become an item', kinds.includes('approve'), kinds);
-  ok('  queued cards become an item', kinds.includes('queue'), kinds);
-  ok('  the reply sorts first', d.needsYou[0].kind === 'reply', kinds);
+  ok('  cards ready to work become ONE item', kinds.filter((k) => k === 'approve').length === 1, kinds);
+  ok('  program cards become their own item', kinds.includes('queue'), kinds);
+  ok('  the reply sorts first', NY(d)[0].kind === 'reply', kinds);
   ok('  every item carries one button label and a target',
-    d.needsYou.every((x) => x.actionLabel && x.target), d.needsYou);
+    NY(d).every((x) => x.actionLabel && x.target), NY(d));
   ok('  and NO item claims a drafted answer exists',
-    !d.needsYou.some((x) => /draft(ed)? (answer|reply)/i.test(x.line)), d.needsYou.map((x) => x.line));
+    !NY(d).some((x) => /draft(ed)? (answer|reply)/i.test(x.line)), NY(d).map((x) => x.line));
   ok('  no compliance item is fabricated', !kinds.includes('compliance'), kinds);
 
   // More than five replies must still cap at five.
@@ -202,13 +216,13 @@ async function main() {
        VALUES ($4,$1,$2,'R' || $4,'sent',$3,$3)`, [AG, ATH, RUN_AT, 'rep' + i]);
   }
   d = await get();
-  ok('eight replies still cap the queue at five', d.needsYou.length === 5, d.needsYou.length);
+  ok('eight replies still cap the queue at five', NY(d).length === 5, NY(d).length);
 
   // Empty queue is a real state, not an error.
   await store.pool.query(`DELETE FROM outreach_logs`);
   await store.pool.query(`UPDATE outreach_queue SET state='done'`);
   d = await get();
-  ok('with nothing pending the queue is EMPTY, not fabricated', d.needsYou.length === 0, d.needsYou);
+  ok('with nothing pending the queue is EMPTY, not fabricated', NY(d).length === 0, NY(d));
   ok('  and the run still reports', d.run.ran === true);
 
   // ── one broken source must not blank the report ──────────────────────────
@@ -221,10 +235,9 @@ async function main() {
   await store.pool.query(`ALTER TABLE aal_hidden RENAME TO athlete_activity_log`);
 
   await wipe();
-  srv.close();
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));
   await store.pool.end();
   process.exit(F ? 1 : 0);
 }
-main().catch((e) => { console.error('THREW', e); process.exit(1); });
+main().catch((e) => { console.log(OUT.join('\n')); console.error('THREW', e); process.exit(1); });

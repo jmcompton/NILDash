@@ -11,7 +11,10 @@ const REPO = _tp.join(__dirname, '..') + _tp.sep;
 process.env.PGHOST = process.env.PGHOST || '/tmp';
 process.env.PGPORT = process.env.PGPORT || '55432';
 process.env.PGUSER = process.env.PGUSER || 'postgres';
-process.env.PGDATABASE = process.env.PGDATABASE || 'postgres';
+// Its own database, schema built fresh. The endpoint under test sweeps EVERY
+// agent's queue (an admin action), so on the shared database it counted, and
+// on confirm retired, other suites' rows: "finds the two stale rows" read 12.
+process.env.PGDATABASE = require('./helpers/freshDb').freshDb('retiretest', { schema: true });
 const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 // Retiring the queue rows the hometown fallback left behind.

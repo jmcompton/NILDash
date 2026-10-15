@@ -298,7 +298,11 @@ async function main() {
   // to onCard in both lanes, and skipBrand is asked before any research.
   const eng = fs.readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
   ok('the engine hands a dry run\'s card to onCard in both lanes', (eng.match(/if \(ctx\.onCard\) \{ try \{ await ctx\.onCard\(\{ \.\.\.(p?card), slot \}\)/g) || []).length === 2);
-  ok('  and asks skipBrand before each research claim', (eng.match(/if \(ctx\.skipBrand && ctx\.skipBrand\(cand\.brand_name\)\) \{[\s\S]{0,300}?continue;\s*\}\s*(\/\/[^\n]*\n\s*)*if \(!\(await Claims\.claimResearch/g) || []).length === 2);
+  // The local lane's claim sits behind the same-night retry's branch (a
+  // retried business was claimed on its first try), so the claim is matched
+  // as the next claimResearch after the skipBrand check, at both sites.
+  ok('  and asks skipBrand before each research claim', (eng.match(/if \(ctx\.skipBrand && ctx\.skipBrand\(cand\.brand_name\)\) \{[\s\S]{0,300}?continue;\s*\}\s*(\/\/[^\n]*\n\s*)*(if \(cand\._verifyTry\) \{[\s\S]{0,120}?\} else )?if \(!\(await Claims\.claimResearch/g) || []).length === 2
+    && (eng.match(/Claims\.claimResearch\(/g) || []).length === 2);
 
   // ── 9. THE SCHEDULE ──────────────────────────────────────────────────────
   OUT.push('', '-- the schedule --');

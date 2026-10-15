@@ -1,19 +1,4 @@
 'use strict';
-// Moved out of a session scratchpad, which is reclaimed when the session ends.
-// Normalised so it runs from a checkout on any machine: repo-relative paths,
-// overridable Postgres settings, an overridable Chromium, and a startup wait the
-// runner can shorten once the schema has been migrated once.
-//
-//   node tests/run.js            every suite, against the committed baseline
-//   node tests/<this file>       just this one
-const _tp = require('path');
-const REPO = _tp.join(__dirname, '..') + _tp.sep;
-process.env.PGHOST = process.env.PGHOST || '/tmp';
-process.env.PGPORT = process.env.PGPORT || '55432';
-process.env.PGUSER = process.env.PGUSER || 'postgres';
-process.env.PGDATABASE = process.env.PGDATABASE || 'postgres';
-const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
-const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 // near(src, anchor, target, window) -- a distance assertion that reports its own
 // headroom instead of silently passing until the day it does not.
 //

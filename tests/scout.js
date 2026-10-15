@@ -119,8 +119,14 @@ async function main() {
   const scraped = sl.picks.find((p) => p.brand_name === 'Passed Over 3');
   ok('A NEWS REPORT DOES NOT BOOST A LOCAL BUSINESS',
     !scraped || !scraped.sponsorSignal, scraped);
-  ok('  so it does not jump the queue on national press evidence',
-    sl.picks[0].brand_name !== 'Passed Over 3', sl.picks.map((p) => p.brand_name));
+  // WHERE IT LANDS AMONG EQUALS IS THE DAY'S SHUFFLE (the pool order is keyed
+  // on the date), so the check is that it got no boost: the same fit as a
+  // market-pool business with no signal at all.
+  const ex = await S.assembleSlate(P, { agentId: AG, athlete: ATH, store, limit: 5, explain: true });
+  const fitOf = (b) => (ex.considered.find((c) => c.brand === b) || {}).fit;
+  const plain = ex.considered.filter((c) => /^Passed Over [0-9]$/.test(c.brand) && c.brand !== 'Passed Over 3' && !c.signal).map((c) => c.fit);
+  ok('  so it does not jump the queue on national press evidence: no boost, the same fit as a business with no signal',
+    fitOf('Passed Over 3') !== undefined && plain.length > 0 && plain.every((f) => f === fitOf('Passed Over 3')), { scraped: fitOf('Passed Over 3'), plain });
 
   // What DOES boost a local business: one that actually answered us for another
   // athlete at this school. This is the signal the insight was about.
@@ -142,6 +148,19 @@ async function main() {
   ok('  carrying the signal so the card can say why', boosted && boosted.sponsorSignal, boosted);
   ok('  and the slate reports how many were boosted', sl.boosted === 1,
     sl.picks.filter((p) => p.sponsorSignal).map((p) => p.brand_name + ' <- ' + p.sponsorSignal.kind));
+  // AHEAD OF THE SOCIAL SEATS TOO. An athlete with enough reach holds social
+  // seats on every slate; they are taken first so they are not crowded out,
+  // and that used to put them first in line, ahead of the business that
+  // answered us.
+  const socialStore = { ...store, getSocialBrandPool: async () => ([
+    { brand: 'Seat Brand One', brandKey: 'seatone', fitScore: 95, whyFits: 'Code' },
+    { brand: 'Seat Brand Two', brandKey: 'seattwo', fitScore: 90, whyFits: 'Code' },
+  ]), getTopNilComps: async () => [] };
+  const withSeats = await S.assembleSlate(P, { agentId: AG, athlete: ATH, store: socialStore, limit: 5 });
+  ok('THE BUSINESS THAT ANSWERED US RANKS FIRST, ahead of the social seats',
+    withSeats.picks[0].brand_name === 'Passed Over 4' && withSeats.picks.some((p) => p.lane === 'social'),
+    withSeats.picks.map((p) => `${p.lane}:${p.brand_name}`));
+  ok('  and the social seats are still on the slate', withSeats.picks.filter((p) => p.lane === 'social').length === 2, withSeats.picks.map((p) => p.lane));
 
   // ONE BUSINESS, ONE SLOT. The same brand can reach the slate down two lanes
   // at once -- local market pool AND national index. Two pitches to the same
@@ -164,7 +183,7 @@ async function main() {
   // whose local market is bare.
   // Evidence that each signs athletes like this one (services/signingEvidence);
   // Red Bull is a household incumbent and is refused whatever it has.
-  const EVID = require('./_evidence');
+  const EVID = require('./helpers/evidence');
   // Program rows only for brands that have a page; the page-less ones get a
   // logged deal instead, so the test's "no page" stays true.
   const EVBRANDS = ['Gymshark', 'Nocco', 'Alani Nu', 'Celsius', 'Program Only Co', 'DM Possible Co', 'National With Page', 'Plain No Page'];

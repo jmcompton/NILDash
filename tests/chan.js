@@ -19,7 +19,8 @@ const src=fs.readFileSync(REPO + 'server/ai.js','utf8');
 const rankSrc=src.match(/function _contactAuthorityRank\(title\) \{[\s\S]*?\n\}/)[0];
 const rootSrc=src.match(/function _rootDomain\(url\) \{[\s\S]*?\n\}/)[0];
 const ordSrc=src.match(/const MANUAL_SOURCE_ORDER = \[[^\]]*\];/)[0];
-const m={}; new Function('module', rankSrc+'\n'+rootSrc+'\n'+ordSrc+'\nmodule.r=_contactAuthorityRank;module.rd=_rootDomain;module.o=MANUAL_SOURCE_ORDER;')(m);
+// _contactAuthorityRank delegates to services/contactRank (ai.js's _CR).
+const m={}; new Function('module', '_CR', rankSrc+'\n'+rootSrc+'\n'+ordSrc+'\nmodule.r=_contactAuthorityRank;module.rd=_rootDomain;module.o=MANUAL_SOURCE_ORDER;')(m, require(REPO + 'server/services/contactRank.js'));
 const { buildContactLadder } = require(REPO + 'server/services/contactLadder.js');
 const W=3;
 console.log('wave1:', m.o.slice(0,W).join(', '));

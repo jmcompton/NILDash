@@ -43,10 +43,14 @@ async function main() {
     await P.query(`DELETE FROM agent_auto_mode WHERE agent_id=$1`, [AG]).catch(() => {});
     await P.query(`DELETE FROM users WHERE id=$1`, [AG]).catch(() => {});
     await P.query(`DELETE FROM email_suppression WHERE email LIKE '%@cl.example'`).catch(() => {});
+    await P.query(`DELETE FROM brand_evidence_cache WHERE brand_key LIKE 'cl:%'`).catch(() => {});
+    await P.query(`DELETE FROM compliance_holds WHERE agent_id=$1`, [AG]).catch(() => {});
   };
   await clean();
-  await P.query(`INSERT INTO users (id,name,email,password,role,report_tz)
-                 VALUES ($1,'A','cl@x.com','x','agent','America/Chicago')`, [AG]);
+  // With the agent's own business address (services/canSpam): without one an
+  // agent's first email is refused.
+  await P.query(`INSERT INTO users (id,name,email,password,role,report_tz,business_street,business_city,business_state,business_zip,business_address_at)
+                 VALUES ($1,'A','cl@x.com','x','agent','America/Chicago','1 Main St','Auburn','AL','36830',NOW())`, [AG]);
 
   // ── ALLOCATION: NOT DIVIDED EVENLY ───────────────────────────────────────
   // 40 across 45 athletes is 0.9 each, which is one weak pitch for everyone and
@@ -130,6 +134,10 @@ async function main() {
   };
   for (let i = 0; i < 9; i++) {
     await mk('cl-l' + i, 'cl-a' + (i % 3), 'Brand ' + i, `b${i}@cl.example`);
+    // Its Places record: release holds a business whose category it cannot check.
+    await P.query(`INSERT INTO brand_evidence_cache (brand_key, lane, brand, evidence, outcome, refreshed_at)
+                   VALUES ($1,'places',$2,$3::jsonb,'OK',NOW()) ON CONFLICT (brand_key, lane) DO NOTHING`,
+      ['cl:' + i, 'Brand ' + i, JSON.stringify({ found: true, types: ['sporting_goods_store'], primaryType: 'sporting_goods_store', name: 'Brand ' + i })]);
   }
   const batch = await C.buildBatch(P, AG, { now: TUE });
   ok('the batch is built from ready drafts', batch.batch.length > 0, batch.note);
@@ -275,4 +283,4 @@ async function main() {
   await P.end();
   process.exit(F ? 1 : 0);
 }
-main().catch((e) => { console.error('THREW', e); process.exit(1); });
+main().catch((e) => { console.log(OUT.join('\n')); console.error('THREW', e); process.exit(1); });

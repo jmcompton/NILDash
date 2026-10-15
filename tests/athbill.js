@@ -25,6 +25,8 @@ const ok = (n, c, got) => { if (!c) { f++; console.log(`  FAIL ${n}${got !== und
 const SRV = fs.readFileSync(REPO + 'server/index.js', 'utf8');
 
 // ── psql plumbing ────────────────────────────────────────────────────────────
+// Its own database, made fresh on every run.
+require('./helpers/freshDb').freshDb('billing');
 function sql(text, csv) {
   fs.writeFileSync('/tmp/pgtest/t.sql', text);
   fs.chmodSync('/tmp/pgtest/t.sql', 0o644);

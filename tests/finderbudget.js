@@ -1,5 +1,5 @@
 'use strict';
-// Needs the test Postgres (tests/_idx.js settings). Makes no network calls:
+// Needs the test Postgres (PGHOST/PGPORT/PGUSER/PGDATABASE, as every suite). Makes no network calls:
 // fetch and DNS are stubbed.
 //
 //   node tests/finderbudget.js

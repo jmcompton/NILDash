@@ -11,7 +11,10 @@ const REPO = _tp.join(__dirname, '..') + _tp.sep;
 process.env.PGHOST = process.env.PGHOST || '/tmp';
 process.env.PGPORT = process.env.PGPORT || '55432';
 process.env.PGUSER = process.env.PGUSER || 'postgres';
-process.env.PGDATABASE = process.env.PGDATABASE || 'postgres';
+// Its own database, schema built fresh: reset() empties whole tables
+// (outreach_queue, brand_engagement, ...), which it must never do to the
+// database every other suite shares.
+process.env.PGDATABASE = require('./helpers/freshDb').freshDb('costtest', { schema: true });
 const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 // Real Postgres, real schema (server/store.js's own init()), real fillAthlete /
@@ -36,7 +39,10 @@ const stub = {
 Module._load = function (request, parent) {
   const m = originalLoad.apply(this, arguments);
   if (request === '../services/placesLookup') {
-    return { ...m, lookupPlace: async (b, loc) => { stub.placesCalls.push({ b, loc }); return stub.places(b); } };
+    // The job reads lookupPlaceResult ({ ok, place, reason }) now; both are stubbed.
+    return { ...m,
+      lookupPlace: async (b, loc) => { stub.placesCalls.push({ b, loc }); return stub.places(b); },
+      lookupPlaceResult: async (b, loc) => { stub.placesCalls.push({ b, loc }); return { ok: true, place: stub.places(b), reason: 'found' }; } };
   }
   return m;
 };
@@ -83,8 +89,10 @@ async function seed(pool, athId, nCands) {
     [athId, JSON.stringify({ name: 'Test Athlete', school: 'University of Arkansas', hometown: 'Fayetteville, AR' })]);
   for (let i = 0; i < nCands; i++) {
     await pool.query(
-      `INSERT INTO brand_engagement (agent_id,athlete_id,brand_key,brand_name,state,last_shown_at)
-       VALUES ('agent_c1',$1,$2,$3,'shown',NOW()) ON CONFLICT DO NOTHING`,
+      // lane 'local': a shown row with no lane is UNKNOWN, and the local pool
+      // deliberately leaves it out (services/scout localCandidates).
+      `INSERT INTO brand_engagement (agent_id,athlete_id,brand_key,brand_name,state,last_shown_at,lane)
+       VALUES ('agent_c1',$1,$2,$3,'shown',NOW(),'local') ON CONFLICT DO NOTHING`,
       [athId, 'bk' + i, 'Business ' + i]);
   }
 }
@@ -93,6 +101,8 @@ async function main() {
   await new Promise((r) => setTimeout(r, 2000));
   const pool = store.pool;
 
+  // Every fill carries the agent's name: a card nobody can sign is never
+  // written (services/agentName), and the fill refuses before spending.
   // ── 1. THE NIGHT NOW FILLS ALL FIVE ──────────────────────────────────────
   // This section used to assert nightly=1 card. NIGHTLY_SLOTS was raised to 5
   // because it is what caps the slate the Scout is asked for -- one slot meant
@@ -103,7 +113,7 @@ async function main() {
   stub.contacts = PASSING;
   let budget = Q.newBudget(job.CAP_USD);
   let r = await job.fillAthlete(pool, {
-    agentId: 'agent_c1', athleteId: 'ath_c1', athleteName: 'T', budget,
+    agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c1', athleteName: 'T', budget,
     region: 'Fayetteville, AR', maxSlots: Q.NIGHTLY_SLOTS,
   });
   ok('nightly fills all five slots when the candidates are there', r.filled === 5, r.filled);
@@ -111,7 +121,9 @@ async function main() {
   ok('  and five rows are in the queue', n === 5, n);
   ok('  one lookup per card placed, no more', stub.contactCalls.length === 5, stub.contactCalls.length);
   ok('  and never more than maxSlots, whatever the pool holds', r.filled <= Q.NIGHTLY_SLOTS, r.filled);
-  ok('  and it asked for the LEAN source order', stub.contactCalls[0].ctx.sourceOrder.join(',') === 'chamber,site,facebook', stub.contactCalls[0].ctx.sourceOrder);
+  // Reviews joined facebook in wave 2 (ai.js LEAN_SOURCE_ORDER): an owner who
+  // signs their replies to reviews names themselves on their own listing.
+  ok('  and it asked for the LEAN source order', stub.contactCalls[0].ctx.sourceOrder.join(',') === 'chamber,site,facebook,reviews', stub.contactCalls[0].ctx.sourceOrder);
   ok('  with waveSize 2', stub.contactCalls[0].ctx.waveSize === 2, stub.contactCalls[0].ctx.waveSize);
 
   // ── 2. ON DEMAND IS NOW MOSTLY A NO-OP, AND THAT IS CORRECT ──────────────
@@ -119,7 +131,7 @@ async function main() {
   // to fill. What still has to hold is the CLAIM: one per athlete per day, so an
   // agent flipping between athletes all morning cannot re-trigger spending.
   stub.contactCalls.length = 0;
-  const ath = { id: 'ath_c1', agent_id: 'agent_c1', name: 'T', school: 'University of Arkansas', hometown: 'Fayetteville, AR' };
+  const ath = { id: 'ath_c1', agent_id: 'agent_c1', agent_name: 'Alex Reed', name: 'T', school: 'University of Arkansas', hometown: 'Fayetteville, AR' };
   let od = await job.fillOnDemand(pool, ath);
   ok('first open of the day still claims', od.claimed === true, od);
   ok('  and fills nothing, because the night already did', od.filled === 0, od);
@@ -146,7 +158,7 @@ async function main() {
     { cap: job.ONDEMAND_CAP_USD, ceiling: job.LOOKUP_CEILING_USD });
   await reset(pool); await seed(pool, 'ath_c2', 9);
   stub.contacts = PASSING;
-  const od4 = await job.fillOnDemand(pool, { id: 'ath_c2', agent_id: 'agent_c1', name: 'T2', hometown: 'Fayetteville, AR' });
+  const od4 = await job.fillOnDemand(pool, { id: 'ath_c2', agent_id: 'agent_c1', agent_name: 'Alex Reed', name: 'T2', hometown: 'Fayetteville, AR' });
   ok('on-demand can never exceed its own $0.15 cap', od4.spent <= 0.15 + 1e-9, od4.spent);
 
   // ── 4. Prescreen skips a closed business WITHOUT a paid lookup ────────────
@@ -154,7 +166,7 @@ async function main() {
   stub.places = () => ({ businessStatus: 'CLOSED_PERMANENTLY', website: 'https://x.com' });
   stub.contacts = PASSING;
   budget = Q.newBudget(job.CAP_USD);
-  r = await job.fillAthlete(pool, { agentId: 'agent_c1', athleteId: 'ath_c3', athleteName: 'T3', budget, region: 'Fayetteville, AR' });
+  r = await job.fillAthlete(pool, { agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c3', athleteName: 'T3', budget, region: 'Fayetteville, AR' });
   ok('every candidate closed -> nothing queued', r.filled === 0, r.filled);
   ok('  and NOT ONE paid lookup was made', stub.contactCalls.length === 0, stub.contactCalls.length);
   ok('  budget spent stays at zero', budget.spent() === 0, budget.spent());
@@ -167,9 +179,12 @@ async function main() {
   stub.contacts = FAILING;
   for (let night = 1; night <= 3; night++) {
     const b = Q.newBudget(job.CAP_USD);
+    // Each night on its own date: research claims are per athlete per night,
+    // so on one date nights 2 and 3 found everything "already researched
+    // tonight", tried nothing, and were not a verdict on the market.
     const rr = await job.fillAthlete(pool, {
-      agentId: 'agent_c1', athleteId: 'ath_c4', athleteName: 'T4', budget: b,
-      region: 'Fayetteville, AR', maxSlots: Q.NIGHTLY_SLOTS,
+      agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c4', athleteName: 'T4', budget: b,
+      region: 'Fayetteville, AR', maxSlots: Q.NIGHTLY_SLOTS, runDate: '2026-08-0' + night,
     });
     await job.recordAttempt(pool, 'ath_c4', { filled: rr.filled, spent: b.spent(), runDate: '2026-08-0' + night });
     const st = await job.athleteState(pool, 'ath_c4');
@@ -180,7 +195,7 @@ async function main() {
   stub.placesCalls.length = 0;   // the 3 failed nights above each made Places calls
   const b4 = Q.newBudget(job.CAP_USD);
   const paused = await job.fillAthlete(pool, {
-    agentId: 'agent_c1', athleteId: 'ath_c4', athleteName: 'T4', budget: b4,
+    agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c4', athleteName: 'T4', budget: b4,
     region: 'Fayetteville, AR', maxSlots: Q.NIGHTLY_SLOTS,
   });
   ok('night 4 on a paused athlete: reports paused', paused.paused === true, paused);
@@ -218,4 +233,4 @@ async function main() {
   process.exit(FAIL ? 1 : 0);
 }
 
-main().catch((e) => { console.error('THREW', e); process.exit(1); });
+main().catch((e) => { console.log(OUT.join('\n')); console.error('THREW', e); process.exit(1); });

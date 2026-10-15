@@ -25,6 +25,8 @@ const SRV = fs.readFileSync(R + 'server/index.js', 'utf8');
 const ADM = fs.readFileSync(R + 'public/admin.html', 'utf8');
 const STORE = fs.readFileSync(R + 'server/store.js', 'utf8');
 
+// Its own database, made fresh on every run.
+require('./helpers/freshDb').freshDb('comp');
 function sql(text, csv) {
   fs.writeFileSync('/tmp/pgtest/t.sql', text);
   fs.chmodSync('/tmp/pgtest/t.sql', 0o644);

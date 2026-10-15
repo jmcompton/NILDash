@@ -38,6 +38,8 @@ const IN_FLIGHT = frag('IN_FLIGHT'), CLOSED_AT = frag('CLOSED_AT'), VALUE = frag
 const queries = [...BLOCK.matchAll(/soft\(\s*`([\s\S]*?)`,\s*\[agentId\]\)/g)].map((m) => m[1]);
 if (queries.length !== 9) { console.log('FIXTURE BROKEN: expected 9 queries, lifted ' + queries.length); process.exit(1); }
 
+// Its own database, made fresh on every run.
+require('./helpers/freshDb').freshDb('home', { schema: true });
 function run(sql) {
   const bound = sql.replace(/\$\{IN_FLIGHT\}/g, IN_FLIGHT)
     .replace(/\$\{CLOSED_AT\}/g, CLOSED_AT).replace(/\$\{VALUE\}/g, VALUE)

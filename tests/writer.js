@@ -348,6 +348,16 @@ async function main() {
     V('Jeremiah Wilkinson is an athlete at Arkansas and his audience is local.', SPARSE).problems);
   ok('  and never naming the athlete is itself a failure',
     !V('The athlete is well known locally.', FULL).ok);
+  // A distance to the business is not a hometown: "a mile from X" names the
+  // business the pitch is about. These were refused as invented hometowns.
+  for (const near of ['Jeremiah Wilkinson trains a mile from Millennium Chiropractic.',
+    'Jeremiah Wilkinson lives five minutes from Rocky Gym.', 'Jeremiah Wilkinson is ten minutes away from Hoover Bowl.',
+    'Jeremiah Wilkinson eats across the street from Main Street Deli.']) {
+    ok('a distance is not a hometown: ' + JSON.stringify(near), V(near, SPARSE).ok && V(near, FULL).ok,
+      [V(near, SPARSE).problems, V(near, FULL).problems]);
+  }
+  ok('  while "is from X" is still checked', !V('Jeremiah Wilkinson is from Montgomery.', SPARSE).ok
+    && V('Jeremiah Wilkinson is from Montgomery.', FULL).problems.some((x) => /stored hometown/.test(x)));
 
   // END TO END: a fabricated fact takes the SAME retry-then-refuse path as a price.
   const CLEAN = 'Hi Dana,\n\nSaw the gym on Dickson Street. Jeremiah Wilkinson is a junior linebacker at Arkansas '
