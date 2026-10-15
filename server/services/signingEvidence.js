@@ -189,7 +189,7 @@ async function filterAndRank(pool, cands, athlete, opts = {}) {
     // BAR OFF: kept as before, in its own order, with whatever evidence and
     // band we found recorded on the card for measurement.
     if (!bar) {
-      kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.ok ? ev.evidence : null, evidenceNote: ev.ok ? sentence(ev) : null, evidenceScore: 0, hasProgram: ev.program, sameSportEvidence: ev.sameSport });
+      kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.ok ? ev.evidence : null, evidenceNote: ev.ok ? sentence(ev) : null, evidenceScore: 0, hasProgram: ev.program, sameSportEvidence: ev.sameSport, dealCount: ev.deals });
       continue;
     }
     if (!ev.ok) {
@@ -197,7 +197,7 @@ async function filterAndRank(pool, cands, athlete, opts = {}) {
         : `no evidence it signed or partnered with an athlete of comparable reach in the last ${MONTHS} months` });
       continue;
     }
-    kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.evidence, evidenceNote: sentence(ev), evidenceScore: score(ev), hasProgram: ev.program, sameSportEvidence: ev.sameSport });
+    kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.evidence, evidenceNote: sentence(ev), evidenceScore: score(ev), hasProgram: ev.program, sameSportEvidence: ev.sameSport, dealCount: ev.deals });
   }
   if (bar) kept.sort((a, b) => b.evidenceScore - a.evidenceScore);
   return { kept, refused, bar };

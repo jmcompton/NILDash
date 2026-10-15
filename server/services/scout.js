@@ -611,6 +611,16 @@ function programFacts(b) {
     // 'national' or 'small' (services/socialProof): a national-size brand's
     // contact must be its partnerships or marketing lead.
     brandSize: b.brand_size || b.brandSize || null,
+    // The index's VERIFIED program page on its own (programUrl falls back to
+    // the website, which is not an application page), and what the program
+    // states: read by the deal mix (services/dealMix) and the fit reasons
+    // (services/fitReasons) under MARKET_MIX_ON.
+    proofUrl: b.proof_url || b.proofUrl || null,
+    proofDate: b.proof_date || b.proofDate || null,
+    sports: Array.isArray(b.sports) ? b.sports : null,
+    tierMin: b.tier_min != null ? b.tier_min : null,
+    tierMax: b.tier_max != null ? b.tier_max : null,
+    tierStated: b.tier_stated === true,
   };
 }
 
@@ -650,7 +660,7 @@ async function nationalCandidates(pool, { limit, store, athlete }) {
   const byBrand = new Map();
   try {
     const r = await pool.query(
-      `SELECT brand, website, proof_url, category, offer_summary, deal_structure
+      `SELECT brand, website, proof_url, category, offer_summary, deal_structure, brand_size, proof_date, sports, tier_min, tier_max, tier_stated
          FROM social_brands WHERE active = true AND LOWER(brand) = ANY($1::text[])`,
       [rows.map((b) => String(b.brand || '').toLowerCase())]);
     for (const row of r.rows) byBrand.set(normBrand(row.brand), row);
@@ -678,6 +688,14 @@ async function assembleSlate(pool, ctx) {
   // FIVE VERIFIED EMAILS (jobs/outreachQueue, EMAIL_FIVE_ON): only the local
   // lane can produce one, so the national and social pools are not drawn.
   if (ctx.localOnly && subject && subject.lanes) subject = { ...subject, lanes: { ...subject.lanes, social: false, national: false } };
+  // THE DEAL MIX (MARKET_MIX_ON, services/dealMix): the athlete's Market Score
+  // tier opens the lanes, and the seats still open tonight decide which are
+  // drawn. ctx.mix: { tier, seats: { local, social, national } }.
+  const mix = ctx.mix && ctx.mix.seats && subject && subject.lanes ? ctx.mix : null;
+  if (mix) {
+    subject = { ...subject, lanes: { local: !!subject.lanes.local && mix.seats.local > 0, social: mix.seats.social > 0, national: mix.seats.national > 0 },
+      socialSeats: mix.seats.social };
+  }
   const T = tablesOf(subject);
   const athlete = subject;
   const agentId = subject.agentId;
@@ -734,11 +752,26 @@ async function assembleSlate(pool, ctx) {
   //                 re-spends for the same answer. Dropped.
   // A social/national brand with no page and NO cached answer still enters:
   // that one search is how a DM candidate is discovered at all.
+  // ── THE MIX: SIZE TO THE TIER ─────────────────────────────────────────────
+  // A brand whose size does not match the tier never takes a seat
+  // (services/dealMix). Refused here, by name, before anything is spent.
+  if (mix && (social.length || national.length)) {
+    const DM = require('./dealMix');
+    const gate = (rows) => rows.filter((c) => {
+      const seat = DM.seatOk(mix.tier, c);
+      if (!seat.ok) { evidenceRefused.push({ brand: c.brand_name, lane: c.lane, why: seat.why, mix: true }); return false; }
+      return true;
+    }).map((c) => ({ ...c, sizeTier: DM.sizeOf(c).size }));
+    social = gate(social);
+    national = gate(national);
+  }
   const dropped = { programCapped: 0, noHandleCached: 0 };
   const held = Number(ctx.heldPrograms) || 0;
   const cap = Number(ctx.programCap) || 0;
   const programSlotHeld = cap > 0 && held >= cap;
-  if (programSlotHeld || (store && typeof store.getBrandEvidence === 'function')) {
+  // Not under the mix: a brand card there is a program or a named contact's
+  // verified email, never a DM, and a held program slot leaves the email route.
+  if (!mix && (programSlotHeld || (store && typeof store.getBrandEvidence === 'function'))) {
     const IG = require('./instagramLookup');
     const keep = async (c) => {
       if (programSlotHeld && c.programUrl) { dropped.programCapped++; return false; }
@@ -1040,6 +1073,25 @@ async function assembleSlate(pool, ctx) {
   const reach = (Number(athlete.instagram) || 0) + (Number(athlete.tiktok) || 0);
   const seats = subject.socialSeats !== undefined ? (subject.lanes.social ? subject.socialSeats : 0) : (reach >= SOCIAL_MIN_REACH ? 1 : 0);
   const socialEligible = seats > 0;
+  if (mix) {
+    // THE MIX'S SEATS, BRAND LANES FIRST. Each open social and national seat
+    // gets its share of the attempts, taken first for the same reason the
+    // social seat is (a deep local pool outranks every brand); the local lane
+    // fills the rest. Brands past their lane's share are not drawn tonight.
+    const totalSeats = Math.max(1, (mix.seats.local || 0) + (mix.seats.social || 0) + (mix.seats.national || 0));
+    const perSeat = Math.max(1, Math.floor(limit / totalSeats));
+    for (const lane of ['social', 'national']) {
+      const n = (mix.seats[lane] || 0) * perSeat;
+      for (const best of fresh.filter((c) => c.lane === lane).slice(0, n)) {
+        if (take(best, lane) && lane === 'social' && !shape.socialSeat) shape.socialSeat = best.brand_name;
+      }
+    }
+    for (const c of fresh) {
+      if (picks.length >= limit) break;
+      if (c.lane === 'local' && !chosen.has(c)) take(c, cats.has(c.businessCategory) ? 'rank' : 'spread');
+    }
+    shape.mix = { tier: mix.tier, seats: mix.seats, perSeat };
+  } else
   for (const best of fresh.filter((c) => c.lane === 'social').slice(0, Math.min(seats, limit))) {
     if (take(best, 'social') && !shape.socialSeat) shape.socialSeat = best.brand_name;
   }
@@ -1048,11 +1100,11 @@ async function assembleSlate(pool, ctx) {
   shape.reach = reach;
 
   // 2. The best candidate overall.
-  take(fresh[0], 'top');
+  if (!mix) take(fresh[0], 'top');
 
   // 3. Spread: fill the remaining seats preferring an unrepresented category,
   //    then fall back to rank order.
-  while (picks.length < limit) {
+  while (!mix && picks.length < limit) {
     let next = null;
     if (cats.size < minCats) {
       next = fresh.find((c) => !chosen.has(c) && c.businessCategory
@@ -1065,7 +1117,7 @@ async function assembleSlate(pool, ctx) {
 
   // 4. Short only because of the lane ceiling: fill from what is left rather
   //    than hand back four when five were available.
-  if (picks.length < limit) {
+  if (!mix && picks.length < limit) {
     for (const c of fresh) {
       if (picks.length >= limit) break;
       if (chosen.has(c)) continue;

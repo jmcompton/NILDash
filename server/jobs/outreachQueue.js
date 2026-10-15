@@ -96,6 +96,18 @@ function openSlotsFor(heldRows) {
   return FINDER.five() ? Q.slotsToFill(heldRows, { holds: holdsUnderFive }) : Q.slotsToFill(heldRows);
 }
 const HELD_SQL = `SELECT slot, state, channel, email_verified FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`;
+// ── THE THREE-LANE DEAL MIX (MARKET_MIX_ON) ─────────────────────────────────
+// The athlete's Market Score tier (services/marketScore) splits the five slots
+// between the local, social and national lanes (services/dealMix), and the
+// social and national lanes come back on, under the same bar as local: an
+// official application page, or a named partnerships / marketing contact's
+// verified address. Off: everything below runs exactly as before, and
+// EMAIL_FIVE_ON keeps the slate local only.
+const DM = require('../services/dealMix');
+const MS = require('../services/marketScore');
+const Fit = require('../services/fitReasons');
+const BrandContact = require('../services/brandContact');
+const HELD_MIX_SQL = `SELECT slot, state, channel, email_verified, lane, program_url FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`;
 const Reach = require('../services/reachability');
 const TYPE_CAP = 2;
 const VERIFY_TRIES = 3;
@@ -763,6 +775,14 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
      card.sizeBand || (card.lane === 'local' ? 'local' : null),
      card.signingEvidence ? JSON.stringify(card.signingEvidence) : null]);
   const wrote = (ins.rowCount || 0) > 0;
+  // THE DEAL MIX (MARKET_MIX_ON): the tier the card was placed for, the
+  // brand's size, and why this athlete fits this brand.
+  if (wrote && card.mixTier && ins.rows[0] && ins.rows[0].id) {
+    await DM.ensureColumns(pool).catch(() => {});
+    await pool.query(`UPDATE outreach_queue SET market_tier = $2, brand_size = $3, fit_reasons = $4 WHERE id = $1`,
+      [ins.rows[0].id, card.mixTier, card.brandSize || null, card.fitReasons ? JSON.stringify(card.fitReasons) : null])
+      .catch((e) => console.error('[queue] mix fields not recorded: ' + e.message));
+  }
   // VERIFIED BY THE EMAIL FINDER: a verified address for the named person.
   // What the five and the 5:30 list count (services/shortOfFive).
   if (wrote && (card.emailVerified === true || card.emailLabel) && ins.rows[0] && ins.rows[0].id) {
@@ -1032,6 +1052,32 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   const programBrandTally = ctx.programBrandTally
     || await loadProgramBrandTally(pool, agentId);
   let open = openSlotsFor(heldRows);
+  // ── THE DEAL MIX: THE TIER, AND THE SEATS EACH LANE STILL HAS ────────────
+  // A program card on an official application page holds a slot beside a
+  // verified email (DM.holdsUnderMix); each lane's held cards come off its
+  // seats. The score is the stored one when under a week old, else computed
+  // now from the record (no news search: that is the weekly job's). A dry run
+  // hands its own (ctx.marketScore).
+  let _mix = null;
+  if (DM.ON()) {
+    const mixRows = (await pool.query(HELD_MIX_SQL, [athleteId])).rows;
+    open = Q.slotsToFill(mixRows, { holds: (r) => DM.holdsUnderMix(r, { five: FINDER.five() }) });
+    let ms = ctx.marketScore || null;
+    if (!ms) {
+      try { ms = await MS.forAthlete(pool, athleteId, { save: !dry }); }
+      catch (e) { faultOf('database', 'market score: ' + e.message, 'market score'); ms = null; }
+    }
+    const tier = (ms && ms.tier) || 'local_star';
+    const held = DM.heldByLane(mixRows, { five: FINDER.five() });
+    _mix = { tier, score: ms ? ms.score : null, confidence: ms ? ms.confidence : null, held,
+      quota: DM.remaining(tier, held), placed: { local: 0, social: 0, national: 0 }, unscored: !ms };
+    const _seats = _mix.quota.local + _mix.quota.social + _mix.quota.national;
+    if (open.length > _seats) open = open.slice(0, _seats);
+    say(`${athleteName}: Market Score ${ms ? ms.score : 'not computed (treated as Local Star)'}; ${DM.describe(tier, _mix.quota)}`);
+  }
+  // Seats each lane can still take tonight.
+  const mixSeats = () => (_mix ? { local: _mix.quota.local - _mix.placed.local, social: _mix.quota.social - _mix.placed.social,
+    national: _mix.quota.national - _mix.placed.national } : null);
   if (!open.length) {
     // Says the real number. It said "three" while SLOTS_PER_ATHLETE was five,
     // which made a full athlete look like a bug in the slot count.
@@ -1066,8 +1112,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   const _retrying = Array.isArray(ctx.retryCands) && ctx.retryCands.length > 0;
   let slate = _retrying ? { picks: ctx.retryCands.slice(), laneCounts: { retry: ctx.retryCands.length }, faults: [] } : await Scout.assembleSlate(pool, {
     agentId, athlete: profile, store,
-    // FIVE VERIFIED EMAILS: only the local lane can produce one.
-    localOnly: FINDER.five(),
+    // FIVE VERIFIED EMAILS: only the local lane can produce one -- unless the
+    // deal mix is on, which reaches brands by their program page or a named
+    // contact's verified address.
+    localOnly: FINDER.five() && !_mix,
+    mix: _mix ? { tier: _mix.tier, seats: mixSeats() } : null,
     limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
     // The program cap is known before the slate is built. Passing it lets the
     // Scout drop program-only brands that cannot become a card tonight, instead
@@ -1114,7 +1163,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   async function redraw() {
     if (_retrying) return { fresh: slate, added: [] };
     const fresh = await Scout.assembleSlate(pool, {
-      agentId, athlete: profile, store, limit: slateLimit * 2, localOnly: FINDER.five(),
+      agentId, athlete: profile, store, limit: slateLimit * 2, localOnly: FINDER.five() && !_mix,
+      mix: _mix ? { tier: _mix.tier, seats: mixSeats() } : null,
       heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
       // Everything handed out tonight, so the read moves on to rows not yet
       // seen instead of returning the same top of the pool every time.
@@ -1395,7 +1445,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // athlete never climbs to the social or national lane; mid and high go to
   // the social lane straight after their own pool.
   const tierInfo = require('../services/athleteTier').tierOf(profile || {});
-  const ladder_ = require('../services/athleteTier').ladderFor(tierInfo);
+  // Under the deal mix the Market Score tier opens the lanes instead.
+  const ladder_ = require('../services/athleteTier').ladderFor(_mix ? { lanes: DM.lanesFor(_mix.tier) } : tierInfo);
   async function refillSlate(why) {
     // A same-night retry draws nothing new: its slate is what was set aside.
     if (_retrying) return [];
@@ -1407,8 +1458,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       const name = ladder_[rung];
       if (!name) break;
       let got = [];
+      // Under the mix, a rung whose lane has no seat left tonight is not climbed
+      // (and the social and national rungs are, while they have seats).
+      if (_mix) { if (mixSeats()[(name === 'social' || name === 'national') ? name : 'local'] <= 0) { rung++; continue; } }
       // Under FIVE, the national and social rungs cannot produce an email card.
-      if (FINDER.five() && (name === 'social' || name === 'national')) { rung++; continue; }
+      else if (FINDER.five() && (name === 'social' || name === 'national')) { rung++; continue; }
       if (name === 'local-wide') got = await localRefill(why, { skipRedraw: true });
       else if (name === 'places-refresh') { fire(name); got = await placesRefresh(); }
       else if (name === 'social' || name === 'national') { fire(name); got = await laneRung(name); }
@@ -1553,7 +1607,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // card: a national brand (reached by a programme form or a DM, never a
       // named person's verified address) or a chain location (its domain is
       // the parent company's).
-      if (FINDER.five()) {
+      if (FINDER.five() && !_mix) {
         let _skip = null;
         if (cand.lane && cand.lane !== 'local' && cand.lane !== 'hometown') _skip = `a ${cand.lane} brand, which is reached by a programme or a DM, not a named person's verified email`;
         else {
@@ -1563,6 +1617,26 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         if (_skip) {
           say(`${cand.brand_name}: skipped, ${_skip}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'selection', reason: _skip,
+            lane: cand.lane || null, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+      }
+      // ── THE DEAL MIX: THE LANE'S SEATS AND THE BRAND'S SIZE, BEFORE MONEY ──
+      if (_mix && cand.lane) {
+        const _lane = DM.laneOf(cand);
+        let _skip = null;
+        if (mixSeats()[_lane] <= 0) _skip = `the ${_lane} lane's ${DM.mixFor(_mix.tier)[_lane]} seat(s) for a ${DM.TIER_LABEL[_mix.tier]} are taken`;
+        else {
+          const _seat = DM.seatOk(_mix.tier, cand);
+          if (!_seat.ok) _skip = _seat.why;
+          else if (FINDER.five() && _lane === 'local') {
+            const _chain = require('../services/nationalChains').isChainLocation(cand.brand_name);
+            if (_chain) _skip = `a national chain location (${_chain}), skipped before any lookup`;
+          }
+        }
+        if (_skip) {
+          say(`${cand.brand_name}: skipped, ${_skip}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'mix', reason: _skip,
             lane: cand.lane || null, places: { found: false }, risk: 'normal' });
           continue;
         }
@@ -1594,6 +1668,41 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         continue;
       }
       if (cand.lane !== 'local') {
+        // ── THE DEAL MIX: THE SAME BAR AS THE LOCAL LANE ────────────────────
+        // A social or national card is one of two things and only two:
+        //   program  the brand's official application page (DM.officialPageOf;
+        //            the website fallback is not one)
+        //   email    a named partnerships / influencer / marketing contact with
+        //            a VALID verified address at the brand's own domain
+        //            (services/brandContact)
+        // No DM, no guessed address, no desk inbox. A brand past the program
+        // caps goes to its named contact instead. And the pitch must say why
+        // this athlete fits this brand, from researched facts (services/
+        // fitReasons): none found, nothing spent; none stated, no card.
+        let _mixRoute = null, _mixFit = null, _mixRouteWhy = null, _mixContact = null;
+        if (_mix) {
+          const _off = DM.officialPageOf(cand);
+          _mixRoute = _off.url ? 'program' : 'email';
+          _mixRouteWhy = _off.url ? null : _off.why;
+          const _pk = Q.programBrandKey(cand.brand_name);
+          if (_mixRoute === 'program' && Q.programCapReached(heldPrograms + programsPlaced)) {
+            _mixRoute = 'email'; _mixRouteWhy = `already holding ${heldPrograms + programsPlaced} program application (the cap is ${Q.PROGRAM_SLOT_CAP})`;
+          } else if (_mixRoute === 'program' && _pk && Q.programBrandCapReached(programBrandTally.get(_pk) || 0)) {
+            _mixRoute = 'email'; _mixRouteWhy = `${cand.brand_name} already has ${programBrandTally.get(_pk)} program application(s) from this roster tonight`;
+          }
+          // The candidate carries only the page it may use, so the caps and the
+          // card below read the same answer.
+          cand.programUrl = _mixRoute === 'program' ? _off.url : null;
+          // WHY THEY FIT, FROM WHAT WE FOUND. Database reads only: free.
+          _mixFit = await Fit.research(pool, { cand, athlete: ctx.athleteProfile || profile,
+            athleteId: (ctx.athleteProfile && ctx.athleteProfile.id) || athleteId, agentId });
+          if (!Fit.researched(_mixFit)) {
+            const why = `no researched reason this athlete fits ${cand.brand_name} (no past campaign, audience range, sport or region fact)`;
+            say(`${cand.brand_name}: rejected, ${why}`);
+            tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'mix', reason: why, lane: cand.lane, mixTier: _mix.tier, places: { found: false }, risk: 'normal' });
+            continue;
+          }
+        }
         // ── THE CAP, CHECKED BEFORE THE MONEY ───────────────────────────────
         // A candidate that HAS a program page can only ever become a program
         // card, so once the one program slot is spoken for there is nothing to
@@ -1635,7 +1744,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         // no city, and handing one to handleVerdict makes it hunt for a place
         // qualifier that was never going to be there.
         let pig = null, pmeter = null;
-        try {
+        // Not under the deal mix: a brand card there is never a DM.
+        if (!_mix) try {
           const m = await scanMeter.run(() => scanMeter.label(
             { site: 'instagram', agentId, athleteId, brand: cand.brand_name },
             () => findInstagram(cand.website || null, {
@@ -1662,15 +1772,18 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           && (pmeter.cacheHits || pmeter.cacheMisses || pmeter.webSearches || pmeter.aiCalls);
         let pcost = Q.priceOf(pmeter);
         if (!ptouched) pcost = Q.USD_PER_WEB_SEARCH;
+        if (_mix) pcost = 0;   // no handle lookup ran
         if (pcost > 0) budget.spend(pcost);
-        spendLog.push({ brand: cand.brand_name, lane: cand.lane, cost: pcost,
+        if (!_mix) spendLog.push({ brand: cand.brand_name, lane: cand.lane, cost: pcost,
           cached: !!(ptouched && pmeter.cacheHits && !pmeter.webSearches && !pmeter.aiCalls),
           webSearches: pmeter ? pmeter.webSearches : 0, aiCalls: pmeter ? pmeter.aiCalls : 0,
           cacheHits: pmeter ? pmeter.cacheHits : 0, cacheMisses: pmeter ? pmeter.cacheMisses : 0,
           metered: !!ptouched });
 
         const pbar = Q.passesProgramBar(cand, pig);
-        if (!pbar.ok) {
+        // Under the deal mix the route was decided above (_mixRoute): an
+        // official page, or the named contact's verified address.
+        if (!pbar.ok && !_mix) {
           say(`${cand.brand_name}: skipped, ${pbar.reason}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'owner', reason: pbar.reason,
             lane: cand.lane, places: { found: false }, risk: 'normal' });
@@ -1706,7 +1819,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
               // athlete-program lead (ownerNameSearch.titleProblem, LARGE_ORDER).
               // With the signing-evidence bar on (services/signingEvidence): every
               // social brand too. Off: as before, national or sized national.
-              large: cand.lane === 'national' || cand.brandSize === 'national' || (cand.lane === 'social' && !!ctx._evidenceBar) });
+              // Under the deal mix: every social and national brand.
+              large: cand.lane === 'national' || cand.brandSize === 'national' || (cand.lane === 'social' && !!ctx._evidenceBar) || !!_mix });
             _sw.lap('ownerSearch');
           } catch (e) {
             say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
@@ -1724,7 +1838,21 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           }
           say(`${cand.brand_name}: the ${pperson.query} search found ${pperson.name} (${pperson.title})`);
         }
-        const pgreet = pperson ? Q.greetNameOf(ONS.attachToLadder({ tiers: [] }, pperson)) : '';
+        // THE EMAIL ROUTE: a partnerships / marketing contact, verified valid.
+        if (_mix && _mixRoute === 'email') {
+          _mixContact = await BrandContact.verifiedAddress({ pool, person: pperson, cand, agentId, athleteId, more: FINDER.more() });
+          _sw.lap('emailFinder');
+          if (!_mixContact.ok) {
+            if (_mixContact.fault) OF.record('email-finder', _mixContact.fault, cand.brand_name);
+            say(`${cand.brand_name}: rejected, ${_mixContact.why}`);
+            const f = _mixContact.fin || null;
+            tried.push({ brand: cand.brand_name, result: _mixContact.fault ? 'error' : 'rejected', stage: 'mix', reason: _mixContact.why, fault: !!_mixContact.fault,
+              route: 'email', routeWhy: _mixRouteWhy, mixTier: _mix.tier, lane: cand.lane, places: { found: false }, risk: 'normal',
+              emailCheck: f ? { verify: f.verify, finder: f.finder, website: f.website } : null });
+            continue;
+          }
+        }
+        const pgreet = pperson ? Q.greetNameOf((_mixContact && _mixContact.ladder) || ONS.attachToLadder({ tiers: [] }, pperson)) : '';
         const pmatch = await matchFor(pool, agentId, athleteId, cand.brand_name);
         let ppitch = null;
         try {
@@ -1737,6 +1865,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
               // The programme's own page, and any public evidence, as the
               // ONE thing the message may say about them.
               evidence: WriterEvidence.evidenceFor(cand),
+              // Under the deal mix: why this athlete fits this brand, the
+              // researched facts (services/fitReasons), in their place.
+              ...(_mixFit ? { evidence: _mixFit.lines } : {}),
               isFranchise: false,
               isLocal: false,   // a brand programme: no verified-Instagram local line
             },
@@ -1746,7 +1877,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             deal: pmatch,
             agentFirstName: ctx.agentFirstName || null,
             hasSchedulingLink: !!signature.hasLink,
-            channel: 'dm',
+            channel: _mixRoute === 'email' ? 'email' : 'dm',
             learnedAngles: await PW.learnedAngles(pool, PW.playbookFor(cand.category || null).key).catch(() => []),
           }, { oneShot: (p2, sys, mt) => scanMeter.label(
             { site: 'writer', agentId, athleteId, brand: cand.brand_name },
@@ -1772,6 +1903,18 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
+        // NO FILLER (the deal mix): the pitch states one of the fit facts, or
+        // it is not a card. A writer that failed leaves no pitch to state one.
+        let _mixStates = null;
+        if (_mixFit) {
+          _mixStates = Fit.statesFit(ppitch, _mixFit);
+          if (!_mixStates.ok) {
+            say(`${cand.brand_name}: nothing worth pitching — ${_mixStates.why}`);
+            tried.push({ brand: cand.brand_name, result: 'no_angle', stage: 'mix', reason: _mixStates.why, mixTier: _mix.tier,
+              writerRetried: !!(ppitch && ppitch.retried), lane: cand.lane, places: { found: false }, risk: 'normal' });
+            continue;
+          }
+        }
         // THE GREETING IS CHECKED, NOT TRUSTED. See ensureGreeting: a message the
         // model opened "Hi," under a named person is rewritten to greet them.
         if (ppitch && ppitch.message && NAME_REQUIRED) {
@@ -1787,6 +1930,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         // regenerated or re-saved draft cannot end up signed twice.
         if (ppitch && ppitch.message) ppitch.message = SIG.appendText(ppitch.message, signature);
         const pcard = Q.buildProgramCard(cand, ppitch, athleteName, pig, pperson);
+        // The deal mix's email route: the same pitch, addressed to the named
+        // contact's verified address (an email card, not a form).
+        if (_mixContact) Object.assign(pcard, Q.buildCard({ brandKey: cand.brand_key, brand: cand.brand_name, rationale: null, athleteName, pitch: ppitch }, _mixContact.ladder, null));
         tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
           writerRetried: !!(ppitch && ppitch.retried), writerFirstProblems: (ppitch && ppitch.firstProblems) || null,
           lane: cand.lane, channel: pcard.channel, places: { found: false }, risk: 'normal' });
@@ -1799,11 +1945,21 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         pcard.sizeBand = cand.sizeBand || null;
         pcard.signingEvidence = cand.signingEvidence || null;
         if (cand.evidenceNote) { pcard.sponsorSignal = pcard.sponsorSignal || 'signs-comparable'; pcard.sponsorNote = pcard.sponsorNote || cand.evidenceNote; }
+        // THE DEAL MIX: why they fit, on the card; the tier and the size.
+        if (_mix) {
+          pcard.why = 'Why they fit: ' + _mixFit.reasons.slice(0, 3).join('; ');
+          pcard.fitReasons = _mixFit.reasons;
+          pcard.fitLine = _mixStates.line;
+          pcard.mixTier = _mix.tier;
+          pcard.brandSize = DM.sizeOf(cand).size;
+          pcard.emailVerified = !!_mixContact;
+        }
         if (dry) {
           // A dry run hands the card it would have queued to the caller.
           if (ctx.onCard) { try { await ctx.onCard({ ...pcard, slot }); } catch (_) { /* the caller's problem */ } }
           say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`);
           if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
+          if (_mix) _mix.placed[DM.laneOf(cand)]++;
           placed = true; filled++; channels.push(pcard.channel); break;
         }
         if (!(await slotStillOpen(pool, athleteId, slot))) {
@@ -1818,6 +1974,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           // open-slot unique index does not burn the athlete's one program slot
           // -- nor the brand's allowance across the rest of the roster.
           if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
+          if (_mix) _mix.placed[DM.laneOf(cand)]++;
           placed = true; filled++; channels.push(pcard.channel); say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`); break;
         }
         continue;
@@ -2398,9 +2555,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         card.thin = cand.thin === true;
         card.thinNote = card.thin ? Scout.THIN_NOTE : null;
       }
+      if (_mix) { card.mixTier = _mix.tier; card.brandSize = DM.sizeOf(cand).size; card.fitReasons = Fit.localReasons(cand, ctx.athleteProfile || profile, pitch); }
       if (dry) {
         // A dry run hands the card it would have queued to the caller.
         if (ctx.onCard) { try { await ctx.onCard({ ...card, slot }); } catch (_) { /* the caller's problem */ } }
+        if (_mix) _mix.placed.local++;
         say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; channels.push(card.channel);
         if (card.businessCategory) typeCount.set(card.businessCategory, (typeCount.get(card.businessCategory) || 0) + 1);
         if (card.emailLabel === 'General inbox') generalPlaced++;
@@ -2413,6 +2572,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       if (await insertCard(pool, { agentId, athleteId, slot, card, marketKey: cand.hometown ? null : (profile && profile.marketKey) })) {
         placed = true; filled++; channels.push(card.channel);
+        if (_mix) _mix.placed.local++;
         if (card.businessCategory) typeCount.set(card.businessCategory, (typeCount.get(card.businessCategory) || 0) + 1);
         if (card.emailLabel === 'General inbox') generalPlaced++;
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
@@ -2443,6 +2603,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     held: Q.SLOTS_PER_ATHLETE - open.length + filled, floor: Q.SLOTS_PER_ATHLETE,
     tier: tierInfo.tier, tierWhy: tierInfo.why, ladder: ladder_.slice(),
     smartSlate: _smartSlate,
+    // THE DEAL MIX: the tier, each lane's seats, what was placed, and which
+    // lanes came up short (a seat nobody passed the bar for stays empty).
+    mix: _mix ? { tier: _mix.tier, score: _mix.score, confidence: _mix.confidence, unscored: _mix.unscored,
+      held: _mix.held, seats: _mix.quota, placed: { ..._mix.placed },
+      short: DM.LANES.filter((l) => _mix.placed[l] < _mix.quota[l]).map((l) => `${l} ${_mix.placed[l]} of ${_mix.quota[l]}`) } : undefined,
     channels: channels.reduce((m, c) => { const k = c || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {}),
     byLane: tried.reduce((m, t) => {
       const k = (t && t.lane) || 'local';

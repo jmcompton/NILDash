@@ -251,6 +251,33 @@
       "query": "JSONB",
       "result": "JSONB"
     },
+    "athlete_market_scores": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "components": "JSONB",
+      "computed_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "confidence": "NUMERIC",
+      "id": "SERIAL",
+      "missing": "JSONB",
+      "reasons": "JSONB",
+      "score": "INTEGER",
+      "tier": "TEXT"
+    },
+    "athlete_news_mentions": {
+      "athlete_id": "TEXT",
+      "found_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "kind": "TEXT",
+      "outlet": "TEXT",
+      "published_on": "DATE",
+      "title": "TEXT",
+      "url": "TEXT"
+    },
+    "athlete_news_searches": {
+      "athlete_id": "TEXT",
+      "fault": "TEXT",
+      "found": "INTEGER",
+      "searched_at": "TIMESTAMPTZ"
+    },
     "athlete_outreach": {
       "agent_id": "TEXT",
       "athlete_id": "TEXT",
@@ -420,6 +447,18 @@
       "identity_key": "TEXT",
       "lane": "TEXT",
       "skipped_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
+    "census_place_pop": {
+      "place": "TEXT",
+      "place_key": "TEXT",
+      "pop": "INTEGER",
+      "state": "TEXT"
+    },
+    "census_state_fetch": {
+      "fault": "TEXT",
+      "fetched_at": "TIMESTAMPTZ",
+      "places": "INTEGER",
+      "state": "TEXT"
     },
     "cold_agent_settings": {
       "id": "INTEGER DEFAULT 1",
