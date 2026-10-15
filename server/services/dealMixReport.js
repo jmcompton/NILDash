@@ -15,7 +15,9 @@ function cardLine(c, i) {
   if (c.channel === 'email') how = `email to ${who} <${c.email || 'no address'}>${c.emailVerified ? ', verified' : ', NOT verified'}`;
   else if (c.channel === 'program') how = `program application ${c.programUrl || '(no page)'}, greeting ${who}`;
   else how = `${c.channel} to ${who}`;
-  const L = [`    ${String(i + 1)}. ${('[' + lane + ']').padEnd(LANE_W)} ${c.brandName}${size}: ${how}`];
+  // A local card filling a backfilled brand seat says which seat.
+  const tag = c.mixBackfill ? `[local, ${c.mixBackfill.seat} seat]` : '[' + lane + ']';
+  const L = [`    ${String(i + 1)}. ${tag.padEnd(LANE_W)} ${c.brandName}${size}: ${how}`];
   const fit = Array.isArray(c.fitReasons) && c.fitReasons.length ? c.fitReasons : null;
   if (fit) L.push(`         Why they fit: ${fit.slice(0, 4).join('; ')}`);
   if (c.fitLine) L.push(`         The pitch states: "${c.fitLine}"`);
@@ -53,7 +55,14 @@ function formatAthlete({ name, score, cards, result, error, spend, ms }) {
   list.slice().sort((a, b) => order[DM.laneOf(a)] - order[DM.laneOf(b)]).forEach((c, i) => L.push(cardLine(c, i)));
   if (error) L.push(`  The fill failed on our side: ${error.message || error}`);
   const loop = (result && result.loop) || {};
-  if (loop.mix && loop.mix.short && loop.mix.short.length) L.push(`  Short: ${loop.mix.short.join(', ')} (a seat nobody passed the bar for stays empty)`);
+  // THE BACKFILL: each social or national seat nobody passed the bar for,
+  // filled from the local lane, and why (jobs/outreachQueue backfillMix).
+  const bf = (loop.mix && loop.mix.backfilled) || [];
+  if (bf.length) {
+    L.push(`  Backfilled from the local lane (${bf.length} seat${bf.length === 1 ? '' : 's'}):`);
+    for (const b of bf) L.push(`    ${b.seat} seat -> ${b.brand}${b.contact ? `, ${b.contact}` : ''}${b.email ? ` <${b.email}>` : ''}, verified. Why: ${b.why}`);
+  }
+  if (loop.mix && loop.mix.short && loop.mix.short.length) L.push(`  Short: ${loop.mix.short.join(', ')}`);
   if (result && result.note && !list.length) L.push(`  Note: ${result.note}`);
   const td = turnedDown(result && result.tried);
   const lanes = Object.keys(td);
@@ -75,6 +84,7 @@ function formatTotals(t) {
   L.push(`TOTAL: ${t.athletes} athlete(s), ${t.cards} card(s) of ${t.athletes * 5}; $${(t.usd || 0).toFixed(2)} spent on the model and searches.`);
   L.push('  By tier: ' + (Object.entries(t.byTier || {}).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'));
   L.push('  By lane, placed of the seats the mix opens: ' + DM.LANES.map((l) => `${l} ${t.byLane[l] || 0} of ${t.seats[l] || 0}`).join(', '));
+  if (t.backfilled) L.push(`  Brand seats backfilled from the local lane: ${t.backfilled}${t.backfilledBy ? ` (${Object.entries(t.backfilledBy).map(([k, v]) => `${v} ${k}`).join(', ')})` : ''}`);
   return L.join('\n');
 }
 

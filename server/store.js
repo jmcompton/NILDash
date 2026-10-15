@@ -1910,6 +1910,9 @@ async function init() {
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS market_tier TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS brand_size TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS fit_reasons JSONB`).catch(() => {});
+  // A local card that filled a social or national seat nobody passed the bar
+  // for (the deal mix's backfill): which seat.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS backfill_for TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS signing_evidence JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS ask TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ`).catch(() => {});

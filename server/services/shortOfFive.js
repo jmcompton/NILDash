@@ -9,7 +9,11 @@
 //
 // Once per Central date (claimed in short_five_alerts before sending, so two
 // instances send one email). A morning with nobody short sends nothing and is
-// recorded 'clear'.
+// recorded 'clear' -- unless, under MARKET_MIX_ON, a social or national seat
+// was backfilled from the local lane, which is always said (services/dealMix,
+// jobs/outreachQueue backfillMix): which seat, the card that filled it, why.
+// Under MARKET_MIX_ON a program card on an official application page holds a
+// slot beside the verified emails, as it does in the night, and counts here.
 
 const OQ = require('../jobs/outreachQueue');
 
@@ -81,6 +85,10 @@ function reasonFor(d, held, run) {
   // Under EMAIL_FIVE_ON these no longer hold a slot (jobs/outreachQueue
   // openSlotsFor): they are still on the agent's page, but they did not stop
   // the night. Said so, so the line is not read as the reason.
+  // THE DEAL MIX: a brand seat moved to the local lane that it could not fill.
+  const mix = loop.mix || null;
+  if (mix && mix.backfillUnfilled > 0) bits.push(`${mix.backfillUnfilled} social or national seat(s) moved to the local lane, which found no verified named email for them either`);
+  else if (mix && Array.isArray(mix.short) && mix.short.length) bits.push(`short in the mix: ${mix.short.join(', ')}`);
   if (h.other > 0) bits.push(`also on the page: ${h.other} earlier DM, call or unverified card${h.other === 1 ? '' : 's'}, which no longer hold a slot`
     + (h.otherExpires ? ` (first expires ${String(h.otherExpires).slice(0, 10)})` : ''));
   return bits.join('. ') + '.';
@@ -98,7 +106,20 @@ async function collect(pool, { now } = {}) {
             MIN(COALESCE(expire_from, created_at) + make_interval(days => $1)) FILTER (WHERE NOT (channel = 'email' AND email_verified)) AS other_expires
        FROM outreach_queue WHERE state = 'queued' GROUP BY athlete_id`, [require('./outreachQueue').EXPIRE_AFTER_DAYS || 7])).rows
     .map((r) => [r.athlete_id, { verified: r.verified, other: r.other, otherExpires: r.other_expires }]));
+  // MARKET_MIX_ON: an official program card holds a slot too (DM.holdsUnderMix).
+  const mixOn = process.env.MARKET_MIX_ON === '1';
+  if (mixOn) {
+    const DM = require('./dealMix');
+    const pr = (await pool.query(`SELECT athlete_id, channel, email_verified, program_url FROM outreach_queue WHERE state = 'queued' AND channel = 'program'`)).rows;
+    for (const r of pr) {
+      if (!DM.holdsUnderMix(r, { five: true })) continue;
+      const h = held.get(r.athlete_id) || { verified: 0, other: 0 };
+      h.verified++; h.other = Math.max(0, h.other - 1); h.programs = (h.programs || 0) + 1;
+      held.set(r.athlete_id, h);
+    }
+  }
   const short = [];
+  const backfills = [];
   let athletes = 0, skippedByDesign = 0;
   for (const run of runs) {
     if (/^skipped: /.test(String(run.note || ''))) { skippedByDesign++; continue; }
@@ -106,24 +127,41 @@ async function collect(pool, { now } = {}) {
       if (!d || !d.athleteId) continue;
       athletes++;
       const h = held.get(d.athleteId) || { verified: 0, other: 0 };
+      for (const b of ((d.loop && d.loop.mix && d.loop.mix.backfilled) || [])) {
+        backfills.push({ agent: run.agent_name || run.agent_id, athlete: d.athleteName || d.athleteId, athleteId: d.athleteId,
+          tier: d.loop.mix.tier, seat: b.seat, brand: b.brand, contact: b.contact || null, email: b.email || null, why: b.why || null });
+      }
       if (h.verified >= FIVE) continue;
       short.push({ agent: run.agent_name || run.agent_id, athlete: d.athleteName || d.athleteId, athleteId: d.athleteId,
         verified: h.verified, placedTonight: d.filled || 0, reason: reasonFor(d, h, run) });
     }
   }
   short.sort((a, b) => a.verified - b.verified || String(a.agent).localeCompare(String(b.agent)));
-  return { runDate, athletes, short, skippedByDesign, fiveOn: process.env.EMAIL_FIVE_ON === '1' };
+  backfills.sort((a, b) => String(a.agent).localeCompare(String(b.agent)) || String(a.athlete).localeCompare(String(b.athlete)));
+  return { runDate, athletes, short, backfills, mixOn, skippedByDesign, fiveOn: process.env.EMAIL_FIVE_ON === '1' };
 }
 
 function render(r) {
+  const bf = r.backfills || [];
+  const bfNote = bf.length ? `, ${bf.length} brand seat${bf.length === 1 ? '' : 's'} backfilled from local` : '';
+  const what = r.mixOn ? 'verified emails or official program cards' : 'verified emails';
   const subject = r.short.length
-    ? `NILDash: ${r.short.length} athlete${r.short.length === 1 ? '' : 's'} under ${FIVE} verified emails (${r.runDate})`
-    : `NILDash: every athlete has ${FIVE} verified emails (${r.runDate})`;
-  const L = [`${r.short.length} of ${r.athletes} athlete(s) hold fewer than ${FIVE} email cards with a verified address for a named person, as of 5:30am Central.`, ''];
+    ? `NILDash: ${r.short.length} athlete${r.short.length === 1 ? '' : 's'} under ${FIVE} ${what}${bfNote} (${r.runDate})`
+    : `NILDash: every athlete has ${FIVE} ${what}${bfNote} (${r.runDate})`;
+  const L = [`${r.short.length} of ${r.athletes} athlete(s) hold fewer than ${FIVE} ${r.mixOn ? 'email cards with a verified address for a named person or program cards on an official application page' : 'email cards with a verified address for a named person'}, as of 5:30am Central.`, ''];
   let agent = null;
   for (const s of r.short) {
     if (s.agent !== agent) { L.push(String(s.agent)); agent = s.agent; }
     L.push(`  ${s.athlete}: ${s.verified} of ${FIVE} (${s.placedTonight} placed tonight). ${s.reason}`);
+  }
+  // THE DEAL MIX'S BACKFILL: every seat that came to the local lane, and why.
+  if (bf.length) {
+    L.push('', `SEATS BACKFILLED FROM THE LOCAL LANE (MARKET_MIX_ON): ${bf.length}`);
+    let ag = null;
+    for (const b of bf) {
+      if (b.agent !== ag) { L.push(String(b.agent)); ag = b.agent; }
+      L.push(`  ${b.athlete}: the ${b.seat} seat -> ${b.brand}${b.contact ? `, ${b.contact}` : ''}${b.email ? ` <${b.email}>` : ''} (verified email). Why: ${b.why || 'no reason recorded'}`);
+    }
   }
   if (r.skippedByDesign) L.push('', `${r.skippedByDesign} agent(s) were not filled by design (not signed in recently).`);
   L.push('', 'Details: /api/admin/scripts/email-finder-report?text=1&days=1');
@@ -131,6 +169,10 @@ function render(r) {
   const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return { subject, text, html: `<pre style="font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap">${esc(text)}</pre>` };
 }
+
+// An email goes out when an athlete is short, or when a brand seat was
+// backfilled from the local lane (MARKET_MIX_ON): that is always said.
+function needsEmail(r) { return (r.short || []).length > 0 || (r.backfills || []).length > 0; }
 
 async function _send(msg) {
   if (!TO()) throw new Error('no alert destination: neither ADMIN_ALERT_EMAIL nor ADMIN_EMAIL is set');
@@ -152,7 +194,7 @@ async function runOnce(pool, opts = {}) {
   if (prior && ['sent', 'clear', 'sending'].includes(prior.status)) return { skipped: 'already ' + prior.status, report };
   if (prior && prior.status === 'failed' && prior.attempts >= MAX_ATTEMPTS) return { skipped: 'gave up', report };
   const msg = render(report);
-  if (!report.short.length) {
+  if (!needsEmail(report)) {
     await pool.query(`INSERT INTO short_five_alerts (alert_date, status, athletes, subject) VALUES ($1, 'clear', 0, $2)
       ON CONFLICT (alert_date) DO NOTHING`, [day, msg.subject]);
     return { status: 'clear', report };
@@ -174,4 +216,4 @@ async function runOnce(pool, opts = {}) {
   }
 }
 
-module.exports = { runOnce, collect, render, reasonFor, windowOpen, centralMinutes, ensureTable, FIVE };
+module.exports = { runOnce, collect, render, reasonFor, needsEmail, windowOpen, centralMinutes, ensureTable, FIVE };

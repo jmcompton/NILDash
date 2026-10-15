@@ -194,6 +194,7 @@ function ensureColumns(pool) {
     await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS market_tier TEXT`);
     await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS brand_size TEXT`);
     await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS fit_reasons JSONB`);
+    await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS backfill_for TEXT`);
   })().catch((e) => { _cols = null; throw e; });
   return _cols;
 }
