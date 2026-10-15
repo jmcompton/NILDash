@@ -793,6 +793,15 @@
       "type": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "hunter_call_log": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "endpoint": "TEXT",
+      "id": "BIGSERIAL",
+      "ms": "INTEGER",
+      "outcome": "TEXT",
+      "retries": "INTEGER DEFAULT 0",
+      "status": "INTEGER"
+    },
     "hunter_jobs": {
       "cached": "INT DEFAULT 0",
       "credits": "INT DEFAULT 0",

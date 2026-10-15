@@ -28,6 +28,32 @@ const store = require('../store');
 
 const SEARCH_URL = 'https://api.hunter.io/v2/domain-search';
 const TIMEOUT_MS = parseInt(process.env.HUNTER_TIMEOUT_MS, 10) || 8000;
+// EMAIL FINDER WAITS ON THE BUSINESS'S MAIL SERVER. Its answer carries a
+// verification Hunter runs in the same request, so it is as slow as the
+// Verifier (VERIFY_TIMEOUT_MS, ~20s at Hunter), not as quick as a Domain
+// Search. It was cut off at the 8s search timeout: on the first night with
+// EMAIL_FIVE_ON, 163 finder calls were aborted by OUR timer ("TIMEOUT: email
+// finder: This operation was aborted") -- not a single 403 or 429 from Hunter --
+// and every one set its business aside for a retry the time limit then ended.
+const FINDER_TIMEOUT_MS = parseInt(process.env.HUNTER_FINDER_TIMEOUT_MS, 10) || 30000;
+
+// ── THE PACE: EVERY CALL TO HUNTER GOES THROUGH _call ──────────────────────
+// Hunter allows 15 requests a second and 500 a minute for Domain Search and
+// Email Finder (fewer for the Verifier), and answers "too fast" with a 403 --
+// not only a 429. Athletes now run side by side (jobs/outreachQueue), so the
+// pace is held here for every endpoint at once, well under all of them: at
+// most PACE.inflight calls open, PACE.perSec starts a second, PACE.perMin a
+// minute. A call waits its turn rather than being refused.
+const PACE = {
+  inflight: parseInt(process.env.HUNTER_MAX_INFLIGHT, 10) || 8,
+  perSec: parseInt(process.env.HUNTER_MAX_PER_SEC, 10) || 8,
+  perMin: parseInt(process.env.HUNTER_MAX_PER_MIN, 10) || 250,
+};
+// "Too fast" (a 429, or a 403 whose body says rate limit): wait and ask again,
+// honouring Retry-After, else BACKOFF_MS, 2x, 4x with jitter; BACKOFF_TRIES in
+// all. Still too fast after that is recorded as RATE_LIMITED, as before.
+const BACKOFF_MS = parseInt(process.env.HUNTER_BACKOFF_MS, 10) || 2000;
+const BACKOFF_TRIES = 3;
 const CACHE_DAYS = parseInt(process.env.HUNTER_CACHE_DAYS, 10) || 30;
 // A recorded failure is NOT served as a result -- a 429 today must not mean this
 // domain is written off for a month. It does suppress re-calling for a short
@@ -215,10 +241,111 @@ const OUTCOME = {
 };
 const ANSWERED = new Set([OUTCOME.OK, OUTCOME.NONE]);
 
-function _outcomeForStatus(status) {
+// "TOO FAST" IS NOT "OUT OF CREDITS". Hunter answers too many requests a
+// second with a 403 (also its answer to a bad key: only the body tells them
+// apart), and a spent plan with a 429 ("You have reached your monthly
+// quota"). Waiting helps the first and never the second, so only an answer
+// that says rate limit -- or carries Retry-After -- and says nothing about a
+// quota, credits, a plan or usage is backed off. A 429 otherwise stops Hunter
+// for BREAKER_MIN, as it always has; a 403 otherwise is a dead key.
+function _said(json) {
+  const e = json && Array.isArray(json.errors) && json.errors[0];
+  return [e && e.id, e && e.details, e && e.code].filter(Boolean).join(' ');
+}
+function _isRateLimit(status, json, retryAfter) {
+  if (status !== 403 && status !== 429) return false;
+  const said = _said(json);
+  if (/quota|credit|plan|monthly|usage|subscription/i.test(said)) return false;
+  return !!retryAfter || /rate[_ ]?limit|too[_ ]many|requests? (per|a) (second|minute)|slow down/i.test(said);
+}
+function _outcomeForStatus(status, json) {
+  if (status === 429 || _isRateLimit(status, json)) return OUTCOME.RATE_LIMITED;
   if (status === 401 || status === 403) return OUTCOME.UNAUTHORIZED;
-  if (status === 429) return OUTCOME.RATE_LIMITED;
   return OUTCOME.HTTP_ERROR;
+}
+
+// ── THE GATE ───────────────────────────────────────────────────────────────
+const _pace = { open: 0, starts: [] };
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function _slot() {
+  for (;;) {
+    const now = Date.now();
+    while (_pace.starts.length && now - _pace.starts[0] >= 60000) _pace.starts.shift();
+    const inLastSec = _pace.starts.filter((t) => now - t < 1000);
+    if (_pace.open < PACE.inflight && inLastSec.length < PACE.perSec && _pace.starts.length < PACE.perMin) {
+      _pace.open++; _pace.starts.push(now); return;
+    }
+    let wait = 25;
+    if (_pace.starts.length >= PACE.perMin) wait = Math.max(wait, 60000 - (now - _pace.starts[0]));
+    else if (inLastSec.length >= PACE.perSec) wait = Math.max(wait, 1000 - (now - inLastSec[0]));
+    await _sleep(wait);
+  }
+}
+
+// ── EVERY CALL, LOGGED WITH HOW LONG IT TOOK ───────────────────────────────
+// hunter_call_log: endpoint, milliseconds, outcome, HTTP status, retries. The
+// evidence the timeout question needed and did not have; scripts/night-length
+// prints its spread. Best-effort and never awaited by the caller.
+let _logReady = null;
+const _recent = [];   // the last few hundred, in memory, for tests and the report
+function _logCall(row) {
+  _recent.push({ ...row, at: Date.now() });
+  if (_recent.length > 500) _recent.shift();
+  if (process.env.HUNTER_CALL_LOG === '0') return;
+  const pool = store.pool;
+  if (!_logReady) {
+    _logReady = pool.query(`CREATE TABLE IF NOT EXISTS hunter_call_log (
+        id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT NOW(), endpoint TEXT NOT NULL,
+        ms INTEGER, outcome TEXT, status INTEGER, retries INTEGER NOT NULL DEFAULT 0)`)
+      .then(() => pool.query(`CREATE INDEX IF NOT EXISTS hunter_call_log_at ON hunter_call_log (at)`))
+      .then(() => pool.query(`DELETE FROM hunter_call_log WHERE at < NOW() - INTERVAL '45 days'`))
+      .catch((e) => { _logReady = null; console.error('[hunter] call log table: ' + e.message); });
+  }
+  _logReady && _logReady.then(() => pool.query(`INSERT INTO hunter_call_log (endpoint, ms, outcome, status, retries) VALUES ($1,$2,$3,$4,$5)`,
+    [row.endpoint, row.ms, row.outcome, row.status || null, row.retries || 0])).catch(() => {});
+}
+
+// One request: waits its turn at the gate, cut off at the endpoint's own
+// timeout (the body read included), backed off when Hunter says "too fast".
+// -> { status, ok, json, ms, retries }  json: the parsed body, or undefined if
+// unreadable. Throws { timedOut, ms } when nothing came back in time.
+async function _call(endpoint, url, { timeoutMs, fetchImpl } = {}) {
+  let retries = 0;
+  for (;;) {
+    await _slot();
+    const ctrl = new AbortController();
+    const t0 = Date.now();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let resp, json;
+    try {
+      resp = await (fetchImpl || fetch)(url, { signal: ctrl.signal });
+      try { json = await resp.json(); } catch (_) { json = undefined; }
+    } catch (e) {
+      clearTimeout(timer);
+      _pace.open--;
+      const ms = Date.now() - t0;
+      const timedOut = !!(e && (e.name === 'AbortError' || /abort/i.test(e.message || '')));
+      _logCall({ endpoint, ms, outcome: timedOut ? OUTCOME.TIMEOUT : OUTCOME.ERROR, status: null, retries });
+      const err = new Error(timedOut ? `no answer within ${Math.round(timeoutMs / 1000)}s (aborted after ${ms}ms)` : (e && e.message) || String(e));
+      err.timedOut = timedOut; err.ms = ms;
+      throw err;
+    }
+    clearTimeout(timer);
+    _pace.open--;
+    const ms = Date.now() - t0;
+    const raHeader = resp.headers && resp.headers.get ? resp.headers.get('retry-after') : null;
+    if (_isRateLimit(resp.status, json, raHeader) && retries < BACKOFF_TRIES) {
+      retries++;
+      const ra = parseInt(raHeader, 10);
+      const wait = Number.isFinite(ra) && ra >= 0 ? Math.min(ra * 1000, 30000) : Math.round(BACKOFF_MS * Math.pow(2, retries - 1) * (1 + Math.random() * 0.25));
+      _logCall({ endpoint, ms, outcome: 'BACKOFF', status: resp.status, retries });
+      console.warn(`[hunter] ${endpoint}: too fast (HTTP ${resp.status}); waiting ${wait}ms, try ${retries + 1} of ${BACKOFF_TRIES + 1}`);
+      await _sleep(wait);
+      continue;
+    }
+    _logCall({ endpoint, ms, outcome: resp.ok ? OUTCOME.OK : _outcomeForStatus(resp.status, json), status: resp.status, retries });
+    return { status: resp.status, ok: resp.ok, json, ms, retries };
+  }
 }
 
 // ── A FAILURE IS OURS, NOT THE DOMAIN'S (services/ourFault) ─────────────────
@@ -311,38 +438,31 @@ async function findDomainEmails(domain, opts = {}) {
   }
 
   const params = new URLSearchParams({ domain: key, limit: String(LIMIT), api_key: apiKey });
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  const t0 = Date.now();
   let resp;
   try {
-    resp = await fetch(SEARCH_URL + '?' + params.toString(), { signal: ctrl.signal });
+    resp = await _call('domain-search', SEARCH_URL + '?' + params.toString(), { timeoutMs: TIMEOUT_MS, fetchImpl: opts.fetchImpl });
   } catch (e) {
-    clearTimeout(t);
-    const timedOut = e && (e.name === 'AbortError' || /abort/i.test(e.message || ''));
-    const oc = timedOut ? OUTCOME.TIMEOUT : OUTCOME.ERROR;
-    const ms = Date.now() - t0;
-    console.warn(`[hunter] @${key} ${oc.toLowerCase()} after ${ms}ms: ${e.message}`);
+    const oc = e.timedOut ? OUTCOME.TIMEOUT : OUTCOME.ERROR;
+    console.warn(`[hunter] @${key} ${oc.toLowerCase()} after ${e.ms}ms: ${e.message}`);
     // NOT retried. A call that already blew the cap will blow it again, and a
-    // second attempt is a second credit for the same nothing.
+    // second attempt is a second credit for the same nothing. ("Too fast" is
+    // the one exception, and _call has already waited and asked again.)
     return _failOut(_fault(key, oc, e.message), opts);
   }
-  clearTimeout(t);
-  const ms = Date.now() - t0;
+  const ms = resp.ms;
 
   if (!resp.ok) {
-    const oc = _outcomeForStatus(resp.status);
-    let detail = null;
-    try { const j = await resp.json(); detail = j && j.errors && j.errors[0] && j.errors[0].details; } catch (_) {}
+    const oc = _outcomeForStatus(resp.status, resp.json);
+    const j = resp.json;
+    const detail = (j && j.errors && j.errors[0] && j.errors[0].details) || null;
     console.warn(`[hunter] @${key} http=${resp.status} ${oc} ms=${ms}${detail ? ' detail=' + detail : ''}`);
     require('./ourFault').providerError('hunter', { status: resp.status, message: detail || ('HTTP ' + resp.status) }, 'hunterLookup.search');
     return _failOut(_fault(key, oc, detail || ('HTTP ' + resp.status)), opts);
   }
 
-  let json;
-  try { json = await resp.json(); }
-  catch (e) {
-    console.warn(`[hunter] @${key} unreadable body: ${e.message}`);
+  const json = resp.json;
+  if (json === undefined) {
+    console.warn(`[hunter] @${key} unreadable body`);
     return _failOut(_fault(key, OUTCOME.ERROR, 'unreadable body'), opts);
   }
 
@@ -400,7 +520,7 @@ const VERIFY_URL = 'https://api.hunter.io/v2/email-verifier';
 // its email for our impatience.
 const VERIFY_TIMEOUT_MS = parseInt(process.env.HUNTER_VERIFY_TIMEOUT_MS, 10) || 22000;
 
-async function verifyEmail(email) {
+async function verifyEmail(email, opts = {}) {
   const key = process.env.HUNTER_API_KEY;
   if (!key) return { ok: false, why: 'no Hunter key configured' };
   const addr = String(email || '').trim().toLowerCase();
@@ -415,10 +535,7 @@ async function verifyEmail(email) {
 
   const url = `${VERIFY_URL}?email=${encodeURIComponent(addr)}&api_key=${encodeURIComponent(key)}`;
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS);
-    const resp = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(t);
+    const resp = await _call('verifier', url, { timeoutMs: VERIFY_TIMEOUT_MS, fetchImpl: opts.fetchImpl });
     // 202: Hunter is still waiting on the mail server. Not a verdict; asked
     // again next time (not cached, not a fault).
     if (resp.status === 202) {
@@ -426,14 +543,15 @@ async function verifyEmail(email) {
       return { ok: false, why: 'Hunter is still verifying this address' };
     }
     if (!resp.ok) {
-      const why = resp.status === 401 || resp.status === 403 ? 'Hunter rejected the key'
-        : resp.status === 429 ? 'Hunter rate limited or out of credits'
+      const rate = resp.status === 429 || _isRateLimit(resp.status, resp.json);
+      const why = rate ? 'Hunter rate limited or out of credits'
+        : resp.status === 401 || resp.status === 403 ? 'Hunter rejected the key'
           : `Hunter returned HTTP ${resp.status}`;
       console.warn(`[hunter-verify] ${addr}: ${why}`);
       require('./ourFault').providerError('hunter', { status: resp.status, message: why }, 'hunterLookup.verify');
       return { ok: false, why };
     }
-    const j = await resp.json();
+    const j = resp.json;
     const d = (j && j.data) || {};
     const status = d.status;
     console.log(`[hunter-verify] ${addr} -> ${status || 'no status'}${d.result ? ' (' + d.result + ')' : ''}`);
@@ -442,7 +560,7 @@ async function verifyEmail(email) {
     return { ok: true, status: status || null, result: d.result || null, score: d.score || null,
       acceptAll: d.accept_all === true };
   } catch (e) {
-    const why = (e && e.name === 'AbortError') ? 'Hunter timed out' : `Hunter call failed: ${e.message}`;
+    const why = (e && e.timedOut) ? `Hunter timed out (${e.message})` : `Hunter call failed: ${e.message}`;
     console.warn(`[hunter-verify] ${addr}: ${why}`);
     return { ok: false, why };
   }
@@ -462,12 +580,23 @@ async function verifyEmail(email) {
 const FINDER_URL = 'https://api.hunter.io/v2/email-finder';
 const FINDER_LANE = 'hunterfinder';
 
+// ONE QUESTION IN FLIGHT PER PERSON. Athletes run side by side, and two of
+// them can reach the same owner in the same minute; the second waits for the
+// first's answer instead of paying Hunter a second time for it.
+const _finderInflight = new Map();
 async function findEmail(firstName, lastName, domain, opts = {}) {
   const first = String(firstName || '').trim();
   const last = String(lastName || '').trim();
   const dom = String(domain || '').trim().toLowerCase().replace(/^www\./, '');
   if (!first || !last || !dom) return { email: null, why: 'needs a first name, a last name and a domain' };
   const key = `${first.toLowerCase()} ${last.toLowerCase()} @ ${dom}`;
+  if (_finderInflight.has(key)) return _finderInflight.get(key);
+  const p = _findEmail(first, last, dom, key, opts);
+  _finderInflight.set(key, p);
+  try { return await p; } finally { _finderInflight.delete(key); }
+}
+
+async function _findEmail(first, last, dom, key, opts) {
   const apiKey = process.env.HUNTER_API_KEY;
   if (!apiKey) return { email: null, fault: { service: 'hunter', outcome: OUTCOME.NO_KEY, reason: 'HUNTER_API_KEY is not set' } };
   if (_breaker && Date.now() < _breaker.until) {
@@ -486,17 +615,13 @@ async function findEmail(firstName, lastName, domain, opts = {}) {
     return { email: null, budget: true, why: `this month's Hunter search budget is spent (${acct.used}/${MONTHLY_BUDGET})` };
   }
   const params = new URLSearchParams({ domain: dom, first_name: first, last_name: last, api_key: apiKey });
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let resp;
   try {
-    resp = await (opts.fetchImpl || fetch)(FINDER_URL + '?' + params.toString(), { signal: ctrl.signal });
+    resp = await _call('email-finder', FINDER_URL + '?' + params.toString(), { timeoutMs: FINDER_TIMEOUT_MS, fetchImpl: opts.fetchImpl });
   } catch (e) {
-    clearTimeout(t);
-    const oc = e && (e.name === 'AbortError' || /abort/i.test(e.message || '')) ? OUTCOME.TIMEOUT : OUTCOME.ERROR;
+    const oc = e.timedOut ? OUTCOME.TIMEOUT : OUTCOME.ERROR;
     return { email: null, ..._fault(dom, oc, 'email finder: ' + e.message) };
   }
-  clearTimeout(t);
   if (!resp.ok) {
     // 404 is Hunter's "no address for this person", an answer, not a fault.
     if (resp.status === 404) {
@@ -504,14 +629,14 @@ async function findEmail(firstName, lastName, domain, opts = {}) {
       await _recordFinder(key, OUTCOME.NONE, ev);
       return ev;
     }
-    const oc = _outcomeForStatus(resp.status);
-    let detail = null;
-    try { const j = await resp.json(); detail = j && j.errors && j.errors[0] && j.errors[0].details; } catch (_) {}
+    const oc = _outcomeForStatus(resp.status, resp.json);
+    const jj = resp.json;
+    const detail = (jj && jj.errors && jj.errors[0] && jj.errors[0].details) || null;
     require('./ourFault').providerError('hunter', { status: resp.status, message: detail || ('HTTP ' + resp.status) }, 'hunterLookup.findEmail');
     return { email: null, ..._fault(dom, oc, 'email finder: ' + (detail || ('HTTP ' + resp.status))) };
   }
-  let j;
-  try { j = await resp.json(); } catch (_) { return { email: null, ..._fault(dom, OUTCOME.ERROR, 'email finder: unreadable body') }; }
+  const j = resp.json;
+  if (j === undefined) return { email: null, ..._fault(dom, OUTCOME.ERROR, 'email finder: unreadable body') };
   const d = (j && j.data) || {};
   const ev = { email: d.email ? String(d.email).toLowerCase() : null, score: typeof d.score === 'number' ? d.score : null,
     sources: Array.isArray(d.sources) ? d.sources.length : 0,
@@ -535,4 +660,6 @@ module.exports = {
   creditsThisMonth, verifyCreditsThisMonth, accountUsedThisMonth, budgetStatus, MONTHLY_BUDGET,
   _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
   _resetBreaker: () => { _breaker = null; }, BREAKER_MIN,
+  _call, _isRateLimit, _outcomeForStatus, PACE, FINDER_TIMEOUT_MS, TIMEOUT_MS, VERIFY_TIMEOUT_MS, BACKOFF_TRIES,
+  _recentCalls: () => _recent.slice(), _pace: () => ({ open: _pace.open, lastMinute: _pace.starts.length }),
 };
