@@ -73,7 +73,8 @@ async function main() {
   OUT.push('', '-- the same bar on every lane --');
   const off = (u, w) => DM.isOfficialProgramPage(u, w).ok;
   ok('an ambassador page on the brand\'s own domain is an official application page', off('https://www.glowbars.com/pages/athlete-ambassadors', 'https://glowbars.com'));
-  ok('  so is an apply page on a creator platform the brand runs its program on', off('https://glowbars.grin.live/apply', null) || off('https://creators.grin.co/glowbars', null));
+  ok('  so is an apply page on a creator platform the brand runs its program on (GRIN, Aspire, Shopify Collabs)',
+    off('https://glowbars.grin.live/apply', null) && off('https://creators.grin.co/glowbars', null) && off('https://app.aspireiq.com/join/glowbars', null) && off('https://collabs.shopify.com/glowbars', null));
   ok('  the brand\'s home page is not', !off('https://glowbars.com/', 'https://glowbars.com'));
   ok('  a page on someone else\'s domain is not', !off('https://nilmarketplace.example/glowbars-ambassador', 'https://glowbars.com'));
   ok('  a non-program page on the brand\'s domain is not', !off('https://glowbars.com/products/bar', 'https://glowbars.com'));

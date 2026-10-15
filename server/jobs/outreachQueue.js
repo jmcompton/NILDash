@@ -106,6 +106,7 @@ const HELD_SQL = `SELECT slot, state, channel, email_verified FROM outreach_queu
 const DM = require('../services/dealMix');
 const MS = require('../services/marketScore');
 const Fit = require('../services/fitReasons');
+const BrandContact = require('../services/brandContact');
 const HELD_MIX_SQL = `SELECT slot, state, channel, email_verified, lane, program_url FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`;
 const Reach = require('../services/reachability');
 const TYPE_CAP = 2;
@@ -1666,176 +1667,42 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           lane: null, places: { found: false }, risk: 'normal' });
         continue;
       }
-      if (_mix && cand.lane !== 'local') {
-        // ── A SOCIAL OR NATIONAL CARD UNDER THE DEAL MIX ────────────────────
-        // The same bar as the local lane. Two routes and only two:
-        //   program  the brand's official application page (DM.officialPageOf)
+      if (cand.lane !== 'local') {
+        // ── THE DEAL MIX: THE SAME BAR AS THE LOCAL LANE ────────────────────
+        // A social or national card is one of two things and only two:
+        //   program  the brand's official application page (DM.officialPageOf;
+        //            the website fallback is not one)
         //   email    a named partnerships / influencer / marketing contact with
         //            a VALID verified address at the brand's own domain
-        // No DM, no guessed address, no desk inbox. And the pitch must say why
+        //            (services/brandContact)
+        // No DM, no guessed address, no desk inbox. A brand past the program
+        // caps goes to its named contact instead. And the pitch must say why
         // this athlete fits this brand, from researched facts (services/
-        // fitReasons): none found, nothing written; none stated, no card.
-        const _lane = DM.laneOf(cand);
-        const _rej = (result, reason, extra) => {
-          say(`${cand.brand_name}: ${result === 'no_name' ? 'skipped' : (result === 'error' ? 'failed' : 'rejected')}, ${reason}`);
-          tried.push({ brand: cand.brand_name, result, stage: 'mix', reason, lane: cand.lane, mixTier: _mix.tier,
-            places: { found: false }, risk: 'normal', ...(extra || {}) });
-        };
-        const _off = DM.officialPageOf(cand);
-        let _route = _off.url ? 'program' : 'email';
-        let _routeWhy = _off.url ? null : _off.why;
-        const _pbKey = Q.programBrandKey(cand.brand_name);
-        if (_route === 'program' && Q.programCapReached(heldPrograms + programsPlaced)) {
-          _route = 'email'; _routeWhy = `already holding ${heldPrograms + programsPlaced} program application (the cap is ${Q.PROGRAM_SLOT_CAP})`;
-        } else if (_route === 'program' && _pbKey && Q.programBrandCapReached(programBrandTally.get(_pbKey) || 0)) {
-          _route = 'email'; _routeWhy = `${cand.brand_name} already has ${programBrandTally.get(_pbKey)} program application(s) from this roster tonight`;
-        }
-        if (ctx.skipBrand && ctx.skipBrand(cand.brand_name)) {
-          tried.push({ brand: cand.brand_name, result: 'skipped', reason: 'excluded by the caller', lane: cand.lane, places: { found: false }, risk: 'normal' });
-          continue;
-        }
-        // WHY THEY FIT, FROM WHAT WE FOUND. Database reads only: free.
-        const _fit = await Fit.research(pool, { cand, athlete: ctx.athleteProfile || profile,
-          athleteId: (ctx.athleteProfile && ctx.athleteProfile.id) || athleteId, agentId });
-        if (!Fit.researched(_fit)) {
-          _rej('rejected', `no researched reason this athlete fits ${cand.brand_name} (no past campaign, audience range, sport or region fact)`);
-          continue;
-        }
-        if (!(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
-          say(`${cand.brand_name}: skipped, already researched for ${athleteName} tonight`);
-          tried.push({ brand: cand.brand_name, result: 'skipped', reason: Claims.RESEARCHED_TONIGHT_REASON, lane: cand.lane, places: { found: false }, risk: 'normal' });
-          continue;
-        }
-        // THE NAMED CONTACT: its partnerships or marketing lead, never the
-        // founder or the corporate office (ownerNameSearch, large mode).
-        let _person = null, _nm = null;
-        try {
-          const m = await scanMeter.run(() => finalNameFor(cand.brand_name, '', { agentId, athleteId, say, order: proLane ? PL.PRO_QUERY_ORDER : null, large: true }));
-          _person = m.result; _nm = m.meter;
-          _sw.lap('ownerSearch');
-        } catch (e) {
-          _rej('error', 'owner search failed: ' + e.message, { fault: true });
-          OF.record(e.service || 'owner-name-search', e.reason || e.message, cand.brand_name);
-          continue;
-        }
-        { const c0 = Q.priceOf(_nm); if (c0 > 0) budget.spend(c0); spendLog.push({ brand: cand.brand_name, lane: cand.lane, cost: c0, stage: 'name' }); }
-        if (!_person) { _rej('no_name', ONS.NO_NAME_REASON); continue; }
-        say(`${cand.brand_name}: the ${_person.query} search found ${_person.name} (${_person.title})`);
-        let _ladder = null, _verified = false;
-        if (_route === 'email') {
-          const _t = DM.contactTitleOk(_person.title);
-          if (!_t.ok) { _rej('rejected', `${_person.name}: ${_t.why}`); continue; }
-          _ladder = ONS.attachToLadder({ tiers: [] }, _person);
-          let _fin = null;
-          try {
-            const deps = { ...EF.liveDeps(pool, { agentId, athleteId, business: cand.brand_name, source: 'nightly' }), corporate: null };
-            _fin = await EF.finishLadder({ ladder: _ladder, out: { website: cand.website }, ig: null, brand: cand.brand_name, region: '', place: null,
-              more: FINDER.more(), smart: false, allowGeneral: false, validOnly: true }, deps);
-            _sw.lap('emailFinder');
-          } catch (e) {
-            _rej('error', 'the email finder failed on our side: ' + e.message, { fault: true });
-            OF.record('email-finder', e.message, cand.brand_name);
-            continue;
+        // fitReasons): none found, nothing spent; none stated, no card.
+        let _mixRoute = null, _mixFit = null, _mixRouteWhy = null, _mixContact = null;
+        if (_mix) {
+          const _off = DM.officialPageOf(cand);
+          _mixRoute = _off.url ? 'program' : 'email';
+          _mixRouteWhy = _off.url ? null : _off.why;
+          const _pk = Q.programBrandKey(cand.brand_name);
+          if (_mixRoute === 'program' && Q.programCapReached(heldPrograms + programsPlaced)) {
+            _mixRoute = 'email'; _mixRouteWhy = `already holding ${heldPrograms + programsPlaced} program application (the cap is ${Q.PROGRAM_SLOT_CAP})`;
+          } else if (_mixRoute === 'program' && _pk && Q.programBrandCapReached(programBrandTally.get(_pk) || 0)) {
+            _mixRoute = 'email'; _mixRouteWhy = `${cand.brand_name} already has ${programBrandTally.get(_pk)} program application(s) from this roster tonight`;
           }
-          _verified = verifiedNamedEmail(_ladder, null);
-          const _g = Q.greetRowOf(_ladder);
-          const _gt = _g ? DM.contactTitleOk(_g.title) : { ok: false, why: 'nobody to greet' };
-          if (!_verified || !_gt.ok) {
-            const _f = (_fin && _fin.finder) || {};
-            const why = !_verified
-              ? `no verified address for ${_person.name} (${_person.title}) at ${(_f.domain || cand.website || 'the brand\'s domain')}: ${_f.stop || (_fin && _fin.verify && _fin.verify.why) || 'nothing passed'}`
-              : `${_g.name}: ${_gt.why}`;
-            _rej('rejected', why, { route: 'email', routeWhy: _routeWhy, emailCheck: _fin ? { verify: _fin.verify, finder: _fin.finder, website: _fin.website } : null });
+          // The candidate carries only the page it may use, so the caps and the
+          // card below read the same answer.
+          cand.programUrl = _mixRoute === 'program' ? _off.url : null;
+          // WHY THEY FIT, FROM WHAT WE FOUND. Database reads only: free.
+          _mixFit = await Fit.research(pool, { cand, athlete: ctx.athleteProfile || profile,
+            athleteId: (ctx.athleteProfile && ctx.athleteProfile.id) || athleteId, agentId });
+          if (!Fit.researched(_mixFit)) {
+            const why = `no researched reason this athlete fits ${cand.brand_name} (no past campaign, audience range, sport or region fact)`;
+            say(`${cand.brand_name}: rejected, ${why}`);
+            tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'mix', reason: why, lane: cand.lane, mixTier: _mix.tier, places: { found: false }, risk: 'normal' });
             continue;
           }
         }
-        const _greet = _ladder ? Q.greetNameOf(_ladder) : Q.greetNameOf(ONS.attachToLadder({ tiers: [] }, _person));
-        const _match = await matchFor(pool, agentId, athleteId, cand.brand_name);
-        let _pitch = null;
-        try {
-          _pitch = await PW.writePitch({
-            business: {
-              name: cand.brand_name, category: cand.category || null,
-              address: null, rating: null, userRatingCount: null,
-              ownerName: _person.name, ownerTitle: _person.title || null,
-              greetFirstName: _greet || null,
-              // WHY THIS ATHLETE FITS THIS BRAND: the researched facts, and
-              // the only things the message may say about the brand.
-              evidence: _fit.lines,
-              isFranchise: false,
-              isLocal: false,
-            },
-            athlete: { ...(ctx.athleteProfile || { name: athleteName }), partnershipCount,
-              instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,
-              contentThemes: contentThemesOf(ctx.athleteRow, ctx.athleteProfile) },
-            deal: _match,
-            agentFirstName: ctx.agentFirstName || null,
-            hasSchedulingLink: !!signature.hasLink,
-            channel: _route === 'email' ? 'email' : 'dm',
-            learnedAngles: await PW.learnedAngles(pool, PW.playbookFor(cand.category || null).key).catch(() => []),
-          }, { oneShot: (p2, sys, mt) => scanMeter.label(
-            { site: 'writer', agentId, athleteId, brand: cand.brand_name },
-            () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN, { prose: true })) });
-        } catch (e) {
-          OF.record(e.service || 'anthropic', 'writer failed: ' + e.message, cand.brand_name);
-          _pitch = null;
-        }
-        _sw.lap('writer');
-        if (!_pitch || (_pitch.skipped && _pitch.error)) {
-          _rej('error', 'writer: ' + ((_pitch && _pitch.reason) || 'failed'), { fault: true });
-          OF.record('anthropic', 'writer returned nothing usable', cand.brand_name);
-          continue;
-        }
-        if (_pitch.skipped) { _rej('no_angle', _pitch.reason, { writerRetried: !!_pitch.retried }); continue; }
-        const _states = Fit.statesFit(_pitch, _fit);
-        if (!_states.ok) { _rej('no_angle', _states.why, { writerRetried: !!_pitch.retried }); continue; }
-        if (_pitch.message) {
-          const g = Q.ensureGreeting(_pitch.message, _greet);
-          if (g.missingName) { _rej('no_name', ONS.NO_NAME_REASON); continue; }
-          if (g.repaired) { _pitch.message = g.message; _pitch.greetingRepaired = true; }
-          _pitch.message = SIG.appendText(_pitch.message, signature);
-        }
-        const _card = _route === 'program'
-          ? Q.buildProgramCard({ ...cand, programUrl: _off.url }, _pitch, athleteName, null, _person)
-          : Q.buildCard({ brandKey: cand.brand_key, brand: cand.brand_name, rationale: null, athleteName, pitch: _pitch }, _ladder, null);
-        _card.lane = cand.lane;
-        _card.why = 'Why they fit: ' + _fit.reasons.slice(0, 3).join('; ');
-        _card.fitReasons = _fit.reasons;
-        _card.fitLine = _states.line;
-        _card.mixTier = _mix.tier;
-        _card.brandSize = DM.sizeOf(cand).size;
-        _card.sizeBand = cand.sizeBand || null;
-        _card.signingEvidence = cand.signingEvidence || null;
-        _card.sponsorSignal = cand.evidenceNote ? 'signs-comparable' : null;
-        _card.sponsorNote = cand.evidenceNote || null;
-        _card.emailVerified = _route === 'email' && _verified;
-        if (_card.channel !== (_route === 'email' ? 'email' : 'program')) {
-          _rej('rejected', `the card came out as ${_card.channel}, not ${_route}`);
-          continue;
-        }
-        tried.push({ brand: cand.brand_name, result: 'queued', reason: null, lane: cand.lane, channel: _card.channel, mixTier: _mix.tier,
-          fit: _states.line, writerRetried: !!_pitch.retried, places: { found: false }, risk: 'normal' });
-        const _count = () => {
-          _mix.placed[_lane]++;
-          if (_card.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, _card.brandName); }
-          placed = true; filled++; channels.push(_card.channel);
-        };
-        if (dry) {
-          if (ctx.onCard) { try { await ctx.onCard({ ..._card, slot }); } catch (_) { /* the caller's problem */ } }
-          say(`slot ${slot}: ${_card.brandName} (${_lane}, ${_card.channel})`);
-          _count(); break;
-        }
-        if (!(await slotStillOpen(pool, athleteId, slot))) {
-          say(`slot ${slot}: taken by another fill while the writer ran; ${_card.brandName} not offered`);
-          loseSlot(cand.brand_name, slot, cand.lane, _pitch);
-          slotLost = true; break;
-        }
-        const _ins = await insertCard(pool, { agentId, athleteId, slot, card: _card, marketKey: profile && profile.marketKey });
-        if (!_ins && _card._insertFault) faultOf('database', 'card not saved: ' + _card._insertFault, 'insertCard');
-        if (_ins) { _count(); say(`slot ${slot}: ${_card.brandName} (${_lane}, ${_card.channel})`); break; }
-        continue;
-      }
-      if (cand.lane !== 'local') {
         // ── THE CAP, CHECKED BEFORE THE MONEY ───────────────────────────────
         // A candidate that HAS a program page can only ever become a program
         // card, so once the one program slot is spoken for there is nothing to
@@ -1877,7 +1744,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         // no city, and handing one to handleVerdict makes it hunt for a place
         // qualifier that was never going to be there.
         let pig = null, pmeter = null;
-        try {
+        // Not under the deal mix: a brand card there is never a DM.
+        if (!_mix) try {
           const m = await scanMeter.run(() => scanMeter.label(
             { site: 'instagram', agentId, athleteId, brand: cand.brand_name },
             () => findInstagram(cand.website || null, {
@@ -1904,14 +1772,15 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           && (pmeter.cacheHits || pmeter.cacheMisses || pmeter.webSearches || pmeter.aiCalls);
         let pcost = Q.priceOf(pmeter);
         if (!ptouched) pcost = Q.USD_PER_WEB_SEARCH;
+        if (_mix) pcost = 0;   // no handle lookup ran
         if (pcost > 0) budget.spend(pcost);
-        spendLog.push({ brand: cand.brand_name, lane: cand.lane, cost: pcost,
+        if (!_mix) spendLog.push({ brand: cand.brand_name, lane: cand.lane, cost: pcost,
           cached: !!(ptouched && pmeter.cacheHits && !pmeter.webSearches && !pmeter.aiCalls),
           webSearches: pmeter ? pmeter.webSearches : 0, aiCalls: pmeter ? pmeter.aiCalls : 0,
           cacheHits: pmeter ? pmeter.cacheHits : 0, cacheMisses: pmeter ? pmeter.cacheMisses : 0,
           metered: !!ptouched });
 
-        const pbar = Q.passesProgramBar(cand, pig);
+        const pbar = _mix ? { ok: true, reason: null, channel: _mixRoute } : Q.passesProgramBar(cand, pig);
         if (!pbar.ok) {
           say(`${cand.brand_name}: skipped, ${pbar.reason}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'owner', reason: pbar.reason,
@@ -1948,7 +1817,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
               // athlete-program lead (ownerNameSearch.titleProblem, LARGE_ORDER).
               // With the signing-evidence bar on (services/signingEvidence): every
               // social brand too. Off: as before, national or sized national.
-              large: cand.lane === 'national' || cand.brandSize === 'national' || (cand.lane === 'social' && !!ctx._evidenceBar) });
+              // Under the deal mix: every social and national brand.
+              large: cand.lane === 'national' || cand.brandSize === 'national' || (cand.lane === 'social' && !!ctx._evidenceBar) || !!_mix });
             _sw.lap('ownerSearch');
           } catch (e) {
             say(`${cand.brand_name}: owner search failed on our side (${e.message})`);
@@ -1966,7 +1836,21 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           }
           say(`${cand.brand_name}: the ${pperson.query} search found ${pperson.name} (${pperson.title})`);
         }
-        const pgreet = pperson ? Q.greetNameOf(ONS.attachToLadder({ tiers: [] }, pperson)) : '';
+        // THE EMAIL ROUTE: a partnerships / marketing contact, verified valid.
+        if (_mix && _mixRoute === 'email') {
+          _mixContact = await BrandContact.verifiedAddress({ pool, person: pperson, cand, agentId, athleteId, more: FINDER.more() });
+          _sw.lap('emailFinder');
+          if (!_mixContact.ok) {
+            if (_mixContact.fault) OF.record('email-finder', _mixContact.fault, cand.brand_name);
+            say(`${cand.brand_name}: rejected, ${_mixContact.why}`);
+            const f = _mixContact.fin || null;
+            tried.push({ brand: cand.brand_name, result: _mixContact.fault ? 'error' : 'rejected', stage: 'mix', reason: _mixContact.why, fault: !!_mixContact.fault,
+              route: 'email', routeWhy: _mixRouteWhy, mixTier: _mix.tier, lane: cand.lane, places: { found: false }, risk: 'normal',
+              emailCheck: f ? { verify: f.verify, finder: f.finder, website: f.website } : null });
+            continue;
+          }
+        }
+        const pgreet = pperson ? Q.greetNameOf((_mixContact && _mixContact.ladder) || ONS.attachToLadder({ tiers: [] }, pperson)) : '';
         const pmatch = await matchFor(pool, agentId, athleteId, cand.brand_name);
         let ppitch = null;
         try {
@@ -1977,8 +1861,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
               ownerName: pperson ? pperson.name : null, ownerTitle: pperson ? pperson.title : null,
               greetFirstName: pgreet || null,
               // The programme's own page, and any public evidence, as the
-              // ONE thing the message may say about them.
-              evidence: WriterEvidence.evidenceFor(cand),
+              // ONE thing the message may say about them. Under the deal mix:
+              // why this athlete fits this brand, the researched facts.
+              evidence: _mixFit ? _mixFit.lines : WriterEvidence.evidenceFor(cand),
               isFranchise: false,
               isLocal: false,   // a brand programme: no verified-Instagram local line
             },
@@ -1988,7 +1873,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             deal: pmatch,
             agentFirstName: ctx.agentFirstName || null,
             hasSchedulingLink: !!signature.hasLink,
-            channel: 'dm',
+            channel: _mixRoute === 'email' ? 'email' : 'dm',
             learnedAngles: await PW.learnedAngles(pool, PW.playbookFor(cand.category || null).key).catch(() => []),
           }, { oneShot: (p2, sys, mt) => scanMeter.label(
             { site: 'writer', agentId, athleteId, brand: cand.brand_name },
@@ -2014,6 +1899,18 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
+        // NO FILLER (the deal mix): the pitch states one of the fit facts, or
+        // it is not a card. A writer that failed leaves no pitch to state one.
+        let _mixStates = null;
+        if (_mixFit) {
+          _mixStates = Fit.statesFit(ppitch, _mixFit);
+          if (!_mixStates.ok) {
+            say(`${cand.brand_name}: nothing worth pitching — ${_mixStates.why}`);
+            tried.push({ brand: cand.brand_name, result: 'no_angle', stage: 'mix', reason: _mixStates.why, mixTier: _mix.tier,
+              writerRetried: !!(ppitch && ppitch.retried), lane: cand.lane, places: { found: false }, risk: 'normal' });
+            continue;
+          }
+        }
         // THE GREETING IS CHECKED, NOT TRUSTED. See ensureGreeting: a message the
         // model opened "Hi," under a named person is rewritten to greet them.
         if (ppitch && ppitch.message && NAME_REQUIRED) {
@@ -2029,6 +1926,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         // regenerated or re-saved draft cannot end up signed twice.
         if (ppitch && ppitch.message) ppitch.message = SIG.appendText(ppitch.message, signature);
         const pcard = Q.buildProgramCard(cand, ppitch, athleteName, pig, pperson);
+        // The deal mix's email route: the same pitch, addressed to the named
+        // contact's verified address (an email card, not a form).
+        if (_mixContact) Object.assign(pcard, Q.buildCard({ brandKey: cand.brand_key, brand: cand.brand_name, rationale: null, athleteName, pitch: ppitch }, _mixContact.ladder, null));
         tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
           writerRetried: !!(ppitch && ppitch.retried), writerFirstProblems: (ppitch && ppitch.firstProblems) || null,
           lane: cand.lane, channel: pcard.channel, places: { found: false }, risk: 'normal' });
@@ -2041,11 +1941,21 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         pcard.sizeBand = cand.sizeBand || null;
         pcard.signingEvidence = cand.signingEvidence || null;
         if (cand.evidenceNote) { pcard.sponsorSignal = pcard.sponsorSignal || 'signs-comparable'; pcard.sponsorNote = pcard.sponsorNote || cand.evidenceNote; }
+        // THE DEAL MIX: why they fit, on the card; the tier and the size.
+        if (_mix) {
+          pcard.why = 'Why they fit: ' + _mixFit.reasons.slice(0, 3).join('; ');
+          pcard.fitReasons = _mixFit.reasons;
+          pcard.fitLine = _mixStates.line;
+          pcard.mixTier = _mix.tier;
+          pcard.brandSize = DM.sizeOf(cand).size;
+          pcard.emailVerified = !!_mixContact;
+        }
         if (dry) {
           // A dry run hands the card it would have queued to the caller.
           if (ctx.onCard) { try { await ctx.onCard({ ...pcard, slot }); } catch (_) { /* the caller's problem */ } }
           say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`);
           if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
+          if (_mix) _mix.placed[DM.laneOf(cand)]++;
           placed = true; filled++; channels.push(pcard.channel); break;
         }
         if (!(await slotStillOpen(pool, athleteId, slot))) {
@@ -2060,6 +1970,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           // open-slot unique index does not burn the athlete's one program slot
           // -- nor the brand's allowance across the rest of the roster.
           if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
+          if (_mix) _mix.placed[DM.laneOf(cand)]++;
           placed = true; filled++; channels.push(pcard.channel); say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`); break;
         }
         continue;

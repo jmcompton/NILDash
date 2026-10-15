@@ -113,7 +113,7 @@ function seatOk(tier, cand) {
 
 // ── THE OFFICIAL APPLICATION PAGE ───────────────────────────────────────────
 // Creator platforms brands run their ambassador programs on.
-const PROGRAM_HOSTS = /(^|\.)(grin\.co|aspire\.io|aspireiq\.com|creatoriq\.com|impact\.com|upfluence\.com|refersion\.com|shareasale\.com|collabs\.shopify\.com|goaffpro\.com|uppromote\.com|superfiliate\.com|social-snowball\.com|levanta\.io|partnerize\.com|awin\.com|tapfiliate\.com|influence\.co)$/i;
+const PROGRAM_HOSTS = /(^|\.)(grin\.co|grin\.live|aspire\.io|aspireiq\.com|creatoriq\.com|impact\.com|upfluence\.com|refersion\.com|shareasale\.com|collabs\.shopify\.com|goaffpro\.com|uppromote\.com|superfiliate\.com|social-snowball\.com|levanta\.io|partnerize\.com|awin\.com|tapfiliate\.com|influence\.co)$/i;
 const PROGRAM_PATH = /(ambassador|athlete|creator|partner|affiliate|apply|application|program|collab|influencer|\bnil\b|sponsor|team-?[a-z]*-?rep|brand-?rep)/i;
 function rootOf(host) {
   const h = String(host || '').toLowerCase().replace(/^www\./, '').replace(/\.$/, '');
