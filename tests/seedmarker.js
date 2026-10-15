@@ -12,6 +12,8 @@ process.env.PGHOST = process.env.PGHOST || '/tmp';
 process.env.PGPORT = process.env.PGPORT || '55432';
 process.env.PGUSER = process.env.PGUSER || 'postgres';
 process.env.PGDATABASE = process.env.PGDATABASE || 'postgres';
+// The child scripts use the suite's own database, not a hardcoded one.
+const PGENV = `PGHOST=${process.env.PGHOST} PGPORT=${process.env.PGPORT} PGUSER=${process.env.PGUSER} PGDATABASE=${process.env.PGDATABASE}`;
 const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 // SEEDED VALUES ARE MARKED, AND THE MARKER STAYS HONEST. Demo data becomes
@@ -54,7 +56,7 @@ let F=0; const ok=(n,c,g)=>{if(c)console.log('  PASS '+n);else{F++;console.log('
   const HIS_BEFORE=JSON.stringify((await P.query("SELECT data FROM athletes WHERE agent_id='chris-sarver' ORDER BY id")).rows);
 
   const SEEDER=REPO + 'scripts/seed-demo-athletes.js';
-  const ENVV='PGHOST=/tmp PGPORT=55432 PGUSER=postgres PGDATABASE=postgres NODE_PATH=node_modules';
+  const ENVV=PGENV+' NODE_PATH=node_modules';
   const tryRun=(args)=>{ try { return { code:0, out:require('child_process').execSync(ENVV+' node '+SEEDER+' '+args+' 2>&1',{encoding:'utf8'}) }; }
     catch(e){ return { code:e.status, out:String(e.stdout||'')+String(e.stderr||'') }; } };
 
@@ -118,7 +120,7 @@ let F=0; const ok=(n,c,g)=>{if(c)console.log('  PASS '+n);else{F++;console.log('
   let d=await get('sd-0');
   ok('the dob is now real (not in the marker)', !SEED.isSeeded(d,'dob'), SEED.seededFields(d));
   const { execSync }=require('child_process');
-  const out=execSync("PGHOST=/tmp PGPORT=55432 PGUSER=postgres PGDATABASE=postgres NODE_PATH=node_modules node scripts/seed-demo-athletes.js --agent seed-demo --write --expect-email jmcompton04@gmail.com 2>&1",{encoding:'utf8'});
+  const out=execSync(PGENV + " NODE_PATH=node_modules node scripts/seed-demo-athletes.js --agent seed-demo --write --expect-email jmcompton04@gmail.com 2>&1",{encoding:'utf8'});
   d=await get('sd-0');
   ok('  the seeder LEFT IT ALONE', d.dob==='1999-01-02', d.dob);
   ok('  and said so', /dob.*real, kept/.test(out), (out.match(/Marcus Hall.*/)||[])[0]);
