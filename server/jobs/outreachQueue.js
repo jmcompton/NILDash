@@ -1780,8 +1780,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           cacheHits: pmeter ? pmeter.cacheHits : 0, cacheMisses: pmeter ? pmeter.cacheMisses : 0,
           metered: !!ptouched });
 
-        const pbar = _mix ? { ok: true, reason: null, channel: _mixRoute } : Q.passesProgramBar(cand, pig);
-        if (!pbar.ok) {
+        const pbar = Q.passesProgramBar(cand, pig);
+        // Under the deal mix the route was decided above (_mixRoute): an
+        // official page, or the named contact's verified address.
+        if (!pbar.ok && !_mix) {
           say(`${cand.brand_name}: skipped, ${pbar.reason}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'owner', reason: pbar.reason,
             lane: cand.lane, places: { found: false }, risk: 'normal' });
@@ -1861,9 +1863,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
               ownerName: pperson ? pperson.name : null, ownerTitle: pperson ? pperson.title : null,
               greetFirstName: pgreet || null,
               // The programme's own page, and any public evidence, as the
-              // ONE thing the message may say about them. Under the deal mix:
-              // why this athlete fits this brand, the researched facts.
-              evidence: _mixFit ? _mixFit.lines : WriterEvidence.evidenceFor(cand),
+              // ONE thing the message may say about them.
+              evidence: WriterEvidence.evidenceFor(cand),
+              // Under the deal mix: why this athlete fits this brand, the
+              // researched facts (services/fitReasons), in their place.
+              ...(_mixFit ? { evidence: _mixFit.lines } : {}),
               isFranchise: false,
               isLocal: false,   // a brand programme: no verified-Instagram local line
             },
