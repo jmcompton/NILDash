@@ -626,7 +626,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div id="pitch-loading" style="text-align:center;padding:30px;color:var(--muted);font-size:13px">Writing your pitch…</div>
     <div id="pitch-form" style="display:none">
       <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px">To</label>
-      <input id="pitch-to" type="email" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;margin-bottom:12px">
+      <input id="pitch-to" type="email" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;margin-bottom:4px">
+      <div id="pitch-to-note" style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5"></div>
       <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px">Subject</label>
       <input id="pitch-subject" type="text" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;margin-bottom:12px">
       <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px">Message</label>
@@ -2782,6 +2783,7 @@ async function loadDealScanCache() {
     });
     if (!r.ok) return;
     var d = await r.json();
+    if (d && d.finderOnly) window._athFinderOnly = true;
     if (d && d.rateCard) window._athleteRateCard = d.rateCard;
     var cache = (d && d.cache) || {};
     var any = false;
@@ -2843,6 +2845,7 @@ async function _dsRunScan(isRefresh) {
       .then(function(res){
         var opps = (res.ok && res.data && !res.data.error) ? (res.data.opportunities || []) : [];
         if (res.ok && res.data && res.data.rateCard) window._athleteRateCard = res.data.rateCard;
+        if (res.data && res.data.finderOnly) window._athFinderOnly = true;
         _dsLaneBusy[lane] = false;
         // Rate limit: show the clear message, keep any existing results.
         if (res.data && res.data.error === 'rate_limited') {
@@ -2973,6 +2976,7 @@ async function _dsLoadContacts() {
   try {
     var r = await fetch('/api/athlete/brand-contacts', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + athleteToken }, body: JSON.stringify(payload) });
     var data = await r.json();
+    if (data && data.finderOnly) window._athFinderOnly = true;
     var results = (data && data.results) || [];
     pending.forEach(function(p, k){
       var res = results[k] || {};
@@ -2997,7 +3001,7 @@ async function _dsLoadContacts() {
 function _dsContactsHtml(d) {
   var contacts = Array.isArray(d.contacts) ? d.contacts.slice() : [];
   if (!contacts.length && d.contactName) {
-    contacts = [{ name: d.contactName, title: d.contactTitle, email: d.contactEmail || null, phone: null, linkedinUrl: d.contactLinkedIn || null, sourceUrl: null, emailSource: d.contactEmail ? 'published' : null }];
+    contacts = [{ name: d.contactName, title: d.contactTitle, email: d.contactEmail || null, emailVerified: d.contactEmailVerified, phone: null, linkedinUrl: d.contactLinkedIn || null, sourceUrl: null, emailSource: d.contactEmail ? 'published' : null }];
   }
   var phone = d.businessPhone || null;
   var inbox = d.genericInbox || null;
@@ -3010,7 +3014,7 @@ function _dsContactsHtml(d) {
       var verified = c.emailSource === 'verified'
         ? ' <span style="font-size:8px;font-weight:700;color:#84CC16;background:rgba(132,204,22,0.14);border:1px solid rgba(132,204,22,0.3);border-radius:4px;padding:0 5px">Verified</span>' : '';
       var bits = [];
-      if (c.email) bits.push('<a href="mailto:' + esc(c.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(c.email) + '</a>' + verified);
+      if (c.email) bits.push('<a href="mailto:' + esc(c.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(c.email) + '</a>' + (c.emailVerified === true || c.emailVerified === false ? _athAddrBadge(c.emailVerified) : verified));
       if (c.phone) bits.push('<a href="tel:' + esc(telHref(c.phone)) + '" style="color:#60a5fa;text-decoration:none">' + esc(c.phone) + '</a>');
       if (c.linkedinUrl) bits.push('<a href="' + esc(c.linkedinUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">LinkedIn</a>');
       if (c.sourceUrl) bits.push('<a href="' + esc(c.sourceUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">source</a>');
@@ -3279,6 +3283,7 @@ async function openPitchModal(i) {
     var data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'failed');
     document.getElementById('pitch-to').value = brand.contactEmail || '';
+    _pitchToNote(brand);
     document.getElementById('pitch-subject').value = data.pitch.subject || '';
     document.getElementById('pitch-body').value = data.pitch.body || '';
     document.getElementById('pitch-loading').style.display = 'none';
@@ -3288,6 +3293,63 @@ async function openPitchModal(i) {
   } catch(e) {
     document.getElementById('pitch-loading').innerHTML = 'Could not generate pitch. Please try again.';
   }
+}
+// ── VERIFIED / NOT VERIFIED (SEND_GATE_ON) ─────────────────────────────────
+// Beside every address the email finder supplied; the server sets the verdict
+// only with the switch on, so nothing renders otherwise.
+function _athAddrBadge(v) {
+  if (v !== true && v !== false) return '';
+  return v
+    ? ' <span title="Found and checked by the email finder in the last 30 days" style="font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#84CC16;background:rgba(132,204,22,0.14);border:1px solid rgba(132,204,22,0.3);border-radius:4px;padding:0 5px">Verified</span>'
+    : ' <span title="Checked again before it sends; if it does not verify, it is not sent" style="font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">Not verified</span>';
+}
+function _pitchToNote(brand) {
+  var n = document.getElementById('pitch-to-note');
+  if (!n) return;
+  n.style.color = 'var(--muted)';
+  if (!window._athFinderOnly) { n.innerHTML = ''; return; }
+  var name = brand && brand.contactName;
+  if (brand && brand.contactEmail) {
+    n.innerHTML = (brand.contactEmailVerified ? 'Verified' : 'Not verified') + _athAddrBadge(!!brand.contactEmailVerified) + ' · '
+      + esc(name || 'not a named person') + (brand.contactEmailVerified ? '' : '. It is checked again before it sends; if it does not verify, it is not sent.');
+  } else if (name) {
+    n.innerHTML = 'No verified address for ' + esc(name) + ' yet. <button type="button" onclick="pitchFindEmail(this)" style="padding:2px 8px;font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer">Find their email</button>';
+  } else {
+    n.textContent = 'No named contact, so no verified email. Reach the business by phone or Instagram instead.';
+  }
+}
+async function _athFind(name, brand) {
+  var r = await fetch('/api/athlete/find-address', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+    body: JSON.stringify({ name: name, brand: brand })
+  });
+  var j = await r.json().catch(function(){ return {}; });
+  if (!r.ok) throw new Error(j.error || 'error ' + r.status);
+  return j.finder || {};
+}
+async function pitchFindEmail(btn) {
+  var b = _pitchBrand || {};
+  if (btn) { btn.disabled = true; btn.textContent = 'Finding…'; }
+  try {
+    var f = await _athFind(b.contactName, b.brand || b.brand_name);
+    if (f.email) {
+      b.contactEmail = f.email; b.contactEmailVerified = !!f.verified;
+      document.getElementById('pitch-to').value = f.email;
+      _pitchToNote(b);
+    } else {
+      var n = document.getElementById('pitch-to-note');
+      if (n) n.textContent = (f.why || 'The email finder found no address') + '. Reach them by phone or Instagram instead.';
+    }
+  } catch (e) { if (btn) { btn.disabled = false; btn.textContent = 'Find their email'; } showToast('The email finder could not run: ' + e.message); }
+}
+async function athFindEmail(btn, name, brand) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Finding…'; }
+  try {
+    var f = await _athFind(name, brand);
+    if (btn) btn.outerHTML = f.email
+      ? '<div style="font-size:11px;color:var(--accent);font-family:\'JetBrains Mono\',monospace">' + esc(f.email) + _athAddrBadge(!!f.verified) + '</div>'
+      : '<div style="font-size:11px;color:var(--muted)">' + esc((f.why || 'No address found') + '. Reach them by phone or Instagram instead.') + '</div>';
+  } catch (e) { if (btn) { btn.disabled = false; btn.textContent = 'Find their email'; } showToast('The email finder could not run: ' + e.message); }
 }
 function closePitchModal() {
   document.getElementById('pitch-overlay').style.display = 'none';
@@ -3310,6 +3372,12 @@ async function submitPitch() {
     var data = await r.json();
     if (!r.ok || data.error) {
       if (data.error === 'gmail_token_expired') showToast('Gmail expired — reconnect or copy the pitch');
+      else if (data.reason === 'unverified') {
+        // The send gate: the address is not a named person's verified one.
+        showToast(data.error);
+        var n = document.getElementById('pitch-to-note');
+        if (n) { n.style.color = '#f87171'; n.textContent = data.error + ' Reach them by phone or Instagram instead.'; }
+      }
       else showToast('Send failed: ' + (data.error || 'error'));
       return;
     }
@@ -5355,9 +5423,11 @@ function renderAnalyzeDealPanel(data, brand) {
   _adpContactEmail = '';
   if (contacts.length && contacts[0].email) {
     _adpContactEmail = contacts[0].email;
-  } else {
+  } else if (!data.finderOnly) {
     _adpContactEmail = 'partnerships@' + brandDomain;
   }
+  // SEND_GATE_ON (data.finderOnly): an address only from the email finder, for
+  // a named person. Never one made up here from the brand's name.
 
   // Build outreach email body template
   var emailBody = 'Hi,\n\nMy name is ' + athName + ', and I\'m a ' + (ath.sport || 'college') + ' athlete at ' + (ath.school || 'my university') + '. I\'ve been a fan of ' + brand + ' for a while and think there\'s a real opportunity for us to work together on an NIL partnership.\n\nI have a combined social following of ' + (mLow > 0 ? 'an engaged audience' : 'a growing audience') + ' that aligns well with ' + brand + '\'s market. I\'d love to set up a quick call to explore what a partnership could look like.\n\nWould you be open to a 15-minute conversation?\n\n' + athName;
@@ -5376,7 +5446,8 @@ function renderAnalyzeDealPanel(data, brand) {
           '<div style="flex:1;min-width:0">' +
             '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">' + esc(c.name || 'Partnerships Team') + '</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">' + esc(c.title || 'NIL / Sponsorships') + '</div>' +
-            (c.email ? '<div style="font-size:11px;color:var(--accent);font-family:\'JetBrains Mono\',monospace">' + esc(c.email) + '</div>' : '') +
+            (c.email ? '<div style="font-size:11px;color:var(--accent);font-family:\'JetBrains Mono\',monospace">' + esc(c.email) + _athAddrBadge(c.emailVerified) + '</div>' : '') +
+            (data.finderOnly && !c.email && c.name ? '<button onclick="athFindEmail(this,\'' + esc(c.name).replace(/'/g,"&#39;") + '\',\'' + esc(brand).replace(/'/g,"&#39;") + '\')" style="padding:3px 9px;font-size:10px;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--muted);cursor:pointer;font-family:\'DM Sans\',sans-serif">Find their email</button>' : '') +
           '</div>' +
           '<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">' +
             (c.email
@@ -5390,6 +5461,13 @@ function renderAnalyzeDealPanel(data, brand) {
         '</div>' +
       '</div>';
     });
+  } else if (data.finderOnly) {
+    // SEND_GATE_ON: no named person, so no address. Never a made-up inbox.
+    var linkedInSearch2 = 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(brand + ' NIL partnerships sponsorship');
+    html += '<div class="adp-contact-card">' +
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">No named contact found, so there is no verified email to send to. Find the right person on LinkedIn, or reach the business by phone or Instagram.</div>' +
+      '<a href="' + linkedInSearch2 + '" target="_blank" style="padding:6px 12px;font-size:11px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:6px;color:#60a5fa;text-decoration:none">Find on LinkedIn</a>' +
+    '</div>';
   } else {
     // No specific contacts — show generic
     var genericEmail = 'partnerships@' + brandDomain;

@@ -102,11 +102,14 @@ function isPerson(name) {
   try { return !require('./outreachQueue').personNameProblem(name); } catch (_) { return !!name; }
 }
 
+const finderOnly = () => require('./sendGate').ON();
+
 // The raw rows for one agent: cards, ledger rows, contacts, deals, emails.
 async function loadRaw(pool, agentId) {
   const [cards, ledger, contacts, deals, logs, athletes, industries] = await Promise.all([
     pool.query(
-      `SELECT q.id, q.athlete_id, q.brand_name, q.contact_name, q.contact_title, q.email, q.phone, q.instagram, q.instagram_scope,
+      `SELECT q.id, q.athlete_id, q.brand_name, q.contact_name, q.contact_title, q.email, to_jsonb(q)->>'email_verified' AS email_verified,
+              q.phone, q.instagram, q.instagram_scope,
               q.category_key, q.lane, q.state, q.outcome, q.replied_at, q.sent_at, q.created_at,
               q.brand_key, q.identity_key,
               p.evidence->>'placeId' AS place_id, e.website,
@@ -174,7 +177,8 @@ function buildRows(raw) {
     }
     if (c.created_at && (!r.foundAt || new Date(c.created_at) < new Date(r.foundAt))) r.foundAt = c.created_at;
     if (!r.ownerName && c.contact_name && isPerson(c.contact_name)) { r.ownerName = c.contact_name; r.ownerTitle = c.contact_title || null; }
-    if (!r.email && c.email) r.email = c.email;
+    // SEND_GATE_ON: an address only from the email finder (a card it verified).
+    if (!r.email && c.email && (!finderOnly() || c.email_verified === 'true')) r.email = c.email;
     if (!r.phone && c.phone) r.phone = c.phone;
     if (!r.instagram && c.instagram && c.instagram_scope !== 'brand') r.instagram = c.instagram;
     if (!r.placeType && c.place_type) { r.placeType = c.place_type; r.placeTypes = c.place_types || null; }
@@ -230,7 +234,9 @@ function buildRows(raw) {
     if (!r.ownerName || (!r.email && !r.phone)) {
       for (const c of contactsByBrand.get(lower(r.brand)) || []) {
         if (!r.ownerName && c.name && isPerson(c.name)) { r.ownerName = c.name; r.ownerTitle = c.title || null; }
-        if (!r.email && c.email) r.email = c.email;
+        // The Deal Scan's contacts: an AI or web-search address, never shown
+        // with SEND_GATE_ON.
+        if (!r.email && c.email && !finderOnly()) r.email = c.email;
         if (!r.phone && c.phone) r.phone = c.phone;
       }
     }

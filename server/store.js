@@ -4390,6 +4390,13 @@ async function ensureMarketSightings() {
   // Hunter's own word (valid, accept_all, webmail, invalid, unknown...). `result`
   // folds catch-all into unknown; the email finder needs to tell them apart.
   await pool.query(`ALTER TABLE email_verification ADD COLUMN IF NOT EXISTS status TEXT`).catch(() => {});
+  // ONE GATE AT SEND TIME (services/sendGate): who the email is for, what was
+  // known about the address as it left and by which path, a blocked send's
+  // reason and the call or DM offered instead, and "This bounced".
+  for (const col of ['contact_name TEXT', 'send_verify_status TEXT', 'send_verified_at TIMESTAMPTZ', 'send_path TEXT',
+    'gate_blocked_at TIMESTAMPTZ', 'gate_reason TEXT', 'gate_offer JSONB', 'bounced_at TIMESTAMPTZ', 'bounced_by TEXT']) {
+    await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS ${col}`).catch((e) => console.error('[init] outreach_logs.' + col + ':', e.message));
+  }
   // A card whose address the email finder verified for the named person
   // (jobs/outreachQueue, EMAIL_FIVE_ON): what "five verified emails" counts.
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`).catch(() => {});

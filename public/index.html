@@ -8815,6 +8815,16 @@ async function _dsAddNatGo(brand) {
     _dsAddNatStatus('Search failed: ' + e.message, 'err');
   } finally { clearTimeout(_slow); _dsAddNatBusy = false; }
 }
+// ── VERIFIED / NOT VERIFIED (SEND_GATE_ON) ──────────────────────────────────
+// Beside every address the email finder supplied. `v` is its verdict; the
+// server sets it only with the switch on, so nothing renders otherwise.
+function _addrBadge(v, why) {
+  if (v !== true && v !== false) return '';
+  return v
+    ? ' <span title="Found and checked by the email finder in the last 30 days" style="font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#84CC16;background:rgba(132,204,22,0.14);border:1px solid rgba(132,204,22,0.3);border-radius:4px;padding:0 5px">Verified</span>'
+    : ' <span title="' + esc(why || 'Not verified. Checked again before it sends; if it does not verify, it is not sent.') + '" style="font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">Not verified</span>';
+}
+
 function _dsNatCard(c) {
   if (!c) return '';
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (x) {
@@ -8839,7 +8849,7 @@ function _dsNatCard(c) {
   if (c.contactEmail) {
     var ctLabel = { partnerships: 'partnerships desk', marketing: 'marketing desk', named: 'named contact', general: 'general inbox' }[c.contactType] || 'contact';
     route.push('<a href="mailto:' + esc(c.contactEmail) + '" style="color:#60a5fa;text-decoration:none">' + esc(c.contactEmail) + '</a>'
-      + ' <span style="color:var(--muted);font-size:10.5px">(' + esc(ctLabel) + ')</span>');
+      + ' <span style="color:var(--muted);font-size:10.5px">(' + esc(ctLabel) + ')</span>' + _addrBadge(c.contactEmailVerified));
   }
   if (c.partnershipsUrl) route.push('<a href="' + esc(c.partnershipsUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none">' + esc(c.partnershipsLabel || 'Partnerships page') + '</a>');
   if (c.contactFormUrl) route.push('<a href="' + esc(c.contactFormUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none">Contact form</a>');
@@ -8981,14 +8991,14 @@ function _dsLadderHtml(d) {
       // badged and coloured differently from a published address so an agent is
       // never told this is confirmed, and the greeting guard will not open with
       // their first name on it.
-      var _unconfirmed = r.emailKind && r.emailKind !== 'published';
+      var _unconfirmed = r.emailKind && r.emailKind !== 'published' && r.emailFrom !== 'finder';
       var _kindBadge = _unconfirmed
         ? ' <span title="Held against the company domain by a paid lookup and matched to this person by surname. Not published for them — verify before using their name."'
           + ' style="font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#f59e0b;'
           + 'background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">not confirmed</span>'
         : '';
       if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:' + (r.corporate || r.emailDomainNote || _unconfirmed ? '#f59e0b' : '#84CC16') + ';text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>' +
-        _typeBadge + _kindBadge +
+        _typeBadge + _kindBadge + _addrBadge(r.emailVerified) +
         (r.emailDomainNote ? ' <span style="font-size:8px;font-weight:700;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">other domain</span>' : '') +
         '');
       // No address anywhere, but a working form is still a channel.
@@ -9157,7 +9167,7 @@ function _dsContactsHtml(d) {
   var contacts = Array.isArray(d.contacts) ? d.contacts.slice() : [];
   // Back-compat for older cached cards that only carry the single-contact fields.
   if (!contacts.length && d.contactName) {
-    contacts = [{ name: d.contactName, title: d.contactTitle, email: d.contactEmail || null, phone: null, linkedinUrl: d.contactLinkedIn || null, sourceUrl: null, emailSource: d.contactEmail ? 'published' : null }];
+    contacts = [{ name: d.contactName, title: d.contactTitle, email: d.contactEmail || null, emailVerified: d.contactEmailVerified, phone: null, linkedinUrl: d.contactLinkedIn || null, sourceUrl: null, emailSource: d.contactEmail ? 'published' : null }];
   }
   var phone = d.businessPhone || null;
   var inbox = d.genericInbox || null;
@@ -9172,7 +9182,7 @@ function _dsContactsHtml(d) {
       var verified = c.emailSource === 'verified'
         ? ' <span style="font-size:8px;font-weight:700;color:#84CC16;background:rgba(132,204,22,0.14);border:1px solid rgba(132,204,22,0.3);border-radius:4px;padding:0 5px">Verified</span>' : '';
       var bits = [];
-      if (c.email) bits.push('<a href="mailto:' + esc(c.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(c.email) + '</a>' + verified);
+      if (c.email) bits.push('<a href="mailto:' + esc(c.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(c.email) + '</a>' + (c.emailVerified === true || c.emailVerified === false ? _addrBadge(c.emailVerified) : verified));
       if (c.phone) bits.push('<a href="tel:' + esc(telHref(c.phone)) + '" style="color:#60a5fa;text-decoration:none">' + esc(c.phone) + '</a>');
       if (c.linkedinUrl) bits.push('<a href="' + esc(c.linkedinUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">LinkedIn</a>');
       if (c.sourceUrl) bits.push('<a href="' + esc(c.sourceUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">source</a>');
@@ -19627,20 +19637,38 @@ async function loadAiOutreachLogs() {
           ? '<button onclick="markOutreachReplied(\'' + row.id + '\', false)" style="padding:4px 10px;border-radius:6px;background:transparent;border:1px solid var(--border);color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Mark unanswered</button>'
           : '<button onclick="markOutreachReplied(\'' + row.id + '\', true)" style="padding:4px 10px;border-radius:6px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.35);color:var(--accent);font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">Mark replied</button>';
         return '<tr style="border-bottom:1px solid var(--border)">' +
-          '<td style="padding:10px 10px;font-weight:600;color:var(--text)">' + escapeHtml(row.brand_name || '-') + '</td>' +
+          '<td style="padding:10px 10px;font-weight:600;color:var(--text)">' + escapeHtml(row.brand_name || '-') +
+            // SEND_GATE_ON: the address it went to, Verified or Not verified.
+            (row.finder ? '<div style="font-weight:400;font-size:11px;color:var(--muted)">' + escapeHtml(row.sent_to_email || '') + _addrBadge(row.finder.verified, row.finder.why) + '</div>' : '') + '</td>' +
           '<td style="padding:10px 10px;color:var(--muted);white-space:nowrap">' + sentDate + '</td>' +
           '<td style="padding:10px 10px">' + pill(row.status) + (row.replied_at ? ' <span style="color:var(--muted);font-size:10px">' + new Date(row.replied_at).toLocaleDateString() + '</span>' : '') + '</td>' +
           // ── THE DEAL IS SIGNED, ON THE PITCH THAT WON IT ──────────────
           // The same one-tap log as My Brands and the Pipeline card: two
           // optional questions, then the deal is recorded and the Pipeline
           // row moves to Closed (services/dealLog).
-          '<td style="padding:10px 10px">' + action + ' ' + dealButtonHtml(row.athlete_id, row.brand_name, row.brand_key, null) + '</td>' +
+          '<td style="padding:10px 10px">' + action + ' ' + dealButtonHtml(row.athlete_id, row.brand_name, row.brand_key, null) +
+            // "This bounced" (SEND_GATE_ON): suppresses the address, stops its follow-ups.
+            (row.finder ? ' ' + (row.bounced_at
+              ? '<span style="color:#f87171;font-size:10px;font-weight:700">Bounced</span>'
+              : '<button onclick="markOutreachBounced(this,\'' + row.id + '\')" style="padding:4px 10px;border-radius:6px;background:transparent;border:1px solid rgba(248,113,113,0.5);color:#f87171;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">This bounced</button>') : '') + '</td>' +
         '</tr>';
       }).join('') +
       '</tbody></table></div>';
   } catch (e) {
     el.innerHTML = '<div style="color:var(--muted);padding:16px 0;font-size:12px">Could not load AI outreach right now.</div>';
   }
+}
+
+async function markOutreachBounced(btn, id) {
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(id) + '/bounced', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' });
+    var j = await r.json().catch(function () { return {}; });
+    if (!r.ok) { showToast(j.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
+    showToast('Marked bounced: ' + (j.suppressed || 'the address') + ' gets no more email' + (j.stopped ? '; ' + j.stopped + ' follow-up' + (j.stopped === 1 ? '' : 's') + ' stopped' : ''));
+    loadAiOutreachLogs();
+  } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }
 }
 
 async function markOutreachReplied(id, replied) {
@@ -21537,7 +21565,7 @@ function hqOutboxHtml(d) {
         + '<span class="hq-rowtxt"><span class="hq-rowbiz">' + hqEscape(o.business || 'A business') + '</span>'
         + '<span class="hq-rowwho">' + hqEscape(o.contact || o.to || '') + '</span></span>'
         + '<span class="hq-chan email">Email</span>'
-        + '<span class="hq-rowbtns"><span class="hq-outstate ' + cls + '">' + label + '</span></span>'
+        + '<span class="hq-rowbtns"><span class="hq-outstate ' + cls + '">' + label + '</span>' + hqBounceBtn(o) + '</span>'
         + '</div>'
         + (why ? '<p class="hq-outwhy">' + hqEscape(why) + '</p>' : '')
         + '</div>';
@@ -21638,6 +21666,7 @@ function hqSentHtml(d) {
         if (r.outcome === 'waiting' || r.outcome === 'no_reply') btns += '<button class="hq-mark" title="No more follow-ups to this business" onclick="hqSentMark(this,' + Number(r.id) + ',\'dead\')">Stop follow-ups</button>';
         btns += '<button class="hq-mark deal" onclick="hqSentDeal(' + Number(r.id) + ')">Deal signed</button>';
       }
+      btns += hqBounceBtn(r);
       var when = r.sentAt ? new Date(r.sentAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
       return '<div class="hq-card hq-row hq-sentrow">'
         + '<div class="hq-rowhead hq-outhead">'
@@ -21648,6 +21677,25 @@ function hqSentHtml(d) {
         + ((r.history || []).length ? '<p class="hq-hist" style="margin:-6px 14px 10px">' + r.history.map(hqEscape).join(' &middot; ') + '</p>' : '')
         + '</div>';
     }).join('') + '</div>';
+}
+// ── "THIS BOUNCED" (SEND_GATE_ON) ──────────────────────────────────────────
+// On every sent email. A bounce lands in the agent's own inbox, where NILDash
+// cannot see it: one click suppresses the address and stops its follow-ups.
+// The server sends bounceId only with the switch on.
+function hqBounceBtn(r) {
+  if (!r || !r.bounceId) return '';
+  if (r.bounced) return '<span class="hq-sentstate declined" title="Marked bounced: no more email to this address">Bounced</span>';
+  return '<button class="hq-mark" title="It came back undelivered. Blocks the address and stops its follow-ups." onclick="hqBounced(this,\'' + hqEscape(String(r.bounceId)) + '\')">This bounced</button>';
+}
+async function hqBounced(btn, logId) {
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(logId) + '/bounced', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' });
+    var j = await r.json().catch(function () { return {}; });
+    if (!r.ok) { showToast(j.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
+    showToast('Marked bounced: ' + (j.suppressed || 'the address') + ' gets no more email' + (j.stopped ? '; ' + j.stopped + ' follow-up' + (j.stopped === 1 ? '' : 's') + ' stopped' : ''));
+    hqLoad(HQ.selected);
+  } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }
 }
 async function hqSentMark(btn, id, outcome) {
   if (btn) btn.disabled = true;
@@ -21770,6 +21818,10 @@ function hqEmailBody(c, i) {
     + '<dt>From</dt><dd>' + mailFromHtml(HQ.data && HQ.data.from) + '</dd>'
     // VERIFIED-BAD ADDRESSES NEVER GET HERE -- the gate holds those cards back.
     + '<dt>To</dt><dd>' + hqEscape(c.to || 'no address on this draft')
+    // SEND_GATE_ON: Verified or Not verified, by the send gate's own rule.
+    + (c.toLabel ? ' <span title="' + hqEscape(c.toWhy || '') + '" style="font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:'
+        + (c.toVerified ? '#84CC16' : '#f59e0b') + '">' + hqEscape(c.toLabel) + '</span>' : '')
+    + (c.toLabel && !c.toVerified && c.toWhy ? ' <span style="color:var(--dim,#63635a)">&middot; ' + hqEscape(c.toWhy) + '</span>' : '')
     + (c.emailLabel ? ' <span style="color:var(--dim,#63635a)">&middot; ' + hqEscape(c.emailLabel) + ', greeting</span>' : '')
     + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '')
     + '</dd>'

@@ -42,6 +42,7 @@
 // when both tables hold one, lives in ./actionable -- shared with the shift
 // report so the page and the email cannot print different numbers for one pile.
 const A = require('./actionable');
+const SG = require('./sendGate');
 
 // Home shows five cards per athlete and no more, whatever the channel. The cap
 // of five that already existed is on outreach_queue -- the RESEARCH pile --
@@ -433,7 +434,7 @@ async function buildHome(pool, agentId, opts = {}) {
   const outboxRows = selected ? await q('outbox',
     `SELECT l.id, l.brand_name, l.sent_to_email, l.approved_at, l.sent_at, l.status,
             l.send_hold_reason, l.send_failures, l.cadence_stopped_at, l.cadence_stop_reason,
-            qc.contact_name
+            to_jsonb(l)->>'bounced_at' AS bounced_at, qc.contact_name
        FROM outreach_logs l
        LEFT JOIN LATERAL (SELECT contact_name FROM outreach_queue q
                            WHERE q.outreach_log_id = l.id ORDER BY q.id DESC LIMIT 1) qc ON TRUE
@@ -459,6 +460,9 @@ async function buildHome(pool, agentId, opts = {}) {
     // refused it, and the reason (reconnect the mailbox, a bad address) is
     // the agent's to act on. It is still retried on a backoff.
     failed: !o.sent_at && !o.cadence_stopped_at && (Number(o.send_failures) || 0) > 0,
+    // "This bounced" (SEND_GATE_ON): the email's id for the button, and
+    // whether the agent already said so.
+    ...(SG.ON() && o.sent_at ? { bounceId: o.id, bounced: !!o.bounced_at } : {}),
   }));
 
   // ── SENT, AND WHAT HAPPENED ───────────────────────────────────────────────
@@ -471,7 +475,8 @@ async function buildHome(pool, agentId, opts = {}) {
     `SELECT q.id, q.brand_name, q.brand_key, q.contact_name, q.channel, q.sent_via, q.outreach_log_id,
             COALESCE(l.parent_id, l.id) AS thread_root,
             COALESCE(q.sent_at, q.updated_at) AS sent_at, q.outcome, q.outcome_at,
-            COALESCE(q.replied_at, l.replied_at) AS replied_at, d.id AS deal_id, d.deal_value
+            COALESCE(q.replied_at, l.replied_at) AS replied_at, d.id AS deal_id, d.deal_value,
+            to_jsonb(l)->>'bounced_at' AS bounced_at
        FROM outreach_queue q
        LEFT JOIN outreach_logs l ON l.id = q.outreach_log_id
        LEFT JOIN LATERAL (SELECT o.id, o.deal_value FROM deal_outcomes o
@@ -499,6 +504,7 @@ async function buildHome(pool, agentId, opts = {}) {
     dealValue: r.deal_value != null ? Number(r.deal_value) : null,
     threadRoot: r.thread_root || null,
     history: [],
+    ...(SG.ON() && r.outreach_log_id && (r.sent_via || r.channel) === 'email' ? { bounceId: r.outreach_log_id, bounced: !!r.bounced_at } : {}),
   }));
 
   // ── EVERY CARD CARRIES ITS HISTORY ────────────────────────────────────────
@@ -568,7 +574,7 @@ async function buildHome(pool, agentId, opts = {}) {
   let from = null;
   try { from = await require('./emailStore').sendingMailbox(agentId); }
   catch (e) { from = { address: null, connected: false, why: 'the mailbox could not be read: ' + e.message }; }
-  return {
+  const home = {
     from,
     // Approved emails for this athlete: Sending until they have a sent_at.
     outbox,
@@ -771,6 +777,17 @@ async function buildHome(pool, agentId, opts = {}) {
     // the same thing on the page.
     errors: errs,
   };
+  // SEND_GATE_ON: each email card's address beside its label, by the send
+  // gate's own rule (a named person's, valid within 30 days), and why if not.
+  // The cache only: nothing is spent loading Home.
+  if (SG.ON()) {
+    for (const card of home.cards) {
+      if (card.channel !== 'email' || !card.to) continue;
+      const p = await SG.peek(pool, card.to, card.contact, { brand: card.business }).catch(() => null);
+      if (p) { card.toVerified = p.verified; card.toLabel = p.label; card.toWhy = p.why; }
+    }
+  }
+  return home;
 }
 
 module.exports = { buildHome, deriveWhy, fromPitch, fromStored, stripHtml, sentences,

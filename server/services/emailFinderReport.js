@@ -169,15 +169,24 @@ async function gather(pool, { days = 7 } = {}) {
       for (const t of (d && Array.isArray(d.tried) ? d.tried : [])) {
         if (!t || t.result !== 'queued' || !t.brand) continue;
         triedOf.set(`${r.agent_id}|${d.athleteId}|${String(t.brand).toLowerCase()}`, t);
-        const n = (nights[night] = nights[night] || { cards: 0, emailVerified: 0, emailUnverified: 0, dm: 0, call: 0, other: 0, finderFound: 0, finderRan: 0 });
+        const n = (nights[night] = nights[night] || { cards: 0, emailVerified: 0, emailUnverified: 0, generalInbox: 0, catchAll: 0, dm: 0, call: 0, other: 0, finderFound: 0, finderRan: 0 });
         n.cards++;
         const ch = t.why && t.why.channel;
         const f = t.why && t.why.finder;
         if (f) n.finderRan++;
         if (f && f.finder && f.finder.email && ch === 'email') n.finderFound++;
         if (ch === 'email') {
+          // Three kinds that are not a named person's valid address are told
+          // apart: EMAIL_SMART_PICK's verified general inbox (info@, hello@),
+          // a catch-all passed as built from a confirmed pattern, and one that
+          // was never verified at all. All three used to read "unverified" or
+          // "verified" together.
           const ok = f && ((f.verify && f.verify.pass) || (f.finder && f.finder.email));
-          if (ok) n.emailVerified++; else n.emailUnverified++;
+          const catchAll = !!(f && ((f.verify && f.verify.pass && f.verify.verdict === 'catch-all') || (f.finder && f.finder.email && f.finder.verdict === 'catch-all')));
+          if (f && f.generalInbox) n.generalInbox++;
+          else if (ok && catchAll) n.catchAll++;
+          else if (ok) n.emailVerified++;
+          else n.emailUnverified++;
         } else if (ch === 'dm') n.dm++; else if (ch === 'call') n.call++; else n.other++;
       }
     }
@@ -254,9 +263,11 @@ function format(r, account) {
   }
   if (r.nights && Object.keys(r.nights).length) {
     L.push('', 'BY NIGHT (from the run record): email cards with a verified address for the named person');
-    L.push('  night        cards  email-verified  email-unverified   dm  call  found-by-finder');
+    L.push('  email-verified: a named person, valid. general-inbox: a verified info@ / hello@ (EMAIL_SMART_PICK). catch-all: passed as built');
+    L.push('  from a confirmed pattern, never "valid". email-unverified: no passing check on record (admin script unverified-cards says why).');
+    L.push('  night        cards  email-verified  general-inbox  catch-all  email-unverified   dm  call  found-by-finder');
     for (const [k, n] of Object.entries(r.nights).sort((a, b) => b[0].localeCompare(a[0]))) {
-      L.push(`  ${k}  ${String(n.cards).padStart(5)}  ${String(n.emailVerified).padStart(6)} (${pct(n.emailVerified, n.cards).padStart(4)})  ${String(n.emailUnverified).padStart(16)}  ${String(n.dm).padStart(3)}  ${String(n.call).padStart(4)}  ${String(n.finderFound).padStart(15)}${n.finderRan ? '' : '   (before the finder)'}`);
+      L.push(`  ${k}  ${String(n.cards).padStart(5)}  ${String(n.emailVerified).padStart(6)} (${pct(n.emailVerified, n.cards).padStart(4)})  ${String(n.generalInbox || 0).padStart(13)}  ${String(n.catchAll || 0).padStart(9)}  ${String(n.emailUnverified).padStart(16)}  ${String(n.dm).padStart(3)}  ${String(n.call).padStart(4)}  ${String(n.finderFound).padStart(15)}${n.finderRan ? '' : '   (before the finder)'}`);
     }
   }
   L.push('', 'EXAMPLES (up to 5 per reason):');
