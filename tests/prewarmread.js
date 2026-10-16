@@ -118,8 +118,11 @@ function liftHandler(src, marker) {
 const DRAFT = liftHandler(RT, "router.get('/draft'");
 if (!/no draft yet/.test(DRAFT)) throw new Error('FIXTURE BROKEN: /draft lifted wrong');
 
-const makeDraft = () => new Function('pool', 'console', 'const h = ' + DRAFT + '; return h;')(
-  pool, { log() {}, warn() {}, error() {} });
+// `require` as the route file sees it: the handler asks services/sendGate
+// whether SEND_GATE_ON is set (off here, so the response is unchanged).
+const routeRequire = (m) => require(m.startsWith('.') ? _tp.join(R, 'server', 'routes', m) : m);
+const makeDraft = () => new Function('pool', 'console', 'require', 'const h = ' + DRAFT + '; return h;')(
+  pool, { log() {}, warn() {}, error() {} }, routeRequire);
 const mkRes = () => { const r = { code: 200, body: null }; r.status = (c) => { r.code = c; return r; }; r.json = (b) => { r.body = b; return r; }; return r; };
 const call = async (principal, query) => {
   const res = mkRes();

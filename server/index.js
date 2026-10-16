@@ -11471,7 +11471,7 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
 // The athlete's brand email gets its address from the email finder, like
 // every other email: { brand, name, website? } -> { finder: { email,
 // verified, label, why } }. Cached 30 days per person.
-app.post('/api/athlete/find-address', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/find-address', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const FA = require('./services/finderAddress');
     if (!FA.ON()) return res.status(404).json({ error: 'not enabled' });
