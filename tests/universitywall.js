@@ -99,8 +99,16 @@ async function main() {
   // pinned below.
   const MAILBOX = ['GET /api/email/oauth/gmail', 'GET /api/email/oauth/gmail/callback', 'GET /api/email/oauth/outlook',
     'GET /api/email/oauth/outlook/callback', 'GET /api/email/accounts'];
+  // The page's one /api/admin call is the admin's "Back to admin" button on
+  // the read-only view bar (shown only when viewingAsAdmin). An admin is not
+  // held by the wall; a university session must never reach /api/admin.
+  const adminOnly = [...fetched].filter((f) => / \/api\/admin\//.test(f));
+  const staff = [...fetched].filter((f) => !adminOnly.includes(f));
   ok('  and the allowlist is exactly those plus the mailbox connect, no more',
-    [...MG.UNIVERSITY_ALLOWED].sort().join('|') === [...fetched, ...MAILBOX].sort().join('|'), { allowed: [...MG.UNIVERSITY_ALLOWED], fetched: [...fetched] });
+    [...MG.UNIVERSITY_ALLOWED].sort().join('|') === [...staff, ...MAILBOX].sort().join('|'), { allowed: [...MG.UNIVERSITY_ALLOWED], staff });
+  ok('  the page\'s admin call is the admin view bar\'s, and the wall never lets a university session reach /api/admin',
+    adminOnly.every((f) => f === 'POST /api/admin/view-university') && /viewingAsAdmin[\s\S]{0,1200}fetch\("\/api\/admin\/view-university"/.test(page)
+    && ![...MG.UNIVERSITY_ALLOWED].some((f) => / \/api\/admin\//.test(f)), adminOnly);
   ok('  the only prefix is the department market tool',
     JSON.stringify(MG.UNIVERSITY_ALLOWED_PREFIXES) === JSON.stringify([['GET', '/api/university/market/'], ['POST', '/api/university/market/']]));
   ok('admin is not a confined role', !MG.UNIVERSITY_ONLY_ROLES.has('admin') && !MG.UNIVERSITY_ONLY_ROLES.has('agent'));
@@ -110,7 +118,12 @@ async function main() {
   const IDX = read('server/index.js');
   const wallAt = IDX.indexOf("app.use('/api', universityWall);");
   ok('the wall is mounted on /api, once', wallAt > 0 && IDX.split("app.use('/api', universityWall)").length === 2);
-  ok('  straight after the session middleware', wallAt > IDX.indexOf('app.use(session({') && wallAt - IDX.indexOf('app.use(session({') < 1200);
+  // Straight after the session: only middleware (app.use) between the two,
+  // never a route. A character count stood in for this and broke as soon as
+  // the admin view and the customer-error filter were mounted there.
+  const between = IDX.slice(IDX.indexOf('app.use(session({'), wallAt);
+  ok('  straight after the session middleware: nothing but middleware between them', wallAt > IDX.indexOf('app.use(session({')
+    && !/app\.(get|post|put|patch|delete|all)\(/.test(between.replace(/\/\/[^\n]*/g, '')), between.match(/app\.\w+\('[^']*'/g));
   const before = [...IDX.slice(0, wallAt).matchAll(/app\.(get|post|put|patch|delete|all)\('(\/api[^']*)'/g)].map((m) => m[2]);
   ok('  and no API route that could carry a session is registered above it',
     before.every((p) => /stripe-webhook|webhooks/.test(p)), before);

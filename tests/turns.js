@@ -55,12 +55,18 @@ function build(capture) {
     contextBlock: () => 'CTX',
   };
   const ai = { toolLoop: async (arg) => { capture.arg = arg; return { text: 'reply', exhausted: false }; } };
-  const actions = { toolDefs: () => [{ name: 't' }], resolveCall: async () => ({ ok: true, directive: {} }) };
+  // toolDefsFor(mode): the chat tools, or the onboarding set. look_up_data
+  // (assistantData) rides on the same loop. The onboarding names are only
+  // read on an onboarding turn; they are here so a miss is loud, not silent.
+  const actions = { toolDefs: () => [{ name: 't' }], toolDefsFor: () => [{ name: 't' }], resolveCall: async () => ({ ok: true, directive: {} }) };
+  const assistantData = { toolDef: () => ({ name: 'look_up_data' }), run: async () => ({}) };
   return new Function('ctxSvc', 'systemPrompt', 'ai', 'actions', 'history', 'MODEL', 'TURN_TIMEOUT_MS', 'OPENER',
+    'assistantData', 'Onb', 'ONBOARDING_OPENER', 'ONBOARDING_TURN_TIMEOUT_MS', 'GREETING_MAX_TOKENS', 'pool', 'AthleteCreate',
     SRC + '\n return runTurn;')(
     ctxSvc, () => 'SYS', ai, actions,
     async () => { throw new Error('history() must NOT be called: the caller passes msgs'); },
-    'm', 1000, OPENER);
+    'm', 1000, OPENER,
+    assistantData, { BRIEF: 'onboarding' }, 'onboarding opener', 1000, 300, { query: async () => ({ rows: [] }) }, { fillOnDemandEnabled: () => false });
 }
 const run = async (msgs) => {
   const cap = {};

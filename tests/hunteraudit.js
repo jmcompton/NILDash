@@ -170,7 +170,7 @@ Module._load = function (req) {
 };
 
 process.env.DATABASE_URL = 'postgres://localhost/hunteraudit';
-process.argv = [process.argv[0], 'hunter-audit.js', '20'];
+process.argv = [process.argv[0], 'hunter-audit.js', '20', '--json'];
 const out = [];
 const realLog = console.log;
 console.log = (...a) => out.push(a.join(' '));
@@ -184,7 +184,9 @@ setTimeout(() => {
   process.exit = realExit;
   Module._load = origLoad;
   let report;
-  try { realLog(out.join("\n")); realExit(0); }
+  // The report, as the script prints it with --json. (A debugging edit had
+  // left this printing the table and exiting 0: no check below ever ran.)
+  try { report = JSON.parse(out.join('\n')); }
   catch (e) { console.log('THE SCRIPT DID NOT PRODUCE JSON:\n' + out.join('\n').slice(0, 1200)); process.exit(1); }
 
   const by = (b) => report.find((r) => r.brand === b);
@@ -254,11 +256,12 @@ setTimeout(() => {
     // real merge never made.
     const AI = fs.readFileSync(REPO + 'server/ai.js', 'utf8');
     ok('ai.js still matches on the last word of the name',
-      /const _last = String\(c\.name \|\| ''\)\.trim\(\)\.toLowerCase\(\)\.split\(\/\\s\+\/\)\.pop\(\)/.test(AI));
+      /const _last = String\(c\.name(?: \|\| '')?\)\.trim\(\)\.toLowerCase\(\)\.split\(\/\\s\+\/\)\.pop\(\)/.test(AI));
     ok('  against Hunter lastName only',
       /_personal\.find\(\(e\) => e\.lastName && e\.lastName\.toLowerCase\(\) === _last\)/.test(AI));
     ok('  and only for contacts that have no email yet',
-      /for \(const c of res\.contacts\) \{\s*\n\s*if \(c\.email\) continue;/.test(AI));
+      // A nameless contact is skipped too ("c.email || !c.name"): same rule.
+      /for \(const c of res\.contacts\) \{\s*\n\s*if \(c\.email(?: \|\| !c\.name)?\) continue;/.test(AI));
   }
 
   console.log('\nfailures: ' + f);

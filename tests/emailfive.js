@@ -87,9 +87,17 @@ async function main() {
   };
   await clean();
   await P.query(`INSERT INTO users (id,name,email,password,role) VALUES ($1,'John Agent','ef5@x.test','x','agent')`, [AG]);
+  // THE CHAINS ARE DRAWN FIRST. The pool's order is a shuffle keyed on the
+  // date, and the athlete reaches five before the whole pool is read, so a
+  // chain placed late was simply never drawn and the check never saw it
+  // skipped. Marketing evidence ranks a business first within its kind
+  // (scout poolOrder), so the chains carry it: both are always drawn, and the
+  // check tests what it means to -- a chain is skipped at selection, before
+  // anything is spent on it.
+  const CHAINS = new Set(['Buckle', "Domino's Pizza"]);
   const seed = async (brands) => {
     await P.query(`DELETE FROM market_business_seen WHERE market_key = $1`, [KEY]);
-    for (const b of brands) await P.query(`INSERT INTO market_business_seen (market_key, brand, category) VALUES ($1,$2,'restaurant') ON CONFLICT DO NOTHING`, [KEY, b]);
+    for (const b of brands) await P.query(`INSERT INTO market_business_seen (market_key, brand, category, has_evidence) VALUES ($1,$2,'restaurant',$3) ON CONFLICT DO NOTHING`, [KEY, b, CHAINS.has(b) ? true : null]);
   };
   const fill = async (id, extra) => {
     const data = { name: 'Ef5 ' + id, school: 'Baylor University', sport: 'Football' };

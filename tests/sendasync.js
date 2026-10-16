@@ -20,6 +20,9 @@ process.env.PGPORT = process.env.PGPORT || '55432';
 process.env.PGUSER = process.env.PGUSER || 'postgres';
 process.env.PGDATABASE = process.env.PGDATABASE || 'postgres';
 process.env.BUSINESS_MAILING_ADDRESS = process.env.BUSINESS_MAILING_ADDRESS || '1 Main St, Auburn, AL 36830';
+// The mailbox token is encrypted here and decrypted by the server process:
+// both sides derive the key from the same secret.
+process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'sa-secret';
 const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 
@@ -51,8 +54,12 @@ async function main() {
     await P.query(`DELETE FROM users WHERE id = $1`, [AG]).catch(() => {});
   };
   await clean();
-  await P.query(`INSERT INTO users (id,name,email,password,role,report_tz,plan_tier,subscription_status)
-                 VALUES ($1,'Sam Agent','sa@sa.test',$2,'agent','America/Chicago','unlimited','active')`, [AG, await bcrypt.hash(PASS, 8)]);
+  // The agent's own business address (services/canSpam): an agent without one
+  // cannot send a first email at all.
+  await P.query(`INSERT INTO users (id,name,email,password,role,report_tz,plan_tier,subscription_status,
+                                    business_street,business_city,business_state,business_zip,business_address_at)
+                 VALUES ($1,'Sam Agent','sa@sa.test',$2,'agent','America/Chicago','unlimited','active',
+                         '1 Main St','Auburn','AL','36830',NOW())`, [AG, await bcrypt.hash(PASS, 8)]);
   await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ($1,$2,'{"name":"Tess Court","school":"Auburn University","sport":"Tennis","dob":"2003-01-01"}')`, [ATH, AG]);
   await emailStore.saveEmailAccount('sa-mbox', AG, 'gmail', 'sam@sa.test', 'Sam Agent', 'tok', 'refresh', new Date(Date.now() + 3600e3), null, true);
 
@@ -97,7 +104,7 @@ async function main() {
   try { fs.unlinkSync(sendLog); } catch (_) {}
   const sendsTo = (addr) => { try { return fs.readFileSync(sendLog, 'utf8').split('\n').filter((l) => l.includes(addr)).length; } catch (_) { return 0; } };
   const srv = spawn(process.execPath, [REPO + 'server/index.js'], {
-    env: { ...process.env, PORT: String(port), NODE_ENV: 'development', SESSION_SECRET: 'sa-secret', RESEND_API_KEY: 're_test_dummy',
+    env: { ...process.env, PORT: String(port), NODE_ENV: 'development', SESSION_SECRET: process.env.SESSION_SECRET, RESEND_API_KEY: 're_test_dummy',
       CYPRESS_SEED_ON_BOOT: 'off', NILDASH_TEST_FAKE_SEND: JSON.stringify({ delayMs: DELAY_MS, failTo: 'bounce', logFile: sendLog,
         failMessage: 'Mailbox unavailable: the recipient server refused the message (550)' }) },
     stdio: ['ignore', 'pipe', 'pipe'],

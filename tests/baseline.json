@@ -1,17 +1,7 @@
 {
-  "recordedAt": "2026-09-30",
+  "recordedAt": "2026-10-15",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
-    "_idx.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
-    },
-    "_near.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
-    },
     "_neartest.js": {
       "failed": 0,
       "total": 9,
@@ -19,7 +9,7 @@
     },
     "acctceiling.js": {
       "failed": 0,
-      "total": 17,
+      "total": 18,
       "fault": null
     },
     "actor.js": {
@@ -34,7 +24,7 @@
     },
     "addrladder.js": {
       "failed": 0,
-      "total": 46,
+      "total": 47,
       "fault": null
     },
     "admingate.js": {
@@ -45,6 +35,11 @@
     "adminjs.js": {
       "failed": 0,
       "total": 10,
+      "fault": null
+    },
+    "adminscripts.js": {
+      "failed": 0,
+      "total": 104,
       "fault": null
     },
     "affiliation.js": {
@@ -62,6 +57,11 @@
       "total": 72,
       "fault": null
     },
+    "agentaddress.js": {
+      "failed": 0,
+      "total": 12,
+      "fault": null
+    },
     "agentemail.js": {
       "failed": 0,
       "total": 23,
@@ -72,6 +72,11 @@
       "total": 27,
       "fault": null
     },
+    "agentsetup.js": {
+      "failed": 0,
+      "total": 60,
+      "fault": null
+    },
     "aicost.js": {
       "failed": 0,
       "total": 46,
@@ -80,6 +85,11 @@
     "analyst.js": {
       "failed": 0,
       "total": 62,
+      "fault": null
+    },
+    "approvedbacklog.js": {
+      "failed": 0,
+      "total": 18,
       "fault": null
     },
     "assistantui.js": {
@@ -93,14 +103,14 @@
       "fault": null
     },
     "athbill.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 42,
+      "fault": null
     },
     "athcomp.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 42,
+      "fault": null
     },
     "athleteisolation.js": {
       "failed": 0,
@@ -109,12 +119,12 @@
     },
     "athleteonb.js": {
       "failed": 0,
-      "total": 40,
+      "total": 39,
       "fault": null
     },
     "athmode.js": {
       "failed": 0,
-      "total": 60,
+      "total": 63,
       "fault": null
     },
     "athoutreach.js": {
@@ -179,12 +189,22 @@
     },
     "campuscrm.js": {
       "failed": 0,
-      "total": 58,
+      "total": 73,
       "fault": null
     },
     "campusmarket.js": {
       "failed": 0,
+      "total": 30,
+      "fault": null
+    },
+    "campusnight.js": {
+      "failed": 0,
       "total": 31,
+      "fault": null
+    },
+    "campusreach.js": {
+      "failed": 0,
+      "total": 23,
       "fault": null
     },
     "canspam.js": {
@@ -202,6 +222,11 @@
       "total": 28,
       "fault": null
     },
+    "cardrules.js": {
+      "failed": 0,
+      "total": 34,
+      "fault": null
+    },
     "ceiling.js": {
       "failed": 0,
       "total": 26,
@@ -213,9 +238,9 @@
       "fault": null
     },
     "chan.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 4,
+      "fault": null
     },
     "clientsmig.js": {
       "failed": 0,
@@ -223,29 +248,39 @@
       "fault": null
     },
     "closer.js": {
-      "failed": null,
-      "total": null,
-      "fault": "threw"
+      "failed": 0,
+      "total": 57,
+      "fault": null
     },
     "closerroute.js": {
       "failed": 0,
-      "total": 27,
+      "total": 28,
+      "fault": null
+    },
+    "coldagent.js": {
+      "failed": 0,
+      "total": 76,
+      "fault": null
+    },
+    "coldreach.js": {
+      "failed": 0,
+      "total": 40,
       "fault": null
     },
     "collectives.js": {
       "failed": 0,
-      "total": 27,
+      "total": 28,
       "fault": null
     },
     "compath.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 52,
+      "fault": null
     },
     "compliance.js": {
-      "failed": null,
-      "total": null,
-      "fault": "threw"
+      "failed": 0,
+      "total": 82,
+      "fault": null
     },
     "contactrank.js": {
       "failed": 0,
@@ -258,9 +293,9 @@
       "fault": null
     },
     "costcuts_db.js": {
-      "failed": null,
-      "total": null,
-      "fault": "threw"
+      "failed": 0,
+      "total": 36,
+      "fault": null
     },
     "coveragepage.js": {
       "failed": 0,
@@ -277,6 +312,11 @@
       "total": 37,
       "fault": null
     },
+    "cypressnight.js": {
+      "failed": 0,
+      "total": 12,
+      "fault": null
+    },
     "dashoptin.js": {
       "failed": 0,
       "total": 26,
@@ -285,6 +325,16 @@
     "deadend.js": {
       "failed": 0,
       "total": 69,
+      "fault": null
+    },
+    "dealmix.js": {
+      "failed": 0,
+      "total": 54,
+      "fault": null
+    },
+    "dealoutcome.js": {
+      "failed": 0,
+      "total": 20,
       "fault": null
     },
     "deals.js": {
@@ -324,7 +374,7 @@
     },
     "directcalls.js": {
       "failed": 0,
-      "total": 19,
+      "total": 21,
       "fault": null
     },
     "dm.js": {
@@ -335,6 +385,11 @@
     "dmbb.js": {
       "failed": 0,
       "total": 44,
+      "fault": null
+    },
+    "dmchannel.js": {
+      "failed": 0,
+      "total": 18,
       "fault": null
     },
     "dobmoving.js": {
@@ -354,7 +409,7 @@
     },
     "draftsender.js": {
       "failed": 0,
-      "total": 31,
+      "total": 35,
       "fault": null
     },
     "drift.js": {
@@ -374,7 +429,7 @@
     },
     "editrender.js": {
       "failed": 0,
-      "total": 33,
+      "total": 45,
       "fault": null
     },
     "editsend.js": {
@@ -390,6 +445,26 @@
     "emailcheck.js": {
       "failed": 0,
       "total": 53,
+      "fault": null
+    },
+    "emailfinder.js": {
+      "failed": 0,
+      "total": 124,
+      "fault": null
+    },
+    "emailfinderdryrun.js": {
+      "failed": 0,
+      "total": 25,
+      "fault": null
+    },
+    "emailfinderreport.js": {
+      "failed": 0,
+      "total": 31,
+      "fault": null
+    },
+    "emailfive.js": {
+      "failed": 0,
+      "total": 27,
       "fault": null
     },
     "emailtier.js": {
@@ -409,7 +484,7 @@
     },
     "engine.js": {
       "failed": 0,
-      "total": 65,
+      "total": 67,
       "fault": null
     },
     "engrate.js": {
@@ -427,6 +502,16 @@
       "total": 34,
       "fault": null
     },
+    "finderbudget.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
+    "finderpace.js": {
+      "failed": 0,
+      "total": 35,
+      "fault": null
+    },
     "fix4.js": {
       "failed": 0,
       "total": 19,
@@ -435,6 +520,21 @@
     "floorloop.js": {
       "failed": 0,
       "total": 30,
+      "fault": null
+    },
+    "followups.js": {
+      "failed": 0,
+      "total": 45,
+      "fault": null
+    },
+    "freeheldslots.js": {
+      "failed": 0,
+      "total": 51,
+      "fault": null
+    },
+    "freenight.js": {
+      "failed": 0,
+      "total": 33,
       "fault": null
     },
     "funnel.js": {
@@ -453,9 +553,9 @@
       "fault": null
     },
     "greeting.js": {
-      "failed": null,
-      "total": null,
-      "fault": "threw"
+      "failed": 0,
+      "total": 73,
+      "fault": null
     },
     "greetname.js": {
       "failed": 0,
@@ -509,7 +609,7 @@
     },
     "homecards.js": {
       "failed": 0,
-      "total": 25,
+      "total": 26,
       "fault": null
     },
     "homederive.js": {
@@ -528,14 +628,14 @@
       "fault": null
     },
     "homesql.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 63,
+      "fault": null
     },
     "hunteraudit.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 26,
+      "fault": null
     },
     "hunteraudit2.js": {
       "failed": 0,
@@ -544,12 +644,12 @@
     },
     "hunterback.js": {
       "failed": 0,
-      "total": 67,
+      "total": 74,
       "fault": null
     },
     "hunterlive.js": {
       "failed": 0,
-      "total": 31,
+      "total": 33,
       "fault": null
     },
     "ident.js": {
@@ -584,7 +684,17 @@
     },
     "instagram.js": {
       "failed": 0,
-      "total": 45,
+      "total": 47,
+      "fault": null
+    },
+    "instagraminsights.js": {
+      "failed": 0,
+      "total": 41,
+      "fault": null
+    },
+    "juniortitle.js": {
+      "failed": 0,
+      "total": 48,
       "fault": null
     },
     "keeprate.js": {
@@ -597,10 +707,15 @@
       "total": 28,
       "fault": null
     },
+    "kitpreview.js": {
+      "failed": 0,
+      "total": 41,
+      "fault": null
+    },
     "laddersample.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 73,
+      "fault": null
     },
     "ladderwarm.js": {
       "failed": 0,
@@ -644,7 +759,7 @@
     },
     "livethree.js": {
       "failed": 0,
-      "total": 43,
+      "total": 44,
       "fault": null
     },
     "lock.js": {
@@ -662,9 +777,34 @@
       "total": 33,
       "fault": null
     },
+    "mailboxnotice.js": {
+      "failed": 0,
+      "total": 13,
+      "fault": null
+    },
+    "mailboxprospects.js": {
+      "failed": 0,
+      "total": 43,
+      "fault": null
+    },
+    "marketmix.js": {
+      "failed": 0,
+      "total": 36,
+      "fault": null
+    },
     "marketpools.js": {
       "failed": 0,
       "total": 27,
+      "fault": null
+    },
+    "marketsanity.js": {
+      "failed": 0,
+      "total": 60,
+      "fault": null
+    },
+    "marketscore.js": {
+      "failed": 0,
+      "total": 55,
       "fault": null
     },
     "mig.js": {
@@ -689,7 +829,7 @@
     },
     "mktcopy.js": {
       "failed": 0,
-      "total": 153,
+      "total": 154,
       "fault": null
     },
     "msgid_db.js": {
@@ -732,6 +872,11 @@
       "total": 19,
       "fault": null
     },
+    "nightlycoverage.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
     "nightlydigest.js": {
       "failed": 0,
       "total": 41,
@@ -752,6 +897,11 @@
       "total": 52,
       "fault": null
     },
+    "nosendpath.js": {
+      "failed": 0,
+      "total": 17,
+      "fault": null
+    },
     "notasponsor.js": {
       "failed": 0,
       "total": 13,
@@ -769,7 +919,7 @@
     },
     "opsstatus.js": {
       "failed": 0,
-      "total": 74,
+      "total": 75,
       "fault": null
     },
     "ourfault.js": {
@@ -782,9 +932,14 @@
       "total": 36,
       "fault": null
     },
+    "outlook.js": {
+      "failed": 0,
+      "total": 30,
+      "fault": null
+    },
     "outlooksend.js": {
       "failed": 0,
-      "total": 17,
+      "total": 18,
       "fault": null
     },
     "outreachtrack.js": {
@@ -794,7 +949,7 @@
     },
     "over18.js": {
       "failed": 0,
-      "total": 55,
+      "total": 57,
       "fault": null
     },
     "ownername.js": {
@@ -819,7 +974,7 @@
     },
     "pipeline.js": {
       "failed": 0,
-      "total": 61,
+      "total": 62,
       "fault": null
     },
     "pitchactions.js": {
@@ -830,6 +985,11 @@
     "pitchroute.js": {
       "failed": 0,
       "total": 40,
+      "fault": null
+    },
+    "pitchsignoff.js": {
+      "failed": 0,
+      "total": 16,
       "fault": null
     },
     "pitchvoice.js": {
@@ -864,7 +1024,7 @@
     },
     "poolrecord.js": {
       "failed": 0,
-      "total": 18,
+      "total": 19,
       "fault": null
     },
     "positions.js": {
@@ -888,9 +1048,9 @@
       "fault": null
     },
     "prewarmread.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 15,
+      "fault": null
     },
     "proadd.js": {
       "failed": 0,
@@ -919,7 +1079,7 @@
     },
     "prolookup.js": {
       "failed": 0,
-      "total": 65,
+      "total": 76,
       "fault": null
     },
     "prompts.js": {
@@ -937,15 +1097,15 @@
       "total": 27,
       "fault": null
     },
+    "providerfaults.js": {
+      "failed": 0,
+      "total": 45,
+      "fault": null
+    },
     "pwreset.js": {
       "failed": 0,
       "total": 49,
       "fault": null
-    },
-    "qempty_extract.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
     },
     "qual.js": {
       "failed": 0,
@@ -960,6 +1120,11 @@
     "reach.js": {
       "failed": 0,
       "total": 65,
+      "fault": null
+    },
+    "reachability.js": {
+      "failed": 0,
+      "total": 25,
       "fault": null
     },
     "readytosend.js": {
@@ -979,7 +1144,7 @@
     },
     "rejects.js": {
       "failed": 0,
-      "total": 46,
+      "total": 47,
       "fault": null
     },
     "removeathlete.js": {
@@ -1003,13 +1168,18 @@
       "fault": null
     },
     "replyto_mime.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 4,
+      "fault": null
     },
     "resendinbound_test.js": {
       "failed": 0,
       "total": 25,
+      "fault": null
+    },
+    "resetlanding.js": {
+      "failed": 0,
+      "total": 6,
       "fault": null
     },
     "restricted.js": {
@@ -1044,7 +1214,7 @@
     },
     "school.js": {
       "failed": 0,
-      "total": 85,
+      "total": 89,
       "fault": null
     },
     "schoolaudit.js": {
@@ -1069,7 +1239,7 @@
     },
     "scout.js": {
       "failed": 0,
-      "total": 59,
+      "total": 61,
       "fault": null
     },
     "scoute2e.js": {
@@ -1087,9 +1257,19 @@
       "total": 38,
       "fault": null
     },
+    "sendasync.js": {
+      "failed": 0,
+      "total": 20,
+      "fault": null
+    },
     "sendcap.js": {
       "failed": 0,
       "total": 19,
+      "fault": null
+    },
+    "sendfaults.js": {
+      "failed": 0,
+      "total": 26,
       "fault": null
     },
     "sendguard.js": {
@@ -1104,7 +1284,7 @@
     },
     "sendrules.js": {
       "failed": 0,
-      "total": 67,
+      "total": 69,
       "fault": null
     },
     "sendscope.js": {
@@ -1114,13 +1294,18 @@
     },
     "shift2.js": {
       "failed": 0,
-      "total": 63,
+      "total": 52,
       "fault": null
     },
     "shiftreport.js": {
-      "failed": null,
-      "total": null,
-      "fault": "threw"
+      "failed": 0,
+      "total": 43,
+      "fault": null
+    },
+    "shortoffive.js": {
+      "failed": 0,
+      "total": 16,
+      "fault": null
     },
     "signalscope.js": {
       "failed": 0,
@@ -1132,10 +1317,15 @@
       "total": 43,
       "fault": null
     },
+    "signingevidence.js": {
+      "failed": 0,
+      "total": 29,
+      "fault": null
+    },
     "signup.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 38,
+      "fault": null
     },
     "siteemail_e2e.js": {
       "failed": 0,
@@ -1144,7 +1334,7 @@
     },
     "siteroutes.js": {
       "failed": 0,
-      "total": 66,
+      "total": 68,
       "fault": null
     },
     "slateshape.js": {
@@ -1157,6 +1347,11 @@
       "total": 22,
       "fault": null
     },
+    "smartpick.js": {
+      "failed": 0,
+      "total": 14,
+      "fault": null
+    },
     "socialstats.js": {
       "failed": 0,
       "total": 33,
@@ -1164,7 +1359,7 @@
     },
     "split.js": {
       "failed": 0,
-      "total": 70,
+      "total": 91,
       "fault": null
     },
     "sport.js": {
@@ -1197,24 +1392,49 @@
       "total": 8,
       "fault": null
     },
+    "teamnames.js": {
+      "failed": 0,
+      "total": 38,
+      "fault": null
+    },
     "teamscan.js": {
       "failed": 0,
       "total": 64,
       "fault": null
     },
     "turns.js": {
-      "failed": null,
-      "total": null,
-      "fault": "no result line"
+      "failed": 0,
+      "total": 35,
+      "fault": null
+    },
+    "univchains.js": {
+      "failed": 0,
+      "total": 9,
+      "fault": null
+    },
+    "universities.js": {
+      "failed": 0,
+      "total": 78,
+      "fault": null
+    },
+    "universityleads.js": {
+      "failed": 0,
+      "total": 19,
+      "fault": null
     },
     "universityportal.js": {
       "failed": 0,
-      "total": 52,
+      "total": 53,
       "fault": null
     },
     "universitywall.js": {
       "failed": 0,
-      "total": 36,
+      "total": 37,
+      "fault": null
+    },
+    "univperteam.js": {
+      "failed": 0,
+      "total": 7,
       "fault": null
     },
     "unlabelled.js": {
@@ -1254,7 +1474,7 @@
     },
     "writer.js": {
       "failed": 0,
-      "total": 133,
+      "total": 138,
       "fault": null
     },
     "writerevidence.js": {
@@ -1270,31 +1490,6 @@
     "zero.js": {
       "failed": 0,
       "total": 36,
-      "fault": null
-    },
-    "kitpreview.js": {
-      "failed": 0,
-      "total": 41,
-      "fault": null
-    },
-    "nightlycoverage.js": {
-      "failed": 0,
-      "total": 27,
-      "fault": null
-    },
-    "providerfaults.js": {
-      "failed": 0,
-      "total": 45,
-      "fault": null
-    },
-    "outlook.js": {
-      "failed": 0,
-      "total": 30,
-      "fault": null
-    },
-    "universityleads.js": {
-      "failed": 0,
-      "total": 17,
       "fault": null
     }
   }

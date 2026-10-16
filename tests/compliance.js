@@ -37,12 +37,16 @@ function recorder() {
   return { sent, fn: async (log) => { sent.push(log.brand_name); return { providerMessageId: 'm' + sent.length }; } };
 }
 
+// Each draft to its own address: the send path stops a second "Hi" to an
+// address that already got one.
 async function draft(id, brand, opts = {}) {
   await P().query(
     `INSERT INTO outreach_logs (id,agent_id,athlete_id,brand_name,brand_key,subject,body_html,
        status,sent_to_email,touch_no,scheduled_send_at)
-     VALUES ($1,$2,$3,$4,$5,'Hi','<p>x</p>','approved',$6,1, NOW() - INTERVAL '1 minute')`,
-    [id, AG, opts.athleteId || 'cmp-a1', brand, brand.toLowerCase(), (opts.email || 'x@cmp.example')]);
+     VALUES ($1,$2,$3,$4,$5,'Hi','<p>x</p>','approved',$6,1,$7)`,
+    // Due a minute before the release's pinned clock (WHEN), not the wall
+    // clock's: dated NOW() it was never due at WHEN, and nothing was released.
+    [id, AG, opts.athleteId || 'cmp-a1', brand, brand.toLowerCase(), (opts.email || id + '@cmp.example'), new Date(WHEN.getTime() - 60000)]);
 }
 async function places(brand, types) {
   await P().query(
@@ -70,21 +74,25 @@ async function main() {
     await P().query(`DELETE FROM brand_evidence_cache WHERE brand_key LIKE 'cmp:%'`).catch(() => {});
   };
   await clean();
-  await P().query(`INSERT INTO users (id,name,email,password,role,report_tz)
-                   VALUES ($1,'Jonathan C','cmp@x.com','x','agent','America/Chicago')`, [AG]);
+  // With the agent's own business address (services/canSpam).
+  await P().query(`INSERT INTO users (id,name,email,password,role,report_tz,business_street,business_city,business_state,business_zip,business_address_at)
+                   VALUES ($1,'Jonathan C','cmp@x.com','x','agent','America/Chicago','1 Main St','Auburn','AL','36830',NOW())`, [AG]);
   // Three athletes: a known minor, a known adult, and one with no date of birth.
   const mkAthlete = (id, name, dob) => P().query(
     `INSERT INTO athletes (id,agent_id,data) VALUES ($1,$2,$3::jsonb)`,
     [id, AG, JSON.stringify({ name, school: 'Auburn University', dob })]);
-  const yearsAgo = (n) => new Date(Date.now() - n * 365.25 * 864e5).toISOString().slice(0, 10);
+  // Birthdays counted back from the release's pinned clock (WHEN), which is
+  // the date the gate judges age at: counted from the wall clock, the
+  // 16-year-old was 15 on WHEN.
+  const yearsAgo = (n) => new Date(WHEN.getTime() - n * 365.25 * 864e5).toISOString().slice(0, 10);
   await mkAthlete('cmp-a1', 'Adult Athlete', yearsAgo(21));
   await mkAthlete('cmp-a2', 'Minor Athlete', yearsAgo(16));
   await mkAthlete('cmp-a3', 'Unknown Age', null);
 
   // ── 1. THE PURE RULE TABLE ───────────────────────────────────────────────
   OUT.push('-- the rules are lookups, not judgments --');
-  const adult = C.ageFrom(yearsAgo(21));
-  const minor = C.ageFrom(yearsAgo(16));
+  const adult = C.ageFrom(yearsAgo(21), WHEN);
+  const minor = C.ageFrom(yearsAgo(16), WHEN);
   const unknown = C.ageFrom(null);
   ok('a birthday resolves to an age', adult.known && adult.years === 21, adult);
   ok('  and a minor is identified as one', minor.known && minor.minor === true, minor);
@@ -161,8 +169,11 @@ async function main() {
     mystery.rule_key === 'category-unknown' && mystery.severity === 'hold', mystery && mystery.rule_key);
 
   // ── 5. RE-RUNNING DOES NOT DUPLICATE, AND DOES NOT RELEASE ───────────────
+  // Later ticks run after the held pitches' recheck time (a hold puts the
+  // next look 2 minutes out), so the gate really runs again. At WHEN itself
+  // nothing held was due and these checks passed without looking.
   const r2 = recorder();
-  await release({ send: r2.fn });
+  await release({ send: r2.fn, now: new Date(WHEN.getTime() + 5 * 60000) });
   ok('a second tick still does not send the held ones', r2.sent.length === 0, r2.sent);
   const rows2 = (await P().query(`SELECT COUNT(*)::int n FROM compliance_holds WHERE agent_id=$1`, [AG])).rows[0].n;
   ok('  and does not write a second identical row', rows2 === 3, rows2);
@@ -180,7 +191,7 @@ async function main() {
   ok('a hold CAN be overridden with a reason', good.ok === true, good);
 
   const r3 = recorder();
-  await release({ send: r3.fn });
+  await release({ send: r3.fn, now: new Date(WHEN.getTime() + 10 * 60000) });
   // AN OVERRIDE HAS TO STICK. The gate re-runs every tick against unchanged
   // data, so without remembering the decision it would re-derive the identical
   // hold and the override would achieve nothing, forever.
@@ -193,13 +204,15 @@ async function main() {
 
   // An override is scoped to ONE RULE on ONE MESSAGE. It must not clear a
   // different rule, and it must not clear the same rule on another pitch.
-  await places('Cellar Door Wine', ['restaurant']);
-  await draft('cmp-6', 'Cellar Door Wine', { athleteId: 'cmp-a1' });
+  // "Wine Bar", not "Wine": "wine" alone is a weak marker, reported and never
+  // enforced (services/compliance CATEGORIES), so it held nothing.
+  await places('Cellar Door Wine Bar', ['restaurant']);
+  await draft('cmp-6', 'Cellar Door Wine Bar', { athleteId: 'cmp-a1' });
   await draft('cmp-7', 'Mystery Co', { athleteId: 'cmp-a1' });
   const r3b = recorder();
   await release({ send: r3b.fn });
   ok('  overriding one rule does not clear a different one',
-    r3b.sent.indexOf('Cellar Door Wine') === -1, r3b.sent);
+    r3b.sent.indexOf('Cellar Door Wine Bar') === -1, r3b.sent);
   ok('  and does not clear the same rule on another pitch',
     r3b.sent.indexOf('Mystery Co') === -1, r3b.sent);
 
@@ -323,4 +336,4 @@ async function main() {
   await P().end();
   process.exit(F ? 1 : 0);
 }
-main().catch((e) => { console.error('THREW', e); process.exit(1); });
+main().catch((e) => { console.log(OUT.join('\n')); console.error('THREW', e); process.exit(1); });

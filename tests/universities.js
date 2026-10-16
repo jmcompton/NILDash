@@ -104,7 +104,10 @@ const aiStub = {
     await P.query(`DELETE FROM university_market_runs WHERE university_id = $1`, [UID]).catch(() => {});
     await P.query(`DELETE FROM university_social_brands WHERE university_id = $1`, [UID]).catch(() => {});
     await P.query(`DELETE FROM university_staff WHERE university_id = $1`, [UID]).catch(() => {});
-    await P.query(`DELETE FROM users WHERE email IN ('xavier.ut@cypress.example', 'agent.ut@agency.example')`).catch(() => {});
+    // By id as well as by email: an agent row left under this id with another
+    // address made the INSERT below a no-op, and the refusal was never tested.
+    // (It was 'ut-agent', which tests/universityportal.js also uses.)
+    await P.query(`DELETE FROM users WHERE email IN ('xavier.ut@cypress.example', 'agent.ut@agency.example') OR id = 'univ-ut-agent'`).catch(() => {});
     await P.query(`DELETE FROM universities WHERE id IN ($1, 'univ-ut-empty')`, [UID]).catch(() => {});
     await P.query(`DELETE FROM social_brands WHERE brand LIKE 'UT Social %'`).catch(() => {});
     await P.query(`DELETE FROM users WHERE id = 'ut-admin'`).catch(() => {});
@@ -140,9 +143,9 @@ const aiStub = {
   ok('  the title is kept on the staff record', (await P.query(`SELECT title FROM university_staff WHERE user_id = $1`, [xu.id])).rows[0].title === 'Athletic Director');
   const x2 = await UA.createUniversityUser(P, { email: 'xavier.ut@cypress.example', name: 'Xavier Brown', universityId: UID });
   ok('  again for the same person: a fresh link, the same account', x2.ok && !x2.created && x2.userId === xu.id && x2.resetUrl !== x.resetUrl);
-  await P.query(`INSERT INTO users (id, name, email, password, role) VALUES ('ut-agent', 'An Agent', 'agent.ut@agency.example', 'x', 'agent') ON CONFLICT DO NOTHING`);
+  await P.query(`INSERT INTO users (id, name, email, password, role) VALUES ('univ-ut-agent', 'An Agent', 'agent.ut@agency.example', 'x', 'agent') ON CONFLICT DO NOTHING`);
   const ag = await UA.createUniversityUser(P, { email: 'agent.ut@agency.example', name: 'An Agent', universityId: UID });
-  ok('  an existing agent\'s address is refused, never converted', !ag.ok && /already has a NILDash account/.test(ag.error) && (await P.query(`SELECT role FROM users WHERE id = 'ut-agent'`)).rows[0].role === 'agent');
+  ok('  an existing agent\'s address is refused, never converted', !ag.ok && /already has a NILDash account/.test(ag.error) && (await P.query(`SELECT role FROM users WHERE id = 'univ-ut-agent'`)).rows[0].role === 'agent');
   const campusSrc = fs.readFileSync(REPO + 'server/routes/campus.js', 'utf8');
   ok('  and it is what the portal reads: market/me resolves the university off users.university_id', /SELECT id, name, email, role, university_id FROM users WHERE id = \$1/.test(campusSrc));
   const uaSrc = fs.readFileSync(REPO + 'server/services/universityAdmin.js', 'utf8');
@@ -443,7 +446,7 @@ const aiStub = {
     .concat(['view-university']).every((r) => new RegExp(`app\\.post\\('/api/admin/${r}', requireAuth, requireCampusAdmin`).test(idx)) && /app\.get\('\/api\/admin\/university-status\/:universityId', requireAuth, requireCampusAdmin/.test(idx));
 
   await clean();
-  await P.query(`DELETE FROM users WHERE id = 'ut-agent'`).catch(() => {});
+  await P.query(`DELETE FROM users WHERE id = 'univ-ut-agent'`).catch(() => {});
   await P.query(`DELETE FROM social_brands WHERE brand = 'Nike' AND proof_url = 'https://n.example'`).catch(() => {});
   OUT.push('', 'failures: ' + F);
   console.log(OUT.join('\n'));

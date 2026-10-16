@@ -41,7 +41,8 @@ const ai_rank = (() => {
   const start = src.indexOf('function _contactAuthorityRank(title) {');
   let d = 0, j = src.indexOf('{', start), end = j;
   for (; j < src.length; j++) { if (src[j] === '{') d++; else if (src[j] === '}') { d--; if (!d) { end = j; break; } } }
-  return new Function(src.slice(start, end + 1) + '\n return _contactAuthorityRank;')();
+  // It delegates to services/contactRank (ai.js's _CR).
+  return new Function('_CR', src.slice(start, end + 1) + '\n return _contactAuthorityRank;')(require(REPO + 'server/services/contactRank.js'));
 })();
 
 const mk = (res, brand) => buildContactLadder(res, {

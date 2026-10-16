@@ -87,13 +87,10 @@ const pool = {
   },
 };
 
-psql(`DROP DATABASE IF EXISTS ${DB};`, false, 'postgres');
-psql(`CREATE DATABASE ${DB};`, false, 'postgres');
-// outreach_logs columns the two halves of the contract touch.
-psql(`CREATE TABLE outreach_logs (
-        id TEXT PRIMARY KEY, agent_id TEXT, athlete_id TEXT, brand_name TEXT, brand_key TEXT,
-        subject TEXT, body_html TEXT, status TEXT, source TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW());`);
+// The app's own schema, built fresh (store.js init + migrations). A
+// hand-typed outreach_logs fell behind the columns the pre-warm writes
+// (sent_to_email, email_kind) and the INSERT failed before any check ran.
+require('./helpers/freshDb').freshDb(DB, { schema: true });
 
 const AGENT = 'usr_john', ATHLETE = 'ath_amari';
 const BRAND = 'Iron Tribe Homewood', KEY = 'place:ChIJfixtureA';
@@ -104,8 +101,10 @@ const BRAND = 'Iron Tribe Homewood', KEY = 'place:ChIJfixtureA';
 const INS = PW.slice(PW.indexOf('`INSERT INTO outreach_logs'), PW.indexOf('ON CONFLICT DO NOTHING`') + 'ON CONFLICT DO NOTHING`'.length);
 if (!/status, source/.test(INS) || !/'draft','prewarm'/.test(INS)) throw new Error('FIXTURE BROKEN: prewarm INSERT lifted wrong: ' + INS.slice(0, 200));
 const insertSql = INS.replace(/^`|`$/g, '');
+// The last two are the address the draft was written for (sent_to_email,
+// email_kind): none on file here, which the pre-warm writes as NULL.
 psql(bind(insertSql, ['out_prewarm_1', AGENT, ATHLETE, BRAND, KEY,
-  'Amari Allen x Iron Tribe Homewood', '<div>Hi,</div><div><br></div><div>Amari runs distance at Samford.</div>']));
+  'Amari Allen x Iron Tribe Homewood', '<div>Hi,</div><div><br></div><div>Amari runs distance at Samford.</div>', null, null]));
 
 // ── lift and run the shipped /draft handler ─────────────────────────────────
 function liftHandler(src, marker) {

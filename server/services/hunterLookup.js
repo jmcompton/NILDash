@@ -265,11 +265,17 @@ function _outcomeForStatus(status, json) {
 }
 
 // ── THE GATE ───────────────────────────────────────────────────────────────
+// The clock the gate reads and waits on. The real one, always, except when a
+// test hands it a virtual clock (_setClock) so the pace can be checked to the
+// millisecond: the same code, on a clock no scheduler can jitter.
+const REAL_CLOCK = { now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
+let _clock = REAL_CLOCK;
+function _setClock(c) { _clock = c || REAL_CLOCK; }
 const _pace = { open: 0, starts: [] };
-const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const _sleep = (ms) => _clock.sleep(ms);
 async function _slot() {
   for (;;) {
-    const now = Date.now();
+    const now = _clock.now();
     while (_pace.starts.length && now - _pace.starts[0] >= 60000) _pace.starts.shift();
     const inLastSec = _pace.starts.filter((t) => now - t < 1000);
     if (_pace.open < PACE.inflight && inLastSec.length < PACE.perSec && _pace.starts.length < PACE.perMin) {
@@ -314,7 +320,7 @@ async function _call(endpoint, url, { timeoutMs, fetchImpl } = {}) {
   for (;;) {
     await _slot();
     const ctrl = new AbortController();
-    const t0 = Date.now();
+    const t0 = _clock.now();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     let resp, json;
     try {
@@ -323,7 +329,7 @@ async function _call(endpoint, url, { timeoutMs, fetchImpl } = {}) {
     } catch (e) {
       clearTimeout(timer);
       _pace.open--;
-      const ms = Date.now() - t0;
+      const ms = _clock.now() - t0;
       const timedOut = !!(e && (e.name === 'AbortError' || /abort/i.test(e.message || '')));
       _logCall({ endpoint, ms, outcome: timedOut ? OUTCOME.TIMEOUT : OUTCOME.ERROR, status: null, retries });
       const err = new Error(timedOut ? `no answer within ${Math.round(timeoutMs / 1000)}s (aborted after ${ms}ms)` : (e && e.message) || String(e));
@@ -332,7 +338,7 @@ async function _call(endpoint, url, { timeoutMs, fetchImpl } = {}) {
     }
     clearTimeout(timer);
     _pace.open--;
-    const ms = Date.now() - t0;
+    const ms = _clock.now() - t0;
     const raHeader = resp.headers && resp.headers.get ? resp.headers.get('retry-after') : null;
     if (_isRateLimit(resp.status, json, raHeader) && retries < BACKOFF_TRIES) {
       retries++;
@@ -660,6 +666,6 @@ module.exports = {
   creditsThisMonth, verifyCreditsThisMonth, accountUsedThisMonth, budgetStatus, MONTHLY_BUDGET,
   _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
   _resetBreaker: () => { _breaker = null; }, BREAKER_MIN,
-  _call, _isRateLimit, _outcomeForStatus, PACE, FINDER_TIMEOUT_MS, TIMEOUT_MS, VERIFY_TIMEOUT_MS, BACKOFF_TRIES,
+  _call, _setClock, _isRateLimit, _outcomeForStatus, PACE, FINDER_TIMEOUT_MS, TIMEOUT_MS, VERIFY_TIMEOUT_MS, BACKOFF_TRIES,
   _recentCalls: () => _recent.slice(), _pace: () => ({ open: _pace.open, lastMinute: _pace.starts.length }),
 };

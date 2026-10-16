@@ -194,8 +194,10 @@ function main() {
   ok('  and demands an honest gap rather than a stale season presented as current',
     /no \$\{_seasonYear\} data available/.test(idx), null);
   // A season is named for the year it starts, so spring is still last year's.
+  // A local date, as the code reads it (new Date() on the server): a bare
+  // 'YYYY-MM-DD' parses as UTC midnight, which is still July 31 in Central.
   const seasonOf = (iso) => {
-    const d = new Date(iso);
+    const d = new Date(iso + 'T12:00:00');
     return d.getMonth() + 1 >= 8 ? d.getFullYear() : d.getFullYear() - 1;
   };
   ok('September 2026 is the 2026 season', seasonOf('2026-09-02') === 2026);

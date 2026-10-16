@@ -63,11 +63,13 @@ const BODY = (greet) => greet + '\n\nAmari Allen runs distance at Samford and tr
   {
     // Same rule pitchGeneration already used to decide what goes IN the prompt.
     // A name with no way to reach it is not a verified recipient.
-    const nameOnly = [{ name: 'Dawn Whitfield', email: null }];
+    // Both carry a role title: a greetable contact needs one as well
+    // (greetingGuard.hasRoleTitle), so the email is the only difference.
+    const nameOnly = [{ name: 'Dawn Whitfield', email: null, title: 'Owner' }];
     ok('a contact with no email is not greetable', G.greetableContacts(nameOnly).length === 0, G.greetableContacts(nameOnly));
     const r = G.enforceGreeting(BODY('Dawn,'), G.greetableContacts(nameOnly));
     ok('  so greeting her is still removed', r.changed === true, r);
-    const withEmail = [{ name: 'Dawn Whitfield', email: 'dawn@x.com' }];
+    const withEmail = [{ name: 'Dawn Whitfield', email: 'dawn@x.com', title: 'Owner' }];
     ok('a contact with an email is greetable', G.greetableContacts(withEmail).length === 1);
   }
 

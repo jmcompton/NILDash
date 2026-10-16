@@ -8,6 +8,8 @@
 //   node tests/<this file>       just this one
 const _tp = require('path');
 const REPO = _tp.join(__dirname, '..') + _tp.sep;
+// No network here: DNS answers as the internet would (tests/helpers/offlineDns).
+require('./helpers/offlineDns').install();
 process.env.PGHOST = process.env.PGHOST || '/tmp';
 process.env.PGPORT = process.env.PGPORT || '55432';
 process.env.PGUSER = process.env.PGUSER || 'postgres';

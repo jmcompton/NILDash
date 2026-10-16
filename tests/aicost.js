@@ -129,7 +129,12 @@ async function main() {
   ok('each contact source runs under its own sub-label', /scanMeter\.label\(\{ site: _parentSite \+ '\.' \+ src \}, \(\) => runOneRaw\(src\)\)/.test(aiSrc));
   ok('  and the Instagram lookup inside the ladder is labelled as the ladder\'s', /site: \(scanMeter\.ctx\(\)\.site \|\| 'contacts'\) \+ '\.instagram'/.test(aiSrc));
   ok('the Deal Scan click path is labelled by lane', /site: 'dealscan\.' \+ validLane, agentId: req\.session\.userId, athleteId/.test(src('server/index.js')));
-  ok('the four entry points record: oneShot, the tool loop, oneShotWebSearch, the raw contact search', (aiSrc.match(/Ledger\.record\(msg, /g) || []).length === 4);
+  // Five since webSearchMessage (the athlete lookup's Haiku fallback) joined
+  // the four; each is named so the count cannot hide which one went missing.
+  ok('the five entry points record: oneShot, the tool loop, oneShotWebSearch, webSearchMessage, the raw contact search',
+    (aiSrc.match(/Ledger\.record\(msg, /g) || []).length === 5
+    && /async function webSearchMessage[\s\S]{0,700}?Ledger\.record\(msg, \{ model: MODEL_FAST/.test(aiSrc)
+    && /async function oneShotWebSearch[\s\S]*?Ledger\.record\(msg, /.test(aiSrc));
   const sc = src('scripts/spend-breakdown.js');
   ok('the breakdown reads the ledger per site, agent and athlete', /BY CALL SITE/.test(sc) && /BY AGENT/.test(sc) && /PER AGENT, PER ATHLETE, PER SITE/.test(sc));
   ok('  prints the prices it assumed', /Prices assumed/.test(sc) && /Ledger\.PRICES/.test(sc));
@@ -175,7 +180,11 @@ async function main() {
   calls.length = 0;
   const p3 = await PW.writePitch({ athlete, business: biz, agentFirstName: 'Chad', channel: 'email' }, { oneShot: async () => { calls.push(1); return bad; } });
   ok('a draft refused twice is skipped, after exactly two calls, and says so', calls.length === 2 && p3.skipped === true && p3.retried === true && /could not write it in voice/.test(p3.reason), { calls: calls.length, p3 });
-  ok('the job records the flag on every attempt that reached the writer (four attempt sites, plus the slot-taken record)', (jobSrc.match(/writerRetried/g) || []).length === 5);
+  // Five attempt sites since the deal mix's "the pitch stated no fit"
+  // refusal (jobs/outreachQueue, MARKET_MIX_ON) joined the program lane's
+  // no-angle and queued and the local lane's queued and no-angle.
+  ok('the job records the flag on every attempt that reached the writer (five attempt sites, plus the slot-taken record)',
+    (jobSrc.match(/writerRetried/g) || []).length === 6 && /result: 'no_angle', stage: 'mix', reason: _mixStates\.why[\s\S]{0,80}writerRetried/.test(jobSrc));
   ok('  and the breakdown counts it, with the lower bound for nights before the flag', /writer retries: /.test(src('scripts/spend-breakdown.js')) && /refused twice, which is the lower bound/.test(src('scripts/spend-breakdown.js')));
 
   await P().query(`DELETE FROM ai_call_ledger WHERE agent_id LIKE 'ledger-test%' OR site LIKE 'ledger-test%'`);

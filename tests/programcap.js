@@ -209,7 +209,7 @@ async function main() {
   // exactly the set this branch used to reject by name and drop.
   await P.query(`DELETE FROM social_brands WHERE brand LIKE 'PCAP%'`);
   // Evidence these two sign athletes like this one (services/signingEvidence).
-  await require('./_evidence').seedDeals(P, ['PCAP Social', 'PCAP Handleless']);
+  await require('./helpers/evidence').seedDeals(P, ['PCAP Social', 'PCAP Handleless']);
   for (const b of ['PCAP Social', 'PCAP Handleless']) {
     for (let i = 0; i < 2; i++) {
       await P.query(`INSERT INTO deal_comps (id, sport, school, brand, deal_value, source)

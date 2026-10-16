@@ -17,8 +17,9 @@ const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 // create-comped-athlete, end to end against a real Postgres.
 //
 // The two routes are LIFTED FROM server/index.js and executed, so this fails if
-// the shipped code stops doing what it claims. bcrypt/resend are stubbed (no
-// node_modules here); the questions under test are which table and column get
+// the shipped code stops doing what it claims, with the real reset service
+// (services/passwordReset: tokens hashed at rest) and the real bcrypt. Only the
+// mail is stubbed. The questions under test are which table and column get
 // written, and whether the athlete could then actually log in.
 const fs = require('fs'), cp = require('child_process');
 let f = 0;
@@ -28,6 +29,8 @@ const SRV = fs.readFileSync(R + 'server/index.js', 'utf8');
 const ADM = fs.readFileSync(R + 'public/admin.html', 'utf8');
 const STORE = fs.readFileSync(R + 'server/store.js', 'utf8');
 
+// Its own database, made fresh on every run.
+require('./helpers/freshDb').freshDb('comp');
 function sql(text, csv) {
   fs.writeFileSync('/tmp/pgtest/t.sql', text);
   fs.chmodSync('/tmp/pgtest/t.sql', 0o644);
@@ -62,7 +65,11 @@ function rows(text) {
   const parsed = parseCsv(sql(text, true));
   if (parsed.length < 2) return [];
   const head = parsed[0];
-  return parsed.slice(1).map((c) => { const o = {}; head.forEach((h, i) => { o[h] = c[i]; }); return o; });
+  // An UPDATE/INSERT ... RETURNING prints its command tag ("UPDATE 0") after
+  // the rows: that line is not a row, and read as one it made an empty claim
+  // look like a match.
+  const body = parsed.slice(1).filter((c) => !(c.length === 1 && /^(UPDATE|INSERT|DELETE) \d+( \d+)?$/.test(c[0])));
+  return body.map((c) => { const o = {}; head.forEach((h, i) => { o[h] = c[i]; }); return o; });
 }
 
 const cols = [...STORE.matchAll(/ALTER TABLE athletes ADD COLUMN IF NOT EXISTS (\w+) ([^`]+)`/g)].map((m) => [m[1], m[2].trim()]);
@@ -71,7 +78,8 @@ sql(`DROP TABLE IF EXISTS athletes; DROP TABLE IF EXISTS users; DROP TABLE IF EX
     data JSONB DEFAULT '{}'::jsonb, agent_id TEXT);
   CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, password TEXT, name TEXT, role TEXT,
     comped BOOLEAN DEFAULT FALSE, password_reset_required BOOLEAN DEFAULT FALSE, updated_at TIMESTAMPTZ);
-  CREATE TABLE password_resets (email TEXT, token TEXT, expires_at TIMESTAMPTZ, used BOOLEAN DEFAULT FALSE);
+  CREATE TABLE password_resets (email TEXT, token TEXT, token_hash TEXT, expires_at TIMESTAMPTZ, used BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW());
   ` + cols.map((c) => `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS ${c[0]} ${c[1]};`).join('\n'));
 
 // ── harness ──────────────────────────────────────────────────────────────────
@@ -91,7 +99,10 @@ const store = {
   getUser: async () => ({ email: 'admin@x.com' }),
   getUserByEmail: async (e) => rows(`SELECT * FROM users WHERE LOWER(email)=LOWER('${e}')`)[0] || null,
 };
-const bcrypt = { hash: async (p) => 'HASH(' + p + ')', compare: async (p, h) => h === 'HASH(' + p + ')' };
+const bcrypt = require('bcryptjs');
+const pwReset = require(R + 'server/services/passwordReset.js');
+const sha = (t) => require('crypto').createHash('sha256').update(String(t)).digest('hex');
+const tokenOf = (url) => (/[?&]token=([a-f0-9]+)/.exec(url || '') || [])[1] || null;
 let SENT = [];
 const resend = { emails: { send: async (m) => { SENT.push(m); return { id: 'e1' }; } } };
 const ADMIN_EMAIL = 'admin@x.com';
@@ -106,7 +117,7 @@ function liftRoute(sig) {
   for (; j < SRV.length; j++) { if (SRV[j] === '{') d++; else if (SRV[j] === '}') { d--; if (!d) { end = j; break; } } }
   const src = SRV.slice(bodyStart + 1, end);
   if (src.length < 200) { console.log('FIXTURE BROKEN: ' + sig + ' body is ' + src.length); process.exit(1); }
-  return new Function('req', 'res', 'store', 'bcrypt', 'resend', 'ADMIN_EMAIL', 'process', 'console', 'require',
+  return new Function('req', 'res', 'store', 'bcrypt', 'resend', 'ADMIN_EMAIL', 'process', 'console', 'require', 'pwReset',
     'return (async () => {' + src + '})();');
 }
 const createAthlete = liftRoute("app.post('/api/admin/create-comped-athlete'");
@@ -117,7 +128,7 @@ const mkRes = () => { const r = { code: 200, body: null,
 const call = async (fn, body) => {
   const res = mkRes();
   await fn({ body, session: { userId: 'admin' } }, res, store, bcrypt, resend, ADMIN_EMAIL,
-    { env: process_env }, { log() {}, error() {} }, require);
+    { env: process_env }, { log() {}, error() {} }, require, pwReset);
   return res;
 };
 
@@ -150,15 +161,18 @@ const call = async (fn, body) => {
   ok('the admin also gets the link back, for when email is not configured',
     /^https:\/\/mynildash\.com\/reset\?token=[a-f0-9]{64}$/.test(res.body.resetUrl), res.body.resetUrl);
   ok('a reset token row was written', rows("SELECT * FROM password_resets WHERE email='priya@example.com'").length === 1);
+  ok('  holding the token\'s hash, never the token itself',
+    rows(`SELECT id FROM (SELECT 1 AS id, token, token_hash FROM password_resets WHERE email='priya@example.com') x
+           WHERE token IS NULL AND token_hash = '${sha(tokenOf(res.body.resetUrl))}'`).length === 1);
 
   console.log('\n-- SHE CAN ACTUALLY SET A PASSWORD AND LOG IN --');
-  const token = rows("SELECT token FROM password_resets WHERE email='priya@example.com'")[0].token;
+  const token = tokenOf(res.body.resetUrl);   // the link is the only place the raw token lives
   const rp = await call(resetPassword, { token, password: 'her-new-password' });
   ok('the reset succeeds for an athlete', rp.code === 200 && rp.body.ok === true, rp.body);
   ok('and it reports which kind of account it was', rp.body.role === 'athlete', rp.body);
   const after = rows(`SELECT * FROM athletes WHERE id='${id}'`)[0];
-  ok('her password_hash changed to the new one', after.password_hash === 'HASH(her-new-password)', after.password_hash);
-  ok('the token is burned', rows("SELECT used FROM password_resets WHERE token='" + token + "'")[0].used === 't');
+  ok('her password_hash changed to the new one', await bcrypt.compare('her-new-password', after.password_hash || ''), after.password_hash);
+  ok('the token is burned', rows("SELECT used FROM password_resets WHERE token_hash='" + sha(token) + "'")[0].used === 't');
   // The login query, lifted, is what decides whether she can get in.
   const loginQ = /FROM athletes a[\s\S]*?WHERE a\.email = \$1 AND a\.onboarding_complete = TRUE/.test(SRV);
   ok('athlete/login matches on email + onboarding_complete', loginQ);
@@ -172,23 +186,29 @@ const call = async (fn, body) => {
 
   console.log('\n-- the agent reset path is untouched --');
   sql("INSERT INTO users (id,email,password,role) VALUES ('u1','agent@x.com','old','agent');");
-  sql("INSERT INTO password_resets (email,token,expires_at) VALUES ('agent@x.com','tok-agent',NOW()+INTERVAL '1 day');");
+  sql("INSERT INTO password_resets (email,token_hash,expires_at) VALUES ('agent@x.com','" + sha('tok-agent') + "',NOW()+INTERVAL '1 day');");
   const ar = await call(resetPassword, { token: 'tok-agent', password: 'agent-pw' });
   ok('an agent reset still works', ar.code === 200 && ar.body.ok === true, ar.body);
   ok('and is reported as an agent', ar.body.role === 'agent');
-  ok('the users row was updated', rows("SELECT password FROM users WHERE id='u1'")[0].password === 'HASH(agent-pw)');
+  ok('the users row was updated', await bcrypt.compare('agent-pw', rows("SELECT password FROM users WHERE id='u1'")[0].password));
 
   console.log('\n  · when an email exists in BOTH tables, the agent still wins');
   sql("INSERT INTO athletes (id,email,onboarding_complete) VALUES ('dup','both@x.com',TRUE);");
   sql("INSERT INTO users (id,email,password,role) VALUES ('u2','both@x.com','old','agent');");
-  sql("INSERT INTO password_resets (email,token,expires_at) VALUES ('both@x.com','tok-both',NOW()+INTERVAL '1 day');");
+  sql("INSERT INTO password_resets (email,token_hash,expires_at) VALUES ('both@x.com','" + sha('tok-both') + "',NOW()+INTERVAL '1 day');");
   const br = await call(resetPassword, { token: 'tok-both', password: 'shared' });
   ok('the users row is the one written', br.body.role === 'agent'
-    && rows("SELECT password FROM users WHERE id='u2'")[0].password === 'HASH(shared)');
+    && await bcrypt.compare('shared', rows("SELECT password FROM users WHERE id='u2'")[0].password));
   // id is selected alongside because a row whose ONLY column is NULL prints as a
   // blank line, which sql()'s trim() removes -- making a real row look like none.
   ok('and the athlete row is left alone',
     !rows("SELECT id, password_hash FROM athletes WHERE id='dup'")[0].password_hash, 'expected empty');
+
+  console.log('\n  · a plaintext token from before hashing opens nothing');
+  sql("INSERT INTO users (id,email,password,role) VALUES ('u3','old@x.com','old','agent');");
+  sql("INSERT INTO password_resets (email,token,expires_at) VALUES ('old@x.com','tok-plain',NOW()+INTERVAL '1 day');");
+  const pr = await call(resetPassword, { token: 'tok-plain', password: 'plain-pw' });
+  ok('refused', pr.code === 400 && rows("SELECT password FROM users WHERE id='u3'")[0].password === 'old', [pr.code, pr.body]);
 
   console.log('\n-- refusals --');
   const dupe = await call(createAthlete, { name: 'Priya Again', email: 'priya@example.com' });
@@ -210,7 +230,8 @@ const call = async (fn, body) => {
 
   console.log('\n-- it mirrors create-comped-agent --');
   ok('same admin check', (SRV.match(/if \(!admin \|\| admin\.email !== ADMIN_EMAIL\) return res\.status\(403\)/g) || []).length === 2);
-  ok('same 7-day link window', (SRV.match(/7 \* 86400000/g) || []).length >= 2);
+  ok('same 7-day link window', pwReset.ONBOARDING_TTL_MS === 7 * 86400000 && /ttlMs: pwReset\.ONBOARDING_TTL_MS/.test(SRV)
+    && (process.env.AGENT_SETUP_ON === '1' || pwReset.agentInviteTtlMs() === pwReset.ONBOARDING_TTL_MS));
   ok('same best-effort email: the link is returned even if sending fails',
     /\[create-comped-athlete\] email failed \(link still returned\)/.test(SRV));
   ok('same response fields', /res\.json\(\{ ok: true, athleteId: id, name, email, resetUrl, emailed \}\)/.test(SRV));

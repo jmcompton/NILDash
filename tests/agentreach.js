@@ -118,7 +118,9 @@ async function main() {
   ok('  and neither still counts the athlete-portal rows', !/'outreach_written'/.test(act + fun));
   const admin = read('public/admin.html');
   ok('the column is renamed "Sent / contacted"', />Sent \/ contacted<\/th>/.test(admin) && !/>Outreach<\/th>/.test(admin));
-  ok('  and both copies of the table render the three numbers', (admin.match(/reachCell\(u\) \+/g) || []).length === 2 && !/u\.outreach/.test(admin));
+  // One table: admin.html used to carry a stale second copy of its whole
+  // script after </html>, and this counted both.
+  ok('  and the table renders the three numbers', (admin.match(/reachCell\(u\) \+/g) || []).length === 1 && !/u\.outreach/.test(admin));
 
   // ── 4. THE RELEASE STATUS SCRIPT ────────────────────────────────────────
   OUT.push('', '-- send-status --');

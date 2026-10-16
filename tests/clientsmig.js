@@ -22,7 +22,9 @@ const co=require(ROOT+'server/services/compliance.js');
 const SEED=require(ROOT+'server/services/seedMarker.js');
 const { execSync }=require('child_process');
 let F=0; const ok=(n,c,g)=>{if(c)console.log('  PASS '+n);else{F++;console.log('  FAIL '+n+(g!==undefined?'  got='+JSON.stringify(g):''));}};
-const ENV='PGHOST=/tmp PGPORT=55432 PGUSER=postgres PGDATABASE=postgres NODE_PATH='+ROOT+'node_modules';
+// The child scripts use the suite's own database, not a hardcoded one.
+const PGENV = `PGHOST=${process.env.PGHOST} PGPORT=${process.env.PGPORT} PGUSER=${process.env.PGUSER} PGDATABASE=${process.env.PGDATABASE}`;
+const ENV=PGENV+' NODE_PATH='+ROOT+'node_modules';
 const S=ROOT+'scripts/clients-to-athletes.js';
 const run=(a)=>{try{return{code:0,out:execSync(ENV+' node '+S+' '+a+' 2>&1',{encoding:'utf8'})};}
   catch(e){return{code:e.status,out:String(e.stdout||'')+String(e.stderr||'')};}};

@@ -229,7 +229,11 @@ function checkDraft(text, card) {
       const p = Q.greetingProblem(body, _s(card.contactName || card.contact_name));
       if (p) return { ok: false, why: p + `; open with exactly "Hi ${greet},"` };
     } else {
-      const who = Q.greetingWho(firstLine);
+      let who = Q.greetingWho(firstLine);
+      // A bare name opener ("Dawn,") is a greeting greetingWho does not read;
+      // the guard does. Without this the reason said "no greeting line" for an
+      // email that greets a person nobody discovered.
+      if (who === null) { const g = greetingGuard.enforceGreeting(body, []); if (g.changed && g.removedName) who = g.removedName; }
       if (who === null) return { ok: false, why: 'no greeting line; open with exactly "Hi,"' };
       if (who) return { ok: false, why: `greets "${who}", who has not been discovered; open with exactly "Hi,"` };
     }

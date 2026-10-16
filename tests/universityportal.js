@@ -59,9 +59,13 @@ async function main() {
   for (let i = 0; i < 2; i++) for (const s of stmts) { try { await P.query(s); } catch (e) { twice = false; OUT.push('  ' + e.message); } }
   ok('  and it runs twice without an error', twice);
   const cols = async (t) => (await P.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`, [t])).rows.map((r) => r.column_name);
+  // The migration's columns, in order; after them only the roster import's
+  // three (services/universityRosterImport adds them when it first runs).
+  const TEAM_SPEC = ['id', 'university_id', 'name', 'sport', 'season', 'roster_size', 'venue', 'home_dates', 'market_key', 'created_at', 'updated_at'];
+  const teamCols = await cols('university_teams');
   ok('university_teams has the specified columns',
-    JSON.stringify(await cols('university_teams')) === JSON.stringify(['id', 'university_id', 'name', 'sport', 'season', 'roster_size', 'venue', 'home_dates', 'market_key', 'created_at', 'updated_at']),
-    await cols('university_teams'));
+    JSON.stringify(teamCols.slice(0, TEAM_SPEC.length)) === JSON.stringify(TEAM_SPEC)
+    && teamCols.slice(TEAM_SPEC.length).every((c) => ['source', 'roster_url', 'roster_imported_at'].includes(c)), teamCols);
   ok('university_inventory has the specified columns',
     JSON.stringify(await cols('university_inventory')) === JSON.stringify(['id', 'university_id', 'team_id', 'name', 'price_cents', 'status', 'created_at', 'updated_at']),
     await cols('university_inventory'));
@@ -80,8 +84,9 @@ async function main() {
   ok('the migration, the seed and the service never write an agent table',
     !writesAgent.test(MIG) && !writesAgent.test(SEED) && !writesAgent.test(SVC));
   ok('  and add no university column to one', !/ALTER TABLE\s+(athletes|users)/i.test(MIG));
+  // university_athletes too since the Teams view counts each team's roster.
   ok('  and the service reads only university tables',
-    (SVC.match(/(FROM|JOIN)\s+(\w+)/g) || []).every((m) => /(university_teams|university_inventory|universities)$/.test(m)), SVC.match(/(FROM|JOIN)\s+(\w+)/g));
+    (SVC.match(/(FROM|JOIN)\s+(\w+)/g) || []).every((m) => /(university_teams|university_inventory|university_athletes|universities)$/.test(m)), SVC.match(/(FROM|JOIN)\s+(\w+)/g));
 
   // ── 3. THE SEED ───────────────────────────────────────────────────────────
   OUT.push('', '-- seed-cypress --');
@@ -234,10 +239,17 @@ async function main() {
     && /const NAV2 = \[\];/.test(page));
   ok('  every item does something; nothing says "coming soon"', /const LIVE = \{ home:true, sponsors:true, teams:true, inventory:true \}/.test(page) && !/coming soon/i.test(page)
     && !/aria-disabled="true"/.test(page.slice(page.indexOf('function paintNav'), page.indexOf('function paintNav') + 600)));
+  // The one exception on both counts is the admin's read-only view bar
+  // (shown only when viewingAsAdmin): its "Back to admin" ends the view and
+  // returns to the admin console. A department user never sees it.
+  const bar = page.slice(page.indexOf('viewingAsAdmin'), page.indexOf('viewingAsAdmin') + 1400);
+  const outside = page.replace(bar, '');
   ok('  it reads only its own department\'s APIs (teams, inventory, the market tool) and signs in with the account login',
-    (page.match(/\/api\/[a-z/_-]+/g) || []).every((u) => ['/api/university/teams', '/api/university/inventory', '/api/auth/login', '/api/auth/logout'].includes(u) || u.startsWith('/api/university/market/')),
+    (outside.match(/\/api\/[a-z/_-]+/g) || []).every((u) => ['/api/university/teams', '/api/university/inventory', '/api/auth/login', '/api/auth/logout'].includes(u) || u.startsWith('/api/university/market/'))
+    && (bar.match(/\/api\/[a-z/_-]+/g) || []).every((u) => u === '/api/admin/view-university'),
     [...new Set(page.match(/\/api\/[a-z/_-]+/g))]);
-  ok('  and never sends anyone to the agent app', !/location(\.href)?\s*=/.test(page) && !/href="\/"/.test(page));
+  ok('  and never sends anyone to the agent app (only the admin view bar returns its admin to /admin)',
+    !/location(\.href)?\s*=/.test(outside) && !/href="\/"/.test(page) && (bar.match(/location\.href\s*=\s*"([^"]*)"/g) || []).every((m) => /"\/admin"$/.test(m)));
   ok('it is not part of the agent app', !/university\.html/.test(read('public/index.html')));
   const route = IDX.match(/app\.get\('\/university',\s*([^\n]*)\n/);
   ok('GET /university has its own route with no auth in front of it', !!route && /^\(req, res\) => \{$/.test(route[1].trim()), route && route[0]);
@@ -294,8 +306,12 @@ async function main() {
       ok('Inventory: 70 items', (await p.textContent('#crumbNow')) === 'Inventory' && (await p.$$('.tablewrap tbody tr')).length === 70);
       await p.click('[data-inv="Department"]'); await p.waitForTimeout(100);
       ok('  the Department filter shows the three department-wide items', (await p.$$('.tablewrap tbody tr')).length === 3);
-      await p.click('#nav1 [aria-disabled="true"]', { force: true }); await p.waitForTimeout(100);
-      ok('the other nav items are there and do nothing', (await p.$$('[aria-disabled="true"]')).length === 8 && (await p.textContent('#crumbNow')) === 'Inventory');
+      // ONLY WORKING SCREENS (359eab2): the demo's eight dead items are gone
+      // from the rendered nav too, not just from NAV1. Each item there opens
+      // its screen.
+      const navItems = await p.$$eval('#nav1 button', (bs) => bs.map((b) => ({ text: b.textContent.trim(), disabled: b.getAttribute('aria-disabled') })));
+      ok('the nav shows the four working screens and nothing disabled', navItems.length === 4 && navItems.every((n) => n.disabled !== 'true')
+        && (await p.$$('[aria-disabled="true"]')).length === 0 && (await p.textContent('#crumbNow')) === 'Inventory', navItems);
       ok('  and nothing threw', errs.length === 0, errs);
       const s2 = { loginAs: 'agent' };
       const q = await mk(s2);

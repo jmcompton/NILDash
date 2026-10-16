@@ -1161,6 +1161,21 @@ async function assembleSlate(pool, ctx) {
       + (penalised.length ? `; still picked: ${penalised.map((p) => `${p.brand_name} (-${(p.skipPenalty.athlete + p.skipPenalty.agent).toFixed(1)})`).join(', ')}` : ''));
   }
 
+  // ── A BUSINESS THAT ANSWERED US IS TRIED FIRST ───────────────────────────
+  // The seats above decide WHO is on the slate; the order of `picks` is the
+  // order the fill tries them. The social seats are taken first so they are
+  // not crowded out, which also put them FIRST in line -- ahead of a local
+  // business that has replied to us or closed a deal with us at this school,
+  // the strongest lead the slate can hold. Every pick carrying one of those
+  // signals moves to the front (a closed deal before a reply, then by fit);
+  // everything else keeps its place.
+  const leadOf = (p) => (p.sponsorSignal && LOCAL_LANE_SIGNALS.has(p.sponsorSignal.kind) ? SIGNAL_WEIGHT[p.sponsorSignal.kind] || 0 : 0);
+  const leads = picks.filter((p) => leadOf(p) > 0).sort((a, b) => leadOf(b) - leadOf(a) || b.fit - a.fit);
+  if (leads.length) {
+    const rest = picks.filter((p) => leadOf(p) === 0);
+    picks.length = 0;
+    picks.push(...leads, ...rest);
+  }
   const laneCounts = picks.reduce((m, p) => { m[p.lane] = (m[p.lane] || 0) + 1; return m; }, {});
   const out = {
     picks, laneCounts, emptyReason: null, emptyText: null, lanes, dropped, shape, faults, evidenceRefused,

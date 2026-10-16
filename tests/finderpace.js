@@ -138,10 +138,35 @@ async function main() {
 
   // ── 3. THE PACE ──────────────────────────────────────────────────────────
   OUT.push('', '-- the pace --');
+  // ON A VIRTUAL CLOCK. Measured on the wall clock, the moment a call left was
+  // read a few milliseconds after the gate stamped it, by a varying amount, so
+  // a window could hold one call the gate never let into it. Here time moves
+  // only when every waiter is asleep (a timer fires once all the work that
+  // can run at the current instant has run), so the times the gate reads and
+  // the times recorded here are the same times. The limits are unchanged.
+  const VC = (() => {
+    let now = 1e12; const timers = []; let pumping = false;
+    const pump = () => {
+      pumping = false;
+      if (!timers.length) return;
+      timers.sort((a, b) => a.at - b.at || a.seq - b.seq);
+      const t = timers.shift();
+      now = Math.max(now, t.at);
+      t.resolve();
+      schedule();
+    };
+    const schedule = () => { if (!pumping) { pumping = true; setImmediate(pump); } };
+    let seq = 0;
+    return { now: () => now, sleep: (ms) => new Promise((resolve) => { timers.push({ at: now + Math.max(0, ms), seq: seq++, resolve }); schedule(); }) };
+  })();
+  H._setClock(VC);
   let open = 0, maxOpen = 0; const starts = [];
-  handler = (url, init) => { open++; maxOpen = Math.max(maxOpen, open); starts.push(Date.now()); return after(120, respond(200, { data: { status: 'valid' } }), init.signal).finally(() => { open--; }); };
+  handler = (url, init) => { open++; maxOpen = Math.max(maxOpen, open); starts.push(VC.now()); return VC.sleep(120).then(() => respond(200, { data: { status: 'valid' } })).finally(() => { open--; }); };
+  const vt0 = VC.now();
   await Promise.all(Array.from({ length: 25 }, (_, i) => H._call('verifier', `https://api.hunter.io/v2/email-verifier?email=p${i}@fp-p.com`, { timeoutMs: 5000 })));
+  H._setClock(null);
   const perSecMax = Math.max(...starts.map((t) => starts.filter((u) => u >= t && u - t < 1000).length));
+  ok('  (25 calls at 10 a second take at least two virtual seconds: the gate really waited)', starts.length === 25 && starts[24] - vt0 >= 2000, starts.map((t) => t - vt0));
   ok('a burst of 25 calls: never more than HUNTER_MAX_INFLIGHT open at once', maxOpen <= 4 && maxOpen >= 2, maxOpen);
   ok('  and never more than HUNTER_MAX_PER_SEC started in any second', perSecMax <= 10, perSecMax);
   ok('  the defaults sit under Hunter\'s 15/s and 500/min (and the Verifier\'s lower limit)', /HUNTER_MAX_PER_SEC, 10\) \|\| 8/.test(fs.readFileSync(REPO + 'server/services/hunterLookup.js', 'utf8'))

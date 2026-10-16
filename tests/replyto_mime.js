@@ -30,7 +30,10 @@ function extract(name) {
   }
   return src.slice(start, i + 1);
 }
-eval(extract('encodeHeaderValue') + '\n' + extract('buildMimeMessage'));
+// Not eval: under 'use strict' an eval keeps its function declarations to
+// itself, and buildMimeMessage was "not defined" out here.
+const { buildMimeMessage } = new Function(extract('encodeHeaderValue') + '\n' + extract('buildMimeMessage')
+  + '\nreturn { encodeHeaderValue, buildMimeMessage };')();
 
 let OUT = [], FAIL = 0;
 function ok(n, c, got) { if (c) OUT.push('PASS ' + n); else { FAIL++; OUT.push('FAIL ' + n + (got !== undefined ? '  got=' + JSON.stringify(got) : '')); } }

@@ -871,9 +871,16 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
   // "from X" construction whose X is not the stored hometown is the fabrication
   // this catches.
   const homeRe = /\b(?:grew up in|from|hometown of|native of|raised in)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2})/g;
+  // A DISTANCE IS NOT A HOMETOWN. "Trains a mile from Millennium Chiropractic",
+  // "five minutes from Rocky's Gym", "across the street from the Deli": the
+  // place is the business the pitch is about, and the proximity is the pitch.
+  // Read as "from X" these refused every such email (no hometown on file) or
+  // called the business a wrong hometown.
+  const DISTANCE_BEFORE = /\b(?:miles?|blocks?|minutes?|mins?|hours?|steps|feet|foot|yards?|km|kilomet(?:er|re)s?|doors?|walk|drive|ride|away|street|road|corner)\s*$/i;
   const storedHome = _words(a.hometown);
   let hm;
   while ((hm = homeRe.exec(t))) {
+    if (/^from\b/i.test(hm[0]) && DISTANCE_BEFORE.test(t.slice(Math.max(0, hm.index - 40), hm.index))) continue;
     const claimed = _words(hm[1]).replace(/[.,]$/, '');
     if (!storedHome) { problems.push(`says they are ${hm[0].trim()} and we hold no hometown`); break; }
     const ok2 = storedHome.split(/[,\s]+/).filter(Boolean).some((tok) => claimed.includes(tok));
