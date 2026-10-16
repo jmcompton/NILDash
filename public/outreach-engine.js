@@ -32,6 +32,11 @@ const OutreachEngineState = {
   // on every poll; applying it more than once would reset a recipient the agent
   // chose. Cleared whenever a new run starts or the modal closes.
   appliedContactKey: null,
+  // SEND_GATE_ON (the server says so on every address-bearing response): every
+  // address comes from the email finder and says Verified or Not verified.
+  finderOnly: false,
+  // The recipients on screen, for the name that goes with Send.
+  recipients: [],
 };
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -289,6 +294,8 @@ function renderPrewarmedDraft(pre, dealResult, athleteId) {
     matchScore: null,
     deck: null,
     outreach: { id: pre.id, subject: pre.subject, body_html: pre.body_html },
+    finder: pre.finder || null,
+    finderOnly: !!pre.finderOnly,
   });
   // GREETING PERSONALISATION. The draft was written contact-agnostic, because at
   // scan time the card has a phone and rarely a name. If a name HAS been found
@@ -488,7 +495,7 @@ function applyRunContact(data) {
     if (!d.contacts.some(same)) {
       const s = Number(c.confidence_score);
       d.contacts.push({
-        name: c.name || null, title: c.title || null, email: c.email || null,
+        name: c.name || null, title: c.title || null, email: c.email || null, emailVerified: c.emailVerified,
         phone: c.phone || null, sourceUrl: c.source_url || null,
         confidence: (!isNaN(s) && s >= 0.85) ? 'high' : 'medium',
       });
@@ -680,6 +687,7 @@ function renderRunResult(data) {
 
   const { run, enrichment, contact, matchScore, deck, outreach } = data;
   const brand = run.brand_name;
+  OutreachEngineState.finderOnly = !!data.finderOnly;
 
   if (title) title.textContent = `Outreach Ready — ${brand}`;
   if (subtitle) subtitle.textContent = `Review and send your personalized pitch`;
@@ -714,6 +722,16 @@ function renderRunResult(data) {
   // anything. Now the ladder's own labels decide, and everything emailable is
   // offered rather than silently discarded.
   const recipients   = outreachRecipients(OutreachEngineState.currentDealResult, contact);
+  // The draft's own address (a morning card's is the email finder's), first.
+  if (data.finder && data.finder.email) {
+    const f = _recipient(data.finder.email, data.finder.contactName, null, 'Confident', 1, null, data.finder.verified);
+    if (f) {
+      const at = recipients.findIndex((r) => r.email.toLowerCase() === f.email.toLowerCase());
+      if (at > -1) recipients.splice(at, 1);
+      recipients.unshift(f);
+    }
+  }
+  OutreachEngineState.contactName = hasName ? contact.name.trim() : null;
   const prefillTo    = recipients.length ? recipients[0].email : '';
   // Rule 6: when there is a phone and no personal email, calling is the primary
   // move. Still keyed on a PERSONAL email: a general inbox is now pre-filled, but
@@ -847,6 +865,9 @@ function renderRunResult(data) {
                         border:1px solid var(--border,#333);border-radius:6px;
                         color:var(--text,#fff);font-size:12px;outline:none;box-sizing:border-box">
           <div id="outreach-to-note" style="font-size:10px;color:var(--muted,#888);margin-top:4px;line-height:1.4">${escHtml(recipientNote(recipients[0] || null))}</div>
+          ${OutreachEngineState.finderOnly && hasName ? `<button type="button" id="outreach-find-address" onclick="window.outreachEngine.findAddress()"
+                  style="margin-top:6px;padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--border,#333);
+                         border-radius:6px;color:var(--text,#fff);cursor:pointer">Find their email</button>` : ''}
         </div>
       </div>
     </div>
@@ -1527,6 +1548,7 @@ async function sendOutreach(outreachId) {
     }
     if (btn) { btn.disabled = true; btn.textContent = 'Sent ✓'; btn.style.background = '#4ade80'; }
     showOutreachToast(`Email sent to ${to || toEmail}`);
+    if (OutreachEngineState.finderOnly && status) status.appendChild(bouncedButton(outreachId));
   };
   const failed = (msg) => {
     delete _sendInFlight[outreachId];
@@ -1542,7 +1564,10 @@ async function sendOutreach(outreachId) {
       await outreachAPI.patch('/logs/' + outreachId, { subject, body_html: bodyHtml });
     }
 
-    const first = await outreachAPI.post('/logs/' + outreachId + '/send', { emailAccountId: accountId, toEmail });
+    // The named person it is for: the send gate holds the address to them.
+    const _m = _matchRecipient(OutreachEngineState.recipients || [], toEmail);
+    const contactName = (_m && _m.name) || OutreachEngineState.contactName || null;
+    const first = await outreachAPI.post('/logs/' + outreachId + '/send', { emailAccountId: accountId, toEmail, contactName });
     if (first && first.state === 'sent') { sent(first.to); return; }
     if (status) { status.style.color = '#60a5fa'; status.textContent = 'Sending… you can close this; it keeps going.'; }
 
@@ -1564,6 +1589,56 @@ async function sendOutreach(outreachId) {
     }
   } catch (e) {
     failed(e.message);
+  }
+}
+
+// ── "THIS BOUNCED" (SEND_GATE_ON) ───────────────────────────────────────────
+// A bounce lands in the agent's own inbox, where NILDash cannot see it. One
+// click suppresses the address and stops this thread's follow-ups.
+function bouncedButton(outreachId) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = 'This bounced';
+  b.title = 'The email came back undelivered. Stops every follow-up to this address.';
+  b.style.cssText = 'margin-left:10px;padding:3px 10px;font-size:11px;background:transparent;border:1px solid #f87171;border-radius:6px;color:#f87171;cursor:pointer';
+  b.onclick = async function () {
+    b.disabled = true;
+    try {
+      const r = await outreachAPI.post('/logs/' + encodeURIComponent(outreachId) + '/bounced', {});
+      b.textContent = 'Bounced: ' + (r.suppressed || 'address') + ' blocked' + (r.stopped ? ', ' + r.stopped + ' follow-up' + (r.stopped === 1 ? '' : 's') + ' stopped' : '');
+    } catch (e) { b.disabled = false; showOutreachToast('Could not mark it bounced: ' + e.message, true); }
+  };
+  return b;
+}
+
+// The email finder, for the named person on this card (SEND_GATE_ON).
+async function findAddress() {
+  const btn = document.getElementById('outreach-find-address');
+  const d = OutreachEngineState.currentDealResult || {};
+  const name = OutreachEngineState.contactName;
+  const brand = (OutreachEngineState.currentRunData && OutreachEngineState.currentRunData.run && OutreachEngineState.currentRunData.run.brand_name) || d.brand || d.brand_name || '';
+  if (!name || !brand) { showOutreachToast('A named person and the business are both needed', true); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Finding…'; }
+  try {
+    const r = await outreachAPI.post('/find-address', { brand, name, title: (d.contactTitle || null), website: d.website || null,
+      region: d.region || d.market || '', athleteId: OutreachEngineState.athleteId || null });
+    const f = r && r.finder;
+    if (f && f.email) {
+      const rec = _recipient(f.email, name, null, 'Confident', 1, null, f.verified);
+      const list = [rec].concat((OutreachEngineState.recipients || []).filter((x) => x.email.toLowerCase() !== rec.email.toLowerCase()));
+      const to = document.getElementById('outreach-to-email');
+      if (to && to.dataset) to.dataset.touched = '';
+      renderRecipientOptions(list);
+      wireRecipientControls(list);
+      if (btn) btn.textContent = f.verified ? 'Found · Verified' : 'Found · Not verified';
+    } else {
+      const note = document.getElementById('outreach-to-note');
+      if (note) note.textContent = 'Not verified · ' + ((f && f.why) || 'the email finder found no address for ' + name) + '. Call or DM them instead.';
+      if (btn) btn.textContent = 'No address found';
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Find their email'; }
+    showOutreachToast('The email finder could not run: ' + e.message, true);
   }
 }
 
@@ -1674,7 +1749,7 @@ function _confidenceLabelFE(c) {
   return (c.confidence === 'high' && c.sourceUrl) ? 'Confident' : 'Likely';
 }
 
-function _recipient(email, name, title, confidence, tier, note) {
+function _recipient(email, name, title, confidence, tier, note, verified) {
   var e = String(email || '').trim();
   if (!e || e.indexOf('@') === -1) return null;
   var generic = _isGenericInboxFE(e);
@@ -1688,11 +1763,14 @@ function _recipient(email, name, title, confidence, tier, note) {
     tier: tier || 3,
     isGeneric: generic,
     note: note || null,
+    // The email finder's verdict (SEND_GATE_ON): true, false, or undefined
+    // when the server did not say.
+    verified: verified === true ? true : (verified === false ? false : undefined),
     // What the agent reads in the dropdown. The confidence label is part of the
     // option, not a tooltip: choosing a recipient is choosing how sure you are.
     // It leads, because a collapsed <select> truncates from the right and a label
     // at the end is a label you cannot see without opening the list.
-    optionLabel: (confidence || 'Fallback') + ' · '
+    optionLabel: (verified === true ? 'Verified' : verified === false ? 'Not verified' : (confidence || 'Fallback')) + ' · '
                  + (who ? who + (role ? ' · ' + role : '') + ' — ' + e
                         : (role || (generic ? 'General inbox' : 'Mailbox')) + ' — ' + e),
   };
@@ -1709,14 +1787,14 @@ function ladderRecipients(d) {
         // line, a LinkedIn profile or a DM cannot be emailed, so it is not offered
         // here -- it is still on the card, where it can be acted on.
         var rec = _recipient(r.email, r.name, r.title, r.confidence, t.tier,
-          r.emailDomainNote || r.sourceNote || null);
+          r.emailDomainNote || r.sourceNote || null, r.emailVerified);
         if (rec) out.push(rec);
       });
     });
   } else {
     // No ladder: fall back to the flat list plus the mailboxes that live beside it.
     (Array.isArray(d && d.contacts) ? d.contacts : []).forEach(function (c) {
-      var rec = _recipient(c.email, c.name, c.title, _confidenceLabelFE(c), c.name ? 1 : 3, null);
+      var rec = _recipient(c.email, c.name, c.title, _confidenceLabelFE(c), c.name ? 1 : 3, null, c.emailVerified);
       if (rec) out.push(rec);
     });
     if (d && d.genericInbox) {
@@ -1738,7 +1816,7 @@ function serverContactRecipient(contact) {
   var s = Number(contact.confidence_score);
   var label = isNaN(s) ? 'Fallback' : (s >= 0.85 ? 'Confident' : (s >= 0.5 ? 'Likely' : 'Fallback'));
   if (_isGenericInboxFE(contact.email)) label = 'Fallback';
-  return _recipient(contact.email, contact.name, contact.title, label, contact.name ? 1 : 3, null);
+  return _recipient(contact.email, contact.name, contact.title, label, contact.name ? 1 : 3, null, contact.emailVerified);
 }
 
 // The ordered recipient list the modal offers. Highest confidence first, tier as
@@ -1774,6 +1852,14 @@ function outreachRecipients(d, serverContact) {
 // other way in should not have to retype an address the card already found -- but
 // it is never allowed to read as a person.
 function recipientNote(r) {
+  if (OutreachEngineState.finderOnly) {
+    // SEND_GATE_ON: only the email finder's address, with its verdict.
+    if (!r) return 'Not verified · No address from the email finder yet. Use Find their email, or call or DM them.';
+    var who = r.name ? r.name + (r.title ? ' · ' + r.title : '') : 'Not a named person';
+    return r.verified === true
+      ? 'Verified · ' + who + '. The email finder found and checked this address in the last 30 days.'
+      : 'Not verified · ' + who + '. It is checked again before it sends; if it does not verify, it is not sent and the card offers a call or DM.';
+  }
   if (!r) return 'Add the recipient once you confirm who to reach — the name and phone above are your starting point.';
   if (r.isGeneric || (!r.name && r.confidence === 'Fallback')) {
     return 'General inbox — not a named person. No named decision maker was found for this business, so this goes to whoever reads the shop mailbox.';
@@ -1814,9 +1900,15 @@ function renderRecipientOptions(recipients) {
       // A typed address the ladder does not know is not "no recipient". Saying so
       // plainly beats reverting to the empty-state prompt underneath an address the
       // agent can see they just entered.
-      note.textContent = m ? recipientNote(m) : 'Typed by hand — not from the contact ladder.';
+      note.textContent = m ? recipientNote(m) : _typedNote();
     }
   }
+}
+
+function _typedNote() {
+  return OutreachEngineState.finderOnly
+    ? 'Typed by hand · Not verified. Before it sends it must be a named person\'s address that verifies, or it is not sent.'
+    : 'Typed by hand — not from the contact ladder.';
 }
 
 function _matchRecipient(recipients, email) {
@@ -1827,6 +1919,7 @@ function _matchRecipient(recipients, email) {
 
 // Wired once per render of the modal body.
 function wireRecipientControls(recipients) {
+  OutreachEngineState.recipients = recipients || [];
   var sel = document.getElementById('outreach-to-pick');
   var to = document.getElementById('outreach-to-email');
   var note = document.getElementById('outreach-to-note');
@@ -1843,7 +1936,7 @@ function wireRecipientControls(recipients) {
     if (to.dataset) to.dataset.touched = '1';
     var m = _matchRecipient(recipients, to.value);
     if (sel) { if (m) sel.value = m.email; else sel.selectedIndex = -1; }
-    if (note) note.textContent = m ? recipientNote(m) : 'Typed by hand — not from the contact ladder.';
+    if (note) note.textContent = m ? recipientNote(m) : _typedNote();
   };
 }
 
@@ -1859,6 +1952,8 @@ window.outreachEngine = {
   reloadAccounts: loadEmailAccountsIntoDropdown,
   resumeAfterConnect: resumeOutreachAfterConnect,
   retryContact,
+  findAddress,
+  bouncedButton,
 };
 
 // Runs on every load. Does nothing unless a connect was started from this modal

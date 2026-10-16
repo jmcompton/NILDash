@@ -27,6 +27,7 @@
 // every few seconds.
 
 const sendGuard = require('./sendGuard');
+const SG = require('./sendGate');
 const PIPE = require('./pipeline');
 const suppression = require('./suppression');
 const sendRules = require('./sendRules');
@@ -955,6 +956,29 @@ async function releaseDue(pool, opts = {}) {
       }
       log.footerAddress = sa.address;
     }
+    // ── ONE GATE AT SEND TIME (services/sendGate, SEND_GATE_ON) ──────────
+    // A named person's address with a valid mailbox verification no older
+    // than 30 days, re-verified now if older. Not valid: the email stops, says
+    // why, and its card offers a call or a DM instead. A check that could not
+    // run holds it to be checked again; it never sends unchecked.
+    let _gate = null;
+    if (SG.ON()) {
+      const _who = await SG.contactNameFor(pool, log).catch(() => null);
+      _gate = await SG.check(pool, { email: log.sent_to_email || log.to_email, contactName: _who, agentId: log.agent_id,
+        athleteId: log.athlete_id, business: log.brand_name, now }, opts.gateDeps || {})
+        .catch((e) => ({ ok: false, code: 'not-run', retry: true, why: 'the address check failed on our side: ' + e.message }));
+      if (!_gate.ok) {
+        if (_gate.retry) {
+          await hold(pool, log, 'address: ' + _gate.why, new Date(nowMs + RECHECK_CEILING_MS));
+          out.held++; out.detail.push({ id: log.id, result: 'held', why: _gate.why, gate: _gate.code });
+          continue;
+        }
+        const b = await SG.blockAndOffer(pool, log, _gate, { contactName: _who });
+        out.held++; out.gated = (out.gated || 0) + 1;
+        out.detail.push({ id: log.id, result: 'blocked', why: _gate.why, gate: _gate.code, offer: b.offer, converted: b.converted });
+        continue;
+      }
+    }
     // ── THE COMPLIANCE GATE ──────────────────────────────────────────────
     // BEFORE the reservation, because a held message must not consume the day's
     // allowance. This is the only place the provider is called from, so this is
@@ -1066,6 +1090,13 @@ async function releaseDue(pool, opts = {}) {
         });
       } catch (e) {
         console.error('[closer] pipeline write failed for ' + log.id + ':', e.message);
+      }
+      // WHAT WAS KNOWN ABOUT THE ADDRESS AS IT LEFT, and the path it took
+      // (admin script bounce-report). With the gate off, the cache as it stood.
+      {
+        const _st = _gate && _gate.ok ? { status: 'valid', checkedAt: _gate.checkedAt }
+          : await SG.peek(pool, log.sent_to_email || log.to_email, null, { typed: true }).then((p) => ({ status: p.status, checkedAt: p.checkedAt })).catch(() => ({}));
+        await SG.recordSend(pool, log.id, { ..._st, path: await SG.pathOf(pool, log).catch(() => null) });
       }
       // THE CARD SAYS SENT NOW, and not before: the email has a sent_at.
       await pool.query(

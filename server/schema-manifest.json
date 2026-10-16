@@ -800,6 +800,16 @@
       "on_value": "BOOLEAN DEFAULT FALSE",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "finder_addresses": {
+      "brand_key": "TEXT",
+      "domain": "TEXT",
+      "email": "TEXT",
+      "found_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "how": "TEXT",
+      "person": "TEXT",
+      "verdict": "TEXT",
+      "why": "TEXT"
+    },
     "growth_outreach_log": {
       "id": "SERIAL",
       "prospect_id": "INTEGER REFERENCES growth_prospects(id) ON DELETE CASCADE",

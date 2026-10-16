@@ -456,6 +456,30 @@ app.use(session({
 // only (services/adminView). Before every /api/university route.
 app.use('/api/university', require('./services/adminView').middleware({ pool: store.pool, adminEmail: ADMIN_EMAIL }));
 
+// ── EVERY ADDRESS FROM THE EMAIL FINDER (services/finderAddress, SEND_GATE_ON) ──
+// A Deal Scan card, Write Outreach, the editor, Add a Business and the
+// athlete's brand contacts showed and prefilled addresses an AI, a web search
+// or a site scrape suggested. With the switch on, every such address is taken
+// out of the JSON before it leaves, and only the email finder's address for a
+// named person is put back, labelled Verified or Not verified. The send gate
+// still checks whatever is sent.
+const FINDER_ONLY_PATHS = ['/api/agent/deal-scan', '/api/agent/brand-contacts', '/api/athlete/brand-contacts',
+  '/api/athlete/deal-scan', '/api/deal-close', '/api/athlete/deal-close', '/api/outreach'];
+app.use(FINDER_ONLY_PATHS, (req, res, next) => {
+  const FA = require('./services/finderAddress');
+  if (!FA.ON()) return next();
+  const orig = res.json.bind(res);
+  res.json = (body) => {
+    let out;
+    try { out = FA.strip(JSON.parse(JSON.stringify(body))); } catch (_) { return orig(body); }
+    // Tells the page not to make up an address of its own either.
+    if (out && typeof out === 'object' && !Array.isArray(out)) out.finderOnly = true;
+    FA.annotateDeep(store.pool, out).then(() => orig(out), () => orig(out));
+    return res;
+  };
+  next();
+});
+
 // ── CUSTOMERS NEVER SEE A VENDOR'S ERROR (services/customerErrors) ─────────
 // Every /api JSON response except /api/admin: an error, note or reason that
 // names a provider, an HTTP status or a request id is replaced with plain
@@ -10533,6 +10557,25 @@ async function _brandContactsBatch(req, res) {
       }
     });
     const rows = results.map((r) => r || { contacts: [], genericInbox: null, businessPhone: null, approach: null });
+    // ── THE EMAIL FINDER, ON THE BUSINESS THE AGENT OPENED (SEND_GATE_ON) ──
+    // The person the card opens to gets the address the finder verifies for
+    // them (services/finderAddress). The response middleware strips every
+    // other address and puts this one on that person, labelled.
+    if (deep && require('./services/finderAddress').ON()) {
+      const FA = require('./services/finderAddress');
+      const who = (req.session && req.session.userId) || (req.athlete && req.athlete.agent_id) || null;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i] || {}; const b = brands[i] || {};
+        const ladderPeople = ((row.contactLadder && row.contactLadder.tiers) || []).flatMap((t) => (t && t.rows) || []);
+        const target = ladderPeople.find((r) => r && r.name) || (row.contacts || []).find((c) => c && c.name) || null;
+        if (!target || !b.brand) continue;
+        try {
+          const f = await FA.forPerson(store.pool, { brand: b.brand, name: target.name, title: target.title || null, website: b.website || null,
+            region: b.region || '', agentId: who, athleteId: (req.athlete && req.athlete.id) || b.athleteId || null, source: 'finder-deep' });
+          row.finder = { name: target.name, ...f };
+        } catch (e) { console.warn(`[brand-contacts] email finder failed for "${b.brand}": ${e.message}`); }
+      }
+    }
     if (deep) {
       const tiers = rows.map((r) => (r.contactLadder ? r.contactLadder.topTier : 'none')).join(',');
       const errs = rows.filter((r) => r.error).length;
@@ -11042,7 +11085,7 @@ app.post('/api/athlete/deal-pipeline/:id/followup', verifyAthleteToken, async (r
     const followup = await ai.generateFollowUp(athleteObj, entry);
     // If send=true and we have a contact email, send it via the shared email path
     if (req.body.send && entry.contact_email) {
-      await _sendAthleteEmail(req.athlete, entry.contact_email, followup.subject, followup.body);
+      await _sendAthleteEmail(req.athlete, entry.contact_email, followup.subject, followup.body, { contactName: entry.contact_name || null, brand_name: entry.brand_name || null });
       await store.pool.query(
         `UPDATE athlete_deal_pipeline SET last_contact_at=NOW(), updated_at=NOW() WHERE id=$1 AND athlete_id=$2`,
         [id, req.athlete.id]
@@ -11050,7 +11093,7 @@ app.post('/api/athlete/deal-pipeline/:id/followup', verifyAthleteToken, async (r
       return res.json({ followup, sent: true });
     }
     res.json({ followup, sent: false });
-  } catch (e) { console.error('[deal-pipeline followup]', e.message); res.status(500).json({ error: e.message }); }
+  } catch (e) { console.error('[deal-pipeline followup]', e.message); res.status(e.status || 500).json({ error: e.message, ...(e.reason ? { reason: e.reason } : {}) }); }
 });
 
 // POST /api/athlete/rate-calculator — calculate athlete's own rates (full benchmarks)
@@ -11353,6 +11396,22 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
   const rule = await sendRules.check(store.pool, { email: to, subject, system: 'athlete' });
   if (!rule.ok) { const err = new Error('Not sent: ' + rule.reason); err.status = 409; err.reason = rule.kind; throw err; }
 
+  // ── ONE GATE AT SEND TIME (services/sendGate, SEND_GATE_ON) ───────────────
+  // The athlete's brand email is held to the agent's rule: a named person's
+  // address, valid within 30 days (re-verified now if older); never a legal,
+  // counsel, privacy, careers or customer-service inbox. A free-form email
+  // (no contact on file) is checked on the address alone.
+  const SG = require('./services/sendGate');
+  if (SG.ON()) {
+    const g = await SG.check(store.pool, { email: to, contactName: opts.contactName || null, typed: !opts.contactName,
+      agentId, athleteId, business: opts.brand_name || null }, opts.gateDeps || {})
+      .catch((e) => ({ ok: false, code: 'not-run', retry: true, why: 'the address check failed on our side: ' + e.message }));
+    if (!g.ok) {
+      const err = new Error('Not sent: ' + g.why + (g.retry ? '. Try again in a few minutes.' : '. Call or DM them instead.'));
+      err.status = 409; err.reason = 'unverified'; err.gate = g.code; throw err;
+    }
+  }
+
   // ── THE CAN-SPAM FOOTER ────────────────────────────────────────────────────
   // An athlete writing to a brand is still commercial email from NILDash to a
   // business that did not ask for it. Same postal address, same opt-out link,
@@ -11408,12 +11467,35 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
   return { via: gmailRefreshToken ? 'gmail' : 'resend' };
 }
 
+// ── POST /api/athlete/find-address (SEND_GATE_ON) ──────────────────────────
+// The athlete's brand email gets its address from the email finder, like
+// every other email: { brand, name, website? } -> { finder: { email,
+// verified, label, why } }. Cached 30 days per person.
+app.post('/api/athlete/find-address', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
+  try {
+    const FA = require('./services/finderAddress');
+    if (!FA.ON()) return res.status(404).json({ error: 'not enabled' });
+    const b = req.body || {};
+    const brand = String(b.brand || '').trim().slice(0, 160);
+    const name = String(b.name || '').trim().slice(0, 120);
+    if (!brand || !name) return res.status(400).json({ error: 'The business and the person\'s name are both needed.' });
+    const athleteId = (req.athlete && (req.athlete.athleteId || req.athlete.id)) || null;
+    const f = await FA.forPerson(store.pool, { brand, name, website: b.website || null, region: b.region || '',
+      athleteId, source: 'finder-athlete' }, app._finderDeps || null);
+    res.json({ finder: { name, ...f } });
+  } catch (e) {
+    console.error('[athlete/find-address]', e.message);
+    res.status(500).json({ error: 'The address could not be looked up right now.' });
+  }
+});
+
 // POST /api/athlete/deal-pitch/send — send a pitch to a brand and record/upsert in pipeline
 app.post('/api/athlete/deal-pitch/send', verifyAthleteToken, async (req, res) => {
   try {
     const { to, subject, body, brand } = req.body || {};
     if (!to || !subject || !body) return res.status(400).json({ error: 'to, subject, and body required' });
-    await _sendAthleteEmail(req.athlete, to, subject, body, { brand_name: (brand && (brand.brand || brand.brand_name)) || subject });
+    await _sendAthleteEmail(req.athlete, to, subject, body, { brand_name: (brand && (brand.brand || brand.brand_name)) || subject,
+      contactName: (brand && brand.contactName) || null });
 
     // Upsert into Brand Tracker (single source of truth). Sending a pitch moves
     // the deal to the "Contacted" stage (still in the Outreach group). If the
@@ -11460,7 +11542,7 @@ app.post('/api/athlete/deal-pitch/send', verifyAthleteToken, async (req, res) =>
   } catch (e) {
     console.error('[deal-pitch/send]', e.message);
     if (e.code === 'GMAIL_TOKEN_EXPIRED') return res.status(401).json({ error: 'gmail_token_expired' });
-    res.status(500).json({ error: e.message });
+    res.status(e.status || 500).json({ error: e.message, ...(e.reason ? { reason: e.reason } : {}) });
   }
 });
 
@@ -11479,7 +11561,7 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
     if (e.code === 'GMAIL_TOKEN_EXPIRED') {
       return res.status(401).json({ error: 'gmail_token_expired', message: 'Your Gmail connection has expired. Please reconnect.' });
     }
-    res.status(500).json({ error: e.message });
+    res.status(e.status || 500).json({ error: e.message, ...(e.reason ? { reason: e.reason } : {}) });
   }
 });
 

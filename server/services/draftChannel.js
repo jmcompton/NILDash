@@ -31,24 +31,31 @@ async function fillAddress(pool, ids) {
   const out = new Map();
   if (!ids || !ids.length) return out;
   const rows = (await pool.query(
-    `SELECT l.id, l.brand_name, l.sent_to_email, c.email AS contact_email, q.email AS queue_email
+    `SELECT l.id, l.brand_name, l.sent_to_email, c.email AS contact_email, q.email AS queue_email, q.email_verified AS queue_verified
        FROM outreach_logs l
        LEFT JOIN brand_contacts c ON c.id = l.contact_id
        LEFT JOIN LATERAL (
-         SELECT email FROM outreach_queue q2
+         SELECT email, email_verified FROM outreach_queue q2
           WHERE q2.athlete_id = l.athlete_id AND q2.email IS NOT NULL
             AND (q2.outreach_log_id = l.id OR LOWER(q2.brand_name) = LOWER(l.brand_name))
           ORDER BY (q2.outreach_log_id = l.id) DESC, q2.created_at DESC LIMIT 1
        ) q ON TRUE
       WHERE l.id = ANY($1::text[])`, [ids.map(String)]).catch(async () => (await pool.query(
-    `SELECT l.id, l.brand_name, l.sent_to_email, NULL AS contact_email, NULL AS queue_email FROM outreach_logs l WHERE l.id = ANY($1::text[])`, [ids.map(String)])))).rows;
+    `SELECT l.id, l.brand_name, l.sent_to_email, NULL AS contact_email, NULL AS queue_email, NULL AS queue_verified FROM outreach_logs l WHERE l.id = ANY($1::text[])`, [ids.map(String)])))).rows;
   for (const r of rows) {
     const have = norm(r.sent_to_email);
     if (have) { out.set(String(r.id), have); continue; }
     // THEN OUR OWN ADDRESS CACHE. Three of the 25 "no address to send to" rows
     // of 2026-09-23 had an address there all along (Central City Toyota's
     // mmisuraco@, HornsDownShop's info@): nothing asked it.
-    const found = norm(r.contact_email) || norm(r.queue_email) || await cachedAddress(pool, r.brand_name);
+    //
+    // EVERY ADDRESS FROM THE EMAIL FINDER (SEND_GATE_ON, EMAIL_FIVE_ON): only the address the
+    // finder verified for the named person on this draft's card. Not the
+    // contact an AI search suggested, not a scraped desk, not the contacts
+    // lane: that is how info@ and a general counsel's inbox were mailed.
+    const found = (require('./sendGate').ON() || process.env.EMAIL_FIVE_ON === '1')
+      ? (r.queue_verified === true ? norm(r.queue_email) : null)
+      : norm(r.contact_email) || norm(r.queue_email) || await cachedAddress(pool, r.brand_name);
     if (!found) continue;
     await pool.query(`UPDATE outreach_logs SET sent_to_email = $2, updated_at = NOW() WHERE id = $1 AND COALESCE(sent_to_email, '') = ''`, [r.id, found]);
     out.set(String(r.id), found);

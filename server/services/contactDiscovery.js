@@ -164,6 +164,33 @@ async function discoverContacts(agentId, enrichmentRecord, knownContacts) {
     rows.push({ name: null, title: 'Generic inbox (no named contact)', email: shared.genericInbox, phone: null, linkedin: null, contact_type: 'general', confidence_score: 0.2, source: 'published', priority: 99 });
   }
 
+  // ── EVERY ADDRESS FROM THE EMAIL FINDER (SEND_GATE_ON) ──────────────────
+  // The names a web search found stay; the addresses it, a scrape or the
+  // card suggested do not, and a generic inbox is never a row. The person the
+  // pitch opens to gets the address the email finder verifies for them, or
+  // none: services/finderAddress.
+  const FA = require('./finderAddress');
+  if (FA.ON()) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (!rows[i].name && rows[i].email && !rows[i].phone) { rows.splice(i, 1); continue; }
+      rows[i].email = null;
+      rows[i].confidence_score = rows[i].phone ? 0.6 : 0.5;
+    }
+    const top = rows.find((r) => r.name);
+    if (top) {
+      try {
+        const f = await FA.forPerson(pool, { brand: enrichmentRecord.brand_name, name: top.name, title: top.title,
+          website: enrichmentRecord.website || null, region: enrichmentRecord.location || '', agentId, source: 'finder-outreach' });
+        if (f.email) {
+          top.email = f.email;
+          top.source = 'finder';
+          top.confidence_score = f.verified ? 0.95 : 0.5;
+          top.email_check = f.verified ? 'deliverable: verified by the email finder' : `unverified: ${f.why || 'the email finder could not verify it'}`;
+        } else top.email_check = `unverified: ${f.why || 'the email finder found no address'}`;
+      } catch (e) { console.warn('[contactDiscovery] email finder failed: ' + e.message); }
+    }
+  }
+
   // ── DOES THE ADDRESS TAKE MAIL? CHECKED BEFORE IT IS STORED ──────────────
   // Syntax, then an MX lookup on the domain (services/emailValidation). An
   // address that fails is stored WITHOUT the address: the row keeps the
@@ -171,9 +198,9 @@ async function discoverContacts(agentId, enrichmentRecord, knownContacts) {
   // as an email contact. A pass or a could-not-check is recorded too.
   try {
     const EVAL = require('./emailValidation');
-    const checks = await EVAL.validateMany(pool, rows.map((r) => r.email).filter(Boolean));
+    const checks = await EVAL.validateMany(pool, rows.filter((r) => r.source !== 'finder').map((r) => r.email).filter(Boolean));
     for (const r of rows) {
-      if (!r.email) continue;
+      if (!r.email || r.source === 'finder') continue;
       const v = checks.get(String(r.email).trim().toLowerCase());
       if (v && v.deliverable === false) {
         console.log(`[contactDiscovery] brand="${enrichmentRecord.brand_name}" ${r.email} is undeliverable (${v.reason}); stored without the address`);
