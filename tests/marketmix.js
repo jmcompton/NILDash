@@ -237,7 +237,7 @@ async function main() {
   ok('  the national cards say why the athlete fits: a past campaign', [vel, stride].every((c) => c && c.fit_reasons.some((x) => /^Past campaign: signed/.test(x))), [vel && vel.fit_reasons, stride && stride.fit_reasons]);
 
   // ── 5. A LANE THAT CANNOT FILL STAYS EMPTY ────────────────────────────────
-  OUT.push('', '-- a lane nobody passes the bar for is not backfilled --');
+  OUT.push('', '-- a lane nobody passes the bar for is backfilled from local (tests/mixbackfill.js has the rest) --');
   // Neither national contact's address verifies tonight, and Stride's index
   // page is its home page (no official application page).
   for (const e of ['jordan.miles@mxvelocitywear.com', 'taylor.brooks@mxstrideco.com']) VALID.delete(e);
@@ -245,8 +245,9 @@ async function main() {
   const r4 = await fill('mxm-short', 'regional', null, { instagram: 150000 });
   const c4 = await cards('mxm-short');
   const l4 = byLane(c4);
-  ok('Regional with no verified national contact: 2 local + 2 social, the national seat left empty and said so, not backfilled from local',
-    l4.local === 2 && l4.social === 2 && !l4.national && r4.loop && r4.loop.mix && r4.loop.mix.short.includes('national 0 of 1'), { lanes: l4, mix: r4.loop && r4.loop.mix });
+  ok('Regional with no verified national contact: 2 social and 3 local, the national seat backfilled from local and said so',
+    l4.local === 3 && l4.social === 2 && !l4.national && r4.loop && r4.loop.mix && r4.loop.mix.short.length === 0
+    && r4.loop.mix.backfilled.length === 1 && r4.loop.mix.backfilled[0].seat === 'national', { lanes: l4, mix: r4.loop && r4.loop.mix });
   ok('  each national brand turned down with its reason', /no verified address for Jordan Miles/.test(reasonFor(r4, 'Mx Velocity Wear') || '') && /no verified address for Taylor Brooks/.test(reasonFor(r4, 'Mx Stride Co') || ''),
     [reasonFor(r4, 'Mx Velocity Wear'), reasonFor(r4, 'Mx Stride Co')]);
   for (const e of ['jordan.miles@mxvelocitywear.com', 'taylor.brooks@mxstrideco.com']) VALID.add(e);

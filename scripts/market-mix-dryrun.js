@@ -52,7 +52,8 @@ async function main() {
   console.log('');
 
   const agents = new Map();
-  const totals = { athletes: 0, cards: 0, byLane: { local: 0, social: 0, national: 0 }, seats: { local: 0, social: 0, national: 0 }, usd: 0, byTier: {} };
+  const totals = { athletes: 0, cards: 0, byLane: { local: 0, social: 0, national: 0 }, seats: { local: 0, social: 0, national: 0 }, usd: 0, byTier: {},
+    backfilled: 0, backfilledBy: {} };
   for (const row of rows) {
     const name = (row.data && row.data.name) || row.id;
     let agent = agents.get(row.agent_id);
@@ -88,6 +89,10 @@ async function main() {
     totals.usd += Number(spend.usd) || 0;
     totals.byTier[score.tierLabel] = (totals.byTier[score.tierLabel] || 0) + 1;
     for (const c of cards) totals.byLane[DM.laneOf(c)]++;
+    for (const b of ((r && r.loop && r.loop.mix && r.loop.mix.backfilled) || [])) {
+      totals.backfilled++;
+      totals.backfilledBy[b.seat] = (totals.backfilledBy[b.seat] || 0) + 1;
+    }
     const seats = DM.mixFor(score.tier);
     for (const l of DM.LANES) totals.seats[l] += seats[l];
   }

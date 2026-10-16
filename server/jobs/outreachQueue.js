@@ -80,7 +80,9 @@ const EF = require('../services/emailFinder');
 //                        of about five or fewer people (one per athlete per
 //                        night). Runs the finishing step too.
 const FINDER = {
-  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1' || process.env.EMAIL_SMART_PICK === '1',
+  // MARKET_MIX_ON too: a backfilled brand seat takes only a verified named
+  // person's email, so the mailbox check must be able to run (services/dealMix).
+  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1' || process.env.EMAIL_SMART_PICK === '1' || process.env.MARKET_MIX_ON === '1',
   more: () => process.env.EMAIL_FINDER_MORE === '1',
   five: () => process.env.EMAIL_FIVE_ON === '1',
   smart: () => process.env.EMAIL_SMART_PICK === '1',
@@ -776,11 +778,13 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
      card.signingEvidence ? JSON.stringify(card.signingEvidence) : null]);
   const wrote = (ins.rowCount || 0) > 0;
   // THE DEAL MIX (MARKET_MIX_ON): the tier the card was placed for, the
-  // brand's size, and why this athlete fits this brand.
+  // brand's size, why this athlete fits this brand, and the brand seat a
+  // backfilled local card fills.
   if (wrote && card.mixTier && ins.rows[0] && ins.rows[0].id) {
     await DM.ensureColumns(pool).catch(() => {});
-    await pool.query(`UPDATE outreach_queue SET market_tier = $2, brand_size = $3, fit_reasons = $4 WHERE id = $1`,
-      [ins.rows[0].id, card.mixTier, card.brandSize || null, card.fitReasons ? JSON.stringify(card.fitReasons) : null])
+    await pool.query(`UPDATE outreach_queue SET market_tier = $2, brand_size = $3, fit_reasons = $4, backfill_for = $5 WHERE id = $1`,
+      [ins.rows[0].id, card.mixTier, card.brandSize || null, card.fitReasons ? JSON.stringify(card.fitReasons) : null,
+        card.mixBackfill ? card.mixBackfill.seat : null])
       .catch((e) => console.error('[queue] mix fields not recorded: ' + e.message));
   }
   // VERIFIED BY THE EMAIL FINDER: a verified address for the named person.
@@ -1070,14 +1074,32 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     const tier = (ms && ms.tier) || 'local_star';
     const held = DM.heldByLane(mixRows, { five: FINDER.five() });
     _mix = { tier, score: ms ? ms.score : null, confidence: ms ? ms.confidence : null, held,
-      quota: DM.remaining(tier, held), placed: { local: 0, social: 0, national: 0 }, unscored: !ms };
+      quota: DM.remaining(tier, held), placed: { local: 0, social: 0, national: 0 }, unscored: !ms,
+      // THE BACKFILL (see backfillMix): a social or national seat nobody
+      // passed the bar for, moved to the local lane at the end of the pass.
+      backfill: { done: false, seats: 0, placed: 0, from: [], entries: [] } };
+    _mix.seats = { ..._mix.quota };
     const _seats = _mix.quota.local + _mix.quota.social + _mix.quota.national;
     if (open.length > _seats) open = open.slice(0, _seats);
     say(`${athleteName}: Market Score ${ms ? ms.score : 'not computed (treated as Local Star)'}; ${DM.describe(tier, _mix.quota)}`);
   }
-  // Seats each lane can still take tonight.
-  const mixSeats = () => (_mix ? { local: _mix.quota.local - _mix.placed.local, social: _mix.quota.social - _mix.placed.social,
-    national: _mix.quota.national - _mix.placed.national } : null);
+  // Seats each lane can still take tonight. A backfilled brand seat is a
+  // local seat.
+  const mixSeats = () => (_mix ? { local: _mix.quota.local - _mix.placed.local + (_mix.backfill.seats - _mix.backfill.placed),
+    social: _mix.quota.social - _mix.placed.social, national: _mix.quota.national - _mix.placed.national } : null);
+  // The next local card fills a backfilled brand seat (the tier's own local
+  // seats are all placed).
+  const mixBackfillNext = () => !!_mix && (_mix.quota.local - _mix.placed.local) <= 0 && (_mix.backfill.seats - _mix.backfill.placed) > 0;
+  // Local businesses passed over only because the local seats were full:
+  // first in line if a brand seat is backfilled.
+  const _mixHeldLocal = [];
+  // A local card placed: one of the tier's local seats, or a backfilled one.
+  const mixPlacedLocal = (card, slot) => {
+    if (!card.mixBackfill) { _mix.placed.local++; return; }
+    _mix.backfill.placed++;
+    _mix.backfill.entries.push({ seat: card.mixBackfill.seat, why: card.mixBackfill.why, slot, brand: card.brandName,
+      contact: card.contactName || null, email: card.email || null });
+  };
   if (!open.length) {
     // Says the real number. It said "three" while SLOTS_PER_ATHLETE was five,
     // which made a full athlete look like a bug in the slot count.
@@ -1476,6 +1498,61 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     return [];
   }
 
+  // ── AN EMPTY BRAND SEAT NEVER LEAVES THE ATHLETE SHORT (MARKET_MIX_ON) ────
+  // At the end of the pass -- every source drained -- a social or national
+  // seat nobody passed the bar for moves to the local lane, under the
+  // verified named-person email rule (no DM, no call, no general inbox, no
+  // unverified address, whatever EMAIL_FIVE_ON says). The businesses passed
+  // over only because the local seats were full go first; then the ladder is
+  // walked again, so the local rungs skipped while the local seats were full
+  // can run. Once per pass. Recorded on the run row (loop.mix.backfilled).
+  function mixLaneWhy(lane) {
+    const SEAT = /seat\(s\) for a .* are taken/;
+    // One verdict per brand: its last one tonight, then the slate's refusals
+    // of brands never tried.
+    const byBrand = new Map();
+    for (const x of tried) if (x && x.lane === lane && x.result !== 'queued' && !SEAT.test(String(x.reason || ''))) byBrand.set(x.brand, x);
+    for (const r of ((slate && slate.evidenceRefused) || [])) if (r && r.lane === lane && !byBrand.has(r.brand)) byBrand.set(r.brand, { reason: r.why, result: 'rejected' });
+    if (!byBrand.size) return `no ${lane} brand was a candidate for a ${DM.TIER_LABEL[_mix.tier]}`;
+    const kinds = new Map();
+    for (const x of byBrand.values()) {
+      const r = String(x.reason || x.result || '');
+      const k = /no researched reason/.test(r) ? 'no researched fit'
+        : /no verified address/.test(r) ? 'no verified address for the named contact'
+        : /not a partnerships, influencer or marketing contact|not a lead who can sign/.test(r) ? 'contact not a partnerships or marketing lead'
+        : /does not say why/.test(r) ? 'the pitch stated no fit'
+        : /household incumbent/.test(r) ? 'household incumbent'
+        : /cannot be matched/.test(r) ? 'size unknown'
+        : /seats take|is never pitched a national brand|has no .* seats/.test(r) ? 'wrong size for the tier'
+        : x.result === 'no_name' ? 'nobody named'
+        : /already researched/.test(r) ? 'already researched tonight'
+        : x.result === 'error' ? 'failed on our side'
+        : r.replace(/^[^:]*: /, '').slice(0, 60);
+      kinds.set(k, (kinds.get(k) || 0) + 1);
+    }
+    const top = [...kinds.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3).map(([k, n]) => `${n} ${k}`).join(', ');
+    return `no ${lane} brand passed the bar: ${byBrand.size} considered (${top})`;
+  }
+  function backfillMix() {
+    if (!_mix || _mix.backfill.done) return false;
+    _mix.backfill.done = true;
+    const s = mixSeats();
+    let moved = 0;
+    for (const lane of ['social', 'national']) {
+      const n = s[lane];
+      if (n <= 0) continue;
+      const why = mixLaneWhy(lane);
+      for (let i = 0; i < n; i++) _mix.backfill.from.push({ seat: lane, why });
+      _mix.backfill.seats += n;
+      _mix.quota[lane] -= n;                  // the lane's empty seats are local seats now
+      moved += n;
+      say(`${athleteName}: ${n} ${lane} seat(s) backfilled from the local lane: ${why}`);
+    }
+    if (!moved) return false;
+    rung = 0;                                 // walk the ladder again for the local lane
+    return true;
+  }
+
   // Seed the known set with the first slate, and refill up front when the Scout
   // already says the pool is spent -- same moment the old widen fired.
   for (const c of (slate.picks || [])) knownBrands.add(bk(c.brand_name));
@@ -1568,6 +1645,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // Drained: ask the ladder for more before giving up on the slot.
       if (ci >= cands.length) {
         const added = await refillSlate('slate drained');
+        // THE DEAL MIX: nothing left in any lane, and a brand seat still empty.
+        if (!added.length && _mix && backfillMix()) {
+          added.push(..._mixHeldLocal.splice(0));
+          if (!added.length) added.push(...(await refillSlate('backfilling an empty brand seat from the local lane')));
+        }
         if (!added.length) { stop = 'ladder'; break; }
         cands.push(...(await smartReorder(added)));
       }
@@ -1622,14 +1704,26 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         }
       }
       // ── THE DEAL MIX: THE LANE'S SEATS AND THE BRAND'S SIZE, BEFORE MONEY ──
+      // _mixBackfill: this local candidate would fill a backfilled brand seat,
+      // which takes only a verified named person's email.
+      let _mixBackfill = false;
       if (_mix && cand.lane) {
         const _lane = DM.laneOf(cand);
         let _skip = null;
-        if (mixSeats()[_lane] <= 0) _skip = `the ${_lane} lane's ${DM.mixFor(_mix.tier)[_lane]} seat(s) for a ${DM.TIER_LABEL[_mix.tier]} are taken`;
-        else {
+        if (mixSeats()[_lane] <= 0) {
+          _skip = `the ${_lane} lane's ${DM.mixFor(_mix.tier)[_lane]} seat(s) for a ${DM.TIER_LABEL[_mix.tier]} are taken`;
+          // Not spent on, and first in line if a brand seat is backfilled.
+          if (_lane === 'local' && !_mix.backfill.done) {
+            _mixHeldLocal.push(cand);
+            say(`${cand.brand_name}: held, ${_skip}`);
+            tried.push({ brand: cand.brand_name, result: 'skipped', stage: 'mix-seat', reason: _skip, lane: cand.lane || null, places: { found: false }, risk: 'normal' });
+            continue;
+          }
+        } else {
+          _mixBackfill = _lane === 'local' && mixBackfillNext();
           const _seat = DM.seatOk(_mix.tier, cand);
           if (!_seat.ok) _skip = _seat.why;
-          else if (FINDER.five() && _lane === 'local') {
+          else if ((FINDER.five() || _mixBackfill) && _lane === 'local') {
             const _chain = require('../services/nationalChains').isChainLocation(cand.brand_name);
             if (_chain) _skip = `a national chain location (${_chain}), skipped before any lookup`;
           }
@@ -2331,7 +2425,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           say(`${cand.brand_name}: the email finder failed on our side (${e.message})`);
           OF.record('email-finder', e.message, cand.brand_name);
         }
-        if (!_fin && FINDER.five()) {
+        if (!_fin && (FINDER.five() || _mixBackfill)) {
           const why = 'the email finder failed on our side, so no verified address';
           tried.push({ brand: cand.brand_name, result: 'error', stage: 'email', reason: why, fault: true, lane: cand.lane,
             places: facts, risk: pre.risk, why: _why });
@@ -2381,6 +2475,17 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             const why = `no verified email for a named person (${_r})`;
             say(`${cand.brand_name}: dropped, ${why}`);
             tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'email', reason: why, lane: cand.lane,
+              places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
+            continue;
+          }
+          // ── A BACKFILLED BRAND SEAT: A VERIFIED NAMED PERSON'S EMAIL ONLY ─
+          // Whatever EMAIL_FIVE_ON says: not a DM, not a call, not a general
+          // inbox, not an address that did not verify.
+          if (_mixBackfill && !verifiedNamedEmail(ladder, ig)) {
+            const _r = _f.stop || (_fin.verify && !_fin.verify.pass ? `${_fin.verify.email}: ${_fin.verify.why || _fin.verify.verdict}` : (_general ? 'only a general inbox' : 'no address found'));
+            const why = `a backfilled ${(_mix.backfill.from[_mix.backfill.placed] || {}).seat || 'brand'} seat takes only a verified named person's email (${_r})`;
+            say(`${cand.brand_name}: dropped, ${why}`);
+            tried.push({ brand: cand.brand_name, result: 'rejected', stage: 'backfill', reason: why, lane: cand.lane,
               places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
             continue;
           }
@@ -2556,10 +2661,21 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         card.thinNote = card.thin ? Scout.THIN_NOTE : null;
       }
       if (_mix) { card.mixTier = _mix.tier; card.brandSize = DM.sizeOf(cand).size; card.fitReasons = Fit.localReasons(cand, ctx.athleteProfile || profile, pitch); }
+      // The brand seat this card fills, and why that seat came to the local lane.
+      if (_mixBackfill) {
+        if (!(card.channel === 'email' && card.emailVerified === true && verifiedNamedEmail(ladder, ig))) {
+          const why = 'a backfilled seat takes only a verified named person\'s email, and this card is not one';
+          say(`${cand.brand_name}: dropped, ${why}`);
+          _settle({ result: 'rejected', stage: 'backfill', reason: why });
+          continue;
+        }
+        const _e = _mix.backfill.from[_mix.backfill.placed] || { seat: 'brand', why: null };
+        card.mixBackfill = { seat: _e.seat, why: _e.why };
+      }
       if (dry) {
         // A dry run hands the card it would have queued to the caller.
         if (ctx.onCard) { try { await ctx.onCard({ ...card, slot }); } catch (_) { /* the caller's problem */ } }
-        if (_mix) _mix.placed.local++;
+        if (_mix) mixPlacedLocal(card, slot);
         say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; channels.push(card.channel);
         if (card.businessCategory) typeCount.set(card.businessCategory, (typeCount.get(card.businessCategory) || 0) + 1);
         if (card.emailLabel === 'General inbox') generalPlaced++;
@@ -2572,7 +2688,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       if (await insertCard(pool, { agentId, athleteId, slot, card, marketKey: cand.hometown ? null : (profile && profile.marketKey) })) {
         placed = true; filled++; channels.push(card.channel);
-        if (_mix) _mix.placed.local++;
+        if (_mix) mixPlacedLocal(card, slot);
         if (card.businessCategory) typeCount.set(card.businessCategory, (typeCount.get(card.businessCategory) || 0) + 1);
         if (card.emailLabel === 'General inbox') generalPlaced++;
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
@@ -2596,6 +2712,18 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     ladder: 'every rung of the ladder, with nothing new left',
     'agent-cap': "the agent's nightly cap", share: "this athlete's share of the agent's nightly cap",
   };
+  // Seats still empty at the end of the pass: a lane short of its own seats,
+  // or a brand seat moved to local that the local lane could not fill.
+  function mixShort() {
+    const out = [];
+    const bfBy = (lane) => _mix.backfill.entries.filter((e) => e.seat === lane).length;
+    for (const l of DM.LANES) {
+      const seats = _mix.seats[l];
+      const got = _mix.placed[l] + (l === 'local' ? 0 : bfBy(l));
+      if (got < seats) out.push(`${l} ${got} of ${seats}${l !== 'local' && _mix.backfill.done ? ' (backfill from local found nothing for it either)' : ''}`);
+    }
+    return out;
+  }
   const loop = {
     stop: stop || (filled === open.length ? 'floor' : null),
     candidates: tried.length, candidatesToFloor, rungs: rungsFired.slice(),
@@ -2606,8 +2734,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     // THE DEAL MIX: the tier, each lane's seats, what was placed, and which
     // lanes came up short (a seat nobody passed the bar for stays empty).
     mix: _mix ? { tier: _mix.tier, score: _mix.score, confidence: _mix.confidence, unscored: _mix.unscored,
-      held: _mix.held, seats: _mix.quota, placed: { ..._mix.placed },
-      short: DM.LANES.filter((l) => _mix.placed[l] < _mix.quota[l]).map((l) => `${l} ${_mix.placed[l]} of ${_mix.quota[l]}`) } : undefined,
+      held: _mix.held, seats: _mix.seats, placed: { ..._mix.placed },
+      // EACH BACKFILLED SEAT: the brand seat, why it came to the local lane,
+      // and the local card that filled it. backfillUnfilled: seats moved to
+      // local that the local lane could not fill either.
+      backfilled: _mix.backfill.entries.slice(),
+      backfillUnfilled: _mix.backfill.seats - _mix.backfill.placed,
+      short: mixShort() } : undefined,
     channels: channels.reduce((m, c) => { const k = c || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {}),
     byLane: tried.reduce((m, t) => {
       const k = (t && t.lane) || 'local';
