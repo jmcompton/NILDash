@@ -1711,17 +1711,6 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       const cand = cands[ci++];
       _sw.start(cand);
-      if (HP.cacheOnly()) {
-        if (!_cache) await enterCache();
-        if (!_cache.brands.has(bk(cand.brand_name))) {
-          _cache.skipped++;
-          tried.push({ brand: cand.brand_name, result: 'skipped', stage: 'cache',
-            reason: `Hunter credits for tonight are spent, and no address at this business was verified in the last ${HP.CACHE_DAYS} days`,
-            lane: cand.lane || null, places: { found: false }, risk: 'normal' });
-          continue;
-        }
-        cand._fromCache = true;
-      }
       // BEFORE the money, priced at the CEILING. A lookup that would breach the
       // cap is never started, so the cap cannot be overshot by one business.
       if (!budget.canSpend(LOOKUP_CEILING_USD)) {
@@ -1735,6 +1724,19 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         capStop = { potGone, why };
         stop = potGone ? 'agent-cap' : 'share';
         break;
+      }
+      // CACHE MODE (services/hunterPace): only a business with an address
+      // verified in the last 30 days, skipped before any lookup otherwise.
+      if (HP.cacheOnly()) {
+        if (!_cache) await enterCache();
+        if (!_cache.brands.has(bk(cand.brand_name))) {
+          _cache.skipped++;
+          tried.push({ brand: cand.brand_name, result: 'skipped', stage: 'cache',
+            reason: `Hunter credits for tonight are spent, and no address at this business was verified in the last ${HP.CACHE_DAYS} days`,
+            lane: cand.lane || null, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+        cand._fromCache = true;
       }
       // ── RESTRICTED, BY NAME, IN EVERY LANE: no lookup, no card ──────────
       // Before the lanes split, so a social or national brand is checked too
