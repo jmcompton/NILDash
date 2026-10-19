@@ -21187,7 +21187,8 @@ async function hqFixAthlete(id) {
   else showView('roster', document.querySelectorAll('.nav-item')[5]);
 }
 
-async function hqLoad(athleteId, opts) {
+async function hqLoad(athleteId) {
+  var opts = arguments[1];   // { firstPaint: true } from the first-paint load below
   var url = '/api/agent/home' + (athleteId ? '?athlete=' + encodeURIComponent(athleteId) : '');
   var panel = document.getElementById('home-panel');
   try {

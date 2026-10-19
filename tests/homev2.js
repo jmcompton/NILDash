@@ -165,9 +165,12 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('  not another path, not a POST', !PH.servesHome(req({ path: '/index.html' })) && !PH.servesHome(req({ method: 'POST' })));
   delete process.env.HOME_V2_ON;
   const SRV = read('server/index.js');
-  ok('the route for / runs before express.static, and reads the session first', SRV.indexOf("app.get('/', (req, res, next)") > 0
-    && SRV.indexOf("app.get('/', (req, res, next)") < SRV.indexOf('app.use(express.static(') && /sessionMw\(req, res, \(err\) =>/.test(SRV));
-  ok('  the same session middleware every other route uses', /const sessionMw = session\(\{/.test(SRV) && /app\.use\(sessionMw\);/.test(SRV) && (SRV.match(/session\(\{/g) || []).length === 1);
+  const at = (t) => SRV.indexOf(t);
+  ok('the route for / runs after the session, so it can read it', at("app.get('/', (req, res, next)") > at('app.use(session({') && at('app.use(session({') > 0);
+  ok('  express.static leaves / to it only with the switch on (off, static answers / as always)',
+    /index: require\('\.\/services\/publicHome'\)\.ON\(\) \? false : 'index\.html',/.test(SRV) && at("index: require('./services/publicHome')") > at('app.use(express.static('));
+  ok('  and anything it does not serve falls to the catch-all\'s index.html', /if \(!PH\.servesHome\(req\)\) return next\(\);/.test(SRV) && at("app.get('*'") > at("app.get('/', (req, res, next)"));
+  ok('  the session mount itself is untouched: one session({ ... }), mounted with app.use', (SRV.match(/session\(\{/g) || []).length === 1 && at('app.use(session({') > 0);
   const IDX = read('public/index.html');
   ok('index.html opens sign-in from ?signin=agent, and sign-up with &tab=signup', /qs\.get\('signin'\)/.test(IDX) && /mktOpenAuth\(role\)/.test(IDX) && /switchTab\('signup'\)/.test(IDX));
   ok('  logging out goes to the new page when the server says so', /if \(await toPublicHome\(r\)\) return;\n  showMarketingLanding\(\);/.test(IDX) && /d\.home === '\/'\) \{ window\.location\.assign\('\/'\)/.test(IDX) && /home: require\('\.\/services\/publicHome'\)\.ON\(\) \? '\/' : null/.test(SRV));

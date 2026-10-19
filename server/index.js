@@ -436,45 +436,25 @@ app.use((req, res, next) => {
   return to ? res.redirect(302, to) : next();
 });
 
-// The session middleware, built here so the public homepage (just below) can
-// read the session before express.static answers /. Mounted for every route
-// further down, as before; a second run on the same request is a no-op.
-const sessionMw = session({
-  store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
-  secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
-});
-
-// ── THE PUBLIC HOMEPAGE (HOME_V2_ON, services/publicHome) ───────────────────
-// A visitor with no session asking for / gets server/views/home.html, a page
-// with none of the agent portal in it. A session, or any query the app reads,
-// gets index.html as before. Off: this passes straight through.
-app.get('/', (req, res, next) => {
-  const PH = require('./services/publicHome');
-  if (!PH.ON()) return next();
-  sessionMw(req, res, (err) => {
-    if (err || !PH.servesHome(req)) return next();
-    PH.send(store.pool, req, res).catch((e) => { console.error('[home] ' + e.message); next(); });
-  });
-});
-// The same page whatever the switch says, kept out of search, so it can be
-// read on production before HOME_V2_ON goes on.
-app.get('/home-preview', (req, res) => {
-  require('./services/publicHome').send(store.pool, req, res, { preview: true })
-    .catch((e) => { console.error('[home-preview] ' + e.message); res.status(500).type('text/plain').send('Could not render the page.'); });
-});
-
 // /demo.html reaches the same file through here, so it gets the same no-cache
 // header as /demo (see the /demo route).
 app.use(express.static(path.join(__dirname, '..', 'public'), {
+  // With HOME_V2_ON, / is not answered here: the public homepage route after
+  // the session decides it (services/publicHome), and index.html comes from
+  // the catch-all. Off, / is index.html from here, as it always was.
+  index: require('./services/publicHome').ON() ? false : 'index.html',
   setHeaders: (res, filePath) => {
     if (['demo.html', 'athletics.html', 'university.html'].includes(path.basename(filePath))) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   },
 }));
 app.set('trust proxy', 1);
-app.use(sessionMw);
+app.use(session({
+  store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
+  secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
+}));
 
 // The admin viewing any university's portal, read-only, for this session
 // only (services/adminView). Before every /api/university route.
@@ -526,6 +506,23 @@ app.use('/api', universityWall);
   const AG = require('./middleware/adminGate');
   app.use(AG.PREFIXES, AG.makeAdminGate({ getUser: (id) => store.getUser(id), adminEmail: ADMIN_EMAIL, isFounderEmail }));
 }
+
+// ── THE PUBLIC HOMEPAGE (HOME_V2_ON, services/publicHome) ───────────────────
+// A visitor with no session asking for / gets server/views/home.html, a page
+// with none of the agent portal in it. A session, or any query the app reads,
+// falls through to the catch-all's index.html as before. Off, express.static
+// has already answered / and this never runs.
+app.get('/', (req, res, next) => {
+  const PH = require('./services/publicHome');
+  if (!PH.servesHome(req)) return next();
+  PH.send(store.pool, req, res).catch((e) => { console.error('[home] ' + e.message); next(); });
+});
+// The same page whatever the switch says, kept out of search, so it can be
+// read on production before HOME_V2_ON goes on.
+app.get('/home-preview', (req, res) => {
+  require('./services/publicHome').send(store.pool, req, res, { preview: true })
+    .catch((e) => { console.error('[home-preview] ' + e.message); res.status(500).type('text/plain').send('Could not render the page.'); });
+});
 
 // ── Auth middleware ────────────────────────────────────────────
 function requireAuth(req, res, next) {
