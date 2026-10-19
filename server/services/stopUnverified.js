@@ -53,7 +53,7 @@ async function gather(pool, opts = {}) {
 // One email, one decision. -> { action: 'stop' | 'keep', why, verdict }
 async function classify(pool, r) {
   const who = String(r.contact_name || '').trim() || r.queue_contact || await SG.contactNameFor(pool, r).catch(() => null);
-  const v = await SG.peek(pool, r.address, who, { brand: r.brand_name });
+  const v = await SG.peek(pool, r.address, who, { brand: r.brand_name, athleteId: r.athlete_id || null });
   if (v.verified) return { action: 'keep', why: 'valid within 30 days', verdict: v, contactName: who };
   if (v.stale) return { action: 'keep', why: v.why, verdict: v, contactName: who, stale: true };
   return { action: 'stop', why: v.why, code: v.code, verdict: v, contactName: who };

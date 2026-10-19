@@ -542,6 +542,11 @@
       "total": 40,
       "fault": null
     },
+    "gatenames.js": {
+      "failed": 0,
+      "total": 88,
+      "fault": null
+    },
     "greet.js": {
       "failed": 0,
       "total": 50,
