@@ -89,6 +89,18 @@ const FINDER = {
   five: () => process.env.EMAIL_FIVE_ON === '1',
   smart: () => process.env.EMAIL_SMART_PICK === '1',
 };
+// ── NO PAID RESEARCH WHERE NOTHING CAN COME OF IT (NIGHTLY_SKIP_ON) ─────────
+// An agent with no connected mailbox cannot send a single email card, and a
+// test athlete is not a client. Neither is researched at night: the agent is
+// skipped with the reason on the night's row, a test athlete is left off the
+// roster (and its budget) with a row of its own, and each skip is printed.
+// "Test" is matched as a word, case-insensitively ("Test Athlete", "Amber
+// TEST"), so a surname such as Testa is not a test athlete. Off unless
+// NIGHTLY_SKIP_ON=1: every agent and athlete is filled as before.
+const NIGHT_SKIP = {
+  on: () => process.env.NIGHTLY_SKIP_ON === '1',
+  testAthlete: (name) => /\btest\b/i.test(String(name || '')),
+};
 // ── WHAT HOLDS ONE OF THE FIVE ──────────────────────────────────────────────
 // EMAIL_FIVE_ON: only a verified email card (a named person's address, or the
 // one General inbox card) holds a slot. A DM, call, program or unverified email
@@ -2966,11 +2978,17 @@ async function fillAgent(pool, agent, opts) {
   const programBrandTally = await loadProgramBrandTally(pool, agent.id);
   // THE WHOLE ATHLETE, not three fields. Every pitch used to say "a college
   // athlete here in your area", which throws away the only thing being sold.
-  const athletes = (await pool.query(
+  const roster = (await pool.query(
     `SELECT id, data, data->>'name' AS name, data->>'hometown' AS hometown,
             data->>'school' AS school
        FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
     [agent.id])).rows;
+  // NIGHTLY_SKIP_ON: a test athlete is left off the roster and its budget.
+  const testAthletes = NIGHT_SKIP.on() ? roster.filter((a) => NIGHT_SKIP.testAthlete(a.name)) : [];
+  const athletes = testAthletes.length ? roster.filter((a) => !testAthletes.includes(a)) : roster;
+  for (const t of testAthletes) {
+    console.log(`[queue] agent=${agent.id} athlete=${t.id} "${t.name}" skipped: a test athlete (the name contains "Test"), so no paid research tonight`);
+  }
   // The sign-off: their "First name for sign-offs" under AGENT_SETUP_ON when
   // set (services/agentName.pitchSignOffName), else their first name.
   const agentFirst = AgentName.pitchSignOffName(agent);
@@ -2999,6 +3017,13 @@ async function fillAgent(pool, agent, opts) {
   // card, not a reason -- so the page had nothing to show but blank space, which
   // reads exactly like the page failing to load rather than like an honest answer.
   const details = [];
+  // Each test athlete still gets its row, saying why it got nothing. Not an
+  // attempt: it never counts toward the three-night pause.
+  for (const t of testAthletes) {
+    details.push({ athleteId: t.id, athleteName: t.name, filled: 0, open: null, skipped: 'test-athlete',
+      note: 'skipped: a test athlete (the name contains "Test"), so no paid research tonight',
+      tried: [], paused: false, spentUsd: 0, spendLog: [] });
+  }
   // One market refill per market per run, shared across the roster: nine
   // athletes in one town cost one scan, not nine. See refillSlate.
   const _refilledMarkets = new Set();
@@ -3428,6 +3453,13 @@ async function runAgents(opts = {}) {
         console.error('[queue] could not record the skip for ' + a.id + ': ' + e.message));
     };
     if (nameless) return skipRow(nameless);
+    // NIGHTLY_SKIP_ON: no connected mailbox, no paid research. A mailbox that
+    // could not be read is not "none": that agent is filled as usual.
+    if (NIGHT_SKIP.on() && !opts.force) {
+      const mb = await require('../services/emailStore').sendingMailbox(a.id).catch((e) => {
+        console.error(`[queue] agent=${a.id} mailbox read failed (${e.message}); filling as usual`); return null; });
+      if (mb && !mb.connected) return skipRow(`skipped: no connected mailbox (${mb.why || 'none'}), so no paid research tonight`);
+    }
     let dormant = null;
     if (!opts.agentId && !opts.force) {
       const why = inactiveSkip(a, opts.now);

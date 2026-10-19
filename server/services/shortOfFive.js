@@ -130,6 +130,8 @@ async function collect(pool, { now } = {}) {
     if (/^skipped: /.test(String(run.note || ''))) { skippedByDesign++; continue; }
     for (const d of (Array.isArray(run.details) ? run.details : [])) {
       if (!d || !d.athleteId) continue;
+      // A test athlete left off the night by design (NIGHTLY_SKIP_ON) is not short.
+      if (d.skipped) { skippedByDesign++; continue; }
       athletes++;
       const h = held.get(d.athleteId) || { verified: 0, other: 0 };
       for (const b of ((d.loop && d.loop.mix && d.loop.mix.backfilled) || [])) {
@@ -203,7 +205,7 @@ function render(r) {
       L.push(`  ${b.athlete}: the ${b.seat} seat -> ${b.brand}${b.contact ? `, ${b.contact}` : ''}${b.email ? ` <${b.email}>` : ''} (verified email). Why: ${b.why || 'no reason recorded'}`);
     }
   }
-  if (r.skippedByDesign) L.push('', `${r.skippedByDesign} agent(s) were not filled by design (not signed in recently).`);
+  if (r.skippedByDesign) L.push('', `${r.skippedByDesign} agent(s) or test athlete(s) were not filled by design (not signed in recently, no connected mailbox, or a test athlete).`);
   L.push('', 'Details: /api/admin/scripts/email-finder-report?text=1&days=1');
   const text = L.join('\n');
   const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
