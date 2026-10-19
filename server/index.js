@@ -439,6 +439,10 @@ app.use((req, res, next) => {
 // /demo.html reaches the same file through here, so it gets the same no-cache
 // header as /demo (see the /demo route).
 app.use(express.static(path.join(__dirname, '..', 'public'), {
+  // With HOME_V2_ON, / is not answered here: the public homepage route after
+  // the session decides it (services/publicHome), and index.html comes from
+  // the catch-all. Off, / is index.html from here, as it always was.
+  index: require('./services/publicHome').ON() ? false : 'index.html',
   setHeaders: (res, filePath) => {
     if (['demo.html', 'athletics.html', 'university.html'].includes(path.basename(filePath))) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   },
@@ -502,6 +506,23 @@ app.use('/api', universityWall);
   const AG = require('./middleware/adminGate');
   app.use(AG.PREFIXES, AG.makeAdminGate({ getUser: (id) => store.getUser(id), adminEmail: ADMIN_EMAIL, isFounderEmail }));
 }
+
+// ── THE PUBLIC HOMEPAGE (HOME_V2_ON, services/publicHome) ───────────────────
+// A visitor with no session asking for / gets server/views/home.html, a page
+// with none of the agent portal in it. A session, or any query the app reads,
+// falls through to the catch-all's index.html as before. Off, express.static
+// has already answered / and this never runs.
+app.get('/', (req, res, next) => {
+  const PH = require('./services/publicHome');
+  if (!PH.servesHome(req)) return next();
+  PH.send(store.pool, req, res).catch((e) => { console.error('[home] ' + e.message); next(); });
+});
+// The same page whatever the switch says, kept out of search, so it can be
+// read on production before HOME_V2_ON goes on.
+app.get('/home-preview', (req, res) => {
+  require('./services/publicHome').send(store.pool, req, res, { preview: true })
+    .catch((e) => { console.error('[home-preview] ' + e.message); res.status(500).type('text/plain').send('Could not render the page.'); });
+});
 
 // ── Auth middleware ────────────────────────────────────────────
 function requireAuth(req, res, next) {
@@ -1089,7 +1110,9 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => {
   req.session.destroy();
-  res.json({ ok: true });
+  // With the public homepage on, the page reloads to it (public/index.html
+  // doLogout) rather than showing the old landing built into the app.
+  res.json({ ok: true, home: require('./services/publicHome').ON() ? '/' : null });
 });
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
@@ -12167,6 +12190,34 @@ app.post('/unsubscribe', express.urlencoded({ extended: false, limit: '4kb' }), 
   }
   console.log(`[unsubscribe] ${address} suppressed for every agent; ${out.stopped} queued message(s) stopped`);
   res.send(unsubscribePage({ address, done: true }));
+});
+
+// ── The athlete waitlist on the public homepage (services/publicHome) ──────
+// JSON from the page's script; a plain form post without it, answered with a
+// redirect back to the page. The hidden "website" field is a bot trap: filled
+// in, it is thanked and dropped.
+const waitlistLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { ok: false, error: 'Too many tries. Wait a few minutes and try again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.post('/api/public/waitlist', waitlistLimiter, express.urlencoded({ extended: false, limit: '2kb' }), async (req, res) => {
+  const PH = require('./services/publicHome');
+  const json = req.is('application/json') || /json/i.test(req.get('accept') || '');
+  const back = (ok) => res.redirect(303, (PH.ON() ? '/' : '/home-preview') + '?joined=' + (ok ? '1' : '0') + '#athletes');
+  const b = req.body || {};
+  if (b.website) return json ? res.json({ ok: true }) : back(true);
+  try {
+    const out = await PH.joinWaitlist(store.pool, b.email, { source: 'home' });
+    if (!out.ok) return json ? res.status(400).json({ ok: false, error: out.error }) : back(false);
+    if (!out.already) console.log('[waitlist] an athlete joined the waitlist');
+    return json ? res.json({ ok: true }) : back(true);
+  } catch (e) {
+    console.error('[waitlist] ' + e.message);
+    return json ? res.status(500).json({ ok: false, error: 'That did not go through. Try again in a minute.' }) : back(false);
+  }
 });
 
 // ── Landing page ──────────────────────────────────────────────

@@ -637,6 +637,11 @@
       "total": 63,
       "fault": null
     },
+    "homev2.js": {
+      "failed": 0,
+      "total": 147,
+      "fault": null
+    },
     "hunteraudit.js": {
       "failed": 0,
       "total": 26,
