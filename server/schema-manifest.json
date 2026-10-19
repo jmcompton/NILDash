@@ -842,6 +842,12 @@
       "type": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "home_waitlist": {
+      "audience": "TEXT DEFAULT 'athlete'",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "email": "TEXT",
+      "source": "TEXT"
+    },
     "hunter_call_log": {
       "at": "TIMESTAMPTZ DEFAULT NOW()",
       "endpoint": "TEXT",

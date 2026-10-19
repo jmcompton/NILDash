@@ -436,6 +436,36 @@ app.use((req, res, next) => {
   return to ? res.redirect(302, to) : next();
 });
 
+// The session middleware, built here so the public homepage (just below) can
+// read the session before express.static answers /. Mounted for every route
+// further down, as before; a second run on the same request is a no-op.
+const sessionMw = session({
+  store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
+  secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
+});
+
+// ── THE PUBLIC HOMEPAGE (HOME_V2_ON, services/publicHome) ───────────────────
+// A visitor with no session asking for / gets server/views/home.html, a page
+// with none of the agent portal in it. A session, or any query the app reads,
+// gets index.html as before. Off: this passes straight through.
+app.get('/', (req, res, next) => {
+  const PH = require('./services/publicHome');
+  if (!PH.ON()) return next();
+  sessionMw(req, res, (err) => {
+    if (err || !PH.servesHome(req)) return next();
+    PH.send(store.pool, req, res).catch((e) => { console.error('[home] ' + e.message); next(); });
+  });
+});
+// The same page whatever the switch says, kept out of search, so it can be
+// read on production before HOME_V2_ON goes on.
+app.get('/home-preview', (req, res) => {
+  require('./services/publicHome').send(store.pool, req, res, { preview: true })
+    .catch((e) => { console.error('[home-preview] ' + e.message); res.status(500).type('text/plain').send('Could not render the page.'); });
+});
+
 // /demo.html reaches the same file through here, so it gets the same no-cache
 // header as /demo (see the /demo route).
 app.use(express.static(path.join(__dirname, '..', 'public'), {
@@ -444,13 +474,7 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
   },
 }));
 app.set('trust proxy', 1);
-app.use(session({
-  store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
-  secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
-}));
+app.use(sessionMw);
 
 // The admin viewing any university's portal, read-only, for this session
 // only (services/adminView). Before every /api/university route.
@@ -1089,7 +1113,9 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => {
   req.session.destroy();
-  res.json({ ok: true });
+  // With the public homepage on, the page reloads to it (public/index.html
+  // doLogout) rather than showing the old landing built into the app.
+  res.json({ ok: true, home: require('./services/publicHome').ON() ? '/' : null });
 });
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
@@ -12167,6 +12193,34 @@ app.post('/unsubscribe', express.urlencoded({ extended: false, limit: '4kb' }), 
   }
   console.log(`[unsubscribe] ${address} suppressed for every agent; ${out.stopped} queued message(s) stopped`);
   res.send(unsubscribePage({ address, done: true }));
+});
+
+// ── The athlete waitlist on the public homepage (services/publicHome) ──────
+// JSON from the page's script; a plain form post without it, answered with a
+// redirect back to the page. The hidden "website" field is a bot trap: filled
+// in, it is thanked and dropped.
+const waitlistLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { ok: false, error: 'Too many tries. Wait a few minutes and try again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.post('/api/public/waitlist', waitlistLimiter, express.urlencoded({ extended: false, limit: '2kb' }), async (req, res) => {
+  const PH = require('./services/publicHome');
+  const json = req.is('application/json') || /json/i.test(req.get('accept') || '');
+  const back = (ok) => res.redirect(303, (PH.ON() ? '/' : '/home-preview') + '?joined=' + (ok ? '1' : '0') + '#athletes');
+  const b = req.body || {};
+  if (b.website) return json ? res.json({ ok: true }) : back(true);
+  try {
+    const out = await PH.joinWaitlist(store.pool, b.email, { source: 'home' });
+    if (!out.ok) return json ? res.status(400).json({ ok: false, error: out.error }) : back(false);
+    if (!out.already) console.log('[waitlist] an athlete joined the waitlist');
+    return json ? res.json({ ok: true }) : back(true);
+  } catch (e) {
+    console.error('[waitlist] ' + e.message);
+    return json ? res.status(500).json({ ok: false, error: 'That did not go through. Try again in a minute.' }) : back(false);
+  }
 });
 
 // ── Landing page ──────────────────────────────────────────────
