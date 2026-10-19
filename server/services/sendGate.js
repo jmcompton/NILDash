@@ -17,8 +17,9 @@
 //   - never a legal, counsel, privacy, careers, customer-service or other
 //     department inbox (emailFinder.NEVER_LOCAL), and never a shared desk
 //     (info@, hello@, contact@, ...): those are not a named person;
-//   - the email names a person, and the address is theirs (it carries their
-//     first or last name, the same test free-held-slots uses);
+//   - the email names a person, and the address is theirs: their first or
+//     last name, their initials, or a common nickname (services/nameMatch).
+//     A single letter is theirs only on their own small business;
 //   - valid in email_verification within 30 days, or re-verified right now
 //     with Hunter (charged to the month's verification pool as 'send-gate').
 // Not valid: the send is blocked and the card offers a call or a DM instead,
@@ -79,8 +80,24 @@ function addressProblem(email, contactName, opts = {}) {
   if (!n || !n.first || n.first.length < 2 || notPerson) {
     return { code: 'no-person', why: name ? `the email is not addressed to a named person (${notPerson || 'no first name'})` : 'the email does not name the person it is for' };
   }
-  if (!EF.carriesName(e, name)) return { code: 'not-theirs', why: `${e} is not ${name}'s address (it does not carry their name)` };
+  const m = require('./nameMatch').match(e, name, { brand: opts.brand || null, title: opts.title || null, lane: opts.lane || null, sizeBand: opts.sizeBand || null });
+  if (!m.ok) return { code: 'not-theirs', why: m.why };
   return null;
+}
+
+// The card's business details, read only for a single-letter address
+// (services/nameMatch: a single letter is a name only on the person's own
+// small business). Anything not found stays unknown, and unknown blocks.
+async function contextFor(pool, email, opts = {}) {
+  if (!require('./nameMatch').needsContext(email)) return opts;
+  if (opts.title && (opts.lane || opts.sizeBand)) return opts;
+  const r = (await pool.query(
+    `SELECT brand_name, contact_title, lane, size_band FROM outreach_queue
+      WHERE LOWER(email) = $1 AND ($2::text IS NULL OR athlete_id = $2)
+      ORDER BY created_at DESC LIMIT 1`, [lc(email), opts.athleteId || null]).catch(() => ({ rows: [] }))).rows[0];
+  if (!r) return opts;
+  return { ...opts, brand: opts.brand || r.brand_name || null, title: opts.title || r.contact_title || null,
+    lane: opts.lane || r.lane || null, sizeBand: opts.sizeBand || r.size_band || null };
 }
 
 // ── WHAT THE VERIFIER SAID, AS ONE WORD ─────────────────────────────────────
@@ -131,7 +148,9 @@ function liveVerifier(pool, { agentId, athleteId, business } = {}) {
 async function check(pool, args = {}, deps = {}) {
   const now = args.now ? new Date(args.now).getTime() : Date.now();
   const email = lc(args.email);
-  const prob = addressProblem(email, args.contactName, { typed: !!args.typed, brand: args.business || null });
+  const ctx = await contextFor(pool, email, { typed: !!args.typed, brand: args.business || null, athleteId: args.athleteId || null,
+    title: args.title || null, lane: args.lane || null, sizeBand: args.sizeBand || null });
+  const prob = addressProblem(email, args.contactName, ctx);
   const row = email ? await verificationOf(pool, email) : null;
   if (prob) return { ok: false, ...prob, status: categoryOf(row) };
   if (freshValid(row, now)) return { ok: true, status: 'valid', checkedAt: row.checked_at, reverified: false };
@@ -160,7 +179,7 @@ async function check(pool, args = {}, deps = {}) {
 // stop-unverified script and the record of a send made with the gate off.
 async function peek(pool, email, contactName, opts = {}) {
   const e = lc(email);
-  const prob = addressProblem(e, contactName, opts);
+  const prob = addressProblem(e, contactName, await contextFor(pool, e, opts));
   const row = e ? await verificationOf(pool, e) : null;
   const now = opts.now ? new Date(opts.now).getTime() : Date.now();
   const valid = !prob && freshValid(row, now);
@@ -280,6 +299,6 @@ async function blockAndOffer(pool, log, verdict, opts = {}) {
 }
 
 module.exports = {
-  ON, FRESH_DAYS, ensureColumns, addressProblem, categoryOf, verificationOf, check, peek,
+  ON, FRESH_DAYS, ensureColumns, addressProblem, contextFor, categoryOf, verificationOf, check, peek,
   contactNameFor, pathOf, recordSend, offerFor, offerSentence, blockAndOffer, liveVerifier,
 };
