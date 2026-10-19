@@ -178,13 +178,46 @@ router.get('/draft', async (req, res) => {
            ORDER BY created_at DESC LIMIT 1`, [req.principal.id, athleteId, brand]);
     const row = r.rows[0];
     if (!row) return res.status(404).json({ error: 'no draft yet' });
+    // EVERY ADDRESS FROM THE EMAIL FINDER (SEND_GATE_ON): the draft's own
+    // address (a morning card's is the finder's) goes to the editor with its
+    // label, so the To field is prefilled from it and says Verified or not.
+    let to = null;
+    const SG = require('../services/sendGate');
+    if (SG.ON() && row.sent_to_email) {
+      const who = await SG.contactNameFor(pool, row).catch(() => null);
+      const p = await SG.peek(pool, row.sent_to_email, who, { brand: row.brand_name });
+      to = { email: p.email, verified: p.verified, label: p.label, why: p.why, contactName: who || null };
+    }
     res.json({
       id: row.id, subject: row.subject, body_html: row.body_html,
       brand_name: row.brand_name, brand_key: row.brand_key,
       source: row.source || null, created_at: row.created_at,
+      // Under `finder`: the one key the address-stripping middleware keeps.
+      ...(to ? { finder: to } : {}),
     });
   } catch (e) {
     console.error('[outreach/draft]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/outreach/find-address ────────────────────────────────────────
+// EVERY ADDRESS FROM THE EMAIL FINDER (SEND_GATE_ON): the editor's To field
+// for a named person at a business. { brand, name, title?, website?, region?,
+// athleteId? } -> { email, verified, label, why }. Cached 30 days per person.
+router.post('/find-address', async (req, res) => {
+  try {
+    const FA = require('../services/finderAddress');
+    if (!FA.ON()) return res.status(404).json({ error: 'not enabled' });
+    const b = req.body || {};
+    const brand = String(b.brand || '').trim().slice(0, 160);
+    const name = String(b.name || '').trim().slice(0, 120);
+    if (!brand || !name) return res.status(400).json({ error: 'brand and name required' });
+    const f = await FA.forPerson(pool, { brand, name, title: b.title || null, website: b.website || null, region: b.region || '',
+      agentId: req.principal.id, athleteId: b.athleteId || null, source: 'finder-editor' }, router._finderDeps || null);
+    res.json({ finder: { name, ...f } });
+  } catch (e) {
+    console.error('[outreach/find-address]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -372,6 +405,15 @@ router.get('/logs', async (req, res) => {
        ORDER BY ol.created_at DESC LIMIT 50`,
       [req.principal.id]
     );
+    // SEND_GATE_ON: each address says Verified or Not verified, and why.
+    const SG = require('../services/sendGate');
+    if (SG.ON()) {
+      for (const row of r.rows) {
+        if (!row.sent_to_email) continue;
+        const p = await SG.peek(pool, row.sent_to_email, row.contact_name, { brand: row.brand_name }).catch(() => null);
+        if (p) row.finder = { email: p.email, verified: p.verified, label: p.label, why: p.why };
+      }
+    }
     res.json(r.rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -427,9 +469,37 @@ function failureSentence(e) {
   return { msg, reason: mine ? 'scope' : c.kind };
 }
 
-async function runManualSend(ctx, log, emailAccountId, toEmail) {
+// The gate's verifier, swappable by tests that mount this router.
+router._gateDeps = {};
+
+async function runManualSend(ctx, log, emailAccountId, toEmail, contactName) {
   const sendRules = require('../services/sendRules');
+  const SG = require('../services/sendGate');
   const system = Number(log.touch_no || 1) > 1 ? 'follow-up' : 'manual';
+  // ── ONE GATE AT SEND TIME (services/sendGate, SEND_GATE_ON) ────────────
+  // The editor's Send is held to the same rule as every other path: a named
+  // person's address, valid within 30 days (re-verified now if older). Not
+  // valid: not sent, and the reason and the call or DM instead are on the
+  // draft, where the editor and the card read them.
+  let gate = null;
+  if (SG.ON()) {
+    await SG.ensureColumns(pool);
+    const who = String(contactName || '').trim() || await SG.contactNameFor(pool, log).catch(() => null);
+    if (who && who !== log.contact_name) await pool.query(`UPDATE outreach_logs SET contact_name = $2 WHERE id = $1`, [log.id, who]).catch(() => {});
+    gate = await SG.check(pool, { email: toEmail, contactName: who, agentId: ctx.principal.id, athleteId: log.athlete_id,
+      business: log.brand_name }, router._gateDeps || {})
+      .catch((e) => ({ ok: false, code: 'not-run', retry: true, why: 'the address check failed on our side: ' + e.message }));
+    if (!gate.ok) {
+      if (gate.retry) {
+        const msg = `Not sent: ${gate.why}. Try again in a few minutes, or call or DM them instead.`;
+        await pool.query(`UPDATE outreach_logs SET send_error = $2, send_claimed_at = NULL, gate_reason = $3, updated_at = NOW() WHERE id = $1 AND sent_at IS NULL`,
+          [log.id, msg.slice(0, 600), gate.code]).catch(() => {});
+        return { ok: false, msg, reason: 'unverified', gate: gate.code };
+      }
+      const b = await SG.blockAndOffer(pool, { ...log, sent_to_email: toEmail }, gate, { contactName: who });
+      return { ok: false, msg: b.message, reason: 'unverified', gate: gate.code, offer: b.offer };
+    }
+  }
   let sendResult;
   try {
     sendResult = await router._sendImpl(ctx, emailAccountId, toEmail, log);
@@ -446,6 +516,12 @@ async function runManualSend(ctx, log, emailAccountId, toEmail) {
   }
   // It has left. Every write from here on records a fact; none may undo it.
   await sendRules.record(pool, { email: toEmail, subject: log.subject, agentId: ctx.principal.id, refId: log.id, system });
+  {
+    // What was known about the address as it left, and that it went by hand.
+    const st = gate && gate.ok ? { status: 'valid', checkedAt: gate.checkedAt }
+      : await SG.peek(pool, toEmail, null, { typed: true }).then((p) => ({ status: p.status, checkedAt: p.checkedAt })).catch(() => ({}));
+    await SG.recordSend(pool, log.id, { ...st, path: 'hand' });
+  }
   try {
     await pool.query(
       `UPDATE outreach_logs
@@ -485,18 +561,50 @@ function sendStateOf(row) {
   const claimFresh = row.send_claimed_at && (Date.now() - new Date(row.send_claimed_at).getTime()) < CLAIM_STALE_MINUTES * 60000;
   if (row.sent_at || row.status === 'sent') return { state: 'sent', sentAt: row.sent_at, to: row.sent_to_email };
   if (claimFresh) return { state: 'sending' };
-  if (row.cadence_stopped_at) return { state: 'failed', error: 'Not sent: ' + (row.cadence_stop_reason || 'stopped') };
+  if (row.cadence_stopped_at) {
+    const why = String(row.cadence_stop_reason || 'stopped');
+    // A send the gate blocked says so in full, with the call or DM instead.
+    return { state: 'failed', error: /^Not sent\b/.test(why) ? why : 'Not sent: ' + why, ...(row.gate_offer ? { offer: row.gate_offer } : {}) };
+  }
   if (row.status === 'approved') {
     return row.send_hold_reason ? { state: 'sending', held: true, error: row.send_hold_reason } : { state: 'sending' };
   }
-  if (row.send_error) return { state: 'failed', error: row.send_error };
+  if (row.send_error) return { state: 'failed', error: row.send_error, ...(row.gate_offer ? { offer: row.gate_offer } : {}) };
   return { state: row.status || 'draft' };
 }
+
+// ── POST /api/outreach/logs/:id/bounced: "This bounced" (SEND_GATE_ON) ──────
+// gmail.send cannot see a bounce: it lands in the agent's own inbox and
+// nothing here reads it. The agent says so on the sent email, and the address
+// is suppressed (every unsent message to it, on any roster, stops) and this
+// thread's follow-ups stop.
+router.post('/logs/:id/bounced', async (req, res) => {
+  try {
+    const SG = require('../services/sendGate');
+    if (!SG.ON()) return res.status(404).json({ error: 'not enabled' });
+    await SG.ensureColumns(pool);
+    const log = (await pool.query(`SELECT * FROM outreach_logs WHERE id = $1 AND agent_id = $2`, [req.params.id, req.principal.id])).rows[0];
+    if (!log) return res.status(404).json({ error: 'Outreach log not found' });
+    if (!log.sent_at) return res.status(400).json({ error: 'Only an email that was sent can bounce.' });
+    if (!log.sent_to_email) return res.status(400).json({ error: 'This email has no address on record.' });
+    const sup = await require('../services/sendRules').suppressManually(pool, log.sent_to_email, {
+      reason: `bounced: reported from the agent's inbox (${log.brand_name || 'outreach'})`, by: req.principal.id, kind: 'bounce' });
+    if (!sup.ok) return res.status(400).json({ error: sup.error });
+    const thread = await require('../services/suppression').stopCadence(pool, log, 'the first email bounced (reported by the agent)');
+    await pool.query(`UPDATE outreach_logs SET bounced_at = COALESCE(bounced_at, NOW()), bounced_by = $2, updated_at = NOW() WHERE id = $1`,
+      [log.id, req.principal.id]);
+    console.log(`[outreach/bounced] agent=${req.principal.id} ${log.id} "${log.brand_name}" ${sup.email} suppressed; stopped ${sup.stopped + thread} unsent`);
+    res.json({ ok: true, suppressed: sup.email, stopped: sup.stopped + thread, bouncedAt: new Date().toISOString() });
+  } catch (e) {
+    console.error('[outreach/bounced]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 router.get('/logs/:id/send-status', async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT status, sent_at, sent_to_email, send_claimed_at, send_error, send_hold_reason, cadence_stopped_at, cadence_stop_reason
+      `SELECT status, sent_at, sent_to_email, send_claimed_at, send_error, send_hold_reason, cadence_stopped_at, cadence_stop_reason, gate_offer
          FROM outreach_logs WHERE id = $1 AND agent_id = $2`, [req.params.id, req.principal.id]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Outreach log not found' });
     res.json({ id: req.params.id, ...sendStateOf(r.rows[0]) });
@@ -509,7 +617,7 @@ router.post('/logs/:id/send', require('../services/sendTimings').middleware('out
   const T = req._T;
   const finish = (status, body, note) => { if (res.locals) res.locals.timingNote = note || null; res.status(status).json(body); };
   try {
-    const { emailAccountId, toEmail } = req.body || {};
+    const { emailAccountId, toEmail, contactName } = req.body || {};
     const r = await pool.query('SELECT * FROM outreach_logs WHERE id=$1 AND agent_id=$2', [req.params.id, req.principal.id]);
     const log = r.rows[0];
     T.mark('read');
@@ -551,7 +659,7 @@ router.post('/logs/:id/send', require('../services/sendTimings').middleware('out
     finish(202, { ok: true, state: 'sending', id: log.id }, 'claimed');
     // Behind the response. Its outcome is on the row (send-status).
     const ctx = { principal: { id: req.principal.id, kind: req.principal.kind } };
-    runManualSend(ctx, claim.rows[0], emailAccountId, toEmail)
+    runManualSend(ctx, claim.rows[0], emailAccountId, toEmail, contactName)
       .catch((e) => console.error('[outreach/send] background send crashed', log.id, e.message));
   } catch (e) {
     console.error('[outreach/send]', e.message);

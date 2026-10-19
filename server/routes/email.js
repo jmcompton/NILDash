@@ -465,6 +465,21 @@ router.post('/send', async (req, res) => {
       if (!rule.ok) return res.status(409).json({ error: 'Not sent: ' + rule.reason, reason: rule.kind });
     }
 
+    // ── ONE GATE AT SEND TIME (services/sendGate, SEND_GATE_ON) ────────────
+    // A new message is outreach, so each address passes the gate: never a
+    // department or shared inbox, and valid within 30 days (re-verified now
+    // if older). There is no card here, so no named person to hold it to; the
+    // address is checked on its own. A reply inside a thread is a
+    // conversation the other side started, and is not held to it.
+    const SG = require('../services/sendGate');
+    if (!threadId && SG.ON()) {
+      for (const addr of recipients) {
+        const g = await SG.check(pool, { email: addr, typed: true, agentId: req.session.userId }, router._gateDeps || {})
+          .catch((e) => ({ ok: false, code: 'not-run', retry: true, why: 'the address check failed on our side: ' + e.message }));
+        if (!g.ok) return res.status(409).json({ error: 'Not sent: ' + g.why + (g.retry ? '. Try again in a few minutes.' : '.'), reason: 'unverified', gate: g.code });
+      }
+    }
+
     // ── THE CAN-SPAM FOOTER ────────────────────────────────────────────────
     // A new message composed in the inbox is outreach: a business contact who
     // did not ask for it is about to receive commercial email, so it carries

@@ -253,6 +253,19 @@ async function stopReason(pool, root, chain) {
   if (!addr) return 'no address on the first email';
   const sup = await suppression.isSuppressed(pool, addr).catch(() => ({ suppressed: false }));
   if (sup && sup.suppressed) return sup.reason || 'the address is suppressed';
+  // ── NEVER A FOLLOW-UP TO AN ADDRESS NOBODY VERIFIED (SEND_GATE_ON) ─────
+  // A follow-up to an address that was never verified valid, or that has
+  // verified invalid since the first email, is the same bounce twice more.
+  // Known valid at the first send (recorded on the row), or valid in the
+  // cache; never an invalid verdict since.
+  if (require('./sendGate').ON()) {
+    const SG = require('./sendGate');
+    const v = await SG.verificationOf(pool, addr);
+    if (v && v.result === 'invalid') return `the address verified invalid${v.checked_at && new Date(v.checked_at) > new Date(root.sent_at) ? ' since the first email' : ''} (${v.detail || 'the verifier says invalid'})`;
+    if (root.send_verify_status !== 'valid' && !(v && v.result === 'valid')) {
+      return `the address was never verified (${v ? 'the verifier says ' + SG.categoryOf(v) : 'no check on record'}), so no follow-up goes to it`;
+    }
+  }
   // A reply that reached a connected mailbox and has not been matched yet.
   const inbound = (await pool.query(
     `SELECT 1 FROM emails e WHERE e.user_id = $1 AND e.direction = 'received' AND LOWER(e.from_address) = $2 AND e.sent_at > $3 AND COALESCE(e.subject, '') !~* '^(automatic reply|auto[- ]?reply|out of (the )?office|autoreply|auto:|away from)' LIMIT 1`,

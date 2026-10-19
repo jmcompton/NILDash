@@ -92,6 +92,14 @@ async function lookupOne(pool, brand) {
 // a caller in front of a page load can never hang on a resolver.
 async function attach(pool, opts = {}) {
   const { agentId, ids = null, limit = 500 } = opts;
+  // EVERY ADDRESS FROM THE EMAIL FINDER (SEND_GATE_ON): a site scrape stamped
+  // on a draft is not one. Nothing is attached; a draft with no finder
+  // address becomes its card's call or DM (draftChannel.convert).
+  if (require('./sendGate').ON()) return { considered: 0, attached: 0, missing: 0, details: [], finderOnly: true };
+  // EMAIL_FIVE_ON: only a verdict of VALID attaches. "Unknown" (catch-all, a
+  // budget spent, a check out of time) used to attach as an email card and
+  // was counted as nothing more than "marked unverified".
+  const validOnly = process.env.EMAIL_FIVE_ON === '1';
   // athlete_id comes back now because the credit ceiling is per athlete per day
   // and the backfill spans the whole roster. Without it the Closer's 300-draft
   // pass had no athlete to charge, which is why it ran unbudgeted.
@@ -253,6 +261,11 @@ async function attach(pool, opts = {}) {
       continue;
     }
     if (!v || v.result === 'unknown') out.unverifiable++;
+    if (validOnly && !(v && v.result === 'valid')) {
+      out.details.push({ id: r.id, brand: r.brand_name, result: 'not-verified', email: hit.email,
+        why: `${hit.email} did not verify as valid (${v ? v.detail || v.result : 'not checked'}), and EMAIL_FIVE_ON takes only verified addresses` });
+      continue;
+    }
     await pool.query(
       `UPDATE outreach_logs
           SET sent_to_email = $2, email_kind = $3, email_tier = $4, email_source_url = $5, updated_at = NOW()

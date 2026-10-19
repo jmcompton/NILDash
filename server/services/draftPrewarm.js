@@ -319,8 +319,15 @@ async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) 
   // Looked up, never invented. A brand with nothing cached gets null, the draft
   // still exists as a DM or call card, and the Closer says why it cannot mail it.
   let addr = null;
+  // ── NO SCRAPED ADDRESS ON A VERIFIED-ONLY NIGHT ─────────────────────────
+  // EMAIL_FIVE_ON counts only addresses the email finder verified for a
+  // named person, and SEND_GATE_ON takes every address from the finder. A
+  // scan-time draft is written before anyone is named, so it is born with
+  // no address: tonight's card (the finder's address) or a call or DM
+  // reaches the business, never a site-scraped inbox shown as an email card.
+  const finderOnly = process.env.EMAIL_FIVE_ON === '1' || require('./sendGate').ON();
   try {
-    addr = await require('./draftAddress').lookupOne(pool, brand);
+    if (!finderOnly) addr = await require('./draftAddress').lookupOne(pool, brand);
   } catch (e) {
     console.error('[prewarm] address lookup failed for ' + brand + ':', e.message);
   }

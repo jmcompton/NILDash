@@ -82,7 +82,9 @@ const EF = require('../services/emailFinder');
 const FINDER = {
   // MARKET_MIX_ON too: a backfilled brand seat takes only a verified named
   // person's email, so the mailbox check must be able to run (services/dealMix).
-  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1' || process.env.EMAIL_SMART_PICK === '1' || process.env.MARKET_MIX_ON === '1',
+  // SEND_GATE_ON too: a morning card's address comes only from the finder.
+  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1' || process.env.EMAIL_SMART_PICK === '1' || process.env.MARKET_MIX_ON === '1'
+    || process.env.SEND_GATE_ON === '1',
   more: () => process.env.EMAIL_FINDER_MORE === '1',
   five: () => process.env.EMAIL_FIVE_ON === '1',
   smart: () => process.env.EMAIL_SMART_PICK === '1',
@@ -111,6 +113,7 @@ const Fit = require('../services/fitReasons');
 const BrandContact = require('../services/brandContact');
 const HELD_MIX_SQL = `SELECT slot, state, channel, email_verified, lane, program_url FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`;
 const Reach = require('../services/reachability');
+const SG = require('../services/sendGate');
 const TYPE_CAP = 2;
 const VERIFY_TRIES = 3;
 // Between tries of a check that could not run: long enough for Hunter to
@@ -710,6 +713,21 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
           `UPDATE outreach_logs SET cadence_stopped_at = NULL, cadence_stop_reason = NULL,
               sent_to_email = COALESCE(NULLIF(sent_to_email,''), $2), updated_at = NOW()
             WHERE id = $1`, [logId, card.email]).catch(() => {});
+      }
+      // ── THE DRAFT SENDS TO THE CARD'S ADDRESS ───────────────────────────
+      // The address on the card is the one the email finder verified tonight
+      // for the person the card names. The draft it links to may have been
+      // written earlier (a Deal Scan pre-warm) with a scraped or blank
+      // address, and the draft is what sends: so a "verified" card went out
+      // to an address nobody checked. The verified address wins on any
+      // unsent, unapproved draft.
+      if (card.emailVerified === true && card.email) {
+        await pool.query(
+          `UPDATE outreach_logs SET sent_to_email = $2, email_kind = $3, email_tier = $4, email_source_url = $5, updated_at = NOW()
+            WHERE id = $1 AND status = 'draft' AND approved_at IS NULL AND sent_at IS NULL
+              AND LOWER(COALESCE(sent_to_email, '')) IS DISTINCT FROM LOWER($2)`,
+          [logId, String(card.email).trim().toLowerCase(), card.emailKind || null, card.emailTier || null, card.emailSourceUrl || null])
+          .catch((e) => console.error(`[queue] could not readdress draft ${logId}: ${e.message}`));
       }
       console.log(`[queue] athlete=${athleteId} "${card.brandName}" linked to the existing draft ${logId}`);
     }
@@ -2418,7 +2436,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         let _fin = null;
         try {
           _fin = await EF.finishLadder({ ladder, out, ig, brand: cand.brand_name, region: cand.region || region || '', place, more: FINDER.more(),
-            smart: FINDER.smart(), allowGeneral: generalPlaced < 1, type: _placeType || cand.businessCategory || null },
+            // SEND_GATE_ON: a named person's valid address only. No general
+            // inbox, and a catch-all never passes (the gate would block both).
+            smart: FINDER.smart(), allowGeneral: !SG.ON() && generalPlaced < 1, validOnly: SG.ON() || undefined,
+            type: _placeType || cand.businessCategory || null },
             EF.liveDeps(pool, { agentId, athleteId, business: cand.brand_name, source: 'nightly' }));
           _sw.lap('emailFinder');
         } catch (e) {
@@ -2446,7 +2467,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           // A VERIFIED GENERAL INBOX (EMAIL_SMART_PICK) fills a slot too: one of
           // the five at most, greeting the owner by name.
           const _ib = Q.inboxOf(ladder);
-          const _general = FINDER.smart() && channel === 'email' && !!(_ib && _ib.general);
+          const _general = FINDER.smart() && !SG.ON() && channel === 'email' && !!(_ib && _ib.general);
           _why.finder.generalInbox = _general || undefined;
           if (_general) _verifiedEmail = true;
           { const _p = Q.greetRowOf(ladder); if (_p) _why.person = { name: _p.name, title: _p.title || null, cls: _general ? 'general' : Reach.contactClass(_p.title) }; }
@@ -2647,6 +2668,28 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       card.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
       // Verified by the email finder: what the five and the 5:30 list count.
       card.emailVerified = card.channel === 'email' && _verifiedEmail;
+      // SEND_GATE_ON: an email card carries the email finder's verified address
+      // for a named person, or it is not an email card. The DM or the call
+      // instead, with the same pitch; with neither, no card.
+      if (SG.ON() && card.channel === 'email' && !(card.emailVerified && verifiedNamedEmail(ladder, ig))) {
+        const _alt = card.instagram && card.instagramScope !== 'brand' ? 'dm' : (card.phone ? 'call' : null);
+        const _was = card.email || 'no address';
+        if (!_alt) {
+          const why = `no verified email for a named person (${_was}), and no phone or Instagram`;
+          say(`${cand.brand_name}: dropped, ${why}`);
+          _settle({ result: 'rejected', stage: 'email', reason: why });
+          continue;
+        }
+        say(`${cand.brand_name}: ${_was} is not a named person's verified address; a ${_alt} card instead`);
+        card.channel = _alt;
+        card.dmText = _alt === 'dm' ? (card.emailBody || card.dmText) : null;
+        card.emailNote = `Not an email card: ${_was} is not a named person's verified address.`;
+        card.email = null; card.emailKind = null; card.emailLabel = null; card.emailBody = null; card.subject = null;
+        card.emailVerified = false;
+      }
+      if (SG.ON() && !dry && card.channel === 'email' && card.emailVerified && card.email && card.contactName) {
+        await require('../services/finderAddress').remember(pool, { brand: cand.brand_name, name: card.contactName, email: card.email });
+      }
       // ── THE KIND, AND WHETHER IT IS A THIN ONE ─────────────────────────
       // The Scout resolved both while ranking. The Places answer is better than
       // anything the slate had, though -- primaryType is a lookup where the
