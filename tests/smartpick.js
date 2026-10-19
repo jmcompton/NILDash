@@ -123,7 +123,21 @@ async function main() {
   OUT.push('', '-- EMAIL_SMART_PICK: the more reachable restaurant first, the type order untouched --');
   // A model that says a confirmed website makes the difference, and a cached
   // lookup that gives the LAST restaurant of the plain order a website.
-  const last = tacos0[tacos0.length - 1];
+  //
+  // THE PLAIN ORDER IS ASKED FOR, NOT ASSUMED. The Scout reads the market pool
+  // in a shuffle keyed on the athlete and the date (services/scout
+  // poolOrder), so sp-a0's order says nothing about sp-a2's: on some days the
+  // business last for one athlete is already first for the other, and "moved
+  // to first" proved nothing. sp-a2's own slate, as the night will read it
+  // today with smart pick not yet able to rank (no model), names the last.
+  const Scout = require(REPO + 'server/services/scout');
+  const a2data = { name: 'Sp sp-a2', school: 'Baylor University', sport: 'Football' };
+  await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ('sp-a2',$1,$2::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [AG, JSON.stringify(a2data)]);
+  const plain2 = await Scout.assembleSlate(P, { agentId: AG, athlete: AR.resolveAthlete({ id: 'sp-a2', data: a2data }, { schoolLocation: SR.resolveSchool }),
+    store, localOnly: true, limit: Q.SLOTS_PER_ATHLETE * Q.MAX_ATTEMPTS_PER_SLOT });
+  const tacosPlain = (plain2.picks || []).map((c) => c.brand_name).filter((b) => /Taco/.test(b));
+  ok('sp-a2\'s plain slate holds every restaurant', tacosPlain.length === 5, { tacosPlain, tacos0 });
+  const last = tacosPlain[tacosPlain.length - 1];
   const model = RM.build([
     ...Array.from({ length: 20 }, () => ({ signals: { type: 'restaurant', website: 'yes', placesWebsite: 'yes', ownerNamed: 'yes', size: 'unknown' }, verified: true })),
     ...Array.from({ length: 20 }, () => ({ signals: { type: 'restaurant', website: 'no', placesWebsite: 'no', ownerNamed: 'no', size: 'unknown' }, verified: false })),
@@ -133,14 +147,14 @@ async function main() {
   await P.query(`INSERT INTO brand_evidence_cache (brand_key, lane, brand, website, evidence, outcome, refreshed_at)
     VALUES ($1, 'contacts', $2, $3, $4, 'OK', NOW()) ON CONFLICT (brand_key, lane) DO NOTHING`,
     [`${last.toLowerCase()} | waco, tx | manual`, last, `https://${slug(last)}.com`, JSON.stringify({ contacts: [{ name: 'Dana Reed', title: 'Owner' }] })]);
-  for (const b of tacos0.slice(0, -1)) {
+  for (const b of tacosPlain.slice(0, -1)) {
     await P.query(`INSERT INTO brand_evidence_cache (brand_key, lane, brand, website, evidence, outcome, refreshed_at)
       VALUES ($1, 'contacts', $2, NULL, $3, 'NONE', NOW()) ON CONFLICT (brand_key, lane) DO NOTHING`, [`${b.toLowerCase()} | waco, tx | manual`, b, JSON.stringify({ contacts: [] })]);
   }
   const r2 = await fill('sp-a2');
   const order2 = (r2.tried || []).map((t) => t.brand);
   const tacos2 = order2.filter((b) => /Taco/.test(b));
-  ok(`within the restaurants, ${last} (a website, an owner named) is tried first`, tacos2[0] === last, { tacos0, tacos2 });
+  ok(`within the restaurants, ${last} (a website, an owner named) is tried first`, tacos2[0] === last, { tacosPlain, tacos2 });
   const ss = (r2.loop || {}).smartSlate;
   const typeSeq = (o) => o.map((b) => CAT_OF(b)).join(',');
   ok('  the slate before and after: every type in exactly the positions it held, nothing added or dropped',
@@ -148,6 +162,7 @@ async function main() {
   const tb = ss ? ss.before.filter((b) => /Taco/.test(b)) : [];
   const ta = ss ? ss.after.filter((b) => /Taco/.test(b)) : [];
   ok(`  and within the restaurants, ${last} moved to the first restaurant position`, ta[0] === last && (tb[0] !== last || tb.length === 1), { tb, ta });
+  ok('  the plain order the night read is the one asked for above', JSON.stringify(tb) === JSON.stringify(tacosPlain), { tb, tacosPlain });
 
   // ── 4. THE GENERAL INBOX ──────────────────────────────────────────────────
   OUT.push('', '-- EMAIL_SMART_PICK: a verified general inbox, one per athlete per night --');

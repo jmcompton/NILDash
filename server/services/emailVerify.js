@@ -47,7 +47,9 @@ const norm = (e) => String(e || '').trim().toLowerCase();
 const domainOf = (e) => { const p = norm(e).split('@'); return p.length === 2 ? p[1] : null; };
 
 // ── The store ───────────────────────────────────────────────────────────────
-async function cached(pool, emails) {
+// maxAgeDays: a shorter window than CACHE_DAYS (the nightly fill's cache
+// mode takes only a verdict from the last 30 days: services/hunterPace).
+async function cached(pool, emails, maxAgeDays) {
   const list = (emails || []).map(norm).filter(Boolean);
   if (!list.length) return new Map();
   try {
@@ -55,7 +57,7 @@ async function cached(pool, emails) {
       `SELECT email, result, detail, source, status FROM email_verification
         WHERE email = ANY($1::text[])
           AND checked_at > NOW() - ($2 || ' days')::interval`,
-      [list, String(CACHE_DAYS)])).rows;
+      [list, String(Math.min(CACHE_DAYS, Number(maxAgeDays) > 0 ? Number(maxAgeDays) : CACHE_DAYS))])).rows;
     return new Map(rows.map((r) => [r.email, r]));
   } catch (e) {
     console.error('[email-verify] cache read:', e.message);
@@ -205,7 +207,7 @@ async function verifyMany(pool, emails, opts = {}) {
   const out = new Map();
   if (!list.length) return out;
 
-  const known = opts.force ? new Map() : await cached(pool, list);
+  const known = opts.force ? new Map() : await cached(pool, list, opts.maxAgeDays);
   const memo = new Map();
   const deadline = opts.deadlineMs ? Date.now() + opts.deadlineMs : null;
   const outOfTime = () => deadline !== null && Date.now() > deadline;

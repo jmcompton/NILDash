@@ -869,6 +869,26 @@
       "with_addresses": "INT DEFAULT 0",
       "zero_addresses": "INT DEFAULT 0"
     },
+    "hunter_nights": {
+      "account": "JSONB",
+      "cache_at": "TIMESTAMPTZ",
+      "cache_only": "BOOLEAN DEFAULT FALSE",
+      "cache_why": "TEXT",
+      "ended_at": "TIMESTAMPTZ",
+      "plan": "JSONB",
+      "run_date": "DATE",
+      "spent": "JSONB",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
+    "hunter_pace_alerts": {
+      "alert_date": "DATE",
+      "body": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "error": "TEXT",
+      "kind": "TEXT",
+      "sent_at": "TIMESTAMPTZ",
+      "subject": "TEXT"
+    },
     "inbound_messages": {
       "classification": "TEXT",
       "email_id": "TEXT",

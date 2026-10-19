@@ -25,6 +25,9 @@
 // Cost: Hunter bills one credit per domain-search request. The caller decides
 // when to spend one; this module never retries a rate limit into a second.
 const store = require('../store');
+// TONIGHT'S ALLOWANCE (services/hunterPace, HUNTER_PACE_ON): counted where a
+// credit is committed, in the same synchronous step as the monthly ceiling.
+const HP = require('./hunterPace');
 
 const SEARCH_URL = 'https://api.hunter.io/v2/domain-search';
 const TIMEOUT_MS = parseInt(process.env.HUNTER_TIMEOUT_MS, 10) || 8000;
@@ -214,6 +217,9 @@ async function reserveCredit(force) {
   const verify = _verifyCache.used;
   const used = ladder + _reserved;
   if (used >= MONTHLY_BUDGET) return { ok: false, used, ladder, verify };
+  // Tonight's allowance (HUNTER_PACE_ON): still no await before the ++.
+  const pace = HP.take('search');
+  if (!pace.ok) return { ok: false, used, ladder, verify, pace: pace.why };
   _reserved++;
   return { ok: true, used, ladder, verify };
 }
@@ -350,6 +356,12 @@ async function _call(endpoint, url, { timeoutMs, fetchImpl } = {}) {
       continue;
     }
     _logCall({ endpoint, ms, outcome: resp.ok ? OUTCOME.OK : _outcomeForStatus(resp.status, json), status: resp.status, retries });
+    // OUT OF CREDITS, as Hunter says it (not "too fast"): the rest of the
+    // night places cards from cached addresses (services/hunterPace).
+    if ((resp.status === 429 || resp.status === 403) && !_isRateLimit(resp.status, json, raHeader)
+      && (resp.status === 429 || /quota|credit|plan|monthly|usage|subscription/i.test(_said(json)))) {
+      HP.markExhausted(`Hunter answered HTTP ${resp.status}${_said(json) ? ': ' + _said(json) : ''} (out of credits)`);
+    }
     return { status: resp.status, ok: resp.ok, json, ms, retries };
   }
 }
@@ -438,7 +450,8 @@ async function findDomainEmails(domain, opts = {}) {
   // so a ceiling that counted only Domain Search was not a ceiling on the plan.
   const acct = await reserveCredit();
   if (!acct.ok) {
-    console.warn(`[hunter] @${key} SKIPPED: monthly budget spent (${acct.used}/${MONTHLY_BUDGET}`
+    console.warn(acct.pace ? `[hunter] @${key} SKIPPED: ${acct.pace}`
+      : `[hunter] @${key} SKIPPED: monthly budget spent (${acct.used}/${MONTHLY_BUDGET}`
       + ` — ${acct.ladder} domain searches, ${acct.verify} verifications)`);
     return null;
   }
@@ -538,6 +551,9 @@ async function verifyEmail(email, opts = {}) {
     require('./ourFault').record('hunter', `verification budget spent (${b.verifyUsed}/${b.verifyBudget})`, '@' + addr.split('@')[1]);
     return { ok: false, why: `this month's Hunter verification budget is spent (${b.verifyUsed}/${b.verifyBudget})`, budget: true };
   }
+  // Tonight's allowance (HUNTER_PACE_ON), checked and counted in one step.
+  const pace = HP.take('verify');
+  if (!pace.ok) return { ok: false, why: pace.why, budget: true, pace: true };
 
   const url = `${VERIFY_URL}?email=${encodeURIComponent(addr)}&api_key=${encodeURIComponent(key)}`;
   try {
@@ -616,6 +632,8 @@ async function _findEmail(first, last, dom, key, opts) {
   }
   const acct = await reserveCredit();
   if (!acct.ok) {
+    // Tonight's allowance is a plan, not a fault: no fault row for it.
+    if (acct.pace) { console.warn(`[hunter-finder] ${key} SKIPPED: ${acct.pace}`); return { email: null, budget: true, pace: true, why: acct.pace }; }
     console.warn(`[hunter-finder] ${key} SKIPPED: monthly search budget spent (${acct.used}/${MONTHLY_BUDGET})`);
     require('./ourFault').record('hunter', `search budget spent (${acct.used}/${MONTHLY_BUDGET})`, '@' + dom);
     return { email: null, budget: true, why: `this month's Hunter search budget is spent (${acct.used}/${MONTHLY_BUDGET})` };
