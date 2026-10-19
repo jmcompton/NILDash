@@ -15583,6 +15583,20 @@ try {
   console.error('[short-of-five] scheduler failed to start:', e.message);
 }
 
+// ── Hunter, on track to run out before the reset? (services/hunterPace) ────
+// HUNTER_PACE_ON only. The nightly run reads the account before it spends;
+// this reads it every hour too (free), so daytime use that puts the period on
+// track to run out before the reset is alerted the moment it does, not at
+// the next night. One alert per pool per day.
+try {
+  const HPace = require('./services/hunterPace');
+  const hpTick = () => { if (HPace.ON()) HPace.tick(store.pool).catch((e) => console.error('[hunter-pace] tick failed:', e.message)); };
+  setTimeout(hpTick, 7 * 60 * 1000);
+  setInterval(hpTick, 60 * 60 * 1000);
+} catch (e) {
+  console.error('[hunter-pace] scheduler failed to start:', e.message);
+}
+
 // ── Analyst refresh scheduler ────────────────────────────────────────────────
 // Once a day, an hour after the nightly queue window closes, so kits are current
 // before the agent opens the page in the morning.

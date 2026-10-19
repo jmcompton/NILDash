@@ -16,6 +16,10 @@
 // slot beside the verified emails, as it does in the night, and counts here.
 
 const OQ = require('../jobs/outreachQueue');
+// HUNTER_PACE_ON: the email also carries Hunter's line (services/hunterPace),
+// what last night cost (services/nightCost), and says so when the night ran
+// in cache mode. With it on, the email goes every morning.
+const HP = require('./hunterPace');
 
 const FIVE = 5;
 const FROM_MINUTE = 5 * 60 + 30;   // 5:30am Central
@@ -46,6 +50,7 @@ function windowOpen(ms) {
 const STOPS = {
   time: 'the per-athlete time limit', cost: 'the per-athlete cost ceiling', ladder: 'every source of businesses, with nothing new left',
   'agent-cap': "the agent's nightly money cap", share: "this athlete's share of the agent's nightly money",
+  cache: "cache mode: Hunter's credits for the night were spent, and every business with an address verified in the last 30 days was tried",
 };
 
 // WHY, IN ONE SENTENCE, FROM THE NIGHT'S RECORD. Pure.
@@ -138,17 +143,52 @@ async function collect(pool, { now } = {}) {
   }
   short.sort((a, b) => a.verified - b.verified || String(a.agent).localeCompare(String(b.agent)));
   backfills.sort((a, b) => String(a.agent).localeCompare(String(b.agent)) || String(a.athlete).localeCompare(String(b.athlete)));
-  return { runDate, athletes, short, backfills, mixOn, skippedByDesign, fiveOn: process.env.EMAIL_FIVE_ON === '1' };
+  const out = { runDate, athletes, short, backfills, mixOn, skippedByDesign, fiveOn: process.env.EMAIL_FIVE_ON === '1' };
+  if (HP.ON()) {
+    out.hunter = await HP.morningLines(pool, runDate).catch((e) => ({ lines: [`Hunter: the night's record could not be read (${e.message})`], warn: false }));
+    out.cost = await require('./nightCost').forRunDate(pool, runDate).catch((e) => ({ error: e.message }));
+    out.cache = cacheModeOf(runs);
+  }
+  return out;
+}
+
+// CACHE MODE (services/hunterPace): which athletes ran in it last night, and
+// what it placed. Pure.
+function cacheModeOf(runs) {
+  const c = { athletes: 0, placed: 0, skipped: 0, why: null, at: null, rows: [] };
+  for (const run of runs || []) {
+    for (const d of (Array.isArray(run.details) ? run.details : [])) {
+      const k = d && d.loop && d.loop.cache;
+      if (!k) continue;
+      c.athletes++; c.placed += k.placed || 0; c.skipped += k.skipped || 0;
+      c.why = c.why || k.why || null;
+      if (!c.at || (k.at && k.at < c.at)) c.at = k.at || c.at;
+      c.rows.push({ agent: run.agent_name || run.agent_id, athlete: d.athleteName || d.athleteId, placed: k.placed || 0, cachedBusinesses: k.cachedBusinesses || 0 });
+    }
+  }
+  return c.athletes ? c : null;
 }
 
 function render(r) {
   const bf = r.backfills || [];
   const bfNote = bf.length ? `, ${bf.length} brand seat${bf.length === 1 ? '' : 's'} backfilled from local` : '';
   const what = r.mixOn ? 'verified emails or official program cards' : 'verified emails';
-  const subject = r.short.length
-    ? `NILDash: ${r.short.length} athlete${r.short.length === 1 ? '' : 's'} under ${FIVE} ${what}${bfNote} (${r.runDate})`
-    : `NILDash: every athlete has ${FIVE} ${what}${bfNote} (${r.runDate})`;
-  const L = [`${r.short.length} of ${r.athletes} athlete(s) hold fewer than ${FIVE} ${r.mixOn ? 'email cards with a verified address for a named person or program cards on an official application page' : 'email cards with a verified address for a named person'}, as of 5:30am Central.`, ''];
+  const loud = r.hunter && r.hunter.warn ? 'HUNTER LOW. ' : '';
+  const cacheNote = r.cache ? ', cache mode' : '';
+  const subject = loud + (r.short.length
+    ? `NILDash: ${r.short.length} athlete${r.short.length === 1 ? '' : 's'} under ${FIVE} ${what}${bfNote}${cacheNote} (${r.runDate})`
+    : `NILDash: every athlete has ${FIVE} ${what}${bfNote}${cacheNote} (${r.runDate})`);
+  const L = [];
+  // ── HUNTER AND THE NIGHT'S COST FIRST (HUNTER_PACE_ON) ─────────────────
+  if (r.hunter) L.push(...r.hunter.lines);
+  if (r.cache) {
+    L.push(`CACHE MODE last night${r.cache.at ? ` from ${String(r.cache.at).slice(11, 16)} UTC` : ''}: ${r.cache.why || "Hunter's credits were spent"}. `
+      + `${r.cache.placed} card${r.cache.placed === 1 ? '' : 's'} placed for ${r.cache.athletes} athlete${r.cache.athletes === 1 ? '' : 's'} from addresses already verified in the last 30 days; `
+      + `${r.cache.skipped} business${r.cache.skipped === 1 ? '' : 'es'} skipped with no recently verified address.`);
+  }
+  if (r.cost) L.push(...(r.cost.error ? [`Last night's cost could not be read: ${r.cost.error}`] : require('./nightCost').render(r.cost)));
+  if (L.length) L.push('');
+  L.push(`${r.short.length} of ${r.athletes} athlete(s) hold fewer than ${FIVE} ${r.mixOn ? 'email cards with a verified address for a named person or program cards on an official application page' : 'email cards with a verified address for a named person'}, as of 5:30am Central.`, '');
   let agent = null;
   for (const s of r.short) {
     if (s.agent !== agent) { L.push(String(s.agent)); agent = s.agent; }
@@ -172,7 +212,8 @@ function render(r) {
 
 // An email goes out when an athlete is short, or when a brand seat was
 // backfilled from the local lane (MARKET_MIX_ON): that is always said.
-function needsEmail(r) { return (r.short || []).length > 0 || (r.backfills || []).length > 0; }
+// HUNTER_PACE_ON: every morning, for Hunter's line and the night's cost.
+function needsEmail(r) { return (r.short || []).length > 0 || (r.backfills || []).length > 0 || !!r.hunter; }
 
 async function _send(msg) {
   if (!TO()) throw new Error('no alert destination: neither ADMIN_ALERT_EMAIL nor ADMIN_EMAIL is set');
@@ -185,7 +226,7 @@ async function _send(msg) {
 
 // One tick. opts: { now, send (tests), force (ignore the switch and the time) }
 async function runOnce(pool, opts = {}) {
-  if (!opts.force && process.env.EMAIL_FIVE_ON !== '1') return { skipped: 'EMAIL_FIVE_ON is not set' };
+  if (!opts.force && process.env.EMAIL_FIVE_ON !== '1' && !HP.ON()) return { skipped: 'EMAIL_FIVE_ON is not set' };   // nor HUNTER_PACE_ON
   if (!opts.force && !windowOpen(opts.now)) return { skipped: 'before 5:30am Central' };
   await ensureTable(pool);
   const report = await collect(pool, opts);
@@ -216,4 +257,4 @@ async function runOnce(pool, opts = {}) {
   }
 }
 
-module.exports = { runOnce, collect, render, reasonFor, needsEmail, windowOpen, centralMinutes, ensureTable, FIVE };
+module.exports = { runOnce, collect, render, reasonFor, needsEmail, windowOpen, centralMinutes, ensureTable, cacheModeOf, FIVE };

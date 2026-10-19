@@ -443,7 +443,12 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
 // LOCAL BINDS TO THE SCHOOL CITY. Social and national do not: a brand that ships
 // product does not care where the athlete lives. That rule is enforced here by
 // which pools are consulted at all, not by filtering afterwards.
-async function localCandidates(pool, { agentId, athlete, limit, exclude }) {
+async function localCandidates(pool, { agentId, athlete, limit, exclude, only }) {
+  // ONLY: these businesses and no others (lowercased names). The nightly
+  // fill's cache mode (services/hunterPace): with Hunter's credits spent for
+  // the night, only a business with an address verified in the last 30 days
+  // can become a verified email card.
+  const onlyList = Array.isArray(only) ? only.map((x) => String(x || '').trim().toLowerCase()).filter(Boolean) : null;
   // EXCLUDE: names already handed out tonight (lowercased). The nightly loop
   // re-draws until the athlete holds five; without this the read returned the
   // same top rows every time and a 72-business market ran dry after 31.
@@ -485,8 +490,9 @@ async function localCandidates(pool, { agentId, athlete, limit, exclude }) {
         AND NOT EXISTS (SELECT 1 FROM ${T.queue} q
                          WHERE q.${T.key} = be.${T.key} AND q.brand_key = be.brand_key)
         AND NOT (LOWER(be.brand_name) = ANY($4::text[]))
+        ${onlyList ? 'AND LOWER(TRIM(be.brand_name)) = ANY($5::text[])' : ''}
       ORDER BY be.last_shown_at DESC NULLS LAST
-      LIMIT $2`, [athlete.id, limit * 3, athlete.marketKey || null, excl]);
+      LIMIT $2`, [athlete.id, limit * 3, athlete.marketKey || null, excl, ...(onlyList ? [onlyList] : [])]);
 
   // b. THE POOL THAT WAS NEVER READ. Businesses the market scan discovered and
   //    passed over, plus any discovered since. This is what stops a market going
@@ -546,8 +552,9 @@ async function localCandidates(pool, { agentId, athlete, limit, exclude }) {
         ${T.nationalIndexExclusion ? `AND NOT EXISTS (SELECT 1 FROM social_brands sb
                          WHERE LOWER(sb.brand) = LOWER(m.brand))` : ''}
         ${T.poolWhere}
+        ${onlyList ? 'AND LOWER(TRIM(m.brand)) = ANY($5::text[])' : ''}
       ORDER BY ${T.poolOrder}
-      LIMIT $3`, [athlete.marketKey, athlete.id, limit * T.poolLimitFactor, excl]) : [];
+      LIMIT $3`, [athlete.marketKey, athlete.id, limit * T.poolLimitFactor, excl, ...(onlyList ? [onlyList] : [])]) : [];
 
   // EACH POOL EARNS ITS LANE, rather than everything being stamped local on the
   // way out. The blanket `lane: 'local'` here was the second of four places that
@@ -708,7 +715,7 @@ async function assembleSlate(pool, ctx) {
   const signals = subject.sponsorSignals
     ? await schoolSponsorSignals(pool, athlete.school, { agentId }) : new Map();
   const local = subject.lanes.local
-    ? await localCandidates(pool, { agentId, athlete, limit, exclude: ctx.exclude }) : { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
+    ? await localCandidates(pool, { agentId, athlete, limit, exclude: ctx.exclude, only: ctx.only }) : { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
   let social = subject.lanes.social ? await socialCandidates(pool, { athlete, limit, store }) : [];
   let national = subject.lanes.national ? await nationalCandidates(pool, { limit, store, athlete }) : [];
   // Our failures building the pools (services/ourFault), carried on the slate

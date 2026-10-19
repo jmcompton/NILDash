@@ -672,13 +672,20 @@ function liveDeps(pool, { agentId = null, athleteId = null, business = null, sou
   const VB = require('./verifyBudget');
   const today = day || new Date().toISOString().slice(0, 10);
   const verifier = async (email) => {
+    // Tonight's allowance spent (services/hunterPace): no credit log row for a
+    // check that will not be made.
+    const paced = require('./hunterPace').blocked('verify');
+    if (paced) return { ok: false, why: paced, budget: true };
     const wrote = await VB.record(pool, { agentId, athleteId, business, email, day: today, source });
     if (!wrote) return { ok: false, why: 'the verification credit log is not writable, so nothing is being spent' };
     return H.verifyEmail(email);
   };
   return {
     verify: async (email) => {
-      const m = await EV.verifyMany(pool, [email], { verifier, concurrency: 1 });
+      // CACHE MODE (services/hunterPace): tonight's Hunter credits are spent,
+      // and only a verdict from the last 30 days counts.
+      const HP = require('./hunterPace');
+      const m = await EV.verifyMany(pool, [email], { verifier, concurrency: 1, maxAgeDays: HP.cacheOnly() ? HP.CACHE_DAYS : undefined });
       return m.get(EV.norm(email)) || null;
     },
     peek: (emails) => EV.cached(pool, emails),

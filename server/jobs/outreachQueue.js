@@ -114,6 +114,8 @@ const BrandContact = require('../services/brandContact');
 const HELD_MIX_SQL = `SELECT slot, state, channel, email_verified, lane, program_url FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`;
 const Reach = require('../services/reachability');
 const SG = require('../services/sendGate');
+// Tonight's Hunter allowance, and cache mode once it is spent (HUNTER_PACE_ON).
+const HP = require('../services/hunterPace');
 const TYPE_CAP = 2;
 const VERIFY_TRIES = 3;
 // Between tries of a check that could not run: long enough for Hunter to
@@ -1633,6 +1635,35 @@ async function _fillAthlete(pool, ctx, nightFaults) {
   // tonight (EMAIL_FINDER_MORE). fillAgent sends them round again.
   const deferred = [];
 
+  // ── CACHE MODE (services/hunterPace, HUNTER_PACE_ON) ─────────────────────
+  // Tonight's Hunter allowance is spent, or Hunter says the plan is out. No
+  // new address can be verified, so the night is not spent on businesses
+  // that would need one: only a business with an address verified valid in
+  // the last 30 days is tried, and those are drawn from the market next in
+  // line, so the night is never empty while any is left. The finder takes a
+  // verdict no older than 30 days (emailFinder.liveDeps).
+  let _cache = null;
+  async function enterCache() {
+    const brands = await HP.cachedBrands(pool);
+    const n = HP.night() || {};
+    _cache = { at: new Date().toISOString(), why: n.cacheWhy || 'Hunter credits exhausted', brands, added: 0, skipped: 0 };
+    say(`${athleteName}: cache mode (${_cache.why}); ${brands.size} business(es) hold an address verified in the last ${HP.CACHE_DAYS} days`);
+    // OURS, NOT THE MARKET'S: a night short because Hunter's credits ran out
+    // never counts toward the three-night pause (applyFaultRule). Not recorded
+    // as a service fault: the 5:30 email says it once, not once per athlete.
+    if (!nightFaults.some((f) => f.service === 'hunter' && f.where === 'cache')) nightFaults.push({ service: 'hunter', reason: 'cache mode: ' + _cache.why, where: 'cache' });
+    if (!brands.size || _retrying) return;
+    const sl = await Scout.assembleSlate(pool, {
+      agentId, athlete: profile, store, limit: slateLimit * 2, localOnly: true, only: [...brands],
+      heldPrograms, programCap: Q.PROGRAM_SLOT_CAP, exclude: [...knownBrands],
+    }).catch((e) => { faultOf('database', 'cache-mode slate failed: ' + e.message, 'cache'); return { picks: [] }; });
+    const added = (sl.picks || []).filter((c) => c && !knownBrands.has(bk(c.brand_name)));
+    for (const c of added) knownBrands.add(bk(c.brand_name));
+    // Next in line, ahead of anything left on the slate.
+    cands.splice(ci, 0, ...added);
+    _cache.added = added.length;
+  }
+
   // ── FIVE, OR A REASON ────────────────────────────────────────────────────
   // Not "three attempts a slot". Each open slot keeps drawing until something
   // is placed, refilling the slate as it drains, and stops for exactly one of:
@@ -1660,6 +1691,13 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     for (let attempt = 0; !placed && !stop; attempt++) {
       if (Date.now() - _t0 > TIME_CEILING_MS) { stop = 'time'; break; }
       if (athleteCost() + LOOKUP_CEILING_USD > COST_CEILING_USD + 1e-9) { stop = 'cost'; break; }
+      // CACHE MODE: drained means every business with a recently verified
+      // address was tried. Nothing new is bought: a business found now could
+      // not be verified tonight.
+      if (ci >= cands.length && HP.cacheOnly()) {
+        if (!_cache) await enterCache();
+        if (ci >= cands.length) { stop = 'cache'; break; }
+      }
       // Drained: ask the ladder for more before giving up on the slot.
       if (ci >= cands.length) {
         const added = await refillSlate('slate drained');
@@ -1673,6 +1711,17 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       const cand = cands[ci++];
       _sw.start(cand);
+      if (HP.cacheOnly()) {
+        if (!_cache) await enterCache();
+        if (!_cache.brands.has(bk(cand.brand_name))) {
+          _cache.skipped++;
+          tried.push({ brand: cand.brand_name, result: 'skipped', stage: 'cache',
+            reason: `Hunter credits for tonight are spent, and no address at this business was verified in the last ${HP.CACHE_DAYS} days`,
+            lane: cand.lane || null, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+        cand._fromCache = true;
+      }
       // BEFORE the money, priced at the CEILING. A lookup that would breach the
       // cap is never started, so the cap cannot be overshot by one business.
       if (!budget.canSpend(LOOKUP_CEILING_USD)) {
@@ -2479,7 +2528,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           const _try = cand._verifyTry || 1;
           _why.finder.try = _try;
           const _couldNotRun = !_verifiedEmail && ((_fin.verify && _fin.verify.verdict === 'not-run') || /could not run/.test(String(_f.stop || '')));
-          if (FINDER.more() && _couldNotRun && _try < VERIFY_TRIES) {
+          // Not in cache mode: a check that could not run tonight will not run later tonight either.
+          if (FINDER.more() && _couldNotRun && _try < VERIFY_TRIES && !HP.cacheOnly()) {
             const why = `the mailbox check could not run (try ${_try} of ${VERIFY_TRIES}); tried again later tonight`;
             say(`${cand.brand_name}: ${why}`);
             deferred.push({ ...cand, _verifyTry: _try + 1, _deferredAt: Date.now() });
@@ -2532,7 +2582,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         continue;
       }
       tried.push({ brand: cand.brand_name, result: 'queued', reason: null, lane: cand.lane,
-        places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
+        places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null,
+        // Placed in cache mode, from an address verified in the last 30 days.
+        ...(cand._fromCache ? { cache: true } : {}) });
       // ONE BUSINESS, ONE ENTRY. The writer's verdict below replaces this
       // entry's result rather than adding a second one, so candidates and the
       // per-lane pass counts are not inflated by every refusal.
@@ -2754,6 +2806,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     cost: `the cost ceiling ($${COST_CEILING_USD.toFixed(2)}) for this athlete`,
     ladder: 'every rung of the ladder, with nothing new left',
     'agent-cap': "the agent's nightly cap", share: "this athlete's share of the agent's nightly cap",
+    cache: `cache mode: Hunter's credits for tonight are spent, and every business with an address verified in the last ${HP.CACHE_DAYS} days was tried`,
   };
   // Seats still empty at the end of the pass: a lane short of its own seats,
   // or a brand seat moved to local that the local lane could not fill.
@@ -2774,6 +2827,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     held: Q.SLOTS_PER_ATHLETE - open.length + filled, floor: Q.SLOTS_PER_ATHLETE,
     tier: tierInfo.tier, tierWhy: tierInfo.why, ladder: ladder_.slice(),
     smartSlate: _smartSlate,
+    // CACHE MODE: when it began for this athlete, why, and what came of it.
+    cache: _cache ? { at: _cache.at, why: _cache.why, cachedBusinesses: _cache.brands.size, drawn: _cache.added, skipped: _cache.skipped,
+      placed: tried.filter((t) => t && t.cache && t.result === 'queued').length } : undefined,
     // THE DEAL MIX: the tier, each lane's seats, what was placed, and which
     // lanes came up short (a seat nobody passed the bar for stays empty).
     mix: _mix ? { tier: _mix.tier, score: _mix.score, confidence: _mix.confidence, unscored: _mix.unscored,
@@ -3312,7 +3368,20 @@ async function restartCardClock(pool, agentId) {
   return r.rowCount || 0;
 }
 
+// ── TONIGHT'S HUNTER ALLOWANCE (services/hunterPace, HUNTER_PACE_ON) ────────
+// Hunter's account is read before anything spends and tonight's allowance
+// fixed; the night is closed after the run with what it spent. A dry run is
+// not a night.
 async function run(opts = {}) {
+  const pool = store.pool;
+  const paced = !opts.dryRun && HP.ON()
+    ? await HP.beginNight(pool, { runDate: opts.runDate || today(), now: opts.now }).catch((e) => { console.error('[queue] Hunter pace: ' + e.message); return null; })
+    : null;
+  try { return await runAgents(opts); }
+  finally { if (paced) await HP.endNight(pool).catch((e) => console.error('[queue] Hunter pace end: ' + e.message)); }
+}
+
+async function runAgents(opts = {}) {
   const pool = store.pool;
   // Every school market corrected so far, before any athlete is resolved; and
   // which ambiguous names are already producing and keep running.
