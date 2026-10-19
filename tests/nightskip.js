@@ -65,6 +65,13 @@ const ok = (n, c, g) => { N++; if (c) console.log('  PASS  ' + n); else { F++; c
   ok('the 5:30 email does not list a test athlete as short (Jo Testa still is)', !rep.short.some((s) => ['Test Athlete', 'Marcus TEST'].includes(s.athlete))
     && rep.short.some((s) => s.athlete === 'Jo Testa'), rep.short.map((s) => s.athlete));
   ok('  it counts them, and the two mailbox-less agents, as not filled by design', rep.skippedByDesign === 4, rep.skippedByDesign);
+  const msg = S5.render(rep);
+  ok('the 5:30 email prints what was skipped, each by name and why', /SKIPPED LAST NIGHT, NO PAID RESEARCH: 4/.test(msg.text)
+    && /Avery NoMail: no connected mailbox \(no mailbox is connected\)/.test(msg.text)
+    && /Casey Gone: no connected mailbox \(the mailbox is disconnected/.test(msg.text)
+    && /Blair Mailbox \/ Test Athlete: a test athlete \(the name contains "Test"\)/.test(msg.text)
+    && /Blair Mailbox \/ Marcus TEST: a test athlete/.test(msg.text), msg.text);
+  ok('  and the email goes because something was skipped', S5.needsEmail({ short: [], backfills: [], skips: rep.skips }));
 
   console.log('\nswitch off');
   delete process.env.NIGHTLY_SKIP_ON;

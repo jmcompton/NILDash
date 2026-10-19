@@ -125,13 +125,24 @@ async function collect(pool, { now } = {}) {
   }
   const short = [];
   const backfills = [];
+  // NIGHTLY_SKIP_ON: each agent with no connected mailbox and each test
+  // athlete the night left out, named, so the email says what was skipped.
+  const skips = [];
   let athletes = 0, skippedByDesign = 0;
   for (const run of runs) {
-    if (/^skipped: /.test(String(run.note || ''))) { skippedByDesign++; continue; }
+    if (/^skipped: /.test(String(run.note || ''))) {
+      skippedByDesign++;
+      if (/^skipped: no connected mailbox/.test(run.note)) skips.push({ agent: run.agent_name || run.agent_id, athlete: null, why: String(run.note).replace(/^skipped: /, '') });
+      continue;
+    }
     for (const d of (Array.isArray(run.details) ? run.details : [])) {
       if (!d || !d.athleteId) continue;
       // A test athlete left off the night by design (NIGHTLY_SKIP_ON) is not short.
-      if (d.skipped) { skippedByDesign++; continue; }
+      if (d.skipped) {
+        skippedByDesign++;
+        skips.push({ agent: run.agent_name || run.agent_id, athlete: d.athleteName || d.athleteId, why: String(d.note || d.skipped).replace(/^skipped: /, '') });
+        continue;
+      }
       athletes++;
       const h = held.get(d.athleteId) || { verified: 0, other: 0 };
       for (const b of ((d.loop && d.loop.mix && d.loop.mix.backfilled) || [])) {
@@ -145,7 +156,8 @@ async function collect(pool, { now } = {}) {
   }
   short.sort((a, b) => a.verified - b.verified || String(a.agent).localeCompare(String(b.agent)));
   backfills.sort((a, b) => String(a.agent).localeCompare(String(b.agent)) || String(a.athlete).localeCompare(String(b.athlete)));
-  const out = { runDate, athletes, short, backfills, mixOn, skippedByDesign, fiveOn: process.env.EMAIL_FIVE_ON === '1' };
+  skips.sort((a, b) => String(a.agent).localeCompare(String(b.agent)) || String(a.athlete || '').localeCompare(String(b.athlete || '')));
+  const out = { runDate, athletes, short, backfills, mixOn, skippedByDesign, skips, fiveOn: process.env.EMAIL_FIVE_ON === '1' };
   if (HP.ON()) {
     out.hunter = await HP.morningLines(pool, runDate).catch((e) => ({ lines: [`Hunter: the night's record could not be read (${e.message})`], warn: false }));
     out.cost = await require('./nightCost').forRunDate(pool, runDate).catch((e) => ({ error: e.message }));
@@ -205,7 +217,14 @@ function render(r) {
       L.push(`  ${b.athlete}: the ${b.seat} seat -> ${b.brand}${b.contact ? `, ${b.contact}` : ''}${b.email ? ` <${b.email}>` : ''} (verified email). Why: ${b.why || 'no reason recorded'}`);
     }
   }
-  if (r.skippedByDesign) L.push('', `${r.skippedByDesign} agent(s) or test athlete(s) were not filled by design (not signed in recently, no connected mailbox, or a test athlete).`);
+  // WHAT WAS SKIPPED (NIGHTLY_SKIP_ON): every one, by name and why.
+  const sk = r.skips || [];
+  if (sk.length) {
+    L.push('', `SKIPPED LAST NIGHT, NO PAID RESEARCH: ${sk.length}`);
+    for (const s of sk) L.push(`  ${s.agent}${s.athlete ? ' / ' + s.athlete : ''}: ${s.why}`);
+  }
+  const other = r.skippedByDesign - sk.length;
+  if (other > 0) L.push('', `${other} agent(s) were not filled by design (not signed in recently).`);
   L.push('', 'Details: /api/admin/scripts/email-finder-report?text=1&days=1');
   const text = L.join('\n');
   const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -215,7 +234,8 @@ function render(r) {
 // An email goes out when an athlete is short, or when a brand seat was
 // backfilled from the local lane (MARKET_MIX_ON): that is always said.
 // HUNTER_PACE_ON: every morning, for Hunter's line and the night's cost.
-function needsEmail(r) { return (r.short || []).length > 0 || (r.backfills || []).length > 0 || !!r.hunter; }
+// NIGHTLY_SKIP_ON: and whenever something was skipped, which is always said.
+function needsEmail(r) { return (r.short || []).length > 0 || (r.backfills || []).length > 0 || !!r.hunter || (r.skips || []).length > 0; }
 
 async function _send(msg) {
   if (!TO()) throw new Error('no alert destination: neither ADMIN_ALERT_EMAIL nor ADMIN_EMAIL is set');
