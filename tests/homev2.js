@@ -12,8 +12,9 @@
 //   4. the live counts: honest labels, zeros hidden, the demo account left out;
 //   5. who gets the page at / with the switch on, and that off changes nothing;
 //   6. the athlete waitlist and its admin script;
-//   7. the hero picture: the demo account's Home, fictional data only;
-//   8. at 390px wide in a real browser (when Playwright is installed).
+//   7. the hero graphic: a morning card built in HTML, CSS and inline SVG, no
+//      pictures anywhere on the page, fictional names;
+//   8. at 390px and 1440px wide in a real browser (when Playwright is installed).
 const _tp = require('path');
 const REPO = _tp.join(__dirname, '..') + _tp.sep;
 process.env.PGHOST = process.env.PGHOST || '/tmp';
@@ -59,7 +60,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
     && /<meta name="description" content="Every morning, 5 researched deals for every athlete: the right business, the owner or marketing person, a verified email, and a written pitch\. You just approve\.">/.test(HTML));
   const hero = HTML.slice(HTML.indexOf('<section class="hero">'), HTML.indexOf('</section>', HTML.indexOf('<section class="hero">')));
   ok('  CTA "Get started" opens agent sign-up', /<a class="btn primary" href="\/\?signin=agent&amp;tab=signup">Get started<\/a>/.test(hero));
-  ok('  CTA "See a sample morning" goes to the demo', /<a class="btn ghost" href="\/demo">See a sample morning<\/a>/.test(hero));
+  ok('  CTA "Try the interactive demo" goes to the demo', /<a class="btn ghost" href="\/demo">Try the interactive demo<\/a>/.test(hero));
   ok('  and /demo is a real public route', /app\.get\('\/demo'/.test(read('server/index.js')) && fs.existsSync(REPO + 'public/demo.html'));
 
   console.log('\n   ...where your hours go, and the calculator');
@@ -71,16 +72,36 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('  side by side: by hand, the seven jobs', JSON.stringify(items('byhand')) === JSON.stringify(['Find the business', 'Find the owner', 'Hunt for an email', 'Check it', 'Write the pitch', 'Send', 'Remember to follow up']), items('byhand'));
   ok('  with NILDash: open Home, approve, done', JSON.stringify(items('nild')) === JSON.stringify(['Open Home', 'Approve', 'Done']), items('nild'));
   ok('  laid out as two columns from tablet width, stacked on a phone', /\.vs\{display:grid;gap:12px/.test(CSS) && /@media \(min-width:700px\)\{\s*\.vs\{grid-template-columns:1fr 1fr/.test(CSS));
-  ok('no made-up time numbers anywhere a visitor reads', !/\d[\d,.]*\s*(min|mins|minutes?|hours?|hrs?|h)\b/i.test(VISIBLE) && !/\b(save|saves|saving)\b[^.]{0,40}\d/i.test(VISIBLE),
-    (VISIBLE.match(/.{20}\d[\d,.]*\s*(min|minutes?|hours?|hrs?)\b.{10}/i) || [])[0]);
   const calc = hrs.slice(hrs.indexOf('<form class="calc"'), hrs.indexOf('</form>'));
-  ok('a time calculator: athletes x 5 pitches a day x your minutes per pitch, the formula written out', /<form class="calc" id="calc"/.test(calc)
-    && /Athletes &times; 5 pitches a day &times; your minutes per pitch &times; days a week &divide; 60 = hours a week back\./.test(calc));
-  ok('  your roster and your minutes start empty: nothing is filled in for you', /<input id="calc-ath"[^>]*>/.test(calc) && !/<input id="calc-ath"[^>]*value=/.test(calc)
-    && /<input id="calc-min"[^>]*>/.test(calc) && !/<input id="calc-min"[^>]*value=/.test(calc));
-  ok('  5 pitches a day is fixed (the queue\'s five slots), days a week is yours to change (5 to start)', /<span class="v"[^>]*>5<\/span>/.test(calc)
-    && /<input id="calc-days"[^>]*value="5"/.test(calc) && /var PITCHES = 5;/.test(HTML) && Q0().SLOTS_PER_ATHLETE === 5);
-  ok('  and before anyone types, it shows no result, only what to do', /<output class="calc-out" id="calc-out"[^>]*>Type your roster size and your minutes per pitch to see the math\.<\/output>/.test(calc));
+  const outsideCalc = VISIBLE.replace(calc.replace(/<[^>]+>/g, ' ').replace(/&times;/g, '\u00d7').replace(/&divide;/g, '\u00f7').replace(/\s+/g, ' ').trim(), ' ');
+  ok('no made-up time numbers: the only figures are the calculator\'s labeled example', !/\d[\d,.]*\s*(min|mins|minutes?|hours?|hrs?|h)\b/i.test(VISIBLE.replace(/Your hours back[\s\S]*?= 50 hours/, ' '))
+    && !/\b(save|saves|saving)\b[^.]{0,40}\d/i.test(VISIBLE), (outsideCalc.match(/.{20}\d[\d,.]*\s*(min|minutes?|hours?|hrs?)\b.{10}/i) || [])[0]);
+  ok('a time calculator with two inputs: athletes on your roster, minutes you spend per pitch', /<form class="calc" id="calc"/.test(calc)
+    && (calc.match(/<input /g) || []).length === 2 && /<label for="calc-ath">Athletes on your roster<\/label>/.test(calc) && /<label for="calc-min">Minutes you spend per pitch<\/label>/.test(calc));
+  ok('  pre-filled with an example (8 athletes, 15 minutes), labeled as one', /<input id="calc-ath"[^>]*value="8"/.test(calc) && /<input id="calc-min"[^>]*value="15"/.test(calc)
+    && /<p class="calc-ex" id="calc-ex">Example numbers: 8 athletes, 15 minutes a pitch\. Put in yours\.<\/p>/.test(calc));
+  ok('  the assumptions in one line: 5 pitches per athlete a day, 5 days a week', /<p class="hint">Assumes 5 pitches per athlete a day, 5 days a week\.<\/p>/.test(calc)
+    && /var PITCHES = 5, DAYS = 5/.test(HTML) && Q0().SLOTS_PER_ATHLETE === 5);
+  ok('  a result shows before anyone types, big: "about 50 hours a week back", the math small under it',
+    /<output class="calc-out" id="calc-out"[^>]*><span class="total">about 50 hours a week back<\/span><span class="math">8 athletes &times; 5 pitches &times; 15 minutes &times; 5 days = 3,000 minutes &divide; 60 = 50 hours<\/span><\/output>/.test(calc)
+    && 8 * 5 * 15 * 5 === 3000 && 3000 / 60 === 50
+    && /\.calc-out \.total\{display:block;font-family:var\(--head\);font-size:clamp\(25px/.test(CSS) && /\.calc-out \.math\{display:block;margin-top:8px;font-family:var\(--mono\);font-size:12\.5px/.test(CSS));
+  ok('  no days-a-week field any more', !/calc-days/.test(HTML));
+
+  console.log('\n   ...who it\'s for');
+  const who = section('who');
+  const cards = [...who.matchAll(/<li class="audc" id="([a-z-]+)">([\s\S]*?)<\/li>/g)].map((m) => ({ id: m[1], h: (m[2].match(/<h3>([^<]+)<\/h3>/) || [])[1], p: (m[2].match(/<p>([^<]+)<\/p>/) || [])[1], a: (m[2].match(/<a class="btn [a-z]+" href="([^"]+)">([^<]+)<\/a>/) || []).slice(1) }));
+  ok('"Who it\'s for": three cards, after where your hours go', /<span class="eyebrow">Who it's for<\/span>/.test(who) && cards.length === 3 && ids.indexOf('who') === 1, { ids, n: cards.length });
+  ok('  Agents: 5 researched, verified deals every morning; you approve', cards[0].h === 'Agents' && cards[0].p === 'Every athlete on your roster gets 5 researched, verified deals every morning; you approve.', cards[0]);
+  ok('  Universities and athletic departments: sponsors found and pitched, time on relationships', cards[1].h === 'Universities and athletic departments'
+    && cards[1].p === 'Local sponsors found and pitched for every team, so your NIL staff spends time on relationships, not prospecting.', cards[1]);
+  ok('  Collectives: businesses that fit, the decision maker and a verified email included, "Talk to us"', cards[2].h === 'Collectives'
+    && cards[2].p === 'Local businesses that fit your athletes, with the decision maker and a verified email included, ready to partner.'
+    && cards[2].a[1] === 'Talk to us' && /^mailto:contact@mynildash\.com\?subject=/.test(cards[2].a[0]), cards[2]);
+  ok('  each is one sentence', cards.every((c) => c.p && (c.p.match(/[.!?](\s|$)/g) || []).length === 1), cards.map((c) => c.p));
+  ok('  agents get started, schools talk to us too', cards[0].a[1] === 'Get started' && /signin=agent/.test(cards[0].a[0]) && cards[1].a[1] === 'Talk to us' && /^mailto:/.test(cards[1].a[0]));
+  ok('nothing about program directories, the 119 football or 126 basketball programs, or coach contacts',
+    !/program director|programs director|\b119\b|\b126\b|football programs|basketball programs|\bcoach/i.test(HTML), (HTML.match(/.{30}(program director|\b119\b|\b126\b|coach).{30}/i) || [])[0]);
 
   const how = section('how');
   ok('"How a morning works": three steps', /How a morning works/.test(how) && (how.match(/class="step"/g) || []).length === 3, (how.match(/class="step"/g) || []).length);
@@ -123,7 +144,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
     && /\$99 \/month to get your mornings back/.test(VISIBLE));
   ok('  Athletes: "Coming soon" with a waitlist email field', /<span class="who">Athletes<\/span>\s*<div class="soon">Coming soon<\/div>/.test(pr)
     && /<form class="wl" id="wl" action="\/api\/public\/waitlist" method="post"/.test(pr) && /type="email"/.test(pr));
-  ok('  Teams: talk to us, by email', /<span class="who">Teams and leagues<\/span>\s*<div class="soon">Talk to us<\/div>/.test(pr) && /mailto:contact@mynildash\.com/.test(pr));
+  ok('  Schools and collectives: talk to us, by email', /<span class="who">Schools and collectives<\/span>\s*<div class="soon">Talk to us<\/div>/.test(pr) && /mailto:contact@mynildash\.com/.test(pr));
   ok('  no athlete price anywhere', !/id="athletes"[\s\S]*?\$\d/.test(pr.slice(pr.indexOf('id="athletes"'), pr.indexOf('id="teams"'))));
   ok('the footer keeps the postal address, Privacy and Terms', /Compton Group LLC, 3796 Turnberry Court, Duluth, GA 30096/.test(HTML)
     && /href="\/privacy"/.test(HTML) && /href="\/terms"/.test(HTML));
@@ -280,19 +301,22 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
     const outTxt = execSync(`node ${REPO}scripts/athlete-waitlist.js`, { env: { ...process.env, INIT_WAIT_MS: '2500' } }).toString();
     ok('  and prints each one, newest first', /ATHLETE WAITLIST: 2/.test(outTxt) && outTxt.indexOf('nojs@school.edu') < outTxt.indexOf('jordan.lee@school.edu'), outTxt);
 
-    console.log('\n7. THE HERO PICTURE');
-    const png = fs.readFileSync(REPO + 'public/images/home-morning.png');
-    const pw0 = png.readUInt32BE(16), ph0 = png.readUInt32BE(20);
-    ok('it is a PNG, phone width at 2x (780 wide)', png.slice(1, 4).toString() === 'PNG' && pw0 === 780, [pw0, ph0]);
-    ok('  the page reserves its real size (no layout shift)', new RegExp(`src="/images/home-morning\\.png" width="${pw0}" height="${ph0}"`).test(HTML));
-    ok('  under 400 KB', png.length < 400 * 1024, png.length);
-    ok('  it says what it is: the Home screen, the demo account, fictional', /alt="The NILDash Home screen on a phone/.test(HTML) && /Athletes and businesses shown are fictional\./.test(HTML));
-    const SHOT = read('scripts/home-screenshot.js');
-    ok('  made by scripts/home-screenshot.js from the demo account', /seedDemo/.test(SHOT) && /demo@comptongroupllc\.com/.test(SHOT) && /'\/api\/auth\/login'/.test(SHOT) && /#home-panel \.hq-card/.test(SHOT));
-    const addrs = SHOT.match(/[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]+/gi) || [];
-    ok('  every address in it is on a reserved .example domain (or the demo login)', addrs.length >= 6 && addrs.every((e) => /\.example$/.test(e) || e === 'demo@comptongroupllc.com'), addrs);
-    ok('  and it refuses to run against anything but a local database', /process\.env\.DATABASE_URL \|\|/.test(SHOT) && /Refusing/.test(SHOT));
-    ok('the demo account\'s athletes are the fictional ones', /demo-ath-jordan-blake/.test(read('server/scripts/seedDemo.js')));
+    console.log('\n7. THE HERO GRAPHIC: NO PICTURES');
+    ok('no <img>, <picture>, <canvas> or <video> anywhere on the page', !/<(img|picture|canvas|video)\b/i.test(HTML));
+    ok('  no raster image in the CSS either', !/url\(/i.test(CSS));
+    ok('  the old screenshot and the script that made it are gone', !fs.existsSync(REPO + 'public/images/home-morning.png') && !fs.existsSync(REPO + 'scripts/home-screenshot.js'));
+    const fig = HTML.slice(HTML.indexOf('<figure class="mc-fig">'), HTML.indexOf('</figure>', HTML.indexOf('<figure class="mc-fig">')));
+    ok('the hero is a morning card built in HTML and inline SVG', fig.length > 1500 && /<div class="mc">/.test(fig));
+    ok('  a fictional athlete', /<div class="mc-name">Maya Torres<\/div><div class="mc-sub">Soccer, Riverside State<\/div>/.test(fig));
+    ok('  a local business', /<div class="mc-bizname">Harbor Street Coffee<\/div><div class="mc-sub">Local coffee shop, near campus<\/div>/.test(fig));
+    ok('  the owner\'s name with a Verified badge', /<span class="mc-person">Dana Kim <span>Owner<\/span><\/span>\s*<span class="mc-badge"><svg viewBox="0 0 24 24">[\s\S]*?<\/svg>Verified<\/span>/.test(fig));
+    ok('  a pitch preview held to 2 lines', /<p class="mc-pitch">Hi Dana, [^<]{120,}<\/p>/.test(fig) && /\.mc-pitch\{[^}]*-webkit-line-clamp:2;line-clamp:2;overflow:hidden\}/.test(CSS));
+    ok('  Approve and Skip', /<span class="mc-btn ok">[\s\S]*?Approve<\/span>/.test(fig) && /<span class="mc-btn skip">Skip<\/span>/.test(fig));
+    ok('  a picture, not controls: one labeled image to a screen reader, nothing to tab to', /<div class="mc-stage" role="img" aria-label="Illustration of a NILDash morning card[^"]+">/.test(fig)
+      && /<div class="mc-stack" aria-hidden="true">/.test(fig) && !/<(a|button|input)\b/.test(fig));
+    const svgs = fig.match(/<svg\b[^>]*>/g) || [];
+    ok('  every icon is vector, sized by CSS (a viewBox, no fixed width or height)', svgs.length >= 5 && svgs.every((t) => /viewBox="0 0 24 24"/.test(t) && !/\s(width|height)=/.test(t)), svgs);
+    ok('  the names are fictional and it says so; no email address in it', /<figcaption>An illustration\. The names and the business are fictional\.<\/figcaption>/.test(fig) && !/@/.test(fig));
 
     console.log('\n8. AT 390PX, IN A BROWSER');
     let pw = null;
@@ -325,29 +349,44 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
       ok('  the section links fold away on a phone; Sign in and Get started stay', m.navHidden && await pg.isVisible('.navright .signin') && await pg.isVisible('.navright .btn'));
       ok('  the counts show', m.stats === 3, m.stats);
       ok('  and none of the portal is in the page', !m.portal);
-      // THE CALCULATOR, with an agent's own numbers.
+      // THE CALCULATOR.
       const out = () => pg.textContent('#calc-out');
-      ok('the calculator waits for the agent\'s numbers', /Type your roster size and your minutes per pitch/.test(await out()) && !/\d/.test(await out()));
+      const exShown = () => pg.isVisible('#calc-ex');
+      ok('the calculator shows the example worked out on arrival, labeled as an example', /^about 50 hours a week back/.test(await out()) && await exShown(), await out());
+      const big = await pg.evaluate(() => ({ total: parseFloat(getComputedStyle(document.querySelector('#calc-out .total')).fontSize), math: parseFloat(getComputedStyle(document.querySelector('#calc-out .math')).fontSize) }));
+      ok('  the result big, the math small', big.total >= 24 && big.math <= 13 && big.total > big.math * 1.8, big);
       await pg.fill('#calc-ath', '12');
-      ok('  one number is not enough', /Type your roster size/.test(await out()));
-      await pg.fill('#calc-min', '15');
       const o1 = await out();
-      ok('  12 athletes x 5 pitches x 15 minutes = 900 minutes a day, x 5 days / 60 = 75 hours a week back, all shown',
-        /12 athletes \u00d7 5 pitches \u00d7 15 minutes = 900 minutes a day/.test(o1) && /900 minutes \u00d7 5 days \u00f7 60 =/.test(o1) && /75 hours a week back/.test(o1), o1);
-      await pg.fill('#calc-days', '3');
-      ok('  the agent\'s own days a week change it (45 hours)', /900 minutes \u00d7 3 days \u00f7 60 =\s*45 hours a week back/.test(await out()), await out());
-      await pg.fill('#calc-ath', '1'); await pg.fill('#calc-min', '7'); await pg.fill('#calc-days', '1');
-      ok('  singulars and decimals read right (1 athlete, 35 minutes, 0.6 hours)', /1 athlete \u00d7 5 pitches \u00d7 7 minutes = 35 minutes a day/.test(await out()) && /35 minutes \u00d7 1 day \u00f7 60 =\s*0\.6 hours a week back/.test(await out()), await out());
+      ok('  12 athletes, 15 minutes: about 75 hours a week back, the math under it', /^about 75 hours a week back/.test(o1)
+        && /12 athletes \u00d7 5 pitches \u00d7 15 minutes \u00d7 5 days = 4,500 minutes \u00f7 60 = 75 hours$/.test(o1), o1);
+      ok('  and the example label goes once the numbers are yours', !(await exShown()));
+      await pg.fill('#calc-ath', '1'); await pg.fill('#calc-min', '7');
+      ok('  singulars and decimals read right (1 athlete, 175 minutes, about 2.9 hours)', /^about 2\.9 hours a week back/.test(await out())
+        && /1 athlete \u00d7 5 pitches \u00d7 7 minutes \u00d7 5 days = 175 minutes \u00f7 60 = 2\.9 hours$/.test(await out()), await out());
       await pg.fill('#calc-min', '-4');
-      ok('  a negative or empty minutes field shows no result', /Type your roster size/.test(await out()) && !/hours a week back/.test(await out()));
-      await pg.fill('#calc-min', '7'); await pg.fill('#calc-days', '9');
-      ok('  days a week past 7 says so instead of a result', /Days a week is a number from 1 to 7\./.test(await out()));
-      await pg.press('#calc-days', 'Enter');
+      ok('  a negative or empty field shows no result', /Put in your roster size and your minutes per pitch/.test(await out()) && !/hours a week back/.test(await out()));
+      await pg.fill('#calc-ath', '8'); await pg.fill('#calc-min', '15');
+      ok('  back to the example numbers, the label comes back', await exShown() && /^about 50 hours a week back/.test(await out()));
+      await pg.press('#calc-min', 'Enter');
       ok('  pressing Enter does not leave the page', pg.url() === on.base + '/');
       const cw = await pg.evaluate(() => ({ calc: document.getElementById('calc').getBoundingClientRect().right <= window.innerWidth,
         vsCols: getComputedStyle(document.querySelector('.vs')).gridTemplateColumns.split(' ').length,
         fields: [...document.querySelectorAll('#calc input')].map((i) => Math.round(i.getBoundingClientRect().height)) }));
-      ok('  it fits a phone, the comparison stacks, and every field is a full tap target', cw.calc && cw.vsCols === 1 && cw.fields.every((h) => h >= 44), cw);
+      ok('  it fits a phone, the comparison stacks, and every field is a full tap target', cw.calc && cw.vsCols === 1 && cw.fields.length === 2 && cw.fields.every((h) => h >= 44), cw);
+      // THE HERO GRAPHIC.
+      const g = await pg.evaluate(() => {
+        const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+        const pitch = document.querySelector('.mc-pitch');
+        const lh = parseFloat(getComputedStyle(pitch).lineHeight);
+        return { raster: document.querySelectorAll('img,picture,canvas,video').length,
+          bg: [...document.querySelectorAll('*')].filter((e) => /url\(/.test(getComputedStyle(e).backgroundImage)).length,
+          card: r('.mc'), vw: window.innerWidth, lines: Math.round(pitch.getBoundingClientRect().height / lh),
+          svgs: [...document.querySelectorAll('.mc-stage svg')].map((s) => { const b = s.getBoundingClientRect(); return b.width > 0 && b.height > 0; }) };
+      });
+      ok('the card renders with no raster image anywhere, so nothing on the page can blur', g.raster === 0 && g.bg === 0, g);
+      ok('  it fits the phone', g.card.left >= 0 && g.card.right <= g.vw, g.card);
+      ok('  the pitch shows exactly 2 lines', g.lines === 2, g.lines);
+      ok('  every icon draws', g.svgs.length >= 5 && g.svgs.every(Boolean), g.svgs);
       await pg.fill('#wl-email', 'browser@school.edu');
       await pg.click('#wl button');
       await pg.waitForFunction(() => /on the list/.test(document.getElementById('wl-msg').textContent), null, { timeout: 8000 }).catch(() => {});
@@ -375,6 +414,26 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
       await pg2.waitForTimeout(1500);
       ok('an athlete signed in on this browser is sent to their portal', navs.includes(on.base + '/?app=1'), navs);
       await ctx2.close();
+      // 1440px: the desktop layout.
+      const ctx3 = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+      const pg3 = await ctx3.newPage();
+      pg3.on('pageerror', () => {});
+      await pg3.route(/^https?:\/\/(?!127\.0\.0\.1)/, (rt) => rt.abort());
+      await pg3.goto(on.base + '/', { waitUntil: 'domcontentloaded' });
+      const d = await pg3.evaluate(() => {
+        const vw = window.innerWidth;
+        const wide = [...document.querySelectorAll('body *')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && (r.right > vw + 1 || r.left < -1); })
+          .filter((e) => !e.closest('.sr,.hp')).map((e) => e.tagName + '.' + e.className).slice(0, 5);
+        const h1 = document.querySelector('h1').getBoundingClientRect(), card = document.querySelector('.mc').getBoundingClientRect();
+        return { scroll: document.documentElement.scrollWidth - vw, wide, side: card.left > h1.left + 200 && card.top < h1.bottom + 200,
+          audCols: getComputedStyle(document.querySelector('.aud')).gridTemplateColumns.split(' ').length,
+          nav: getComputedStyle(document.querySelector('.navlinks')).display !== 'none', raster: document.querySelectorAll('img,picture,canvas,video').length,
+          lines: Math.round(document.querySelector('.mc-pitch').getBoundingClientRect().height / parseFloat(getComputedStyle(document.querySelector('.mc-pitch')).lineHeight)) };
+      });
+      ok('AT 1440PX: no sideways scroll, nothing past the edge', d.scroll <= 0 && d.wide.length === 0, d);
+      ok('  the card sits beside the headline', d.side, d);
+      ok('  "Who it\'s for" is three across, the section links show, still no raster image, the pitch still 2 lines', d.audCols === 3 && d.nav && d.raster === 0 && d.lines === 2, d);
+      await ctx3.close();
       PH._reset();
       await P.query(`DELETE FROM market_business_seen; DELETE FROM email_verification; DELETE FROM outreach_logs`);
       await new Promise((r) => setTimeout(r, 200));

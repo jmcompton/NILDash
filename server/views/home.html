@@ -68,9 +68,45 @@ p{margin:0}
 .h1 em{font-style:normal;color:var(--accent)}
 .lede{margin-top:16px;color:var(--muted);font-size:17px;max-width:560px}
 .ctas{display:flex;flex-direction:column;gap:10px;margin-top:24px}
-.shot{margin:0 auto;width:100%;max-width:280px}
-.shot img{border-radius:22px;border:1px solid var(--line-2);box-shadow:0 24px 60px rgba(0,0,0,.55)}
-.shot figcaption{margin-top:10px;font-size:12.5px;color:var(--dim);text-align:center}
+/* the morning card: an illustration built in HTML, CSS and inline SVG, so it
+   is sharp at any size and on any screen. No pictures on this page. */
+.mc-fig{margin:0;width:100%}
+.mc-stage{position:relative;width:100%;max-width:380px;margin:0 auto;padding:26px 0 34px}
+.mc-stage::before{content:"";position:absolute;inset:12% 4% 6%;border-radius:40px;background:radial-gradient(closest-side,rgba(200,241,53,.16),rgba(200,241,53,0));pointer-events:none}
+.mc-stack{position:relative}
+.mc-back{position:absolute;inset:0;border-radius:22px;background:#171714;border:1px solid var(--line-2);transform-origin:50% 0}
+.mc-back.b1{transform:translateY(-12px) scale(.95);opacity:.9}
+.mc-back.b2{transform:translateY(-24px) scale(.9);opacity:.6}
+.mc{position:relative;border-radius:22px;padding:18px;background:linear-gradient(180deg,#1c1c18 0%,#141412 100%);border:1px solid #3a3a30;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 30px 70px -24px rgba(0,0,0,.85)}
+.mc svg{display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.mc-top{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.mc-top svg{width:16px;height:16px;color:var(--accent)}
+.mc-top .of{margin-left:auto;padding:3px 8px;border-radius:999px;border:1px solid var(--line-2);color:var(--text);letter-spacing:.04em}
+.mc-ath{display:flex;align-items:center;gap:12px;margin-top:16px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.mc-av{flex:0 0 42px;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--head);font-weight:800;font-size:14px;letter-spacing:.02em;background:var(--accent);color:var(--accent-ink)}
+.mc-name{font-family:var(--head);font-weight:800;font-size:18px;line-height:1.2}
+.mc-sub{font-size:13px;color:var(--muted);line-height:1.4}
+.mc-biz{display:flex;align-items:center;gap:12px;margin-top:16px}
+.mc-ic{flex:0 0 42px;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--accent);background:rgba(200,241,53,.07);border:1px solid rgba(200,241,53,.25)}
+.mc-ic svg{width:21px;height:21px}
+.mc-bizname{font-weight:700;font-size:16px;line-height:1.3}
+.mc-who{display:flex;align-items:center;gap:10px;margin-top:14px;padding:9px 10px 9px 9px;border-radius:13px;background:#0f0f0d;border:1px solid var(--line)}
+.mc-pav{flex:0 0 30px;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--head);font-weight:800;font-size:11.5px;background:#2b2b25;color:var(--text)}
+.mc-person{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mc-person span{font-weight:400;color:var(--muted)}
+.mc-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 9px 4px 6px;border-radius:999px;background:rgba(200,241,53,.13);color:var(--accent);font-size:12px;font-weight:700;white-space:nowrap}
+.mc-badge svg{width:14px;height:14px;stroke-width:2.4}
+.mc-lbl{margin-top:16px;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.mc-pitch{margin-top:6px;font-size:14px;line-height:1.5;color:#d4d1c9;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
+.mc-actions{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:16px}
+.mc-btn{display:flex;align-items:center;justify-content:center;gap:7px;height:44px;padding:0 20px;border-radius:12px;font-family:var(--head);font-weight:700;font-size:15px}
+.mc-btn svg{width:16px;height:16px;stroke-width:2.4}
+.mc-btn.ok{background:var(--accent);color:var(--accent-ink)}
+.mc-btn.skip{border:1px solid var(--line-2);color:var(--muted)}
+.mc-toast{position:absolute;left:8px;bottom:6px;display:flex;align-items:center;gap:8px;padding:9px 14px 9px 10px;border-radius:999px;background:#1f1f1b;border:1px solid var(--line-2);font-size:13px;font-weight:600;box-shadow:0 14px 34px rgba(0,0,0,.55)}
+.mc-toast svg{width:18px;height:18px;color:var(--accent);fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.mc-fig figcaption{margin-top:6px;font-size:12.5px;color:var(--dim);text-align:center}
 
 /* stats */
 .stats{padding:8px 0 28px}
@@ -137,15 +173,27 @@ p{margin:0}
 .calc{margin-top:14px;background:var(--card-2);border:1px solid var(--line-2);border-radius:14px;padding:20px}
 .calc h3{font-size:18px;font-weight:700}
 .calc .hint{margin-top:6px;color:var(--muted);font-size:14.5px}
-.calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+.calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px;max-width:520px}
 .field{display:flex;flex-direction:column;justify-content:flex-end}
 .field label,.field .lbl{display:block;font-size:13.5px;color:var(--muted);margin-bottom:6px;line-height:1.35}
 .field input,.field .v{width:100%;min-height:48px;padding:10px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg);color:var(--text);font:inherit;font-size:18px}
 .field .v{display:flex;align-items:center;border-style:dashed}
 .field input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
-.calc-out{margin-top:16px;font-family:var(--mono);font-size:13.5px;line-height:1.7;color:var(--muted);min-height:3.4em;overflow-wrap:anywhere}
-.calc-out .line{display:block}
-.calc-out .total{display:block;margin-top:4px;font-family:var(--head);font-size:26px;font-weight:800;line-height:1.2;color:var(--accent)}
+.calc-ex{margin-top:10px;font-size:13px;color:var(--dim)}
+.calc-ex[hidden]{display:none}
+.calc-out{display:block;margin-top:18px;overflow-wrap:anywhere}
+.calc-out .total{display:block;font-family:var(--head);font-size:clamp(25px,6.6vw,44px);font-weight:800;line-height:1.1;letter-spacing:-.01em;color:var(--accent)}
+.calc-out .math{display:block;margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:var(--muted)}
+.calc-out .wait{display:block;font-size:15px;color:var(--muted)}
+
+/* who it's for */
+.aud{list-style:none;margin:24px 0 0;padding:0;display:grid;gap:14px}
+.audc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column}
+.audc .ai{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--accent);background:rgba(200,241,53,.07);border:1px solid rgba(200,241,53,.25)}
+.audc .ai svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.audc h3{margin-top:14px;font-size:19px;font-weight:700;line-height:1.25}
+.audc p{margin-top:8px;color:var(--muted);font-size:15.5px;flex:1}
+.audc .btn{margin-top:18px;align-self:flex-start}
 
 /* footer */
 footer{border-top:1px solid var(--line);padding:32px 0 40px;color:var(--dim);font-size:14px}
@@ -163,7 +211,6 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
 }
 @media (min-width:700px){
   .vs{grid-template-columns:1fr 1fr;gap:14px}
-  .calc-grid{grid-template-columns:repeat(4,1fr)}
 }
 @media (min-width:900px){
   .wrap{padding:0 32px}
@@ -172,11 +219,12 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
   .navlinks a:hover{color:var(--text)}
   .hero{padding:72px 0 48px}
   .hero-grid{grid-template-columns:1.15fr .85fr;align-items:center;gap:56px}
-  .shot{max-width:340px}
+  .mc-stage{max-width:400px}
   .sec{padding:80px 0}
   .steps{grid-template-columns:repeat(3,1fr);gap:18px}
   .checks{grid-template-columns:1fr 1fr;gap:14px}
   .plans{grid-template-columns:repeat(3,1fr);align-items:stretch}
+  .aud{grid-template-columns:repeat(3,1fr);gap:18px}
   .foot{grid-template-columns:1fr auto;align-items:start}
 }
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
@@ -188,6 +236,7 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
   <a class="brand" href="/" aria-label="NILDash home"><span class="gl" aria-hidden="true">N</span><span class="wm">NIL<span>DASH</span></span></a>
   <nav class="navlinks" aria-label="Sections">
     <a href="#hours">Your time</a>
+    <a href="#who">Who it's for</a>
     <a href="#how">How it works</a>
     <a href="#verified">Verified sending</a>
     <a href="#pricing">Pricing</a>
@@ -201,18 +250,49 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
 <main>
 <section class="hero"><div class="wrap hero-grid">
   <div>
-    <span class="eyebrow">For NIL agents</span>
+    <span class="eyebrow">For agents, schools and collectives</span>
     <h1 class="h1">Buy back <em>your time</em>.</h1>
     <p class="lede">Every morning, 5 researched deals for every athlete: the right business, the owner or marketing person, a verified email, and a written pitch. You just approve.</p>
     <div class="ctas">
       <a class="btn primary" href="/?signin=agent&amp;tab=signup">Get started</a>
-      <a class="btn ghost" href="/demo">See a sample morning</a>
+      <a class="btn ghost" href="/demo">Try the interactive demo</a>
     </div>
   </div>
-  <figure class="shot">
-    <img src="/images/home-morning.png" width="780" height="1600" fetchpriority="high"
-         alt="The NILDash Home screen on a phone: one athlete's morning of researched deals, each card showing the business, why it fits, the contact and the pitch, with an Approve button.">
-    <figcaption>The Home screen on the demo account. Athletes and businesses shown are fictional.</figcaption>
+  <figure class="mc-fig">
+    <div class="mc-stage" role="img" aria-label="Illustration of a NILDash morning card: Maya Torres, a soccer player at Riverside State, matched with Harbor Street Coffee. The owner, Dana Kim, has a Verified badge, with a two-line pitch preview and Approve and Skip buttons.">
+      <div class="mc-stack" aria-hidden="true">
+        <div class="mc-back b2"></div>
+        <div class="mc-back b1"></div>
+        <div class="mc">
+          <div class="mc-top">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/></svg>
+            <span>This morning</span>
+            <span class="of">1 of 5</span>
+          </div>
+          <div class="mc-ath">
+            <span class="mc-av">MT</span>
+            <div><div class="mc-name">Maya Torres</div><div class="mc-sub">Soccer, Riverside State</div></div>
+          </div>
+          <div class="mc-biz">
+            <span class="mc-ic"><svg viewBox="0 0 24 24"><path d="M3.5 9.5 5 4.5h14l1.5 5"/><path d="M3.5 9.5c0 1.4 1.2 2.5 2.7 2.5s2.7-1.1 2.7-2.5c0 1.4 1.3 2.5 3.1 2.5s3.1-1.1 3.1-2.5c0 1.4 1.2 2.5 2.7 2.5s2.7-1.1 2.7-2.5"/><path d="M5 12v7.5h14V12"/><path d="M10 19.5v-4.5h4v4.5"/></svg></span>
+            <div><div class="mc-bizname">Harbor Street Coffee</div><div class="mc-sub">Local coffee shop, near campus</div></div>
+          </div>
+          <div class="mc-who">
+            <span class="mc-pav">DK</span>
+            <span class="mc-person">Dana Kim <span>Owner</span></span>
+            <span class="mc-badge"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg>Verified</span>
+          </div>
+          <div class="mc-lbl">The pitch</div>
+          <p class="mc-pitch">Hi Dana, Maya and her teammates start most game days at Harbor Street before practice, and most of her followers are students who live a few blocks from you. Would a game-week post and a campus pop-up be worth a quick call?</p>
+          <div class="mc-actions">
+            <span class="mc-btn ok"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg>Approve</span>
+            <span class="mc-btn skip">Skip</span>
+          </div>
+        </div>
+      </div>
+      <div class="mc-toast" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h12M12 6l6 6-6 6"/></svg>Approve sends it from your inbox</div>
+    </div>
+    <figcaption>An illustration. The names and the business are fictional.</figcaption>
   </figure>
 </div></section>
 
@@ -244,16 +324,40 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
   </div>
 
   <form class="calc" id="calc" onsubmit="return false" aria-labelledby="calc-title">
-    <h3 id="calc-title">Your hours back, in your own numbers</h3>
-    <p class="hint">Athletes &times; 5 pitches a day &times; your minutes per pitch &times; days a week &divide; 60 = hours a week back.</p>
+    <h3 id="calc-title">Your hours back</h3>
+    <p class="hint">Assumes 5 pitches per athlete a day, 5 days a week.</p>
     <div class="calc-grid">
-      <div class="field"><label for="calc-ath">Athletes on your roster</label><input id="calc-ath" name="athletes" type="number" inputmode="numeric" min="1" max="1000" step="1" placeholder="e.g. 8"></div>
-      <div class="field"><span class="lbl">Pitches a day per athlete</span><span class="v" aria-label="5 pitches a day per athlete">5</span></div>
-      <div class="field"><label for="calc-min">Your minutes per pitch, by hand</label><input id="calc-min" name="minutes" type="number" inputmode="decimal" min="1" max="600" step="any" placeholder="your number"></div>
-      <div class="field"><label for="calc-days">Days a week you pitch</label><input id="calc-days" name="days" type="number" inputmode="numeric" min="1" max="7" step="1" value="5"></div>
+      <div class="field"><label for="calc-ath">Athletes on your roster</label><input id="calc-ath" name="athletes" type="number" inputmode="numeric" min="1" max="1000" step="1" value="8"></div>
+      <div class="field"><label for="calc-min">Minutes you spend per pitch</label><input id="calc-min" name="minutes" type="number" inputmode="decimal" min="1" max="600" step="any" value="15"></div>
     </div>
-    <output class="calc-out" id="calc-out" for="calc-ath calc-min calc-days" aria-live="polite">Type your roster size and your minutes per pitch to see the math.</output>
+    <p class="calc-ex" id="calc-ex">Example numbers: 8 athletes, 15 minutes a pitch. Put in yours.</p>
+    <output class="calc-out" id="calc-out" for="calc-ath calc-min" aria-live="polite"><span class="total">about 50 hours a week back</span><span class="math">8 athletes &times; 5 pitches &times; 15 minutes &times; 5 days = 3,000 minutes &divide; 60 = 50 hours</span></output>
   </form>
+</div></section>
+
+<section class="sec" id="who"><div class="wrap">
+  <span class="eyebrow">Who it's for</span>
+  <h2 class="h2">Time back for everyone working NIL deals.</h2>
+  <ul class="aud">
+    <li class="audc" id="for-agents">
+      <span class="ai" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="12.5" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M3.5 12.5h17"/></svg></span>
+      <h3>Agents</h3>
+      <p>Every athlete on your roster gets 5 researched, verified deals every morning; you approve.</p>
+      <a class="btn primary" href="/?signin=agent&amp;tab=signup">Get started</a>
+    </li>
+    <li class="audc" id="for-schools">
+      <span class="ai" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3 20h18"/></svg></span>
+      <h3>Universities and athletic departments</h3>
+      <p>Local sponsors found and pitched for every team, so your NIL staff spends time on relationships, not prospecting.</p>
+      <a class="btn ghost" href="mailto:contact@mynildash.com?subject=NILDash%20for%20athletic%20departments">Talk to us</a>
+    </li>
+    <li class="audc" id="for-collectives">
+      <span class="ai" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="8.5" r="3"/><circle cx="16.5" cy="9.5" r="2.5"/><path d="M2.5 19.5c.6-3.3 2.8-5 5.5-5s4.9 1.7 5.5 5"/><path d="M14.5 14.7c.6-.2 1.3-.3 2-.3 2.4 0 4.1 1.5 4.7 4.6"/></svg></span>
+      <h3>Collectives</h3>
+      <p>Local businesses that fit your athletes, with the decision maker and a verified email included, ready to partner.</p>
+      <a class="btn ghost" href="mailto:contact@mynildash.com?subject=NILDash%20for%20collectives">Talk to us</a>
+    </li>
+  </ul>
 </div></section>
 
 <!--HOME_STATS-->
@@ -306,20 +410,20 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
 
 <section class="sec" id="included"><div class="wrap">
   <span class="eyebrow">Also included</span>
-  <h2 class="h2">The rest of the toolkit.</h2>
+  <h2 class="h2">More ways to get time back.</h2>
   <ul class="grid6">
-    <li class="mini"><h3>Deal Scan</h3><p>Search for brand fits for any athlete, any time, outside the nightly run.</p></li>
-    <li class="mini"><h3>Contact Ladder</h3><p>Finds the person who decides at a business, ranked above the general line.</p></li>
-    <li class="mini"><h3>Outreach</h3><p>Write and send a one-off pitch to any brand from your inbox.</p></li>
-    <li class="mini"><h3>Pipeline</h3><p>Every deal from first email to signed, with follow-ups and replies.</p></li>
-    <li class="mini"><h3>Media Kit</h3><p>A media kit for each athlete that brands open from a link.</p></li>
+    <li class="mini"><h3>Deal Scan</h3><p>Brand fits for any athlete in one search, any time, outside the nightly run.</p></li>
+    <li class="mini"><h3>Contact Ladder</h3><p>Skips the front desk: finds the person who decides, ranked above the general line.</p></li>
+    <li class="mini"><h3>Outreach</h3><p>A one-off pitch to any brand, written for you and sent from your inbox.</p></li>
+    <li class="mini"><h3>Pipeline</h3><p>Every deal, follow-up and reply in one place, so nothing needs remembering.</p></li>
+    <li class="mini"><h3>Media Kit</h3><p>A media kit for each athlete, ready to share as a link instead of made by hand.</p></li>
     <li class="mini"><h3>Assistant</h3><p>Ask in plain words to run a scan, add an athlete or draft outreach. It asks before anything it can't undo.</p></li>
   </ul>
 </div></section>
 
 <section class="sec" id="pricing"><div class="wrap">
   <span class="eyebrow">Pricing</span>
-  <h2 class="h2">One plan for agents.</h2>
+  <h2 class="h2">What your time back costs.</h2>
   <div class="plans">
     <div class="plan main" id="agents">
       <span class="who">Agent</span>
@@ -348,10 +452,10 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
       </form>
     </div>
     <div class="plan" id="teams">
-      <span class="who">Teams and leagues</span>
+      <span class="who">Schools and collectives</span>
       <div class="soon">Talk to us</div>
-      <p class="note">Pricing for a whole roster depends on its size. Email us and tell us how many athletes you cover.</p>
-      <a class="btn ghost go" href="mailto:contact@mynildash.com?subject=NILDash%20for%20teams">contact@mynildash.com</a>
+      <p class="note">Pricing for athletic departments and collectives depends on how many athletes you cover. Email us and tell us about yours.</p>
+      <a class="btn ghost go" href="mailto:contact@mynildash.com?subject=NILDash%20for%20schools%20and%20collectives">contact@mynildash.com</a>
     </div>
   </div>
 </div></section>
@@ -373,33 +477,32 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
 </div></footer>
 
 <script>
-// The time calculator: the agent's numbers, the math shown, nothing filled in
-// for them but the 5 pitches a day and an editable 5 days a week.
+// The time calculator: two numbers, 5 pitches per athlete a day and 5 days a
+// week assumed (and said), the result in big type and the math under it.
+// The page arrives with the example (8 athletes, 15 minutes) already worked.
 (function () {
   var form = document.getElementById('calc');
   var out = document.getElementById('calc-out');
-  var PITCHES = 5;
+  var ex = document.getElementById('calc-ex');
+  var PITCHES = 5, DAYS = 5, EXAMPLE = { a: 8, m: 15 };
   var num = function (id, max, whole) {
     var v = parseFloat(String(document.getElementById(id).value).replace(',', '.'));
     if (!isFinite(v) || v <= 0 || v > max) return null;
     return whole ? Math.round(v) : v;
   };
-  var fmt = function (v) { return (Math.round(v * 10) / 10).toLocaleString('en-US'); };
-  var say = function (v, one, many) { return fmt(v) + ' ' + (v === 1 ? one : many); };
-  var line = function (cls, text) { var e = document.createElement('span'); e.className = cls; e.textContent = text; return e; };
+  var fmt = function (v, dp) { var k = Math.pow(10, dp); return (Math.round(v * k) / k).toLocaleString('en-US'); };
+  var say = function (v, one, many, dp) { var t = fmt(v, dp == null ? 1 : dp); return t + ' ' + (t === '1' ? one : many); };
+  var span = function (cls, text) { var e = document.createElement('span'); e.className = cls; e.textContent = text; return e; };
   function render() {
-    var a = num('calc-ath', 1000, true), m = num('calc-min', 600, false), d = num('calc-days', 7, true);
+    var a = num('calc-ath', 1000, true), m = num('calc-min', 600, false);
+    ex.hidden = !(a === EXAMPLE.a && m === EXAMPLE.m);
     out.textContent = '';
-    if (a == null || m == null || d == null) {
-      out.textContent = d == null && a != null && m != null ? 'Days a week is a number from 1 to 7.'
-        : 'Type your roster size and your minutes per pitch to see the math.';
-      return;
-    }
-    var perDay = a * PITCHES * m;
-    var hours = perDay * d / 60;
-    out.appendChild(line('line', say(a, 'athlete', 'athletes') + ' \u00d7 ' + PITCHES + ' pitches \u00d7 ' + say(m, 'minute', 'minutes') + ' = ' + say(perDay, 'minute', 'minutes') + ' a day'));
-    out.appendChild(line('line', say(perDay, 'minute', 'minutes') + ' \u00d7 ' + say(d, 'day', 'days') + ' \u00f7 60 ='));
-    out.appendChild(line('total', say(hours, 'hour', 'hours') + ' a week back'));
+    if (a == null || m == null) { out.appendChild(span('wait', 'Put in your roster size and your minutes per pitch.')); return; }
+    var minutes = a * PITCHES * m * DAYS;
+    var hours = minutes / 60;
+    out.appendChild(span('total', 'about ' + say(hours, 'hour', 'hours', hours >= 10 ? 0 : 1) + ' a week back'));
+    out.appendChild(span('math', say(a, 'athlete', 'athletes') + ' \u00d7 ' + PITCHES + ' pitches \u00d7 ' + say(m, 'minute', 'minutes')
+      + ' \u00d7 ' + DAYS + ' days = ' + say(minutes, 'minute', 'minutes', 0) + ' \u00f7 60 = ' + say(hours, 'hour', 'hours')));
   }
   form.addEventListener('input', render);
   render();
