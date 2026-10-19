@@ -77,6 +77,7 @@ function guard() {
     'server/services/preflight.js': { n: 1, why: 'to the admin' },
     'server/services/sendFaults.js': { n: 1, why: 'to the agent' },
     'server/services/shortOfFive.js': { n: 1, why: 'to the admin' },
+    'server/services/hunterPace.js': { n: 1, why: 'the Hunter run-out alert, to the admin' },
     'server/services/providers/imap.js': { n: 1, why: 'the provider itself' },
   };
   const files = [];

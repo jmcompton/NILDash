@@ -897,6 +897,11 @@
       "total": 19,
       "fault": null
     },
+    "nightskip.js": {
+      "failed": 0,
+      "total": 15,
+      "fault": null
+    },
     "noagentname.js": {
       "failed": 0,
       "total": 50,
@@ -1364,7 +1369,7 @@
     },
     "smartpick.js": {
       "failed": 0,
-      "total": 14,
+      "total": 16,
       "fault": null
     },
     "socialstats.js": {
