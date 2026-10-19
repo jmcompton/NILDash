@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NILDash | 5 researched deals for every athlete, every morning</title>
-<meta name="description" content="NILDash finds local businesses and brands that fit each athlete, finds the owner or marketing person, verifies the email, writes the pitch, and sends it from your own inbox when you tap approve.">
+<title>NILDash | Buy back your time</title>
+<meta name="description" content="Every morning, 5 researched deals for every athlete: the right business, the owner or marketing person, a verified email, and a written pitch. You just approve.">
 <link rel="canonical" href="https://mynildash.com/">
 <link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
 <link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
@@ -108,6 +108,7 @@ p{margin:0}
 .plan .price span{font-family:var(--body);font-weight:500;font-size:15px;color:var(--muted)}
 .plan .soon{font-family:var(--head);font-weight:800;font-size:28px;line-height:1.15;margin-top:10px}
 .plan .note{margin-top:6px;color:var(--muted);font-size:14.5px}
+.plan .why{margin-top:2px;font-family:var(--head);font-weight:700;font-size:18px;color:var(--text)}
 .plan ul{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:8px;font-size:15px}
 .plan li{padding-left:22px;position:relative}
 .plan li::before{content:"";position:absolute;left:2px;top:.55em;width:9px;height:9px;border-radius:2px;background:var(--accent)}
@@ -119,6 +120,32 @@ p{margin:0}
 .wl-msg{min-height:1.4em;font-size:14px;color:var(--muted)}
 .wl-msg.ok{color:var(--accent)}
 .wl-msg.err{color:#ff8f7a}
+
+/* where your hours go */
+.vs{display:grid;gap:12px;margin-top:24px}
+.col{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+.col.nild{border-color:var(--accent)}
+.col h3{font-size:18px;font-weight:700}
+.todo{list-style:none;margin:12px 0 0;padding:0;counter-reset:t;display:grid;gap:9px}
+.todo li{counter-increment:t;display:flex;gap:12px;align-items:baseline;color:var(--muted);font-size:15.5px}
+.todo li::before{content:counter(t);flex:0 0 16px;font-family:var(--mono);font-size:12px;color:var(--dim)}
+.col.nild .todo li{color:var(--text);font-weight:600}
+.col.nild .todo li::before{color:var(--accent)}
+.todo small{display:block;margin-top:2px;font-weight:400;font-size:14px;color:var(--muted)}
+
+/* time calculator */
+.calc{margin-top:14px;background:var(--card-2);border:1px solid var(--line-2);border-radius:14px;padding:20px}
+.calc h3{font-size:18px;font-weight:700}
+.calc .hint{margin-top:6px;color:var(--muted);font-size:14.5px}
+.calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+.field{display:flex;flex-direction:column;justify-content:flex-end}
+.field label,.field .lbl{display:block;font-size:13.5px;color:var(--muted);margin-bottom:6px;line-height:1.35}
+.field input,.field .v{width:100%;min-height:48px;padding:10px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg);color:var(--text);font:inherit;font-size:18px}
+.field .v{display:flex;align-items:center;border-style:dashed}
+.field input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+.calc-out{margin-top:16px;font-family:var(--mono);font-size:13.5px;line-height:1.7;color:var(--muted);min-height:3.4em;overflow-wrap:anywhere}
+.calc-out .line{display:block}
+.calc-out .total{display:block;margin-top:4px;font-family:var(--head);font-size:26px;font-weight:800;line-height:1.2;color:var(--accent)}
 
 /* footer */
 footer{border-top:1px solid var(--line);padding:32px 0 40px;color:var(--dim);font-size:14px}
@@ -133,6 +160,10 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
   .ctas{flex-direction:row}
   .stat-row{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
   .grid6{grid-template-columns:repeat(3,1fr)}
+}
+@media (min-width:700px){
+  .vs{grid-template-columns:1fr 1fr;gap:14px}
+  .calc-grid{grid-template-columns:repeat(4,1fr)}
 }
 @media (min-width:900px){
   .wrap{padding:0 32px}
@@ -156,6 +187,7 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
 <header class="top"><div class="wrap nav">
   <a class="brand" href="/" aria-label="NILDash home"><span class="gl" aria-hidden="true">N</span><span class="wm">NIL<span>DASH</span></span></a>
   <nav class="navlinks" aria-label="Sections">
+    <a href="#hours">Your time</a>
     <a href="#how">How it works</a>
     <a href="#verified">Verified sending</a>
     <a href="#pricing">Pricing</a>
@@ -170,8 +202,8 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
 <section class="hero"><div class="wrap hero-grid">
   <div>
     <span class="eyebrow">For NIL agents</span>
-    <h1 class="h1">Wake up to <em>5 researched deals</em> for every athlete.</h1>
-    <p class="lede">NILDash finds local businesses and brands that fit each athlete, finds the owner or marketing person, verifies the email, writes the pitch, and sends it from your own inbox when you tap approve.</p>
+    <h1 class="h1">Buy back <em>your time</em>.</h1>
+    <p class="lede">Every morning, 5 researched deals for every athlete: the right business, the owner or marketing person, a verified email, and a written pitch. You just approve.</p>
     <div class="ctas">
       <a class="btn primary" href="/?signin=agent&amp;tab=signup">Get started</a>
       <a class="btn ghost" href="/demo">See a sample morning</a>
@@ -184,26 +216,66 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
   </figure>
 </div></section>
 
+<section class="sec" id="hours"><div class="wrap">
+  <span class="eyebrow">Your time</span>
+  <h2 class="h2">Where your hours go today</h2>
+  <p class="sec-lede">Every pitch you send by hand is the same list of jobs, for every athlete.</p>
+  <div class="vs">
+    <div class="col byhand">
+      <h3>By hand</h3>
+      <ol class="todo">
+        <li>Find the business</li>
+        <li>Find the owner</li>
+        <li>Hunt for an email</li>
+        <li>Check it</li>
+        <li>Write the pitch</li>
+        <li>Send</li>
+        <li>Remember to follow up</li>
+      </ol>
+    </div>
+    <div class="col nild">
+      <h3>With NILDash</h3>
+      <ol class="todo">
+        <li><span>Open Home<small>5 researched deals per athlete are waiting.</small></span></li>
+        <li><span>Approve<small>It sends from your own inbox.</small></span></li>
+        <li><span>Done<small>Follow-ups come back to your morning when a business doesn't answer.</small></span></li>
+      </ol>
+    </div>
+  </div>
+
+  <form class="calc" id="calc" onsubmit="return false" aria-labelledby="calc-title">
+    <h3 id="calc-title">Your hours back, in your own numbers</h3>
+    <p class="hint">Athletes &times; 5 pitches a day &times; your minutes per pitch &times; days a week &divide; 60 = hours a week back.</p>
+    <div class="calc-grid">
+      <div class="field"><label for="calc-ath">Athletes on your roster</label><input id="calc-ath" name="athletes" type="number" inputmode="numeric" min="1" max="1000" step="1" placeholder="e.g. 8"></div>
+      <div class="field"><span class="lbl">Pitches a day per athlete</span><span class="v" aria-label="5 pitches a day per athlete">5</span></div>
+      <div class="field"><label for="calc-min">Your minutes per pitch, by hand</label><input id="calc-min" name="minutes" type="number" inputmode="decimal" min="1" max="600" step="any" placeholder="your number"></div>
+      <div class="field"><label for="calc-days">Days a week you pitch</label><input id="calc-days" name="days" type="number" inputmode="numeric" min="1" max="7" step="1" value="5"></div>
+    </div>
+    <output class="calc-out" id="calc-out" for="calc-ath calc-min calc-days" aria-live="polite">Type your roster size and your minutes per pitch to see the math.</output>
+  </form>
+</div></section>
+
 <!--HOME_STATS-->
 
 <section class="sec" id="how"><div class="wrap">
   <span class="eyebrow">How a morning works</span>
-  <h2 class="h2">You approve. NILDash does the rest.</h2>
+  <h2 class="h2">The work happens overnight. You get the time back.</h2>
   <ol class="steps">
     <li class="step">
       <span class="k">01 &middot; OVERNIGHT</span>
       <h3>Overnight research</h3>
-      <p>Every night, NILDash looks at each athlete's school, sport and market, finds local businesses and brands that fit, finds the owner or marketing person, and verifies their email. Then it writes a pitch for each one.</p>
+      <p>While you're off the clock, NILDash looks at each athlete's school, sport and market, finds local businesses and brands that fit, finds the owner or marketing person, and verifies their email. Then it writes a pitch for each one.</p>
     </li>
     <li class="step">
       <span class="k">02 &middot; MORNING</span>
       <h3>Morning approval</h3>
-      <p>You wake up to 5 deals per athlete on your Home screen. Each card shows the business, why it fits, who you are writing to and the pitch. Edit what you want, skip what you don't, and tap approve.</p>
+      <p>You wake up to 5 deals per athlete on your Home screen. Each card shows the business, why it fits, who you are writing to and the pitch. Edit what you want, skip what you don't, and tap approve. That's your part.</p>
     </li>
     <li class="step">
       <span class="k">03 &middot; SENT</span>
       <h3>Sent from your inbox</h3>
-      <p>Approved pitches go out from your own Gmail or Outlook, so replies land with you. When a business doesn't answer, the follow-up comes back to your morning to approve, and every reply is tracked on the deal.</p>
+      <p>Approved pitches go out from your own Gmail or Outlook, so replies land with you. When a business doesn't answer, the follow-up comes back to your morning to approve, so there's nothing to remember, and every reply is tracked on the deal. The rest of your day is yours.</p>
     </li>
   </ol>
 </div></section>
@@ -252,6 +324,7 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
     <div class="plan main" id="agents">
       <span class="who">Agent</span>
       <div class="price">$99<span>/month</span></div>
+      <p class="why">to get your mornings back</p>
       <p class="note">Cancel anytime. No contract.</p>
       <ul>
         <li>5 researched deals per athlete, every morning</li>
@@ -300,6 +373,37 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
 </div></footer>
 
 <script>
+// The time calculator: the agent's numbers, the math shown, nothing filled in
+// for them but the 5 pitches a day and an editable 5 days a week.
+(function () {
+  var form = document.getElementById('calc');
+  var out = document.getElementById('calc-out');
+  var PITCHES = 5;
+  var num = function (id, max, whole) {
+    var v = parseFloat(String(document.getElementById(id).value).replace(',', '.'));
+    if (!isFinite(v) || v <= 0 || v > max) return null;
+    return whole ? Math.round(v) : v;
+  };
+  var fmt = function (v) { return (Math.round(v * 10) / 10).toLocaleString('en-US'); };
+  var say = function (v, one, many) { return fmt(v) + ' ' + (v === 1 ? one : many); };
+  var line = function (cls, text) { var e = document.createElement('span'); e.className = cls; e.textContent = text; return e; };
+  function render() {
+    var a = num('calc-ath', 1000, true), m = num('calc-min', 600, false), d = num('calc-days', 7, true);
+    out.textContent = '';
+    if (a == null || m == null || d == null) {
+      out.textContent = d == null && a != null && m != null ? 'Days a week is a number from 1 to 7.'
+        : 'Type your roster size and your minutes per pitch to see the math.';
+      return;
+    }
+    var perDay = a * PITCHES * m;
+    var hours = perDay * d / 60;
+    out.appendChild(line('line', say(a, 'athlete', 'athletes') + ' \u00d7 ' + PITCHES + ' pitches \u00d7 ' + say(m, 'minute', 'minutes') + ' = ' + say(perDay, 'minute', 'minutes') + ' a day'));
+    out.appendChild(line('line', say(perDay, 'minute', 'minutes') + ' \u00d7 ' + say(d, 'day', 'days') + ' \u00f7 60 ='));
+    out.appendChild(line('total', say(hours, 'hour', 'hours') + ' a week back'));
+  }
+  form.addEventListener('input', render);
+  render();
+})();
 (function () {
   var form = document.getElementById('wl');
   var msg = document.getElementById('wl-msg');

@@ -39,6 +39,7 @@ const HTML = read('server/views/home.html');
 const VISIBLE = HTML.replace(/<!--[\s\S]*?-->/g, ' ').replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<style[\s\S]*?<\/style>/g, ' ')
   .replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&middot;/g, '·').replace(/&#10003;/g, '✓').replace(/\s+/g, ' ');
 const CSS = (HTML.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+const Q0 = () => require(REPO + 'server/services/outreachQueue');
 const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '' : HTML.slice(i, HTML.indexOf('</section>', i)); };
 
 (async () => {
@@ -52,20 +53,42 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('  and no "AI command center" anywhere in the file', !/command center/i.test(HTML));
   ok('no copy about "built" addresses', !/\bbuilt\b/i.test(VISIBLE) && !/found or built/i.test(HTML));
   ok('no free athlete plan: "Free, no card required" is gone', !/no card required/i.test(HTML) && !/\bFree\b/.test(VISIBLE));
-  ok('the hero says exactly what it was asked to', /<h1 class="h1">Wake up to <em>5 researched deals<\/em> for every athlete\.<\/h1>/.test(HTML)
-    && /Wake up to 5 researched deals for every athlete\./.test(VISIBLE));
-  ok('  the sub: finds, finds the person, verifies, writes, sends from the agent\'s inbox on approve',
-    /NILDash finds local businesses and brands that fit each athlete, finds the owner or marketing person, verifies the email, writes the pitch, and sends it from your own inbox when you tap approve\./.test(VISIBLE));
+  ok('the hero headline: "Buy back your time."', /<h1 class="h1">Buy back <em>your time<\/em>\.<\/h1>/.test(HTML) && /Buy back your time ?\./.test(VISIBLE));   // the <em> leaves a space when tags are stripped
+  ok('  the sub, word for word', /<p class="lede">Every morning, 5 researched deals for every athlete: the right business, the owner or marketing person, a verified email, and a written pitch\. You just approve\.<\/p>/.test(HTML));
+  ok('  the title and description say the same', /<title>NILDash \| Buy back your time<\/title>/.test(HTML)
+    && /<meta name="description" content="Every morning, 5 researched deals for every athlete: the right business, the owner or marketing person, a verified email, and a written pitch\. You just approve\.">/.test(HTML));
   const hero = HTML.slice(HTML.indexOf('<section class="hero">'), HTML.indexOf('</section>', HTML.indexOf('<section class="hero">')));
   ok('  CTA "Get started" opens agent sign-up', /<a class="btn primary" href="\/\?signin=agent&amp;tab=signup">Get started<\/a>/.test(hero));
   ok('  CTA "See a sample morning" goes to the demo', /<a class="btn ghost" href="\/demo">See a sample morning<\/a>/.test(hero));
   ok('  and /demo is a real public route', /app\.get\('\/demo'/.test(read('server/index.js')) && fs.existsSync(REPO + 'public/demo.html'));
 
+  console.log('\n   ...where your hours go, and the calculator');
+  const hrs = section('hours');
+  const ids = [...HTML.matchAll(/<section class="[^"]*" id="([a-z]+)"|<!--HOME_STATS-->/g)].map((m) => m[1] || 'stats');
+  ok('"Where your hours go today" comes right after the hero', /<h2 class="h2">Where your hours go today<\/h2>/.test(hrs)
+    && HTML.indexOf('id="hours"') > HTML.indexOf('<section class="hero">') && ids[0] === 'hours', ids);
+  const items = (cls) => { const c = hrs.slice(hrs.indexOf(`class="col ${cls}"`)); return [...c.slice(0, c.indexOf('</ol>')).matchAll(/<li>(?:<span>)?([^<]+)/g)].map((m) => m[1].trim()); };
+  ok('  side by side: by hand, the seven jobs', JSON.stringify(items('byhand')) === JSON.stringify(['Find the business', 'Find the owner', 'Hunt for an email', 'Check it', 'Write the pitch', 'Send', 'Remember to follow up']), items('byhand'));
+  ok('  with NILDash: open Home, approve, done', JSON.stringify(items('nild')) === JSON.stringify(['Open Home', 'Approve', 'Done']), items('nild'));
+  ok('  laid out as two columns from tablet width, stacked on a phone', /\.vs\{display:grid;gap:12px/.test(CSS) && /@media \(min-width:700px\)\{\s*\.vs\{grid-template-columns:1fr 1fr/.test(CSS));
+  ok('no made-up time numbers anywhere a visitor reads', !/\d[\d,.]*\s*(min|mins|minutes?|hours?|hrs?|h)\b/i.test(VISIBLE) && !/\b(save|saves|saving)\b[^.]{0,40}\d/i.test(VISIBLE),
+    (VISIBLE.match(/.{20}\d[\d,.]*\s*(min|minutes?|hours?|hrs?)\b.{10}/i) || [])[0]);
+  const calc = hrs.slice(hrs.indexOf('<form class="calc"'), hrs.indexOf('</form>'));
+  ok('a time calculator: athletes x 5 pitches a day x your minutes per pitch, the formula written out', /<form class="calc" id="calc"/.test(calc)
+    && /Athletes &times; 5 pitches a day &times; your minutes per pitch &times; days a week &divide; 60 = hours a week back\./.test(calc));
+  ok('  your roster and your minutes start empty: nothing is filled in for you', /<input id="calc-ath"[^>]*>/.test(calc) && !/<input id="calc-ath"[^>]*value=/.test(calc)
+    && /<input id="calc-min"[^>]*>/.test(calc) && !/<input id="calc-min"[^>]*value=/.test(calc));
+  ok('  5 pitches a day is fixed (the queue\'s five slots), days a week is yours to change (5 to start)', /<span class="v"[^>]*>5<\/span>/.test(calc)
+    && /<input id="calc-days"[^>]*value="5"/.test(calc) && /var PITCHES = 5;/.test(HTML) && Q0().SLOTS_PER_ATHLETE === 5);
+  ok('  and before anyone types, it shows no result, only what to do', /<output class="calc-out" id="calc-out"[^>]*>Type your roster size and your minutes per pitch to see the math\.<\/output>/.test(calc));
+
   const how = section('how');
   ok('"How a morning works": three steps', /How a morning works/.test(how) && (how.match(/class="step"/g) || []).length === 3, (how.match(/class="step"/g) || []).length);
   ok('  overnight research, morning approval, sent from your inbox, in that order',
     /Overnight research[\s\S]*Morning approval[\s\S]*Sent from your inbox/.test(how));
-  ok('  with follow-ups and replies tracked', /follow-up comes back to your morning to approve, and every reply is tracked/.test(how));
+  ok('  with follow-ups and replies tracked', /follow-up comes back to your morning to approve, so there's nothing to remember, and every reply is tracked/.test(how));
+  ok('  and it is about time back', /<h2 class="h2">The work happens overnight\. You get the time back\.<\/h2>/.test(how) && /While you're off the clock/.test(how)
+    && /That's your part\./.test(how) && /The rest of your day is yours\./.test(how));
 
   const ver = section('verified');
   ok('"Verified, or it doesn\'t send"', /<h2 class="h2">Verified, or it doesn't send\.<\/h2>/.test(ver));
@@ -96,7 +119,8 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('the old feature sections are not on this page', !/class="feat|id="features"|class="asstband"/.test(HTML));
 
   const pr = section('pricing');
-  ok('pricing: Agent $99/month', /<span class="who">Agent<\/span>\s*<div class="price">\$99<span>\/month<\/span><\/div>/.test(pr));
+  ok('pricing: Agent $99/month to get your mornings back', /<span class="who">Agent<\/span>\s*<div class="price">\$99<span>\/month<\/span><\/div>\s*<p class="why">to get your mornings back<\/p>/.test(pr)
+    && /\$99 \/month to get your mornings back/.test(VISIBLE));
   ok('  Athletes: "Coming soon" with a waitlist email field', /<span class="who">Athletes<\/span>\s*<div class="soon">Coming soon<\/div>/.test(pr)
     && /<form class="wl" id="wl" action="\/api\/public\/waitlist" method="post"/.test(pr) && /type="email"/.test(pr));
   ok('  Teams: talk to us, by email', /<span class="who">Teams and leagues<\/span>\s*<div class="soon">Talk to us<\/div>/.test(pr) && /mailto:contact@mynildash\.com/.test(pr));
@@ -190,7 +214,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
     for (let i = 0; i < 90 && !up; i++) { try { up = (await fetch(base + '/health')).ok; } catch (_) {} if (!up) await new Promise((r) => setTimeout(r, 1000)); }
     return { srv, base, up, err: () => err };
   };
-  const isHome = (h) => /<title>NILDash \| 5 researched deals/.test(h) && !/id="appScreen"/.test(h);
+  const isHome = (h) => /<title>NILDash \| Buy back your time<\/title>/.test(h) && !/id="appScreen"/.test(h);
   const isApp = (h) => /<div id="mktLanding">/.test(h) && /id="appScreen"/.test(h);
 
   const off = await boot({ HOME_V2_ON: '' });
@@ -296,11 +320,34 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
       ok('no sideways scroll at 390px', m.scroll <= 0, m.scroll);
       ok('  nothing pokes past the edge', m.wide.length === 0, m.wide);
       ok('  every button is a full tap target (44px or taller)', m.ctas.length >= 5 && m.ctas.every((x) => x >= 44), m.ctas);
-      ok('  the hero reads as written', m.h1 === 'Wake up to 5 researched deals for every athlete.', m.h1);
+      ok('  the hero reads as written', m.h1 === 'Buy back your time.', m.h1);
       ok('  headings are set in Syne, falling back to a sans, never a serif', /^Syne,/.test(m.h1font) && /sans-serif$/.test(m.h1font) && /^Inter,/.test(m.body), [m.h1font, m.body]);
       ok('  the section links fold away on a phone; Sign in and Get started stay', m.navHidden && await pg.isVisible('.navright .signin') && await pg.isVisible('.navright .btn'));
       ok('  the counts show', m.stats === 3, m.stats);
       ok('  and none of the portal is in the page', !m.portal);
+      // THE CALCULATOR, with an agent's own numbers.
+      const out = () => pg.textContent('#calc-out');
+      ok('the calculator waits for the agent\'s numbers', /Type your roster size and your minutes per pitch/.test(await out()) && !/\d/.test(await out()));
+      await pg.fill('#calc-ath', '12');
+      ok('  one number is not enough', /Type your roster size/.test(await out()));
+      await pg.fill('#calc-min', '15');
+      const o1 = await out();
+      ok('  12 athletes x 5 pitches x 15 minutes = 900 minutes a day, x 5 days / 60 = 75 hours a week back, all shown',
+        /12 athletes \u00d7 5 pitches \u00d7 15 minutes = 900 minutes a day/.test(o1) && /900 minutes \u00d7 5 days \u00f7 60 =/.test(o1) && /75 hours a week back/.test(o1), o1);
+      await pg.fill('#calc-days', '3');
+      ok('  the agent\'s own days a week change it (45 hours)', /900 minutes \u00d7 3 days \u00f7 60 =\s*45 hours a week back/.test(await out()), await out());
+      await pg.fill('#calc-ath', '1'); await pg.fill('#calc-min', '7'); await pg.fill('#calc-days', '1');
+      ok('  singulars and decimals read right (1 athlete, 35 minutes, 0.6 hours)', /1 athlete \u00d7 5 pitches \u00d7 7 minutes = 35 minutes a day/.test(await out()) && /35 minutes \u00d7 1 day \u00f7 60 =\s*0\.6 hours a week back/.test(await out()), await out());
+      await pg.fill('#calc-min', '-4');
+      ok('  a negative or empty minutes field shows no result', /Type your roster size/.test(await out()) && !/hours a week back/.test(await out()));
+      await pg.fill('#calc-min', '7'); await pg.fill('#calc-days', '9');
+      ok('  days a week past 7 says so instead of a result', /Days a week is a number from 1 to 7\./.test(await out()));
+      await pg.press('#calc-days', 'Enter');
+      ok('  pressing Enter does not leave the page', pg.url() === on.base + '/');
+      const cw = await pg.evaluate(() => ({ calc: document.getElementById('calc').getBoundingClientRect().right <= window.innerWidth,
+        vsCols: getComputedStyle(document.querySelector('.vs')).gridTemplateColumns.split(' ').length,
+        fields: [...document.querySelectorAll('#calc input')].map((i) => Math.round(i.getBoundingClientRect().height)) }));
+      ok('  it fits a phone, the comparison stacks, and every field is a full tap target', cw.calc && cw.vsCols === 1 && cw.fields.every((h) => h >= 44), cw);
       await pg.fill('#wl-email', 'browser@school.edu');
       await pg.click('#wl button');
       await pg.waitForFunction(() => /on the list/.test(document.getElementById('wl-msg').textContent), null, { timeout: 8000 }).catch(() => {});
