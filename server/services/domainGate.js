@@ -36,7 +36,7 @@
 
 const { rootDomain, nameTokens, collapsedOverlapOk } = require('./siteEmail');
 const {
-  hostOf, hostMatches, SOCIAL_HOSTS, PLATFORM_HOSTS, DIRECTORY_HOSTS,
+  hostOf, hostMatches, SOCIAL_HOSTS, PLATFORM_HOSTS, DIRECTORY_HOSTS, PLATFORM_COMPANY_DOMAINS,
 } = require('./websiteValidation');
 
 // Words that carry no identity, so they cannot contribute the initial of an
@@ -134,6 +134,13 @@ function checkDomain(brand, website) {
   if (hostMatches(root, host, DIRECTORY_HOSTS)) {
     return { ok: false, code: 'third-party-host', root, matchedOn: null,
       reason: `${root} is a directory or listing site, not this business's own domain` };
+  }
+  // The platform's own company domain (squareup.com, wix.com, google.com):
+  // a booking or profile page there is the platform's, and so is every
+  // address at it.
+  if (hostMatches(root, host, PLATFORM_COMPANY_DOMAINS)) {
+    return { ok: false, code: 'third-party-host', root, matchedOn: null,
+      reason: `${root} is the platform's own domain, not this business's` };
   }
 
   const toks = nameTokens(brand);

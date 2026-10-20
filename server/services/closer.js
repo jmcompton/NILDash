@@ -961,23 +961,26 @@ async function releaseDue(pool, opts = {}) {
     // than 30 days, re-verified now if older. Not valid: the email stops, says
     // why, and its card offers a call or a DM instead. A check that could not
     // run holds it to be checked again; it never sends unchecked.
-    let _gate = null;
+    // Gate on or off, a platform's own address (ce@squareup.com) never sends.
+    let _gate = null, _who = null;
     if (SG.ON()) {
-      const _who = await SG.contactNameFor(pool, log).catch(() => null);
+      _who = await SG.contactNameFor(pool, log).catch(() => null);
       _gate = await SG.check(pool, { email: log.sent_to_email || log.to_email, contactName: _who, agentId: log.agent_id,
         athleteId: log.athlete_id, business: log.brand_name, now }, opts.gateDeps || {})
         .catch((e) => ({ ok: false, code: 'not-run', retry: true, why: 'the address check failed on our side: ' + e.message }));
-      if (!_gate.ok) {
-        if (_gate.retry) {
-          await hold(pool, log, 'address: ' + _gate.why, new Date(nowMs + RECHECK_CEILING_MS));
-          out.held++; out.detail.push({ id: log.id, result: 'held', why: _gate.why, gate: _gate.code });
-          continue;
-        }
-        const b = await SG.blockAndOffer(pool, log, _gate, { contactName: _who });
-        out.held++; out.gated = (out.gated || 0) + 1;
-        out.detail.push({ id: log.id, result: 'blocked', why: _gate.why, gate: _gate.code, offer: b.offer, converted: b.converted });
+    } else {
+      _gate = SG.platformCheck(log.sent_to_email || log.to_email);
+    }
+    if (_gate && !_gate.ok) {
+      if (_gate.retry) {
+        await hold(pool, log, 'address: ' + _gate.why, new Date(nowMs + RECHECK_CEILING_MS));
+        out.held++; out.detail.push({ id: log.id, result: 'held', why: _gate.why, gate: _gate.code });
         continue;
       }
+      const b = await SG.blockAndOffer(pool, log, _gate, { contactName: _who });
+      out.held++; out.gated = (out.gated || 0) + 1;
+      out.detail.push({ id: log.id, result: 'blocked', why: _gate.why, gate: _gate.code, offer: b.offer, converted: b.converted });
+      continue;
     }
     // ── THE COMPLIANCE GATE ──────────────────────────────────────────────
     // BEFORE the reservation, because a held message must not consume the day's

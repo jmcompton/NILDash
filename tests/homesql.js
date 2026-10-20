@@ -171,7 +171,10 @@ console.log('\n-- the roster --');
 {
   seed(`
     INSERT INTO athlete_activity_log (athlete_id, agent_id, activity_type, created_at) VALUES
-      ('at-1','ag-1','deal_scan', NOW() - INTERVAL '2 days'),
+      -- At a fixed point in the week, after every email in the fixture (o1 to
+      -- o3 are the week's first three hours). "2 days ago" fell before o3 on a
+      -- Monday or Tuesday, so the check below failed two days a week.
+      ('at-1','ag-1','deal_scan', DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '4 hours'),
       ('at-2','ag-1','deal_scan', NOW() - INTERVAL '60 days');
   `);
   const r = run(ROSTER).rows;
@@ -188,9 +191,14 @@ console.log('\n-- the roster --');
     Number(byName['Placeholder Castellan'].earned) === 0, byName['Placeholder Castellan'].earned);
   ok('ordered by earned, highest first', Number(r[0].earned) >= Number(r[1].earned),
     r.map((x) => x.earned));
+  const at = (sql) => run(sql).rows[0].t;
+  const scanAlvarez = at(`SELECT created_at AS t FROM athlete_activity_log WHERE athlete_id = 'at-1'`);
+  const o3 = at(`SELECT sent_at AS t FROM outreach_logs WHERE id = 'o3'`);
   ok('last activity comes from the newest of scan or outreach',
-    byName['Fixture Alvarez'].last_activity > byName['Sample Bramwell'].last_activity,
-    [byName['Fixture Alvarez'].last_activity, byName['Sample Bramwell'].last_activity]);
+    byName['Fixture Alvarez'].last_activity > byName['Sample Bramwell'].last_activity
+      && byName['Fixture Alvarez'].last_activity === scanAlvarez     // their scan, newer than their own emails
+      && byName['Sample Bramwell'].last_activity === o3,             // their email, newer than their 60-day-old scan
+    [byName['Fixture Alvarez'].last_activity, scanAlvarez, byName['Sample Bramwell'].last_activity, o3]);
   ok('an athlete who has never done anything has an epoch marker the route maps to dormant',
     /1970/.test(byName['Placeholder Castellan'].last_activity), byName['Placeholder Castellan'].last_activity);
 }

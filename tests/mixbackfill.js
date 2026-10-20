@@ -203,8 +203,15 @@ async function main() {
   const rej3 = (r3.tried || []).filter((t) => t.stage === 'backfill');
   ok('  the ones that did not verify were checked and dropped, each with the rule as its reason',
     rej3.length >= 3 && rej3.every((t) => /^Bf Nope Grill/.test(t.brand) && /takes only a verified named person's email/.test(t.reason)), rej3.map((t) => `${t.brand}: ${t.reason}`));
-  ok('  a catch-all guess is not verified for this either', rej3.some((t) => t.brand === 'Bf Nope Grill 3') || !calls.verify.includes('dana.reed@bfnopegrill3.com'),
-    rej3.map((t) => t.brand));
+  // Grill 3's address is a catch-all. The four Nope Grills rank the same, so
+  // the order they come in is not fixed: Grill 3 can take the athlete's own
+  // local seat first (a DM is allowed there, EMAIL_FIVE_ON off) or come up in
+  // the backfill. Either way it never fills a backfilled seat, is never marked
+  // verified, and a backfill try of it is rejected.
+  const g3 = (r3.tried || []).filter((t) => t.brand === 'Bf Nope Grill 3' && t.stage === 'backfill');
+  ok('  a catch-all guess is not verified for this either',
+    !c3.some((c) => c.brand_name === 'Bf Nope Grill 3' && (c.backfill_for || c.email_verified)) && g3.every((t) => t.result === 'rejected'),
+    { backfillTries: g3.map((t) => `${t.result}: ${t.reason}`), cards: c3.filter((c) => c.brand_name === 'Bf Nope Grill 3') });
   ok('  no card anywhere carries an address that did not verify', !c3.some((c) => c.channel === 'email' && !c.email_verified), c3);
   ok('  the athlete\'s own local seat follows the night\'s rules as before (EMAIL_FIVE_ON off: a DM is allowed there)',
     c3.filter((c) => c.lane === 'local' && !c.backfill_for).length === 1, c3);

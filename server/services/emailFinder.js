@@ -53,6 +53,14 @@ function isNever(email) {
 function isDesk(email) { return ET.isGeneric(email) || ET.isRoleMailbox(email) || isNever(email); }
 const rootOf = (x) => ET.rootDomain(x);
 const sameDomain = (email, domain) => !!domain && rootOf(domainOf(email)) === rootOf(domain);
+// ── NEVER THE PLATFORM'S ADDRESS ────────────────────────────────────────────
+// ce@squareup.com went on a card for "Eyebrows by Corrina": the business books
+// through Square, and Square's own domain was taken for hers. An address at a
+// platform's domain (Square, Wix, Shopify, Vagaro, Google, Facebook ...; the
+// lists in services/websiteValidation) is the platform's, never the
+// business's. Never returned, never verified, no Hunter credit spent on it.
+const platformOf = (x) => require('./websiteValidation').platformDomainOf(x);
+const platformWhy = (x) => `${domainOf(x) || rootOf(x) || lc(x)} is the platform's address, not the business's`;
 
 // The formats tried when nothing on the domain shows its pattern, in the order
 // small businesses use them. Each costs one verification unless cached.
@@ -162,6 +170,9 @@ async function find(ctx, deps) {
   const domain = rootOf(ctx.domain);
   if (!n) return res({ stop: 'no usable name' });
   if (!domain) return res({ stop: 'no domain' });
+  if (platformOf(ctx.domain) || platformOf(domain)) {
+    return res({ stop: `${domain} is the platform's domain, not the business's`, platform: true });
+  }
   // Addresses already checked and refused (the card's own, in rule 4).
   const tried = new Set((ctx.skip || []).map(lc));
   let verifies = 0, catchAll = false, notRun = false;
@@ -171,6 +182,7 @@ async function find(ctx, deps) {
     if (!e || tried.has(e)) return null;
     tried.add(e);
     if (!sameDomain(e, domain)) { steps.push({ how, email: e, ok: false, why: 'not at the business domain' }); return null; }
+    if (platformOf(e)) { steps.push({ how, email: e, ok: false, why: platformWhy(e) }); return null; }
     if (isDesk(e)) { steps.push({ how, email: e, ok: false, why: 'a desk address, not a person' }); return null; }
     if (verifies >= (ctx.maxVerifies || MAX_VERIFIES)) { steps.push({ how, email: e, ok: false, why: 'per-business check limit reached' }); return null; }
     const v = await deps.verify(e);
@@ -402,11 +414,19 @@ async function finishLadder(args, deps) {
 
   // ── 4. THE ADDRESS THE CARD WOULD USE, VERIFIED ────────────────────────
   const inbox = Q.inboxOf(ladder);
+  // THE PLATFORM'S ADDRESS IS NEVER THE BUSINESS'S (ce@squareup.com): refused
+  // without a check, and the finder looks for one at the business's own domain.
+  if (inbox && platformOf(inbox.email)) {
+    const why = platformWhy(inbox.email);
+    const row = rowWith(ladder, inbox.email);
+    if (row) row.emailVerify = { verdict: 'not-checked', status: null, pass: false, why };
+    rec.verify = { email: inbox.email, kind: inbox.kind, verdict: 'not-checked', pass: false, why, cached: false, platform: true };
+  }
   // A DESK IS NEVER A PERSON'S ADDRESS. outreachQueue.addressIsTheirs matches
   // a name inside the local part, so "customerservice@" reads as Tom's (it
   // contains "tom"). customerservice@, support@, careers@ and the rest are
   // refused here outright, without spending a check.
-  if (inbox && !inbox.general && isDesk(inbox.email)) {
+  if (inbox && !rec.verify && !inbox.general && isDesk(inbox.email)) {
     const row = rowWith(ladder, inbox.email);
     if (row) row.emailVerify = { verdict: 'not-checked', status: null, pass: false, why: `${localOf(inbox.email)}@ is a desk address, not a person` };
     rec.verify = { email: inbox.email, kind: inbox.kind, verdict: 'not-checked', pass: false, why: `${localOf(inbox.email)}@ is a desk address, not a person`, cached: false };
@@ -431,6 +451,12 @@ async function finishLadder(args, deps) {
 
   // ── THE DOMAIN ─────────────────────────────────────────────────────────
   let domain = (ladder && ladder.businessDomain) || (out && out.website ? rootOf(out.website) : null);
+  // A Square, Wix or Vagaro page is where the business books, not its domain:
+  // looked for like a business with no website.
+  let platformSite = null;
+  if (domain && (platformOf(domain) || platformOf((ladder && ladder.businessDomain) || (out && out.website)))) {
+    platformSite = domain; domain = null;
+  }
   let strict = false;
   let siteOut = out;
   const more = !!args.more;
@@ -441,7 +467,7 @@ async function finishLadder(args, deps) {
     // THE OWNER'S OWN MAILBOX, LISTED ON THE BUSINESS'S FACEBOOK PAGE: a
     // personal address (gmail and the like) that carries their name. Used
     // only once it verifies; an unnamed one (joespizza@gmail.com) is a desk.
-    if (more && w.fbEmail && ET.isFreeMail(w.fbEmail) && carriesName(w.fbEmail, person.name)) {
+    if (more && w.fbEmail && ET.isFreeMail(w.fbEmail) && !platformOf(w.fbEmail) && carriesName(w.fbEmail, person.name)) {
       const v = await deps.verify(w.fbEmail);
       if (v && !v.cached && !v.notRun) credits.verify++;
       const verdict = verdictOf(v);
@@ -452,7 +478,9 @@ async function finishLadder(args, deps) {
         if (ok) { rec.after = Q.channelFor(ladder, ig); return rec; }
       }
     }
-    if (w.website) {
+    if (w.website && platformOf(w.website)) {
+      rec.website.why = `${rootOf(w.website)} is the platform's domain, not the business's`;
+    } else if (w.website) {
       domain = rootOf(w.website);
       strict = !!w.strict;
       // The site was never read: read it now (free, cached by domain).
@@ -466,7 +494,7 @@ async function finishLadder(args, deps) {
   if (!domain) {
     for (const t of ((ladder && ladder.tiers) || [])) {
       for (const r of (t.rows || [])) {
-        if (!r || !r.email || ET.isFreeMail(r.email)) continue;
+        if (!r || !r.email || ET.isFreeMail(r.email) || platformOf(r.email)) continue;
         const d = rootOf(domainOf(r.email));
         if (d && typeof deps.checkDomain === 'function' && deps.checkDomain(brand, 'https://' + d).ok) { domain = d; break; }
       }
@@ -477,7 +505,12 @@ async function finishLadder(args, deps) {
     const all = ((ladder && ladder.tiers) || []).flatMap((t) => t.rows || []).filter((r) => r && r.email && sameDomain(r.email, domain));
     roleOnly = all.length > 0 && all.every((r) => isDesk(r.email));
   }
-  if (!domain) { rec.finder = { stop: rec.website ? 'no website found' : 'no domain' }; rec.after = Q.channelFor(ladder, ig); return rec; }
+  if (!domain) {
+    rec.finder = { stop: platformSite ? `${platformSite} is the platform's domain, not the business's, and no website of its own was found`
+      : (rec.website ? 'no website found' : 'no domain'), platform: platformSite || undefined };
+    rec.after = Q.channelFor(ladder, ig);
+    return rec;
+  }
   if (typeof deps.corporate === 'function') {
     const corp = deps.corporate(domain, brand, siteOut);
     if (corp) { rec.finder = { stop: corp, domain }; rec.after = Q.channelFor(ladder, ig); return rec; }
@@ -586,7 +619,7 @@ async function generalInbox({ ladder, siteOut, out, domain, hunterKnown, type, b
   const size = R.sizeBucket({ headcount: hunterKnown && hunterKnown.headcount, people: people.size, chain, type });
   if (size !== 'about 5 or fewer') return { used: false, why: `not a business of about five or fewer people (${size})`, size };
   const found = [];
-  const add = (e) => { const x = lc(e); if (x && sameDomain(x, domain) && GENERAL_LOCALS.test(localOf(x)) && !found.includes(x)) found.push(x); };
+  const add = (e) => { const x = lc(e); if (x && sameDomain(x, domain) && !platformOf(x) && GENERAL_LOCALS.test(localOf(x)) && !found.includes(x)) found.push(x); };
   for (const t of ((ladder && ladder.tiers) || [])) for (const r of (t.rows || [])) if (r && r.email) add(r.email);
   const se = siteOut && siteOut.siteEmail;
   if (se) { add(se.roleEmail); add(se.email); }
@@ -680,8 +713,13 @@ function liveDeps(pool, { agentId = null, athleteId = null, business = null, sou
     if (!wrote) return { ok: false, why: 'the verification credit log is not writable, so nothing is being spent' };
     return H.verifyEmail(email);
   };
+  // A platform's address or domain is never checked or searched: no credit
+  // is spent on it, whoever asks. Free and final (not a check that could not
+  // run, which the night would try again).
+  const platformVerdict = (email) => ({ email: lc(email), result: null, status: 'platform', platform: true, cached: true, why: platformWhy(email) });
   return {
     verify: async (email) => {
+      if (platformOf(email)) return platformVerdict(email);
       // CACHE MODE (services/hunterPace): tonight's Hunter credits are spent,
       // and only a verdict from the last 30 days counts.
       const HP = require('./hunterPace');
@@ -690,10 +728,11 @@ function liveDeps(pool, { agentId = null, athleteId = null, business = null, sou
     },
     peek: (emails) => EV.cached(pool, emails),
     domainSearch: async (domain) => {
+      if (platformOf(domain)) return null;
       const h = await H.findDomainEmails(domain, { withPattern: true });
       return h && !h.fault ? h : null;
     },
-    emailFinder: (first, last, domain) => H.findEmail(first, last, domain),
+    emailFinder: async (first, last, domain) => (platformOf(domain) ? null : H.findEmail(first, last, domain)),
     // Read only: never spends. The ladder's own Domain Search, when it ran.
     hunterCached: async (domain) => {
       const c = await require('../store').getBrandEvidence(String(domain).toLowerCase(), H.LANE, H.CACHE_DAYS);
@@ -732,4 +771,5 @@ module.exports = {
   find, finishLadder, findWebsite, liveDeps, passes, verdictOf, examplesOf, shapeOf, isNever, isDesk,
   alternatesFor, attachTo, carriesName, ALT_MAX_PEOPLE, ALT_MAX_VERIFIES, smartPeople, generalInbox, GENERAL_LOCALS,
   corporateDomain, placeIsThisBusiness, sameNameLoose, COMMON_FORMATS, MAX_VERIFIES, NEVER_LOCAL,
+  platformOf, platformWhy,
 };

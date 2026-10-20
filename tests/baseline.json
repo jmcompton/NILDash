@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-19",
+  "recordedAt": "2026-10-20",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_neartest.js": {
@@ -1035,6 +1035,11 @@
     "placesnew.js": {
       "failed": 0,
       "total": 52,
+      "fault": null
+    },
+    "platformdomains.js": {
+      "failed": 0,
+      "total": 87,
       "fault": null
     },
     "pm.js": {

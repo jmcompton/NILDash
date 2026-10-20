@@ -81,6 +81,36 @@ const PLATFORM_HOSTS = [
   'gofundme.com', 'godaddysites.com', 'weebly.com', 'business.site',
 ];
 
+// THE PLATFORMS' OWN COMPANY DOMAINS. Square, Wix, Shopify and the rest run
+// their own business at these, so an address here is the platform's staff or
+// support, never the business's: ce@squareup.com was put on a card for
+// "Eyebrows by Corrina" because the business books through Square. A page here
+// is not the business's site either. Read with PLATFORM_HOSTS and SOCIAL_HOSTS
+// by isPlatformDomain, which the email finder and the send gate use.
+const PLATFORM_COMPANY_DOMAINS = [
+  'squareup.com', 'square.com', 'wix.com', 'squarespace.com', 'shopify.com',
+  'godaddy.com', 'weebly.com', 'vagaro.com', 'booksy.com', 'styleseat.com',
+  'mindbodyonline.com', 'toasttab.com', 'clover.com', 'google.com',
+  'facebook.com', 'instagram.com', 'yelp.com',
+];
+
+// The platform domain an email address, a URL or a bare domain is on, or null.
+// The domain itself or any subdomain of it (mail.squareup.com); never a
+// lookalike (notsquareup.com).
+function platformDomainOf(x) {
+  let s = String(x || '').trim().toLowerCase().replace(/^mailto:/, '');
+  if (!s) return null;
+  if (!/^[a-z]+:\/\//.test(s) && s.includes('@')) s = s.split('@').pop();
+  const host = hostOf(s).replace(/^www\./, '').replace(/\.+$/, '');
+  if (!host || !host.includes('.')) return null;
+  for (const list of [PLATFORM_COMPANY_DOMAINS, PLATFORM_HOSTS, SOCIAL_HOSTS]) {
+    const d = list.find((x2) => host === x2 || host.endsWith('.' + x2));
+    if (d) return d;
+  }
+  return null;
+}
+const isPlatformDomain = (x) => !!platformDomainOf(x);
+
 function hostMatches(root, host, list) {
   return list.some((d) => root === d || host === d || host.endsWith('.' + d));
 }
@@ -226,6 +256,10 @@ function validateWebsite(brand, googleName, website, opts = {}) {
   if (hostMatches(root, host, MLM_HOSTS)) {
     return { verdict: 'reject-domain', rule: 'mlm-distributor', detail: root, borderline: false };
   }
+  // A page on the platform's own domain (squareup.com/appointments/...).
+  if (hostMatches(root, host, PLATFORM_COMPANY_DOMAINS)) {
+    return { verdict: 'platform', rule: 'platform-company-domain', detail: root, borderline: false };
+  }
   if (hostMatches(root, host, RETAILER_HOSTS)) {
     // Only a rejection when the business is not that retailer. "Staples" itself
     // pointing at staples.com is a correct match.
@@ -253,4 +287,5 @@ function validateWebsite(brand, googleName, website, opts = {}) {
 module.exports = {
   validateWebsite, verifyPlaceName, hostOf, hostMatches, QUALIFIER_WORDS,
   DIRECTORY_HOSTS, RETAILER_HOSTS, MLM_HOSTS, SOCIAL_HOSTS, PLATFORM_HOSTS,
+  PLATFORM_COMPANY_DOMAINS, platformDomainOf, isPlatformDomain,
 };
