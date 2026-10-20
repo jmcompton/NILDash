@@ -28,7 +28,9 @@
 //
 // OFF UNLESS SEND_GATE_ON=1, like every new behaviour. Off, every path sends
 // as before; the verification status at send time is still recorded on the
-// row (no spend), so admin script bounce-report has it either way.
+// row (no spend), so admin script bounce-report has it either way. One rule
+// holds either way: a platform's own address (ce@squareup.com) never sends
+// (platformCheck).
 
 const lc = (s) => String(s || '').trim().toLowerCase();
 const ON = () => process.env.SEND_GATE_ON === '1';
@@ -60,12 +62,33 @@ function ensureColumns(pool) {
   return _cols;
 }
 
+// ── THE PLATFORM'S ADDRESS. Pure. Gate on or off. ───────────────────────────
+// ce@squareup.com is Square's, not the salon that books through Square. An
+// address at a platform's own domain (Square, Wix, Shopify, Vagaro, Google,
+// Facebook ...; services/websiteValidation) is never the business's, so it is
+// refused on every send path whether SEND_GATE_ON is set or not, typed or
+// not. A bug, not a policy: no switch.
+function platformProblem(email) {
+  const e = lc(email);
+  if (!e || !e.includes('@')) return null;
+  if (!require('./websiteValidation').platformDomainOf(e)) return null;
+  return { code: 'platform', why: `${e.split('@').pop()} is the platform's address, not the business's` };
+}
+// The same, shaped like check()'s answer, for the paths that run without the
+// gate: null when the address is not a platform's.
+function platformCheck(email) {
+  const p = platformProblem(email);
+  return p ? { ok: false, ...p, status: 'platform' } : null;
+}
+
 // ── THE ADDRESS ITSELF. Pure. ───────────────────────────────────────────────
 // -> null when it may be a named person's address, else { code, why }.
 function addressProblem(email, contactName, opts = {}) {
   const EF = require('./emailFinder');
   const e = lc(email);
   if (!e || !EMAIL_RE.test(e)) return { code: 'no-address', why: 'there is no email address to send to' };
+  const plat = platformProblem(e);
+  if (plat) return plat;
   const local = e.split('@')[0];
   if (EF.isNever(e)) {
     return { code: 'forbidden', why: `${local}@ is a department inbox (legal, counsel, privacy, careers, customer service and the like), and NILDash never emails one` };
@@ -273,7 +296,8 @@ async function blockAndOffer(pool, log, verdict, opts = {}) {
   await ensureColumns(pool);
   const contactName = opts.contactName || null;
   const offer = await offerFor(pool, log).catch(() => null);
-  const message = `Not sent: ${verdict.why}. ${offerSentence(offer, contactName)}`;
+  // The platform's address: the name on the card is not who it reaches.
+  const message = `Not sent: ${verdict.why}. ${offerSentence(offer, verdict.code === 'platform' ? null : contactName)}`;
   await pool.query(
     `UPDATE outreach_logs SET cadence_stopped_at = COALESCE(cadence_stopped_at, NOW()), cadence_stop_reason = $2,
             send_error = $2, gate_blocked_at = NOW(), gate_reason = $3, gate_offer = $4::jsonb,
@@ -281,6 +305,14 @@ async function blockAndOffer(pool, log, verdict, opts = {}) {
       WHERE id = $1 AND sent_at IS NULL`,
     [String(log.id), message.slice(0, 600), verdict.code || null,
       offer ? JSON.stringify({ channel: offer.channel, phone: offer.phone || null, instagram: offer.instagram || null }) : null]);
+  // THE PLATFORM'S ADDRESS COMES OFF THE CARD TOO (ce@squareup.com), whatever
+  // it is offered instead, so nothing shows it or sends to it again.
+  if (verdict.code === 'platform') {
+    await pool.query(
+      `UPDATE outreach_queue SET email = NULL, email_verified = FALSE, email_label = NULL, email_note = $3, updated_at = NOW()
+        WHERE outreach_log_id = $1 AND LOWER(TRIM(email)) = $2 AND sent_at IS NULL AND state IN ('queued', 'sending')`,
+      [String(log.id), lc(log.sent_to_email || log.to_email), message.slice(0, 400)]).catch((e) => console.error('[send-gate] platform address off card: ' + e.message));
+  }
   let converted = false;
   const card = offer && offer.card;
   if (card && Number(log.touch_no || 1) <= 1 && !card.sent_at && ['queued', 'sending'].includes(card.state)) {
@@ -299,6 +331,6 @@ async function blockAndOffer(pool, log, verdict, opts = {}) {
 }
 
 module.exports = {
-  ON, FRESH_DAYS, ensureColumns, addressProblem, contextFor, categoryOf, verificationOf, check, peek,
+  ON, FRESH_DAYS, ensureColumns, addressProblem, platformProblem, platformCheck, contextFor, categoryOf, verificationOf, check, peek,
   contactNameFor, pathOf, recordSend, offerFor, offerSentence, blockAndOffer, liveVerifier,
 };

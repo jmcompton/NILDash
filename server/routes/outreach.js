@@ -481,24 +481,27 @@ async function runManualSend(ctx, log, emailAccountId, toEmail, contactName) {
   // person's address, valid within 30 days (re-verified now if older). Not
   // valid: not sent, and the reason and the call or DM instead are on the
   // draft, where the editor and the card read them.
-  let gate = null;
+  // Gate on or off, a platform's own address (ce@squareup.com) never sends.
+  let gate = null, who = null;
   if (SG.ON()) {
     await SG.ensureColumns(pool);
-    const who = String(contactName || '').trim() || await SG.contactNameFor(pool, log).catch(() => null);
+    who = String(contactName || '').trim() || await SG.contactNameFor(pool, log).catch(() => null);
     if (who && who !== log.contact_name) await pool.query(`UPDATE outreach_logs SET contact_name = $2 WHERE id = $1`, [log.id, who]).catch(() => {});
     gate = await SG.check(pool, { email: toEmail, contactName: who, agentId: ctx.principal.id, athleteId: log.athlete_id,
       business: log.brand_name }, router._gateDeps || {})
       .catch((e) => ({ ok: false, code: 'not-run', retry: true, why: 'the address check failed on our side: ' + e.message }));
-    if (!gate.ok) {
-      if (gate.retry) {
-        const msg = `Not sent: ${gate.why}. Try again in a few minutes, or call or DM them instead.`;
-        await pool.query(`UPDATE outreach_logs SET send_error = $2, send_claimed_at = NULL, gate_reason = $3, updated_at = NOW() WHERE id = $1 AND sent_at IS NULL`,
-          [log.id, msg.slice(0, 600), gate.code]).catch(() => {});
-        return { ok: false, msg, reason: 'unverified', gate: gate.code };
-      }
-      const b = await SG.blockAndOffer(pool, { ...log, sent_to_email: toEmail }, gate, { contactName: who });
-      return { ok: false, msg: b.message, reason: 'unverified', gate: gate.code, offer: b.offer };
+  } else {
+    gate = SG.platformCheck(toEmail);
+  }
+  if (gate && !gate.ok) {
+    if (gate.retry) {
+      const msg = `Not sent: ${gate.why}. Try again in a few minutes, or call or DM them instead.`;
+      await pool.query(`UPDATE outreach_logs SET send_error = $2, send_claimed_at = NULL, gate_reason = $3, updated_at = NOW() WHERE id = $1 AND sent_at IS NULL`,
+        [log.id, msg.slice(0, 600), gate.code]).catch(() => {});
+      return { ok: false, msg, reason: 'unverified', gate: gate.code };
     }
+    const b = await SG.blockAndOffer(pool, { ...log, sent_to_email: toEmail }, gate, { contactName: who });
+    return { ok: false, msg: b.message, reason: 'unverified', gate: gate.code, offer: b.offer };
   }
   let sendResult;
   try {

@@ -615,6 +615,9 @@ function emailRowsOf(ladder) {
       // FAILED THE MAILBOX CHECK (services/emailFinder, rule 4): invalid, a
       // catch-all guess, or a check that could not run. Never the email.
       if (r.emailVerify && r.emailVerify.pass === false) continue;
+      // THE PLATFORM'S ADDRESS IS NEVER THE BUSINESS'S: ce@squareup.com for a
+      // salon that books through Square (services/websiteValidation).
+      if (require('./websiteValidation').isPlatformDomain(r.email)) continue;
       // A GENERIC MAILBOX IS NOT OFFERED EITHER. See genericRowsOf.
       const emailTier = _tierOf(r, ladder);
       if (emailTier === 4) continue;
@@ -657,7 +660,8 @@ function emailNoteOf(ladder) {
   }
   const parts = [];
   for (const a of all) {
-    if (a.verify && a.verify.pass === false) parts.push(`${a.email} did not pass verification (${a.verify.why || a.verify.verdict})`);
+    if (require('./websiteValidation').isPlatformDomain(a.email)) parts.push(`${a.email} is the platform's address, not the business's`);
+    else if (a.verify && a.verify.pass === false) parts.push(`${a.email} did not pass verification (${a.verify.why || a.verify.verdict})`);
     else if (a.check && a.check.ok === false) parts.push(`${a.email} is undeliverable (${a.check.reason})`);
     else if (ET.isGeneric(a.email)) parts.push(`${a.email} is a generic mailbox (Tier 4), and we only email a named person`);
     else if (!SENDABLE_EMAIL_KINDS.has(a.kind)) parts.push(`${a.email} was not published by a source we send to (${a.kind})`);
@@ -723,7 +727,7 @@ function inboxOf(ladder) {
     // verified, only for a business of about five or fewer people, only
     // info@ / hello@ / contact@ VERIFIED VALID, greeting the owner by name.
     const g = ladder && ladder.generalInbox;
-    if (g && g.email && g.verdict === 'valid' && person) {
+    if (g && g.email && g.verdict === 'valid' && person && !require('./websiteValidation').isPlatformDomain(g.email)) {
       return { email: g.email, kind: 'published', emailTier: 4, sourceUrl: g.sourceUrl || null,
         tierReason: 'a general inbox, verified; no named person\'s address could be verified', general: true };
     }
