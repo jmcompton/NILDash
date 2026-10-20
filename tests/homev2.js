@@ -63,7 +63,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('  CTA "Try the interactive demo" goes to the demo', /<a class="btn ghost" href="\/demo">Try the interactive demo<\/a>/.test(hero));
   ok('  and /demo is a real public route', /app\.get\('\/demo'/.test(read('server/index.js')) && fs.existsSync(REPO + 'public/demo.html'));
 
-  console.log('\n   ...where your hours go, and the calculator');
+  console.log('\n   ...where your hours go');
   const hrs = section('hours');
   const ids = [...HTML.matchAll(/<section class="[^"]*" id="([a-z]+)"|<!--HOME_STATS-->/g)].map((m) => m[1] || 'stats');
   ok('"Where your hours go today" comes right after the hero', /<h2 class="h2">Where your hours go today<\/h2>/.test(hrs)
@@ -72,21 +72,15 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('  side by side: by hand, the seven jobs', JSON.stringify(items('byhand')) === JSON.stringify(['Find the business', 'Find the owner', 'Hunt for an email', 'Check it', 'Write the pitch', 'Send', 'Remember to follow up']), items('byhand'));
   ok('  with NILDash: open Home, approve, done', JSON.stringify(items('nild')) === JSON.stringify(['Open Home', 'Approve', 'Done']), items('nild'));
   ok('  laid out as two columns from tablet width, stacked on a phone', /\.vs\{display:grid;gap:12px/.test(CSS) && /@media \(min-width:700px\)\{\s*\.vs\{grid-template-columns:1fr 1fr/.test(CSS));
-  const calc = hrs.slice(hrs.indexOf('<form class="calc"'), hrs.indexOf('</form>'));
-  const outsideCalc = VISIBLE.replace(calc.replace(/<[^>]+>/g, ' ').replace(/&times;/g, '\u00d7').replace(/&divide;/g, '\u00f7').replace(/\s+/g, ' ').trim(), ' ');
-  ok('no made-up time numbers: the only figures are the calculator\'s labeled example', !/\d[\d,.]*\s*(min|mins|minutes?|hours?|hrs?|h)\b/i.test(VISIBLE.replace(/Your hours back[\s\S]*?= 50 hours/, ' '))
-    && !/\b(save|saves|saving)\b[^.]{0,40}\d/i.test(VISIBLE), (outsideCalc.match(/.{20}\d[\d,.]*\s*(min|minutes?|hours?|hrs?)\b.{10}/i) || [])[0]);
-  ok('a time calculator with two inputs: athletes on your roster, minutes you spend per pitch', /<form class="calc" id="calc"/.test(calc)
-    && (calc.match(/<input /g) || []).length === 2 && /<label for="calc-ath">Athletes on your roster<\/label>/.test(calc) && /<label for="calc-min">Minutes you spend per pitch<\/label>/.test(calc));
-  ok('  pre-filled with an example (8 athletes, 15 minutes), labeled as one', /<input id="calc-ath"[^>]*value="8"/.test(calc) && /<input id="calc-min"[^>]*value="15"/.test(calc)
-    && /<p class="calc-ex" id="calc-ex">Example numbers: 8 athletes, 15 minutes a pitch\. Put in yours\.<\/p>/.test(calc));
-  ok('  the assumptions in one line: 5 pitches per athlete a day, 5 days a week', /<p class="hint">Assumes 5 pitches per athlete a day, 5 days a week\.<\/p>/.test(calc)
-    && /var PITCHES = 5, DAYS = 5/.test(HTML) && Q0().SLOTS_PER_ATHLETE === 5);
-  ok('  a result shows before anyone types, big: "about 50 hours a week back", the math small under it',
-    /<output class="calc-out" id="calc-out"[^>]*><span class="total">about 50 hours a week back<\/span><span class="math">8 athletes &times; 5 pitches &times; 15 minutes &times; 5 days = 3,000 minutes &divide; 60 = 50 hours<\/span><\/output>/.test(calc)
-    && 8 * 5 * 15 * 5 === 3000 && 3000 / 60 === 50
-    && /\.calc-out \.total\{display:block;font-family:var\(--head\);font-size:clamp\(25px/.test(CSS) && /\.calc-out \.math\{display:block;margin-top:8px;font-family:var\(--mono\);font-size:12\.5px/.test(CSS));
-  ok('  no days-a-week field any more', !/calc-days/.test(HTML));
+  ok('no time figures anywhere a visitor reads', !/\d[\d,.]*\s*(min|mins|minutes?|hours?|hrs?|h)\b/i.test(VISIBLE) && !/\b(save|saves|saving)\b[^.]{0,40}\d/i.test(VISIBLE),
+    (VISIBLE.match(/.{20}\d[\d,.]*\s*(min|minutes?|hours?|hrs?)\b.{10}/i) || [])[0]);
+  ok('THE CALCULATOR IS GONE: "hours a week back" is nowhere in the page, its markup, CSS or script', !/hours a week back/i.test(HTML), (HTML.match(/.{40}hours a week back.{20}/i) || [])[0]);
+  ok('  no calculator form, fields, result or script left behind', !/class="calc|id="calc|calc-(ath|min|out|ex|grid|title)|Your hours back|var PITCHES|EXAMPLE = /.test(HTML)
+    && !/\.calc\b|\.field\b/.test(CSS));
+  ok('  the only inputs left are the athlete waitlist\'s', JSON.stringify((HTML.match(/<input id="([a-z-]+)"/g) || []).map((t) => t.slice(11, -1))) === '["wl-email","wl-website"]',
+    HTML.match(/<input id="([a-z-]+)"/g));
+  ok('  and the hours section ends with the By hand / With NILDash comparison', /<div class="vs">/.test(hrs) && !/<form/.test(hrs)
+    && /<\/ol>\s*<\/div>\s*<\/div>\s*<\/div>$/.test(hrs.trim()), hrs.slice(-120));
 
   console.log('\n   ...who it\'s for');
   const who = section('who');
@@ -349,30 +343,12 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
       ok('  the section links fold away on a phone; Sign in and Get started stay', m.navHidden && await pg.isVisible('.navright .signin') && await pg.isVisible('.navright .btn'));
       ok('  the counts show', m.stats === 3, m.stats);
       ok('  and none of the portal is in the page', !m.portal);
-      // THE CALCULATOR.
-      const out = () => pg.textContent('#calc-out');
-      const exShown = () => pg.isVisible('#calc-ex');
-      ok('the calculator shows the example worked out on arrival, labeled as an example', /^about 50 hours a week back/.test(await out()) && await exShown(), await out());
-      const big = await pg.evaluate(() => ({ total: parseFloat(getComputedStyle(document.querySelector('#calc-out .total')).fontSize), math: parseFloat(getComputedStyle(document.querySelector('#calc-out .math')).fontSize) }));
-      ok('  the result big, the math small', big.total >= 24 && big.math <= 13 && big.total > big.math * 1.8, big);
-      await pg.fill('#calc-ath', '12');
-      const o1 = await out();
-      ok('  12 athletes, 15 minutes: about 75 hours a week back, the math under it', /^about 75 hours a week back/.test(o1)
-        && /12 athletes \u00d7 5 pitches \u00d7 15 minutes \u00d7 5 days = 4,500 minutes \u00f7 60 = 75 hours$/.test(o1), o1);
-      ok('  and the example label goes once the numbers are yours', !(await exShown()));
-      await pg.fill('#calc-ath', '1'); await pg.fill('#calc-min', '7');
-      ok('  singulars and decimals read right (1 athlete, 175 minutes, about 2.9 hours)', /^about 2\.9 hours a week back/.test(await out())
-        && /1 athlete \u00d7 5 pitches \u00d7 7 minutes \u00d7 5 days = 175 minutes \u00f7 60 = 2\.9 hours$/.test(await out()), await out());
-      await pg.fill('#calc-min', '-4');
-      ok('  a negative or empty field shows no result', /Put in your roster size and your minutes per pitch/.test(await out()) && !/hours a week back/.test(await out()));
-      await pg.fill('#calc-ath', '8'); await pg.fill('#calc-min', '15');
-      ok('  back to the example numbers, the label comes back', await exShown() && /^about 50 hours a week back/.test(await out()));
-      await pg.press('#calc-min', 'Enter');
-      ok('  pressing Enter does not leave the page', pg.url() === on.base + '/');
-      const cw = await pg.evaluate(() => ({ calc: document.getElementById('calc').getBoundingClientRect().right <= window.innerWidth,
+      // NO CALCULATOR, the comparison stays.
+      const nc = await pg.evaluate(() => ({ text: /hours a week back/i.test(document.body.innerText), calc: !!document.getElementById('calc'),
         vsCols: getComputedStyle(document.querySelector('.vs')).gridTemplateColumns.split(' ').length,
-        fields: [...document.querySelectorAll('#calc input')].map((i) => Math.round(i.getBoundingClientRect().height)) }));
-      ok('  it fits a phone, the comparison stacks, and every field is a full tap target', cw.calc && cw.vsCols === 1 && cw.fields.length === 2 && cw.fields.every((h) => h >= 44), cw);
+        cols: [...document.querySelectorAll('.vs .col h3')].map((h) => h.textContent) }));
+      ok('no calculator on the page as rendered, and no "hours a week back"', !nc.text && !nc.calc, nc);
+      ok('  By hand and With NILDash still there, stacked on a phone', JSON.stringify(nc.cols) === '["By hand","With NILDash"]' && nc.vsCols === 1, nc);
       // THE HERO GRAPHIC.
       const g = await pg.evaluate(() => {
         const r = (sel) => document.querySelector(sel).getBoundingClientRect();
@@ -428,11 +404,13 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
         return { scroll: document.documentElement.scrollWidth - vw, wide, side: card.left > h1.left + 200 && card.top < h1.bottom + 200,
           audCols: getComputedStyle(document.querySelector('.aud')).gridTemplateColumns.split(' ').length,
           nav: getComputedStyle(document.querySelector('.navlinks')).display !== 'none', raster: document.querySelectorAll('img,picture,canvas,video').length,
+          vsCols: getComputedStyle(document.querySelector('.vs')).gridTemplateColumns.split(' ').length, calcText: /hours a week back/i.test(document.body.innerText), calc: !!document.getElementById('calc'),
           lines: Math.round(document.querySelector('.mc-pitch').getBoundingClientRect().height / parseFloat(getComputedStyle(document.querySelector('.mc-pitch')).lineHeight)) };
       });
       ok('AT 1440PX: no sideways scroll, nothing past the edge', d.scroll <= 0 && d.wide.length === 0, d);
       ok('  the card sits beside the headline', d.side, d);
       ok('  "Who it\'s for" is three across, the section links show, still no raster image, the pitch still 2 lines', d.audCols === 3 && d.nav && d.raster === 0 && d.lines === 2, d);
+      ok('  By hand and With NILDash side by side, and no calculator', d.vsCols === 2 && !d.calcText && !d.calc, d);
       await ctx3.close();
       PH._reset();
       await P.query(`DELETE FROM market_business_seen; DELETE FROM email_verification; DELETE FROM outreach_logs`);

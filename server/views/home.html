@@ -169,23 +169,6 @@ p{margin:0}
 .col.nild .todo li::before{color:var(--accent)}
 .todo small{display:block;margin-top:2px;font-weight:400;font-size:14px;color:var(--muted)}
 
-/* time calculator */
-.calc{margin-top:14px;background:var(--card-2);border:1px solid var(--line-2);border-radius:14px;padding:20px}
-.calc h3{font-size:18px;font-weight:700}
-.calc .hint{margin-top:6px;color:var(--muted);font-size:14.5px}
-.calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px;max-width:520px}
-.field{display:flex;flex-direction:column;justify-content:flex-end}
-.field label,.field .lbl{display:block;font-size:13.5px;color:var(--muted);margin-bottom:6px;line-height:1.35}
-.field input,.field .v{width:100%;min-height:48px;padding:10px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg);color:var(--text);font:inherit;font-size:18px}
-.field .v{display:flex;align-items:center;border-style:dashed}
-.field input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
-.calc-ex{margin-top:10px;font-size:13px;color:var(--dim)}
-.calc-ex[hidden]{display:none}
-.calc-out{display:block;margin-top:18px;overflow-wrap:anywhere}
-.calc-out .total{display:block;font-family:var(--head);font-size:clamp(25px,6.6vw,44px);font-weight:800;line-height:1.1;letter-spacing:-.01em;color:var(--accent)}
-.calc-out .math{display:block;margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:var(--muted)}
-.calc-out .wait{display:block;font-size:15px;color:var(--muted)}
-
 /* who it's for */
 .aud{list-style:none;margin:24px 0 0;padding:0;display:grid;gap:14px}
 .audc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column}
@@ -322,17 +305,6 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
       </ol>
     </div>
   </div>
-
-  <form class="calc" id="calc" onsubmit="return false" aria-labelledby="calc-title">
-    <h3 id="calc-title">Your hours back</h3>
-    <p class="hint">Assumes 5 pitches per athlete a day, 5 days a week.</p>
-    <div class="calc-grid">
-      <div class="field"><label for="calc-ath">Athletes on your roster</label><input id="calc-ath" name="athletes" type="number" inputmode="numeric" min="1" max="1000" step="1" value="8"></div>
-      <div class="field"><label for="calc-min">Minutes you spend per pitch</label><input id="calc-min" name="minutes" type="number" inputmode="decimal" min="1" max="600" step="any" value="15"></div>
-    </div>
-    <p class="calc-ex" id="calc-ex">Example numbers: 8 athletes, 15 minutes a pitch. Put in yours.</p>
-    <output class="calc-out" id="calc-out" for="calc-ath calc-min" aria-live="polite"><span class="total">about 50 hours a week back</span><span class="math">8 athletes &times; 5 pitches &times; 15 minutes &times; 5 days = 3,000 minutes &divide; 60 = 50 hours</span></output>
-  </form>
 </div></section>
 
 <section class="sec" id="who"><div class="wrap">
@@ -477,36 +449,6 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
 </div></footer>
 
 <script>
-// The time calculator: two numbers, 5 pitches per athlete a day and 5 days a
-// week assumed (and said), the result in big type and the math under it.
-// The page arrives with the example (8 athletes, 15 minutes) already worked.
-(function () {
-  var form = document.getElementById('calc');
-  var out = document.getElementById('calc-out');
-  var ex = document.getElementById('calc-ex');
-  var PITCHES = 5, DAYS = 5, EXAMPLE = { a: 8, m: 15 };
-  var num = function (id, max, whole) {
-    var v = parseFloat(String(document.getElementById(id).value).replace(',', '.'));
-    if (!isFinite(v) || v <= 0 || v > max) return null;
-    return whole ? Math.round(v) : v;
-  };
-  var fmt = function (v, dp) { var k = Math.pow(10, dp); return (Math.round(v * k) / k).toLocaleString('en-US'); };
-  var say = function (v, one, many, dp) { var t = fmt(v, dp == null ? 1 : dp); return t + ' ' + (t === '1' ? one : many); };
-  var span = function (cls, text) { var e = document.createElement('span'); e.className = cls; e.textContent = text; return e; };
-  function render() {
-    var a = num('calc-ath', 1000, true), m = num('calc-min', 600, false);
-    ex.hidden = !(a === EXAMPLE.a && m === EXAMPLE.m);
-    out.textContent = '';
-    if (a == null || m == null) { out.appendChild(span('wait', 'Put in your roster size and your minutes per pitch.')); return; }
-    var minutes = a * PITCHES * m * DAYS;
-    var hours = minutes / 60;
-    out.appendChild(span('total', 'about ' + say(hours, 'hour', 'hours', hours >= 10 ? 0 : 1) + ' a week back'));
-    out.appendChild(span('math', say(a, 'athlete', 'athletes') + ' \u00d7 ' + PITCHES + ' pitches \u00d7 ' + say(m, 'minute', 'minutes')
-      + ' \u00d7 ' + DAYS + ' days = ' + say(minutes, 'minute', 'minutes', 0) + ' \u00f7 60 = ' + say(hours, 'hour', 'hours')));
-  }
-  form.addEventListener('input', render);
-  render();
-})();
 (function () {
   var form = document.getElementById('wl');
   var msg = document.getElementById('wl-msg');
