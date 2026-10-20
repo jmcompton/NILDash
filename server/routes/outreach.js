@@ -482,7 +482,8 @@ async function runManualSend(ctx, log, emailAccountId, toEmail, contactName) {
   // valid: not sent, and the reason and the call or DM instead are on the
   // draft, where the editor and the card read them.
   let gate = null;
-  if (SG.ON()) {
+  // Always on for a platform's own address (ce@squareup.com), gate or not.
+  if (SG.runsFor(toEmail)) {
     await SG.ensureColumns(pool);
     const who = String(contactName || '').trim() || await SG.contactNameFor(pool, log).catch(() => null);
     if (who && who !== log.contact_name) await pool.query(`UPDATE outreach_logs SET contact_name = $2 WHERE id = $1`, [log.id, who]).catch(() => {});

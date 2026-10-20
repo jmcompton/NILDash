@@ -472,11 +472,16 @@ router.post('/send', async (req, res) => {
     // address is checked on its own. A reply inside a thread is a
     // conversation the other side started, and is not held to it.
     const SG = require('../services/sendGate');
-    if (!threadId && SG.ON()) {
+    // Always on for a platform's own address (ce@squareup.com), gate or not.
+    if (!threadId && recipients.some((a) => SG.runsFor(a))) {
       for (const addr of recipients) {
+        if (!SG.runsFor(addr)) continue;
         const g = await SG.check(pool, { email: addr, typed: true, agentId: req.session.userId }, router._gateDeps || {})
           .catch((e) => ({ ok: false, code: 'not-run', retry: true, why: 'the address check failed on our side: ' + e.message }));
-        if (!g.ok) return res.status(409).json({ error: 'Not sent: ' + g.why + (g.retry ? '. Try again in a few minutes.' : '.'), reason: 'unverified', gate: g.code });
+        if (!g.ok) {
+          const error = g.code === 'platform' ? await SG.refusalMessage(pool, g) : 'Not sent: ' + g.why + (g.retry ? '. Try again in a few minutes.' : '.');
+          return res.status(409).json({ error, reason: g.code === 'platform' ? 'platform' : 'unverified', gate: g.code });
+        }
       }
     }
 

@@ -962,7 +962,8 @@ async function releaseDue(pool, opts = {}) {
     // why, and its card offers a call or a DM instead. A check that could not
     // run holds it to be checked again; it never sends unchecked.
     let _gate = null;
-    if (SG.ON()) {
+    // Always on for a platform's own address (ce@squareup.com), gate or not.
+    if (SG.runsFor(log.sent_to_email || log.to_email)) {
       const _who = await SG.contactNameFor(pool, log).catch(() => null);
       _gate = await SG.check(pool, { email: log.sent_to_email || log.to_email, contactName: _who, agentId: log.agent_id,
         athleteId: log.athlete_id, business: log.brand_name, now }, opts.gateDeps || {})

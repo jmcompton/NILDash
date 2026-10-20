@@ -11425,12 +11425,15 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
   // counsel, privacy, careers or customer-service inbox. A free-form email
   // (no contact on file) is checked on the address alone.
   const SG = require('./services/sendGate');
-  if (SG.ON()) {
+  // Always on for a platform's own address (ce@squareup.com), gate or not.
+  if (SG.runsFor(to)) {
     const g = await SG.check(store.pool, { email: to, contactName: opts.contactName || null, typed: !opts.contactName,
       agentId, athleteId, business: opts.brand_name || null }, opts.gateDeps || {})
       .catch((e) => ({ ok: false, code: 'not-run', retry: true, why: 'the address check failed on our side: ' + e.message }));
     if (!g.ok) {
-      const err = new Error('Not sent: ' + g.why + (g.retry ? '. Try again in a few minutes.' : '. Call or DM them instead.'));
+      const err = new Error(g.code === 'platform'
+        ? await SG.refusalMessage(store.pool, g, { athleteId, brand: opts.brand_name || null })
+        : 'Not sent: ' + g.why + (g.retry ? '. Try again in a few minutes.' : '. Call or DM them instead.'));
       err.status = 409; err.reason = 'unverified'; err.gate = g.code; throw err;
     }
   }

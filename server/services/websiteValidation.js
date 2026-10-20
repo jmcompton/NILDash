@@ -81,6 +81,20 @@ const PLATFORM_HOSTS = [
   'gofundme.com', 'godaddysites.com', 'weebly.com', 'business.site',
 ];
 
+// THE PLATFORMS' OWN COMPANY DOMAINS. A business on Square, Wix or Vagaro has
+// a page at the platform, and that page carries the platform's own addresses
+// in its footer and its support links. The email finder read ce@squareup.com
+// off a Square page and put it on the card for "Eyebrows by Corrina". An
+// address at any of these, or at any PLATFORM_HOSTS or SOCIAL_HOSTS domain,
+// is the platform's, never the business's: it is never found, never verified
+// and never sent to (services/emailFinder, services/sendGate).
+const PLATFORM_COMPANY_DOMAINS = [
+  'squareup.com', 'square.com', 'wix.com', 'squarespace.com', 'shopify.com',
+  'godaddy.com', 'weebly.com', 'vagaro.com', 'booksy.com', 'styleseat.com',
+  'mindbodyonline.com', 'toasttab.com', 'clover.com', 'google.com',
+  'facebook.com', 'instagram.com', 'yelp.com',
+];
+
 function hostMatches(root, host, list) {
   return list.some((d) => root === d || host === d || host.endsWith('.' + d));
 }
@@ -89,6 +103,20 @@ function hostOf(url) {
   let h = String(url || '').trim().toLowerCase();
   h = h.replace(/^[a-z]+:\/\//, '').split('/')[0].split('?')[0].split('#')[0];
   return h.replace(/:\d+$/, '');
+}
+
+// -> the platform domain an email address (or a bare domain or URL) sits on,
+// or null. Subdomains count: mail.squareup.com is squareup.com.
+function platformDomainOf(emailOrDomain) {
+  const s = String(emailOrDomain || '').trim().toLowerCase();
+  if (!s) return null;
+  const dom = s.includes('@') ? s.split('@').pop().replace(/[>\s].*$/, '').replace(/\.$/, '') : hostOf(s).replace(/\.$/, '');
+  if (!dom) return null;
+  for (const list of [PLATFORM_COMPANY_DOMAINS, PLATFORM_HOSTS, SOCIAL_HOSTS]) {
+    const hit = list.find((d) => dom === d || dom.endsWith('.' + d));
+    if (hit) return hit;
+  }
+  return null;
 }
 
 // ── Layer 1: name agreement ──────────────────────────────────────────────────
@@ -253,4 +281,5 @@ function validateWebsite(brand, googleName, website, opts = {}) {
 module.exports = {
   validateWebsite, verifyPlaceName, hostOf, hostMatches, QUALIFIER_WORDS,
   DIRECTORY_HOSTS, RETAILER_HOSTS, MLM_HOSTS, SOCIAL_HOSTS, PLATFORM_HOSTS,
+  PLATFORM_COMPANY_DOMAINS, platformDomainOf,
 };

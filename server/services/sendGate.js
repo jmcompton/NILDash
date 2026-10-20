@@ -29,6 +29,14 @@
 // OFF UNLESS SEND_GATE_ON=1, like every new behaviour. Off, every path sends
 // as before; the verification status at send time is still recorded on the
 // row (no spend), so admin script bounce-report has it either way.
+//
+// ONE RULE IS ALWAYS ON: NEVER A PLATFORM'S OWN ADDRESS. ce@squareup.com went on
+// the card for "Eyebrows by Corrina": Square's address, not hers. An address
+// at a platform's domain (services/websiteValidation.platformDomainOf: Square,
+// Wix, Vagaro, Google, Instagram and the rest) is refused on every send path
+// whether SEND_GATE_ON is set or not (runsFor), with "Not sent: <domain> is the
+// platform's address, not the business's. Call them instead: <phone>." No
+// verification is spent on it.
 
 const lc = (s) => String(s || '').trim().toLowerCase();
 const ON = () => process.env.SEND_GATE_ON === '1';
@@ -60,12 +68,25 @@ function ensureColumns(pool) {
   return _cols;
 }
 
+// ── A PLATFORM'S OWN ADDRESS. Pure. ─────────────────────────────────────────
+// -> null, or { code: 'platform', domain, why }.
+function platformProblem(email) {
+  const d = require('./websiteValidation').platformDomainOf(lc(email));
+  return d ? { code: 'platform', domain: d, why: `${d} is the platform's address, not the business's` } : null;
+}
+
+// Does the gate run for this address? Always for a platform's address, else
+// only with SEND_GATE_ON.
+function runsFor(email) { return ON() || !!platformProblem(email); }
+
 // ── THE ADDRESS ITSELF. Pure. ───────────────────────────────────────────────
 // -> null when it may be a named person's address, else { code, why }.
 function addressProblem(email, contactName, opts = {}) {
   const EF = require('./emailFinder');
   const e = lc(email);
   if (!e || !EMAIL_RE.test(e)) return { code: 'no-address', why: 'there is no email address to send to' };
+  const plat = platformProblem(e);
+  if (plat) return plat;
   const local = e.split('@')[0];
   if (EF.isNever(e)) {
     return { code: 'forbidden', why: `${local}@ is a department inbox (legal, counsel, privacy, careers, customer service and the like), and NILDash never emails one` };
@@ -266,6 +287,14 @@ function offerSentence(offer, contactName) {
     : `Send ${who} an Instagram DM instead: @${String(offer.instagram).replace(/^@/, '')}.`;
 }
 
+// The refusal for a send that has no log row to stop (the athlete's brand
+// email, the inbox composer): the same sentence, with the call or DM looked
+// up from the card or the business's Places record when there is one.
+async function refusalMessage(pool, verdict, { athleteId = null, brand = null } = {}) {
+  const offer = (athleteId || brand) ? await offerFor(pool, { id: '', athlete_id: athleteId, brand_name: brand || '' }).catch(() => null) : null;
+  return `Not sent: ${verdict.why}. ${offerSentence(offer, null)}`;
+}
+
 // Blocked: the email stops, says why, and its card becomes the call or DM.
 // Only the first email turns its card over; a follow-up just stops (its card
 // was sent already). Never touches anything sent.
@@ -273,7 +302,8 @@ async function blockAndOffer(pool, log, verdict, opts = {}) {
   await ensureColumns(pool);
   const contactName = opts.contactName || null;
   const offer = await offerFor(pool, log).catch(() => null);
-  const message = `Not sent: ${verdict.why}. ${offerSentence(offer, contactName)}`;
+  // The platform refusal reads exactly: "... Call them instead: <phone>."
+  const message = `Not sent: ${verdict.why}. ${offerSentence(offer, verdict.code === 'platform' ? null : contactName)}`;
   await pool.query(
     `UPDATE outreach_logs SET cadence_stopped_at = COALESCE(cadence_stopped_at, NOW()), cadence_stop_reason = $2,
             send_error = $2, gate_blocked_at = NOW(), gate_reason = $3, gate_offer = $4::jsonb,
@@ -299,6 +329,6 @@ async function blockAndOffer(pool, log, verdict, opts = {}) {
 }
 
 module.exports = {
-  ON, FRESH_DAYS, ensureColumns, addressProblem, contextFor, categoryOf, verificationOf, check, peek,
+  ON, FRESH_DAYS, ensureColumns, addressProblem, platformProblem, runsFor, refusalMessage, contextFor, categoryOf, verificationOf, check, peek,
   contactNameFor, pathOf, recordSend, offerFor, offerSentence, blockAndOffer, liveVerifier,
 };
