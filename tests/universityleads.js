@@ -144,7 +144,15 @@ async function main() {
     // ── 2. SPONSORS ────────────────────────────────────────────────────────
     OUT.push('', '-- Sponsors --');
     await page.click('[data-goto="sponsors"]');
-    await page.waitForFunction(() => /businesses/.test((document.querySelector('.stats') || {}).innerText || '') && !/Loading/.test(document.querySelector('.stats').innerText), null, { timeout: 10000 });
+    // WAIT FOR THE SPONSORS TABLE ITSELF. This waited only for a .stats box
+    // reading "businesses", which the view just left can still satisfy for a
+    // moment, so about one run in four read the Sponsors view while it still
+    // said "Loading…" with its one placeholder row.
+    await page.waitForFunction(() => {
+      const s = document.querySelector('.stats');
+      const txt = (s && s.innerText) || '';
+      return /\d+ businesses/.test(txt) && !/Loading/.test(txt) && document.querySelectorAll('.tablewrap tbody tr').length > 1;
+    }, null, { timeout: 15000 });
     const sp = await page.evaluate(() => ({ stats: document.querySelector('.stats').innerText, rows: document.querySelectorAll('.tablewrap tbody tr').length,
       first: (document.querySelector('.tablewrap tbody tr') || {}).innerText || '', csv: (document.querySelector('a[href*="format=csv"]') || {}).getAttribute('href') }));
     // SPONSOR SCAN OPENS ON EVERY BUSINESS (since 90d15a4), named or not.
