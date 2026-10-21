@@ -22174,7 +22174,7 @@ function hqTodoNext(sel, dealId, step) { crmSetNext({ dealId: dealId }, step || 
 // An optional first stage before a card goes out. It becomes the deal's next
 // step, so it is on the to-do list until it is done.
 function hqAskHtml(c, i) {
-  if (!crmV() || !c || c.crm === undefined) return '';
+  if (typeof crmV !== 'function' || !crmV() || !c || c.crm === undefined) return '';
   if (c.crm && c.crm.stage === 'ask_athlete') return '<p class="hq-note">Asking the athlete first' + (c.crm.nextStepLabel ? '. Next step: ' + hqEscape(c.crm.nextStepLabel) : '') + '.</p>';
   return '<p class="hq-note"><button class="hm-btn ghost" type="button" onclick="hqAskAthlete(' + i + ', this)">Ask the athlete first</button> Optional: check with the athlete before this goes out.</p>';
 }
@@ -22208,7 +22208,7 @@ async function hqBounced(btn, logId) {
 }
 async function hqSentMark(btn, id, outcome, why) {
   // CRM_ON: a decline asks why first.
-  if (outcome === 'declined' && !why && crmV()) {
+  if (outcome === 'declined' && !why && typeof crmV === 'function' && crmV()) {
     crmWhyOpen('declined', 'Why did they decline?', async function (w) { await hqSentMark(btn, id, 'declined', w); });
     return;
   }
@@ -22217,7 +22217,7 @@ async function hqSentMark(btn, id, outcome, why) {
     var r = await fetch(API_BASE + '/api/agent/outreach-queue/' + id + '/outcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify(why ? { outcome: outcome, reason: why.reason, note: why.note } : { outcome: outcome }) });
     if (!r.ok) { var e = await r.json().catch(function () { return {}; }); showToast(e.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
-    showToast(outcome === 'declined' ? (crmV() ? 'Marked declined' : 'Marked not interested') : outcome === 'dead' ? 'No more follow-ups to this business'
+    showToast(outcome === 'declined' ? (typeof crmV === 'function' && crmV() ? 'Marked declined' : 'Marked not interested') : outcome === 'dead' ? 'No more follow-ups to this business'
       : outcome === 'no_reply' ? 'Marked no reply yet' : 'Marked replied');
     hqLoad(HQ.selected);
   } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }

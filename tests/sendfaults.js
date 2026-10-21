@@ -96,7 +96,7 @@ async function main() {
   ok('"N APPROVALS DID NOT SEND. HERE IS WHY." on Home, each with its reason and what to do', h.sendFaults && h.sendFaults.count === 10
     && h.sendFaults.rows.every((r) => r.business && r.why && r.fix) && h.sendFaults.rows.some((r) => r.athlete === 'Mataya Sample'), h.sendFaults);
   const page = require('fs').readFileSync(REPO + 'public/index.html', 'utf8');
-  ok('  drawn first on Home, above everything, with a dismiss', /news\.innerHTML = hqFaultsHtml\(d\) \+ hqNewsHtml\(d\)/.test(page) && /did not send\.<\/b> Here is why\./.test(page) && /What to do: /.test(page));
+  ok('  drawn first on Home, above everything, with a dismiss', /news\.innerHTML = hqFaultsHtml\(d\) \+ (hqTodoHtml\(d\) \+ )?hqNewsHtml\(d\)/.test(page) && /did not send\.<\/b> Here is why\./.test(page) && /What to do: /.test(page));
 
   // ── ONE EMAIL, ONCE ───────────────────────────────────────────────────────
   OUT.push('', '-- one email to the agent, once --');
