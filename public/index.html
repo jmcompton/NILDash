@@ -6811,7 +6811,43 @@ function igButtonsHtml(id) {
   return `<div style="display:flex;gap:6px;margin-top:6px">
     <button onclick="event.stopPropagation();igInvite('${id}','copy',this)" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:5px;cursor:pointer;font-weight:600">${label}</button>
     <button onclick="event.stopPropagation();igInvite('${id}','text',this)" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:5px;cursor:pointer;font-weight:600">Text link</button>
-  </div>`;
+  </div>` + igDisconnectHtml(id);
+}
+// ── DISCONNECT INSTAGRAM ────────────────────────────────────────────────────
+// Beside the status, whenever NILDash holds a connection for the athlete. It
+// asks first, then erases the token and deletes everything fetched from
+// Instagram right away (POST /api/agents/athletes/:id/instagram-disconnect).
+function igDisconnectHtml(id) {
+  const s = igStatus[id] || { status: 'not_connected' };
+  if (!s.status || s.status === 'not_connected' || s.status === 'disconnected') return '';
+  return `<button onclick="event.stopPropagation();igDisconnect('${id}',this)" style="width:100%;margin-top:6px;background:transparent;border:1px solid rgba(248,113,113,0.5);border-radius:var(--r-sm);color:#f87171;font-size:10px;padding:5px;cursor:pointer;font-weight:600">Disconnect Instagram</button>`;
+}
+async function igDisconnect(id, btn) {
+  const a = (athletes || []).find((x) => x.id === id) || {};
+  const who = a.name ? a.name + "'s" : "this athlete's";
+  if (!confirm(`Disconnect ${who} Instagram?\n\nThis deletes the stored access token and every number NILDash fetched from their Instagram, right away. It cannot be undone. They can connect again later with a new link.`)) return;
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Disconnecting…'; }
+  try {
+    const r = await fetch(`${API_BASE}/api/agents/athletes/${encodeURIComponent(id)}/instagram-disconnect`, { method: 'POST', credentials: 'include' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'error ' + r.status);
+    showToast('Instagram disconnected. The token and everything fetched from it were deleted.');
+    if (typeof loadAthletes === 'function') await loadAthletes(); else { await loadIgStatus(); renderRoster(); }
+    if (_editingAthleteId === id) {
+      // The form still holds the numbers Instagram supplied. Put back what the
+      // record holds now, so saving the form cannot write them back.
+      const a2 = (athletes || []).find((x) => x.id === id) || {};
+      const igEl = document.getElementById('a_ig'); if (igEl) igEl.value = a2.instagram || '';
+      const engEl = document.getElementById('a_eng'); if (engEl) engEl.value = a2.engagement || '';
+      _statFetchedSource = a2.igStatsSource || null;
+      if (typeof renderStatSourceLabels === 'function') renderStatSourceLabels(a2);
+      renderIgConnectPanel(id);
+    }
+  } catch (e) {
+    showToast('Could not disconnect: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = old; }
+  }
 }
 function igStatusBlock(a) {
   // TikTok is still entered by hand; it shows only when there is a number.
