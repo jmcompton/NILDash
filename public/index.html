@@ -21913,10 +21913,7 @@ function hqOfferHtml(c, i) {
     + '<div class="hq-offedit" id="hq-offedit-' + i + '" hidden>'
     + '<label class="hq-lbl" for="hq-offamt-' + i + '">Offer in dollars</label>'
     + '<input class="hq-in" id="hq-offamt-' + i + '" inputmode="numeric" value="' + hqEscape(String(o.amount)) + '" style="max-width:140px">'
-    + ' <select class="hq-in" id="hq-offkind-' + i + '" style="max-width:200px">'
-    + '<option value="cash"' + (o.kind !== 'product' ? ' selected' : '') + '>Cash</option>'
-    + '<option value="product"' + (o.kind === 'product' ? ' selected' : '') + '>Product, at its dollar value</option>'
-    + '</select>'
+    + ' <label class="hq-lbl" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="hq-offkind-' + i + '"' + (o.kind === 'product' ? ' checked' : '') + '> In product, at its dollar value</label>'
     + '<div class="hq-xbtns">'
     + '<button class="hm-btn primary" type="button" onclick="hqOfferSave(' + i + ', this)">Save</button>'
     + '<button class="hm-btn ghost" type="button" onclick="hqOfferCancel(' + i + ')">Cancel</button>'
@@ -21943,7 +21940,7 @@ async function hqOfferSave(i, btn) {
   try {
     var r = await fetch(API_BASE + '/api/agent/cards/offer', {
       method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cardId: card.id, amount: a ? a.value : '', kind: k ? k.value : 'cash' }),
+      body: JSON.stringify({ cardId: card.id, amount: a ? a.value : '', kind: k && k.checked ? 'product' : 'cash' }),
     });
     var d = await r.json();
     if (!r.ok || !d.ok) throw new Error(d.error || 'could not save');
