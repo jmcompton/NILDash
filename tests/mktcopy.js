@@ -323,13 +323,11 @@ console.log('\n-- ONE PUBLIC CONTACT ADDRESS --');
     (auth.match(/mailto:[^"?&]+/g) || []));
 
   // Every public page, so a second address cannot reappear on one nobody re-reads.
-  // privacy.html is the KNOWN exception: it names a personal address as the privacy
-  // contact, and changing where privacy requests are legally routed is not a copy
-  // edit. Listed here so the exception stays visible instead of silent.
+  // privacy.html was the one exception (a personal address as the privacy
+  // contact) until the privacy contact was moved to contact@mynildash.com.
   const pages = fs.readdirSync(R + 'public').filter((f) => /\.html$/.test(f));
   const offenders = [];
   for (const p of pages) {
-    if (p === 'privacy.html') continue;
     const body = nocomment(fs.readFileSync(R + 'public/' + p, 'utf8'));
     for (const m of body.matchAll(/mailto:([^"?&'\s]+)/g)) {
       // Skip templated hrefs built from data (mailto:' + c.email + ', ${agentEmail}).
@@ -338,8 +336,8 @@ console.log('\n-- ONE PUBLIC CONTACT ADDRESS --');
     }
   }
   ok('no public page links a different contact address', offenders.length === 0, offenders);
-  ok('privacy.html is still the one known exception',
-    /jmcompton04@gmail\.com/.test(fs.readFileSync(R + 'public/privacy.html', 'utf8')));
+  ok('privacy.html is no exception any more: no personal address on it',
+    !/jmcompton04@gmail\.com/.test(fs.readFileSync(R + 'public/privacy.html', 'utf8')));
 }
 
 console.log('\n-- THE AUTH SCREEN DOES NOT CONTRADICT THE PAGE BEHIND IT --');

@@ -274,7 +274,7 @@ body{
     <div class="hero-meta">
       <span>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="2" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M1 5h11" stroke="currentColor" stroke-width="1.2"/><path d="M4 1v2M9 1v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-        Last updated: May 31, 2026
+        Last updated: October 21, 2026
       </span>
       <span>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 4v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
@@ -305,7 +305,7 @@ body{
     </p>
     <div class="highlight-box">
       <strong>Questions?</strong> Contact us at any time at
-      <a href="mailto:jmcompton04@gmail.com" style="color:var(--accent);text-decoration:none;">jmcompton04@gmail.com</a>.
+      <a href="mailto:contact@mynildash.com" style="color:var(--accent);text-decoration:none;">contact@mynildash.com</a>.
       We respond to all privacy inquiries within 5 business days.
     </div>
   </div>
@@ -329,6 +329,11 @@ body{
       <li>Gmail address associated with the connected Google account</li>
       <li>OAuth refresh token allowing NILDash to send email and create calendar events on your behalf</li>
       <li>We request only the minimum necessary scopes: <code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">gmail.send</code> and <code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">calendar.events</code></li>
+    </ul>
+
+    <p><strong>Instagram Data (only when an athlete connects Instagram)</strong></p>
+    <ul>
+      <li>What we collect from Instagram, why, and how to remove it is in Section 05.</li>
     </ul>
 
     <p><strong>Email and Calendar Content</strong></p>
@@ -397,7 +402,7 @@ body{
       <li>We use Google user data only to provide or improve the user-facing features of NILDash that are clearly described in this Privacy Policy</li>
       <li>We do not use Google user data for advertising purposes</li>
       <li>We do not allow humans to read your Google data except with your affirmative consent, for security purposes, or as required by law</li>
-      <li>We do not transfer Google user data to third parties except as necessary to provide the Service (see Section 7) or as required by law</li>
+      <li>We do not transfer Google user data to third parties except as necessary to provide the Service (see Section 8) or as required by law</li>
     </ul>
     <p>
       <strong>Scopes we request.</strong> NILDash requests only the minimum scopes necessary:
@@ -419,9 +424,62 @@ body{
     </div>
   </div>
 
-  <!-- 5. Data Storage and Security -->
-  <div class="section">
+  <!-- 5. Instagram Data -->
+  <div class="section" id="instagram">
     <div class="section-number">Section 05</div>
+    <h2 class="section-title">Instagram Data</h2>
+    <p>
+      An athlete can connect their Instagram account so that they and their agent see real numbers instead of
+      numbers typed in by hand. We collect nothing from Instagram until the athlete taps
+      <strong>Connect Instagram</strong> and approves access on Instagram.
+    </p>
+    <p><strong>What we collect.</strong> Only after the athlete approves, we collect:</p>
+    <ul>
+      <li>Their username and account type, and their profile details: display name, bio, website and profile picture</li>
+      <li>Their follower count, following count and media count</li>
+      <li>Their last 25 posts: caption, type, timestamp, likes and comments, and a link to each post</li>
+      <li>Insights for those posts: reach, views, saves, shares, interactions, profile visits and follows, and watch time for reels</li>
+      <li>Account insights for the last 30 days: reach, views, accounts engaged, interactions, follows and unfollows, and taps on the profile link</li>
+      <li>Their audience: the age, gender and location (city and country) of their followers and of the people who engage with them, as Instagram reports it</li>
+    </ul>
+    <p>
+      An athlete who cannot connect can send us screenshots of their Instagram Insights instead. We read the
+      same kinds of numbers from those images and treat them the same way.
+    </p>
+    <p><strong>Why we use it.</strong></p>
+    <ul>
+      <li>To show the athlete and their agent accurate reach and engagement</li>
+      <li>To build the athlete's media kit</li>
+      <li>To match the athlete with brands that fit their audience</li>
+    </ul>
+    <p>
+      <strong>Who sees it.</strong> The athlete, and the agent the athlete connected their account for. We never
+      sell it, and we never use it for advertising. A brand sees it only in what is sent to that brand to pitch
+      the athlete: a pitch or the athlete's media kit can show numbers such as followers, reach and engagement.
+      We never share it with a brand in any other way.
+    </p>
+    <p>
+      <strong>How we store it.</strong> Instagram access tokens are encrypted. We keep the data while the
+      connection is active and refresh it each night. If the athlete removes NILDash in Instagram, we delete the
+      access token and stop collecting right away; what was already collected is deleted when the athlete asks
+      us to delete it, as below.
+    </p>
+    <p><strong>How to remove it.</strong></p>
+    <ul>
+      <li><strong>In Instagram:</strong> go to Settings &gt; Apps and websites, find NILDash and remove it. Then choose to send a data deletion request. Meta's data deletion callback tells us, and we delete everything we fetched from the account and give you a confirmation code.</li>
+      <li><strong>By email:</strong> write to <a href="mailto:contact@mynildash.com" style="color:var(--accent);text-decoration:none;">contact@mynildash.com</a> and we will delete it for you.</li>
+    </ul>
+    <p>
+      <strong>Checking a deletion request.</strong> The status page is
+      <code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://mynildash.com/api/instagram/deletion-status</code>.
+      Meta gives you a link to it with your confirmation code. You can also enter the code on
+      <a href="https://mynildash.com/api/instagram/data-deletion" style="color:var(--accent);text-decoration:none;">https://mynildash.com/api/instagram/data-deletion</a>.
+    </p>
+  </div>
+
+  <!-- 6. Data Storage and Security -->
+  <div class="section">
+    <div class="section-number">Section 06</div>
     <h2 class="section-title">Data Storage and Security</h2>
     <p>
       All NILDash data is stored on <strong>Railway</strong>, a U.S.-based cloud infrastructure provider, in a
@@ -441,9 +499,9 @@ body{
     </p>
   </div>
 
-  <!-- 6. Your Rights -->
+  <!-- 7. Your Rights -->
   <div class="section">
-    <div class="section-number">Section 06</div>
+    <div class="section-number">Section 07</div>
     <h2 class="section-title">Your Rights</h2>
     <p>You have the following rights with respect to your personal information:</p>
     <ul>
@@ -455,14 +513,14 @@ body{
     </ul>
     <p>
       To exercise any of these rights, contact us at
-      <a href="mailto:jmcompton04@gmail.com" style="color:var(--accent);text-decoration:none;">jmcompton04@gmail.com</a>.
+      <a href="mailto:contact@mynildash.com" style="color:var(--accent);text-decoration:none;">contact@mynildash.com</a>.
       We will respond within 30 days. We may need to verify your identity before processing certain requests.
     </p>
   </div>
 
-  <!-- 7. Third-Party Services -->
+  <!-- 8. Third-Party Services -->
   <div class="section">
-    <div class="section-number">Section 07</div>
+    <div class="section-number">Section 08</div>
     <h2 class="section-title">Third-Party Services</h2>
     <p>
       NILDash integrates with and relies on the following third-party services to operate. Each has its own
@@ -482,6 +540,10 @@ body{
         <a href="https://resend.com/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Resend Privacy Policy</a>
       </li>
       <li>
+        <strong>Meta</strong> (Instagram API, only for athletes who connect Instagram):
+        <a href="https://privacycenter.instagram.com/policy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Instagram Privacy Policy</a>
+      </li>
+      <li>
         <strong>Railway</strong> (cloud hosting and database infrastructure) —
         <a href="https://railway.app/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Railway Privacy Policy</a>
       </li>
@@ -494,9 +556,9 @@ body{
     </p>
   </div>
 
-  <!-- 8. Changes to This Policy -->
+  <!-- 9. Changes to This Policy -->
   <div class="section">
-    <div class="section-number">Section 08</div>
+    <div class="section-number">Section 09</div>
     <h2 class="section-title">Changes to This Policy</h2>
     <p>
       We may update this Privacy Policy from time to time to reflect changes in our practices, the Service, or
@@ -512,9 +574,9 @@ body{
     </p>
   </div>
 
-  <!-- 9. Contact -->
+  <!-- 10. Contact -->
   <div class="section">
-    <div class="section-number">Section 09</div>
+    <div class="section-number">Section 10</div>
     <h2 class="section-title">Contact Us</h2>
     <p>
       If you have questions, concerns, or requests regarding this Privacy Policy or how we handle your data,
@@ -523,7 +585,7 @@ body{
     <div class="contact-card">
       <div class="contact-row">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M1 5l6 4 6-4" stroke="currentColor" stroke-width="1.2"/></svg>
-        <a href="mailto:jmcompton04@gmail.com">jmcompton04@gmail.com</a>
+        <a href="mailto:contact@mynildash.com">contact@mynildash.com</a>
       </div>
       <div class="contact-row">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M4 7h6M7 4v6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
