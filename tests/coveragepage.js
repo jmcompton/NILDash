@@ -90,7 +90,8 @@ async function main() {
     [page.indexOf('Projected monthly credit burn'), page.indexOf('<script>')]);
   for (const label of ['New websites discovered, last 30 days', 'New websites, last 90 days',
     'Share where siteEmail finds nothing', 'Projected credits/month', 'Budget cap',
-    'Spent this calendar month']) {
+    // Hunter's billing period now, not the calendar month (tests/hunterperiod.js).
+    'Spent this billing period']) {
     ok(`  row present: "${label}"`, page.includes(label));
   }
   for (const label of ['Validated local businesses', 'siteEmail found an address',
