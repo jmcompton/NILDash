@@ -146,7 +146,8 @@ function emailSql(full, athleteScoped) {
        l.subject, l.body_html, l.edited_before_approval, l.touch_no, l.parent_id,
        e.website,
        c.contact_name, c.contact_title, c.why, c.instagram, c.instagram_scope,
-       c.phone, c.phone_ask_for, c.email_note, c.email_label, c.dm_text, m.reasoning`
+       c.phone, c.phone_ask_for, c.email_note, c.email_label, c.dm_text, m.reasoning,
+       l.offer_suggested, l.offer_amount, l.offer_kind, l.offer_menu_item, l.offer_why`
     : `l.id, l.athlete_id, l.brand_name, l.created_at, l.sent_to_email, e.website`;
   const joins = full
     ? `LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
@@ -181,7 +182,8 @@ function queueSql(athleteScoped, where) {
                  q.slot, q.why, q.contact_name, q.contact_title, q.dm_text,
                  q.instagram, q.instagram_scope, q.phone, q.phone_ask_for,
                  q.sponsor_note, q.source_note, q.affiliation_scope, q.lane, q.program_url, q.email_note,
-                 q.business_category, q.thin, q.thin_note
+                 q.business_category, q.thin, q.thin_note,
+                 q.offer_suggested, q.offer_amount, q.offer_kind, q.offer_menu_item, q.offer_why
             FROM outreach_queue q
            WHERE ${where || QUEUE_WHERE}${athleteScoped ? ' AND q.athlete_id = $2' : ''}`;
 }
@@ -212,6 +214,8 @@ function normEmail(r) {
     // "General inbox" (EMAIL_SMART_PICK): shown beside the address.
     emailLabel: r.email_label || null,
     dmText: r.dm_text || null,
+    // The suggested offer (services/offerSuggest), on the draft.
+    offer: require('./offerSuggest').payloadOf(r),
     verified: null,   // filled by the gate
   };
 }
@@ -241,6 +245,8 @@ function normQueue(r) {
     businessCategory: r.business_category || null,
     thin: r.thin === true,
     thinNote: r.thin === true ? (r.thin_note || null) : null,
+    // The suggested offer (services/offerSuggest), on the card.
+    offer: require('./offerSuggest').payloadOf(r),
   };
 }
 

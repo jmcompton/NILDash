@@ -932,6 +932,11 @@
       "total": 13,
       "fault": null
     },
+    "offer.js": {
+      "failed": 0,
+      "total": 80,
+      "fault": null
+    },
     "onboardchat.js": {
       "failed": 0,
       "total": 74,

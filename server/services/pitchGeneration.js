@@ -61,6 +61,8 @@ async function generatePitch(inputs) {
   // .signOffSetting, AGENT_SETUP_ON), or null for the model's usual sign-off.
   const { athlete, enrichment, matchScore, contact, dealScanData, agentName, agentEmail, agentSignOff } = inputs;
   const athleteData = extractAthleteData(athlete);
+  // THE CARD'S SUGGESTED OFFER (OFFER_ON), checked again server-side. Null when off.
+  const _offer = require('./offerSuggest').fromCard(dealScanData && dealScanData.offer);
   // NO STAND-IN SENDER. This read agentName || 'Your Agent', and the model was
   // told to write the email "from Your Agent". Refused through the same path as
   // a price or an invented fact: no model call, no draft.
@@ -204,7 +206,9 @@ DEAL SCAN CONTEXT:
 
 IMPORTANT: When a recommended deal structure is given above, the email and the partnership_structure field MUST propose that same structure. Do not contradict it or substitute a different compensation model.
 
-NEVER state a dollar amount, a price, a rate, a fee or a budget anywhere in the email, in any field. Not a range, not "starting at", not "around". Name the DELIVERABLE instead: "two feed posts and an appearance at your location" is the ask. Money comes up once they reply and the agent takes it from there.
+${_offer
+    ? `THE STARTING OFFER: ${_offer.label}. Name the DELIVERABLE ("two feed posts and an appearance at your location") and this one figure, exactly "${_offer.label}", once, in the email body as where the conversation starts. It is the only amount allowed: no other dollar amount, price, rate, fee or budget in any field, no range, no percentage, and nothing offered for free.${_offer.menuItem ? ` Add-on for this restaurant: a menu item named after the athlete, "${_offer.menuItem}".` : ''}`
+    : 'NEVER state a dollar amount, a price, a rate, a fee or a budget anywhere in the email, in any field. Not a range, not "starting at", not "around". Name the DELIVERABLE instead: "two feed posts and an appearance at your location" is the ask. Money comes up once they reply and the agent takes it from there.'}
 
 MATCH ANALYSIS:
 - Compatibility score: ${matchScore?.compatibility_score || 70}/100
@@ -253,7 +257,8 @@ Generate this exact JSON:
     // are pasted into emails and decks too.
     for (const f of ['full_email_body', 'partnership_structure', 'value_proposition',
       'roi_messaging', 'cta', 'personalized_intro', 'athlete_fit']) {
-      const hit = PW.containsPrice(pitch[f]);
+      // The card's suggested offer is the one figure the email body may name.
+      const hit = PW.containsPrice(pitch[f], { allow: _offer && f === 'full_email_body' ? _offer.label : null });
       if (hit) out.push(`${f} names a price ("${String(hit).trim()}")`);
     }
     // No invented athlete facts, checked against the same stored profile the

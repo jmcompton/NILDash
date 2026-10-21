@@ -4421,6 +4421,16 @@ async function ensureMarketSightings() {
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS market_key TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_queue_sent_at ON outreach_queue (sent_at) WHERE sent_at IS NOT NULL`).catch(() => {});
   await pool.query(`ALTER TABLE brand_contacts ADD COLUMN IF NOT EXISTS email_check TEXT`).catch(() => {});
+  // THE SUGGESTED OFFER (services/offerSuggest, OFFER_ON): what we suggested,
+  // what the agent set it to, cash or product, the restaurant's menu item and
+  // why. On the card (DM and call) and on its draft (email cards, and the
+  // Deal Scan drafts that have no card), and on the deal it became.
+  for (const t of ['outreach_queue', 'outreach_logs']) {
+    for (const col of ['offer_suggested INT', 'offer_amount INT', 'offer_kind TEXT', 'offer_menu_item TEXT', 'offer_why TEXT']) {
+      await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS ${col}`).catch((e) => console.error('[init] ' + t + '.' + col + ':', e.message));
+    }
+  }
+  // (The deal's own columns are added by services/dealLog.ensureTable.)
 
   // ── WHERE VERIFICATION CREDITS ACTUALLY WENT ──────────────────────────────
   //
