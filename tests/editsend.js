@@ -111,6 +111,10 @@ async function seed(P) {
 (async () => {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));
   const P = store.pool;
+  // THE SEND LOG, AS THE SERVER MAKES IT AT BOOT (server/index.js). This suite
+  // never loads the server, so on a new database nothing had created it: every
+  // send check failed and every send was held.
+  await require(REPO + 'server/services/sendRules.js').ensureTable(P);
   await seed(P);
 
   console.log('\n1. THE EDIT LANDS, AND THE ORIGINAL IS KEPT');

@@ -65,6 +65,10 @@ async function main() {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));
   const G = require(ROOT + 'server/services/sendGuard.js');
   await G.ensureTable(P());
+  // THE SEND LOG, AS THE SERVER MAKES IT AT BOOT (server/index.js). This suite
+  // never loads the server, so on a new database nothing had created it: every
+  // send check failed and every send was held.
+  await require(ROOT + 'server/services/sendRules.js').ensureTable(P());
   const clean = async () => {
     await P().query(`DELETE FROM compliance_holds WHERE agent_id=$1`, [AG]).catch(() => {});
     await P().query(`DELETE FROM outreach_logs WHERE agent_id=$1`, [AG]).catch(() => {});
