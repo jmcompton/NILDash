@@ -1576,7 +1576,7 @@ app.get('/api/athletes/:id/deals', requireAuth, async (req, res) => {
 
 app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
   try {
-    const { brand, campaign, stage, value, offeredValue } = req.body;
+    const { brand, campaign, stage, value, offeredValue, suggestedValue, offerKind } = req.body;
     if (!brand) return res.status(400).json({ error: 'Brand is required' });
     const athlete = await store.getAthlete(req.params.id);
     if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
@@ -1596,6 +1596,8 @@ app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
       stage: stage || 'Prospecting',
       value: parseInt(value) || 0,
       offeredValue: parseInt(offeredValue) || 0,
+      // The suggested offer it started from (Deal Scan, OFFER_ON).
+      ...(parseInt(suggestedValue) > 0 ? { suggestedValue: parseInt(suggestedValue), offerKind: offerKind === 'product' ? 'product' : 'cash' } : {}),
       createdAt: now,
       ...(bornClosed ? { closedAt: now, status: 'closed' } : {}),
     };
@@ -9390,6 +9392,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
       const opportunities = sel.page;
       // Record the shown page + attach cross-athlete badges (brandKey already set).
       await _applyLedgerToResponse(req.session.userId, athleteId, 'social', opportunities);
+      require('./services/offerSuggest').attachToScan(opportunities, { athleteName: loaded.athleteObj.name, lane: 'social' });
       const rateCard = await _athleteRateCard(athleteId);
       _logScanCost(validLane, null, Date.now() - _scanT0, false);
       console.log(`[agent/deal-scan] lane=social eligible=${socialPool.length} returned=${opportunities.length} (curated index, 0 AI)`);
@@ -9405,6 +9408,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
         // Re-serving the same page still counts as a display: refresh the shown
         // ledger and (re)attach cross-athlete badges so a cached open is consistent.
         await _applyLedgerToResponse(req.session.userId, athleteId, validLane, cache[validLane].opportunities);
+        require('./services/offerSuggest').attachToScan(cache[validLane].opportunities, { athleteName: loaded.athleteObj.name, lane: validLane });
         _logScanCost(validLane, null, Date.now() - _scanT0, true);
         return res.json({ opportunities: cache[validLane].opportunities, lane: validLane, rateCard, cached: true, poolExhausted: !!fresh.poolExhausted });
       }
@@ -9591,6 +9595,8 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // excludeRetired is a no-op for local (ai.js already excluded), and drops any
     // already-contacted brand from top-NIL.
     recommendations = await _applyLedgerToResponse(req.session.userId, athleteId, validLane, recommendations, { excludeRetired: true });
+    // THE SUGGESTED OFFER on every card (OFFER_ON), before the drafts are pre-warmed.
+    require('./services/offerSuggest').attachToScan(recommendations, { athleteName: loaded.athleteObj.name, lane: validLane });
     if (recommendations.length) {
       // Local: advance the persisted shown-set with the brands just surfaced, so
       // the next scan/refresh (even a later session) starts past these. Store
@@ -12423,6 +12429,7 @@ app.post('/api/deals/log', requireAuth, async (req, res) => {
       brandKey: b.brandKey || null, value: b.value, deliverable: b.deliverable,
       category: b.category || null, contactEmail: b.contactEmail || null, source: b.source || 'deal-button',
       queueId: b.queueId || null,
+      suggestedValue: b.suggestedValue, offeredValue: b.offeredValue, offerKind: b.offerKind || null,
     });
     if (!out.ok) return res.status(400).json(out);
     res.json(out);
@@ -12438,6 +12445,20 @@ app.post('/api/deals/undo', requireAuth, async (req, res) => {
 app.get('/api/deals/recent', requireAuth, async (req, res) => {
   try { res.json({ rows: await require('./services/dealLog').recentFor(store.pool, req.session.userId, req.query.limit) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH /api/agent/cards/offer {cardId, amount, kind} -- the agent changes a
+// card's suggested offer (services/offerSuggest, OFFER_ON). The card and its
+// draft take the new amount and the draft's figure is rewritten. Never sent ones.
+app.patch('/api/agent/cards/offer', requireAuth, async (req, res) => {
+  const OFFER = require('./services/offerSuggest');
+  if (!OFFER.ON()) return res.status(404).json({ ok: false, error: 'Offers are off.' });
+  try {
+    const b = req.body || {};
+    const out = await OFFER.setOffer(store.pool, req.session.userId, b.cardId, b.amount, b.kind);
+    if (!out.ok) return res.status(out.status || 400).json({ ok: false, error: out.error });
+    res.json(out);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // GET /api/admin/deal-counter — total deals, total value, deals this month.

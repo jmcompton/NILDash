@@ -937,6 +937,11 @@
       "total": 13,
       "fault": null
     },
+    "offer.js": {
+      "failed": 0,
+      "total": 80,
+      "fault": null
+    },
     "onboardchat.js": {
       "failed": 0,
       "total": 74,
@@ -1010,6 +1015,11 @@
     "pitchactions.js": {
       "failed": 0,
       "total": 86,
+      "fault": null
+    },
+    "pitchask.js": {
+      "failed": 0,
+      "total": 39,
       "fault": null
     },
     "pitchroute.js": {

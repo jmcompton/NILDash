@@ -46,6 +46,7 @@ const AgentName = require('../services/agentName');
 const WriterEvidence = require('../services/writerEvidence');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
+const OFFER = require('../services/offerSuggest');
 const BI = require('../services/brandIdentity');
 const AR = require('../services/athleteRecord');
 const Scout = require('../services/scout');
@@ -818,6 +819,10 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
       [ins.rows[0].id, card.mixTier, card.brandSize || null, card.fitReasons ? JSON.stringify(card.fitReasons) : null,
         card.mixBackfill ? card.mixBackfill.seat : null])
       .catch((e) => console.error('[queue] mix fields not recorded: ' + e.message));
+  }
+  // THE SUGGESTED OFFER (OFFER_ON), on the card and on its draft.
+  if (wrote && card.offer && ins.rows[0] && ins.rows[0].id) {
+    await OFFER.record(pool, { queueId: ins.rows[0].id, logId: logId || null, offer: card.offer });
   }
   // VERIFIED BY THE EMAIL FINDER: a verified address for the named person.
   // What the five and the 5:30 list count (services/shortOfFive).
@@ -2614,6 +2619,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // written and the slot moves on to the next candidate rather than being
       // filled with something that reads like a mail merge.
       const match = await matchFor(pool, agentId, athleteId, cand.brand_name);
+      // THE SUGGESTED OFFER (services/offerSuggest, OFFER_ON): $250 or $500
+      // from what Google says about the business, and a menu item for a
+      // restaurant. The writer may name it once; the card shows it.
+      const _offer = OFFER.ON() ? OFFER.forBusiness({ name: cand.brand_name, place, athleteName,
+        franchise: !!(out && out.siteEmail && out.siteEmail.corporate) }) : null;
       let pitch = null;
       try {
         pitch = await PW.writePitch({
@@ -2649,6 +2659,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,
             contentThemes: contentThemesOf(ctx.athleteRow, ctx.athleteProfile) },
           deal: match,
+          offer: _offer,
           agentFirstName: ctx.agentFirstName || null,
           hasSchedulingLink: !!signature.hasLink,
           // NOT HARDCODED 'dm' ANY MORE. pitchWriter branches on this -- "The
@@ -2721,8 +2732,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       const card = Q.buildCard({
         brandKey: cand.brand_key, brand: cand.brand_name,
         rationale: (match && match.reasoning) || null,
-        athleteName, pitch,
+        athleteName, pitch, pro: proLane,
       }, ladder, ig);
+      if (_offer) card.offer = _offer;
       // The lane is a PROPERTY of the result, and the sponsorship signal is why
       // this one outranked the rest. Both recorded, so the card can say "they
       // already did a deal at Auburn" instead of showing a rank.

@@ -94,7 +94,7 @@ async function seed(P) {
   check('  AND the handle is still there', both.instagram === 'trakshak', both.instagram);
   check('  AND the phone is still there', both.phone === '205-555-0100', both.phone);
   check('  AND who to ask for', both.phoneAskFor === 'Jeff', both.phoneAskFor);
-  check('  with a subject', /^Quick idea for Trak Shak$/.test(both.subject || ''), both.subject);
+  check('  with a subject', /^NIL opportunity for Trak Shak$/.test(both.subject || ''), both.subject);
   check('  and the pitch as the email body', /a real idea/.test(both.emailBody || ''), both.emailBody);
   check('  and NO dm_text, so nothing counts it as a DM', both.dmText === null, both.dmText);
 
@@ -115,7 +115,7 @@ async function seed(P) {
     `SELECT * FROM outreach_logs WHERE id=$1`, [card.outreach_log_id])).rows[0];
   check('the draft exists', !!draft);
   check('  addressed to the same inbox', draft.sent_to_email === 'jeff@trakshak.com', draft.sent_to_email);
-  check('  with the subject', draft.subject === 'Quick idea for Trak Shak', draft.subject);
+  check('  with the subject', draft.subject === 'NIL opportunity for Trak Shak', draft.subject);
   check('  the pitch as paragraphs', /<p>Hi Jeff, a real idea\.<\/p>/.test(draft.body_html), draft.body_html);
   check('  status draft, so it cannot send until approved', draft.status === 'draft');
   check('  and stamped with where it came from', draft.source === 'nightly-queue', draft.source);

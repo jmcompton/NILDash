@@ -774,11 +774,10 @@ function routeOf(ladder, ig) {
 
 // A plain subject, built rather than written. writePitch returns a message and
 // an angle and has never returned a subject; asking it for one means changing a
-// contract the DM and programme lanes share. This matches the house rule the
-// draft writer is given -- short, plain, no exclamation points, names the
-// business -- and a written subject is a follow-up, not a blocker.
-function subjectFor(brandName) {
-  return 'Quick idea for ' + String(brandName || 'your business').trim();
+// contract the DM and programme lanes share. "NIL opportunity for {Business}"
+// (services/pitchSubject), "Endorsement opportunity" for a pro athlete.
+function subjectFor(brandName, opts = {}) {
+  return require('./pitchSubject').firstTouchSubject(brandName, opts);
 }
 
 // One card. `cand` is the scan candidate, `ladder` the built contact ladder, `ig`
@@ -845,7 +844,7 @@ function buildCard(cand, ladder, ig) {
       : emailNoteOf(ladder),
     // Said on the card beside the address: "General inbox" (EMAIL_SMART_PICK).
     emailLabel: inbox && inbox.general ? 'General inbox' : null,
-    subject: channel === 'email' ? subjectFor(c.brand || c.brandName) : null,
+    subject: channel === 'email' ? subjectFor(c.brand || c.brandName, { pro: !!c.pro }) : null,
     channel,
     // Only written when it can actually be sent. A DM drafted for a corporate
     // account is a message nobody should paste.

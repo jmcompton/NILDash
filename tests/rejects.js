@@ -84,7 +84,8 @@ ok('  and a correct one is left alone', already.split('Dana').length === 2, alre
 ok('  the last SENTENCE is never mistaken for a sign-off',
   /great fit\./.test(P.repairSignOff('Hi,\n\nThis is a great fit.', 'Dana')), null);
 ok('  the writer repairs before it lints',
-  /repairSignOff\(autoRepair/.test(require('fs').readFileSync(ROOT + 'server/services/pitchWriter.js', 'utf8')), null);
+  // The ask's layout repair runs in between now (tests/pitchask.js).
+  /repairSignOff\(repairAsk\(autoRepair/.test(require('fs').readFileSync(ROOT + 'server/services/pitchWriter.js', 'utf8')), null);
 
 // ── 3. THE BAR: 11 REJECTIONS, ALL REACHABLE ───────────────────────────────
 const ladder = (opts) => ({

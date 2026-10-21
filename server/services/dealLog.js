@@ -61,6 +61,30 @@ async function ensureTable(pool) {
   await pool.query(`ALTER TABLE brand_engagement ADD COLUMN IF NOT EXISTS deal_outcome_id INT`).catch(() => {});
   await pool.query(`ALTER TABLE brand_engagement ADD COLUMN IF NOT EXISTS deal_value NUMERIC`).catch(() => {});
   await pool.query(`ALTER TABLE brand_engagement ADD COLUMN IF NOT EXISTS deal_signed_at TIMESTAMPTZ`).catch(() => {});
+  // THE OFFER (services/offerSuggest): what NILDash suggested, what the agent
+  // offered, and whether it was cash or product. deal_value stays the final
+  // amount signed.
+  for (const t of ['deal_outcomes', 'athlete_self_deals']) {
+    await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS suggested_value NUMERIC`).catch(() => {});
+    await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS offered_value NUMERIC`).catch(() => {});
+    await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS offer_kind TEXT`).catch(() => {});
+  }
+}
+
+// THE OFFER ON THE CARD this deal came from: the card itself, or the latest
+// sent card for this athlete and business. Nothing found is all nulls.
+async function cardOffer(pool, { agentId, athleteId, brand, queueId }) {
+  try {
+    const r = await pool.query(
+      `SELECT offer_suggested, offer_amount, offer_kind FROM outreach_queue
+        WHERE agent_id = $1 AND athlete_id = $2
+          AND (id = $4 OR ($4 = -1 AND state = 'sent' AND LOWER(TRIM(brand_name)) = LOWER(TRIM($3))))
+          AND (offer_suggested IS NOT NULL OR offer_amount IS NOT NULL)
+        ORDER BY id DESC LIMIT 1`, [agentId, athleteId, brand, Number(queueId) || -1]);
+    const x = r.rows[0];
+    if (x) return { suggested: x.offer_suggested, offered: x.offer_amount, kind: x.offer_kind || null };
+  } catch (_) { /* the columns arrive with the offer switch's first boot */ }
+  return { suggested: null, offered: null, kind: null };
 }
 
 // THE CARD THE DEAL CAME FROM. Every sent card for this athlete and business
@@ -97,7 +121,7 @@ async function athleteFacts(pool, athleteId) {
 // ── LOG IT ──────────────────────────────────────────────────────────────────
 // Returns { ok, id, brand, athleteId, value, deliverable, stage } or
 // { ok:false, error } in words an agent can read.
-async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, deliverable, category, contactEmail, source, now, queueId } = {}) {
+async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, deliverable, category, contactEmail, source, now, queueId, suggestedValue, offeredValue, offerKind } = {}) {
   let brand = text(brandName, 200);
   // FROM A HOME CARD: the card names the athlete, the business and its key,
   // and it must be this agent's.
@@ -128,6 +152,11 @@ async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, d
   const what = text(deliverable, 300);
   const when = now ? new Date(now) : new Date();
   const facts = await athleteFacts(pool, athleteId);
+  // The offer: what the caller says, else what the card carried.
+  const fromCard = await cardOffer(pool, { agentId, athleteId, brand, queueId });
+  const suggested = money(suggestedValue) || money(fromCard.suggested);
+  const offered = money(offeredValue) || money(fromCard.offered);
+  const kind = (offerKind === 'product' || offerKind === 'cash') ? offerKind : (fromCard.kind || null);
 
   // 1. THE PIPELINE, through the one writer. enterStage never moves a deal
   //    backwards and appends to stage_history, so a brand already Closed
@@ -144,6 +173,17 @@ async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, d
   } catch (e) {
     return { ok: false, error: 'Could not move the deal to Closed: ' + e.message };
   }
+  // The amounts on the Pipeline row too. enterStage writes value only on a new
+  // row, so a deal already in the Pipeline gets its signed amount here.
+  if (dealRowId != null && (val != null || suggested != null || offered != null)) {
+    try {
+      await pool.query(
+        `UPDATE athlete_self_deals
+            SET value = COALESCE($2, value), suggested_value = COALESCE($3, suggested_value),
+                offered_value = COALESCE($4, offered_value), offer_kind = COALESCE($5, offer_kind)
+          WHERE id = $1`, [dealRowId, val, suggested, offered, kind]);
+    } catch (e) { console.error(`[deal-log] pipeline amounts for "${brand}": ${e.message}`); }
+  }
 
   // 2. THE OUTCOME ROW the fit model learns from. A NULL value is a deal with
   //    no price on it, which is different from a deal worth nothing.
@@ -152,12 +192,13 @@ async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, d
     const ins = await pool.query(
       `INSERT INTO deal_outcomes
          (agent_id, athlete_id, deal_id, brand, brand_key, business_category, school, school_tier,
-          sport, follower_band, deliverable, deal_value, closed_at, logged_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          sport, follower_band, deliverable, deal_value, closed_at, logged_by,
+          suggested_value, offered_value, offer_kind)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        RETURNING id`,
       [agentId, athleteId, dealRowId == null ? null : String(dealRowId), brand, brandKey || null,
         category || null, facts.school, facts.tier, facts.sport, followerBand(facts.followers),
-        what, val, when, agentId]);
+        what, val, when, agentId, suggested, offered, kind]);
     id = ins.rows[0] && ins.rows[0].id;
   } catch (e) {
     return { ok: false, error: 'Could not record the deal: ' + e.message };
@@ -183,7 +224,7 @@ async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, d
   const cards = await markCards(pool, { agentId, athleteId, brand, queueId });
 
   console.log(`[deal-log] agent=${agentId} athlete=${athleteId} "${brand}" signed${val ? ' $' + val : ' (no value given)'}${what ? ' — ' + what : ''} (outcome ${id})`);
-  return { ok: true, id, brand, athleteId, athleteName: facts.name, value: val, deliverable: what, stage: stage || 'Closed', cards };
+  return { ok: true, id, brand, athleteId, athleteName: facts.name, value: val, deliverable: what, stage: stage || 'Closed', cards, suggestedValue: suggested, offeredValue: offered, offerKind: kind };
 }
 
 // ── UNDO ────────────────────────────────────────────────────────────────────

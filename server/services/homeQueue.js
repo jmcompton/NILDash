@@ -476,7 +476,8 @@ async function buildHome(pool, agentId, opts = {}) {
             COALESCE(l.parent_id, l.id) AS thread_root,
             COALESCE(q.sent_at, q.updated_at) AS sent_at, q.outcome, q.outcome_at,
             COALESCE(q.replied_at, l.replied_at) AS replied_at, d.id AS deal_id, d.deal_value,
-            to_jsonb(l)->>'bounced_at' AS bounced_at
+            to_jsonb(l)->>'bounced_at' AS bounced_at,
+            to_jsonb(q)->>'offer_amount' AS offer_amount, to_jsonb(q)->>'offer_kind' AS offer_kind
        FROM outreach_queue q
        LEFT JOIN outreach_logs l ON l.id = q.outreach_log_id
        LEFT JOIN LATERAL (SELECT o.id, o.deal_value FROM deal_outcomes o
@@ -503,6 +504,8 @@ async function buildHome(pool, agentId, opts = {}) {
     dealId: r.deal_id || null,
     dealValue: r.deal_value != null ? Number(r.deal_value) : null,
     threadRoot: r.thread_root || null,
+    // The offer the pitch made (OFFER_ON), so "Deal signed" starts from it.
+    ...(require('./offerSuggest').ON() && r.offer_amount ? { offer: { amount: Number(r.offer_amount), kind: r.offer_kind === 'product' ? 'product' : 'cash' } } : {}),
     history: [],
     ...(SG.ON() && r.outreach_log_id && (r.sent_via || r.channel) === 'email' ? { bounceId: r.outreach_log_id, bounced: !!r.bounced_at } : {}),
   }));
@@ -667,6 +670,9 @@ async function buildHome(pool, agentId, opts = {}) {
         // find it is rather than presenting every card as an equal one.
         thin: c.thin === true,
         thinNote: c.thin === true ? (c.thinNote || null) : null,
+        // THE SUGGESTED OFFER (services/offerSuggest, OFFER_ON): "$250", the
+        // agent's to change, and a restaurant's menu item.
+        offer: require('./offerSuggest').ON() ? (c.offer || null) : null,
       };
 
       if (c.channel === 'email') {

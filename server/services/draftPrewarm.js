@@ -158,6 +158,9 @@ function greetNameFor(card) {
   try { return greetingGuard.salutationName(name); } catch (_) { return ''; }
 }
 
+// The card's suggested offer (services/offerSuggest, OFFER_ON), or null.
+function _offerOf(card) { return require('./offerSuggest').fromCard(card && card.offer); }
+
 function buildPrompt(athlete, card, agentName, retryBecause) {
   if (!AgentName.firstNameOrNull(agentName)) throw new Error('buildPrompt: ' + AgentName.NO_AGENT_NAME_REASON);
   const greet = greetNameFor(card);
@@ -178,8 +181,10 @@ ${cardFacts(card)}
 STRUCTURE. Three or four sentences TOTAL. A gym owner reads on a phone between clients and does not read more than that.
   1. Who the athlete is, in one sentence. Concrete: sport, school, and the one fact that matters here.
   2. Why THIS business specifically. Use the reasoning above. Not that they are a good fit, but the actual overlap: for example "your members are the same people who follow her training content", not "your business would be a great fit".
-  3. What is being proposed, in plain words. Deliverables, not jargon. Never a dollar amount, price or rate.
-  4. One clear ask, and only one. A short question that can be answered yes or no.
+${_offerOf(card)
+    ? `  3. What is being proposed, in plain words. Deliverables, not jargon, and the starting offer: exactly "${_offerOf(card).label}", once. No other dollar amount, no range, no percentage, nothing offered for free.${_offerOf(card).menuItem ? ` You may add a menu item named after the athlete, "${_offerOf(card).menuItem}".` : ''}`
+    : '  3. What is being proposed, in plain words. Deliverables, not jargon. Never a dollar amount, price or rate.'}
+  4. One clear ask, and only one. A short question that can be answered yes or no, LAST, alone on its own line after a blank line.
 
 ${greet
     ? `GREETING: exactly "Hi ${greet}," on its own line. ${greet} is the person this card is to; use that name and no other.`
@@ -195,7 +200,7 @@ THE TEST THIS MUST PASS: if this email could have been written without knowing w
 Do not invent facts. If you do not know something about the business, leave it out rather than guessing. Never claim the athlete has used, visited or bought from the business.
 
 Return ONLY this JSON:
-{"subject":"short, plain, no exclamation points, names the athlete and the business","body":"the email, greeting on the first line, three or four sentences, blank line between paragraphs"}`;
+{"subject":"NIL opportunity for <the business's name>","body":"the email, greeting on the first line, three or four sentences, blank line between paragraphs"}`;
 }
 
 // Did the model do what it was told? Checked rather than trusted, because the whole
@@ -241,6 +246,24 @@ function checkDraft(text, card) {
   // Four sentences was the instruction. Ten means it ignored the shape.
   const sentences = body.replace(/^hi,?\s*/i, '').split(/[.!?]+\s/).filter((s) => s.trim().length > 12);
   if (sentences.length > 7) return { ok: false, why: `${sentences.length} sentences, asked for 3-4` };
+  // THE ASK, LAST: one question on its own line after a blank line, the same
+  // check the nightly writer runs (services/pitchWriter.askProblem), on the
+  // body as it is stored: after the layout repair, which moves lines and never
+  // a word.
+  const PW = require('./pitchWriter');
+  const ask = PW.askProblem(PW.repairAsk(body));
+  if (ask) return { ok: false, why: ask };
+  // THE OFFER (OFFER_ON): the card's figure is the only amount allowed.
+  const _o = _offerOf(card);
+  if (_o) {
+    const price = PW.containsPrice(body, { allow: _o.label });
+    if (price) {
+      // The whole figure, for the retry: the check reports only how it starts.
+      const p0 = String(price).trim();
+      const full = (body.match(new RegExp(p0.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\d,]*(?:\\.\\d+)?')) || [p0])[0];
+      return { ok: false, why: `names a price other than the offer ("${full}"); the only amount is "${_o.label}"` };
+    }
+  }
   return { ok: true };
 }
 
@@ -339,11 +362,14 @@ async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) 
           sent_to_email, email_kind, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'draft','prewarm',$8,$9,NOW(),NOW())
        ON CONFLICT DO NOTHING`,
-      [id, agentId, athleteId, brand, brandKey, parsed.subject, toHtml(parsed.body),
+      // THE SUBJECT IS BUILT, NOT WRITTEN (services/pitchSubject): the same
+      // "NIL opportunity for {Business}" as every other first email.
+      [id, agentId, athleteId, brand, brandKey, require('./pitchSubject').firstTouchSubject(brand, { pro: require('./proLane').isPro(athlete || {}) }), toHtml(parsed.body),
        addr ? addr.email : null, addr ? addr.kind : null]);
   } catch (e) {
     return { failed: 'store: ' + e.message };
   }
+  { const o = _offerOf(card); if (o) await require('./offerSuggest').record(pool, { logId: id, offer: o }); }
   return { drafted: true, id, brandKey, retried: !!lastWhy,
     email: addr ? addr.email : null, emailKind: addr ? addr.kind : null };
 }
@@ -366,6 +392,8 @@ async function _attemptDraft({ athlete, card, agentName, brand, retryBecause }) 
 
   const parsed = parse(raw);
   if (!parsed) return { hard: 'unparseable response' };
+  // Layout only: the closing question onto its own line (services/pitchWriter).
+  parsed.body = require('./pitchWriter').repairAsk(parsed.body);
   const check = checkDraft(parsed.body, card);
   if (!check.ok) return { why: check.why };  // the model chose bad words: worth one retry
   return { parsed };

@@ -13,7 +13,11 @@ const DETAILS_URL = 'https://places.googleapis.com/v1/places/';
 // ledger identity for local businesses (the Homewood store is a different key
 // from the Hoover one). types/rating come along because the Deal Scan tier logic
 // (dealScanRanking.businessTier) keys on the Places types array.
-const PLACE_FIELDS = 'id,displayName,formattedAddress,nationalPhoneNumber,internationalPhoneNumber,websiteUri,googleMapsUri,types,primaryType,businessStatus,rating,userRatingCount';
+// priceLevel is read for the suggested offer (services/offerSuggest): in the
+// same field group as rating and userRatingCount, so it costs nothing extra.
+// Not a cache-version bump: a business already cached gets it when its row
+// next refreshes, and until then the offer is read from its reviews alone.
+const PLACE_FIELDS = 'id,displayName,formattedAddress,nationalPhoneNumber,internationalPhoneNumber,websiteUri,googleMapsUri,types,primaryType,businessStatus,rating,userRatingCount,priceLevel';
 const FIELD_MASK = PLACE_FIELDS.split(',').map((f) => 'places.' + f).join(',');
 const TIMEOUT_MS = 4500;
 const CACHE_DAYS = 30;
@@ -47,6 +51,7 @@ function _mapPlace(p, fallbackName) {
     businessStatus: p.businessStatus || null,
     rating: p.rating != null ? p.rating : null,
     userRatingCount: p.userRatingCount != null ? p.userRatingCount : null,
+    priceLevel: p.priceLevel != null ? p.priceLevel : null,
   };
 }
 

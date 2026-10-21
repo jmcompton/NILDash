@@ -47,8 +47,9 @@ const BIZ = {
 const GOOD = 'Hi Dana,\n\nSaw you sponsor the Auburn High booster club. '
   + 'I work with Jeremiah Wilkinson, a junior linebacker at Auburn who grew up in Opelika and has '
   + '35,000 followers as of 14 Aug 2026, nearly all of them local. Two feed posts of a training session at your gym '
-  + 'with a signup code, so you can count what it brings in. '
-  + 'If that is not a fit just say so.\n\nJohnMark';
+  + 'with a signup code, so you can count what it brings in.\n\n'
+  // The ask, last, alone on its line (tests/pitchask.js).
+  + 'Would that be worth a short call?\n\nJohnMark';
 
 // A stub that returns whatever the test hands it, and records the prompts.
 function stub(seq) {
@@ -361,8 +362,8 @@ async function main() {
 
   // END TO END: a fabricated fact takes the SAME retry-then-refuse path as a price.
   const CLEAN = 'Hi Dana,\n\nSaw the gym on Dickson Street. Jeremiah Wilkinson is a junior linebacker at Arkansas '
-    + 'with 35,000 followers as of 14 Aug 2026, nearly all local. Two feed posts of a training session with a signup code. '
-    + 'Say no if it is off.\n\nJohnMark';
+    + 'with 35,000 followers as of 14 Aug 2026, nearly all local. Two feed posts of a training session with a signup code.\n\n'
+    + 'Would that work for you?\n\nJohnMark';
   const LIES = 'Saw the gym. Jeremiah Wilkinson is a senior quarterback from Montgomery with 200,000 followers. '
     + 'Two feed posts and a visit. Say no if it is off.\n\nJohnMark';
   let fab = stub([{ angle: 'a', angleKey: 'a', ask: 'two posts', message: LIES },

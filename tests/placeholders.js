@@ -46,7 +46,7 @@ async function main() {
   OUT.push('', '-- the cause: the prompt no longer asks for a link it does not have --');
   const PW = read('server/services/pitchWriter.js');
   ok('the output format asks for the Instagram link only when there is one',
-    /\$\{ctx\.athlete && ctx\.athlete\.instagramHandle \? 'the Instagram link on its own line, ' : ''\}signed off/.test(PW)
+    /\$\{ctx\.athlete && ctx\.athlete\.instagramHandle \? 'the Instagram link on its own line, ' : ''\}the ask last on its own line after a blank line, signed off/.test(PW)
     && !/"four to five sentences in the prescribed order, the Instagram link on its own line, signed off"/.test(PW));
   ok('  and with no handle it says so, and forbids a placeholder', /There is NO Instagram link for this athlete\. Do not write a link, a handle, or any placeholder/.test(PW));
 

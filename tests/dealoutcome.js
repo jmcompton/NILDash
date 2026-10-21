@@ -100,7 +100,7 @@ const AG = 'do-agent', ATH = 'do-ath';
   ok('  /api/deals/log passes the card through', /queueId: b\.queueId \|\| null/.test(idx));
   const page = fs.readFileSync(REPO + 'public/index.html', 'utf8');
   ok('Home renders the sent list with They replied, Not interested and Deal signed', /html \+= hqSentHtml\(d\);/.test(page)
-    && />They replied</.test(page) && />Not interested</.test(page) && /hqSentDeal\(/.test(page) && /dealSignedOpen\(HQ\.selected, r\.business, r\.brandKey, id\)/.test(page));
+    && />They replied</.test(page) && />Not interested</.test(page) && /hqSentDeal\(/.test(page) && /dealSignedOpen\(HQ\.selected, r\.business, r\.brandKey, id(, r\.offer \|\| null)?\)/.test(page));
   ok('  the deal form sends the card id', /queueId: DEALFORM\.dataset\.queueId \|\| null/.test(page));
 
   // ── 5. THE REPORT ────────────────────────────────────────────────────────
