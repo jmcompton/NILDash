@@ -1227,7 +1227,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="card-title">Compose</div>
         <div class="form-group"><label class="form-label">To (Brand Contact Email)</label><input type="email" class="form-input" id="email-to" placeholder="partnerships@brand.com"></div>
         <div class="form-group"><label class="form-label">Brand Name</label><input type="text" class="form-input" id="email-brand" placeholder="e.g. Nike"></div>
-        <div class="form-group"><label class="form-label">Subject</label><input type="text" class="form-input" id="email-subject" placeholder="NIL Partnership Opportunity — Your Name"></div>
+        <div class="form-group"><label class="form-label">Subject</label><input type="text" class="form-input" id="email-subject" placeholder="NIL opportunity for the business"></div>
         <div class="form-group"><label class="form-label">Message</label><textarea class="form-textarea" id="email-body" style="min-height:160px" placeholder="Write your email…"></textarea></div>
         <div class="form-group agent-only" style="display:flex;align-items:center;gap:8px">
           <input type="checkbox" id="email-cc-agent" style="width:auto;cursor:pointer">
@@ -5630,7 +5630,7 @@ function adpDraftOutreachEmail(email, brand) {
       var bodyEl  = document.getElementById('email-body');
       if (toEl)    toEl.value    = email || '';
       if (brandEl) brandEl.value = brand || '';
-      if (subjEl)  subjEl.value  = 'NIL Partnership Opportunity — ' + athName;
+      if (subjEl)  subjEl.value  = brand ? 'NIL opportunity for ' + brand : 'NIL opportunity';
       if (bodyEl)  bodyEl.value  =
         'Hi,\n\nMy name is ' + athName + ', a ' + sport + ' athlete at ' + school + '. ' +
         'I’ve been a fan of ' + brand + ' and believe there’s a genuine opportunity for us to work together on an NIL partnership.\n\n' +
@@ -5653,7 +5653,7 @@ function adpStartOutreach(brand, email, athName) {
       var bodyEl  = document.getElementById('email-body');
       if (toEl)    toEl.value    = email || '';
       if (brandEl) brandEl.value = brand || '';
-      if (subjEl)  subjEl.value  = 'NIL Partnership Opportunity — ' + athName;
+      if (subjEl)  subjEl.value  = brand ? 'NIL opportunity for ' + brand : 'NIL opportunity';
       if (bodyEl)  bodyEl.value  =
         'Hi,\n\nMy name is ' + athName + ', a ' + sport + ' athlete at ' + school + '. ' +
         'I’ve been a genuine fan of ' + brand + ' for a while and think there’s a real opportunity for us to work together on an NIL partnership.\n\n' +
@@ -5732,7 +5732,7 @@ async function aiDraftEmail() {
     if (data.draft) {
       document.getElementById('email-body').value = data.draft;
       mkToggleFor('email-body', 'email-include-mk');
-      if (!document.getElementById('email-subject').value) document.getElementById('email-subject').value = 'NIL Partnership Opportunity';
+      if (!document.getElementById('email-subject').value) document.getElementById('email-subject').value = brand ? 'NIL opportunity for ' + brand : 'NIL opportunity';
     } else showToast('AI draft failed', 'error');
   } catch(e) { showToast('AI draft failed', 'error'); }
   finally { btn.disabled = false; btn.textContent = 'AI Draft'; }

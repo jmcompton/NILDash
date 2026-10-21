@@ -141,6 +141,13 @@ const lastLines = (t, n) => String(t).trim().split('\n').slice(-n);
   const pg = read('server/services/pitchGeneration.js');
   ok('  and its fallback ends on the ask, with no "Best regards," and no em dash in that body', /\\n\\nWould you be open to a brief call this week\?`,/.test(pg) && !/Best regards/.test(pg));
 
+  console.log('\n6. NO OLD FIRST-TOUCH SUBJECT LEFT ON ANY PAGE');
+  const oe = read('public/outreach-engine.js'), wo = read('server/services/workflowOrchestrator.js'), ad = read('public/athlete-dashboard.html');
+  ok('the Deal Scan email window starts on "NIL opportunity for {Business}" (and its overwrite check matches)',
+    (oe.match(/NIL opportunity for \$\{brand(Now)?\}/g) || []).length === 3 && !/`NIL Partnership/.test(oe));
+  ok('the outreach workflow\'s fallback subject is the built one', /pitch\.subject_line \|\| require\('\.\/pitchSubject'\)\.firstTouchSubject\(enrichment\.brand_name\)/.test(wo) && !/NIL Partnership —/.test(wo));
+  ok('the athlete portal\'s own pitch to a business: "NIL opportunity for {Business}", no em dash', (ad.match(/'NIL opportunity for ' \+ brand/g) || []).length === 3 && !/NIL Partnership Opportunity/.test(ad));
+
   console.log(`\n${N - F}/${N} passed`);
   process.exit(F ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

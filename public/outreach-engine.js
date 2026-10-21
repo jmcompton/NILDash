@@ -167,7 +167,7 @@ function renderFromCard(d, athleteId) {
     deck: null,
     // No body yet. The textarea renders empty with a status line above it rather
     // than a spinner over the whole modal, so everything else is usable meanwhile.
-    outreach: { id: null, subject: `NIL Partnership — ${brand}`, body_html: '' },
+    outreach: { id: null, subject: `NIL opportunity for ${brand}`, body_html: '' },
   });
   setDraftStatus('writing');
   // NOT ensureDeepContact. The /run workflow about to be posted does its own contact
@@ -529,7 +529,7 @@ function applyCompletedRun(data) {
   // Only overwrite the placeholder renderFromCard put there. Anything else is the
   // agent's, whether they typed it or the pre-warm wrote it.
   const brandNow = (data.run && data.run.brand_name) || '';
-  const placeholder = `NIL Partnership — ${brandNow}`;
+  const placeholder = `NIL opportunity for ${brandNow}`;
   if (subj && outreach && outreach.subject && (!subj.value.trim() || subj.value === placeholder)) {
     subj.value = outreach.subject;
   }
@@ -697,7 +697,7 @@ function renderRunResult(data) {
   const scoreColor = score >= 75 ? '#84CC16' : score >= 55 ? '#f59e0b' : '#f87171';
 
   // Parse outreach body for editing
-  const currentSubject = outreach?.subject || `NIL Partnership — ${brand}`;
+  const currentSubject = outreach?.subject || `NIL opportunity for ${brand}`;
   const currentBody    = htmlToEditableText(outreach?.body_html || '');
   const outreachId     = outreach?.id;
   OutreachEngineState.currentOutreachId = outreachId || null;

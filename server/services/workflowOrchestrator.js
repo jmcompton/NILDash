@@ -330,7 +330,7 @@ async function buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment
     [
       id, agentId, athleteId, enrichment.brand_name,
       contact?.id || null, enrichment.id, deck?.id || null,
-      pitch.subject_line || `NIL Partnership — ${athleteData.name} × ${enrichment.brand_name}`,
+      pitch.subject_line || require('./pitchSubject').firstTouchSubject(enrichment.brand_name),
       bodyHtml,
     ]
   );
