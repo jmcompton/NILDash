@@ -501,6 +501,22 @@ async function deauthorize(pool, igUserId) {
   return { athleteIds: r.rows.map((x) => x.athlete_id) };
 }
 
+// THE DELETION ITSELF: one path for Meta's data deletion callback and for the
+// agent's Disconnect button. Every stats row, the token and the account on the
+// connection, and the live fields Instagram supplied on the athlete record.
+// Returns how many stats rows went.
+async function _deleteFetched(pool, ids, igUserId, reason) {
+  const st = await pool.query(`DELETE FROM instagram_stats WHERE athlete_id = ANY($1) OR ($2::text IS NOT NULL AND ig_user_id = $2)`, [ids, igUserId ? String(igUserId) : null]);
+  await pool.query(`UPDATE instagram_connections SET status = 'disconnected', status_reason = $2,
+                      access_token_enc = NULL, ig_user_id = NULL, username = NULL, last_synced_at = NULL, updated_at = NOW() WHERE athlete_id = ANY($1)`, [ids, reason]);
+  // Only the fields Instagram supplied, and only where Instagram supplied them.
+  await pool.query(`UPDATE athletes SET data = (data - 'igStatsSource' - 'igStatsFetchedAt'
+                      - (CASE WHEN data->>'reachSource' = 'instagram' THEN ARRAY['instagram','reachSource','reachAsOf'] ELSE ARRAY[]::text[] END)
+                      - (CASE WHEN data->>'engagementSource' = 'instagram' THEN ARRAY['engagement','engagementSource','engagementAsOf'] ELSE ARRAY[]::text[] END))
+                    WHERE id = ANY($1)`, [ids]);
+  return st.rowCount || 0;
+}
+
 // A data deletion request: everything we fetched from Instagram for this user
 // is deleted -- the token, every stats row, and the live fields on the athlete
 // record. The request is recorded with a confirmation code Meta shows the user.
@@ -510,19 +526,38 @@ async function deleteData(pool, igUserId) {
   const ids = (await pool.query(`SELECT athlete_id FROM instagram_connections WHERE ig_user_id = $1`, [String(igUserId)])).rows.map((r) => r.athlete_id);
   await pool.query(`INSERT INTO instagram_deletion_requests (confirmation_code, ig_user_id, athlete_ids) VALUES ($1,$2,$3)`, [code, String(igUserId), ids]);
   if (ids.length) {
-    await pool.query(`DELETE FROM instagram_stats WHERE athlete_id = ANY($1) OR ig_user_id = $2`, [ids, String(igUserId)]);
-    await pool.query(`UPDATE instagram_connections SET status = 'disconnected', status_reason = 'data deleted at the athlete''s request',
-                        access_token_enc = NULL, ig_user_id = NULL, username = NULL, last_synced_at = NULL, updated_at = NOW() WHERE athlete_id = ANY($1)`, [ids]);
-    // Only the fields Instagram supplied, and only where Instagram supplied them.
-    await pool.query(`UPDATE athletes SET data = (data - 'igStatsSource' - 'igStatsFetchedAt'
-                        - (CASE WHEN data->>'reachSource' = 'instagram' THEN ARRAY['instagram','reachSource','reachAsOf'] ELSE ARRAY[]::text[] END)
-                        - (CASE WHEN data->>'engagementSource' = 'instagram' THEN ARRAY['engagement','engagementSource','engagementAsOf'] ELSE ARRAY[]::text[] END))
-                      WHERE id = ANY($1)`, [ids]);
+    await _deleteFetched(pool, ids, igUserId, 'data deleted at the athlete\'s request');
   } else {
     await pool.query(`DELETE FROM instagram_stats WHERE ig_user_id = $1`, [String(igUserId)]);
   }
   await pool.query(`UPDATE instagram_deletion_requests SET status = 'completed', completed_at = NOW() WHERE confirmation_code = $1`, [code]);
   return { code, url: `${publicBase()}/api/instagram/deletion-status?code=${code}`, athleteIds: ids };
+}
+
+// ── THE AGENT DISCONNECTS AN ATHLETE ────────────────────────────────────────
+// From the athlete page in NILDash. The same deletion as Meta's callback, right
+// away, recorded the same way (a confirmation code on the deletion-status
+// page), and the athlete reads not connected:
+//   the stored access token is erased: NILDash can never use it again
+//   every unused connect link for the athlete is revoked
+//   every stats row, and the numbers Instagram put on the athlete record, go
+// Instagram's API (Instagram Login) gives an app no call to revoke a user's
+// token on Instagram's side; erasing it is what revokes it for NILDash, and
+// the athlete can also remove NILDash under Settings > Apps and websites.
+// The athlete must be this agent's. -> { ok, code, statsDeleted, wasConnected }
+async function disconnect(pool, { athleteId, agentId }) {
+  await ensureTables(pool);
+  const own = (await pool.query(`SELECT 1 FROM athletes WHERE id = $1 AND agent_id = $2`, [athleteId, agentId])).rows[0];
+  if (!own) return { ok: false, status: 404, error: 'That athlete is not on your roster.' };
+  const conn = (await pool.query(`SELECT ig_user_id, status, access_token_enc IS NOT NULL AS had_token FROM instagram_connections WHERE athlete_id = $1`, [athleteId])).rows[0] || null;
+  const code = crypto.randomBytes(10).toString('hex');
+  await pool.query(`INSERT INTO instagram_deletion_requests (confirmation_code, ig_user_id, athlete_ids) VALUES ($1,$2,$3)`,
+    [code, conn && conn.ig_user_id ? String(conn.ig_user_id) : null, [athleteId]]);
+  const links = await pool.query(`UPDATE instagram_connect_tokens SET revoked_at = NOW() WHERE athlete_id = $1 AND used_at IS NULL AND revoked_at IS NULL`, [athleteId]);
+  const statsDeleted = await _deleteFetched(pool, [athleteId], conn && conn.ig_user_id, 'Disconnected in NILDash. Everything fetched from Instagram was deleted.');
+  await pool.query(`UPDATE instagram_deletion_requests SET status = 'completed', completed_at = NOW() WHERE confirmation_code = $1`, [code]);
+  console.log(`[instagram] agent=${agentId} disconnected athlete=${athleteId}: token ${conn && conn.had_token ? 'erased' : 'none'}, ${statsDeleted} stats row(s) deleted, ${links.rowCount} link(s) revoked (${code})`);
+  return { ok: true, code, statsDeleted, linksRevoked: links.rowCount, wasConnected: !!(conn && conn.status === 'connected'), hadToken: !!(conn && conn.had_token) };
 }
 
 // ── FOR THE AGENT ───────────────────────────────────────────────────────────
@@ -588,7 +623,7 @@ async function latestFor(pool, athleteId) {
 
 module.exports = {
   ensureTables, createInvite, readInvite, authorizeUrl, exchangeCode, refreshToken, fetchStats, computeEngagement, saveStats,
-  handleCallback, syncAthlete, refreshDue, nightly, tick, parseSignedRequest, deauthorize, deleteData, statusForAgent, isConnected,
+  handleCallback, syncAthlete, refreshDue, nightly, tick, parseSignedRequest, deauthorize, deleteData, disconnect, statusForAgent, isConnected,
   latestFor, latestScreenshotFor, inviteMessage, configured, redirectUri, appId, SCOPE, BASIC_SCOPE, INSIGHTS_SCOPE, MEDIA_LIMIT, ENGAGEMENT_POSTS, AUTHORIZE_URL, TOKEN_URL, LONG_LIVED_URL, REFRESH_URL, GRAPH,
   REFRESH_WHEN_DAYS_LEFT, INVITE_DAYS,
 };
