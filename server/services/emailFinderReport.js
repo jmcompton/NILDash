@@ -134,7 +134,7 @@ function classify(card, tried, look = {}) {
     // A budget refusal writes nothing. The month's count only rises, so a night
     // in this month while the count is still under the cap was not refused.
     if (!hunter) {
-      if (look.underBudgetThisMonth && card.thisMonth) return out('Hunter not asked, with no record why', `Hunter was due to be asked for ${host}, nothing was recorded, and this month's count never reached the cap`);
+      if (look.underBudgetThisMonth && card.thisMonth) return out('Hunter not asked, with no record why', `Hunter was due to be asked for ${host}, nothing was recorded, and this billing period's count never reached the cap`);
       return out('Hunter monthly budget hit (inferred)', `Hunter was due to be asked for ${host} and nothing was recorded: a budget refusal writes nothing`);
     }
     const n = hunter.evidence && Array.isArray(hunter.evidence.emails) ? hunter.evidence.emails.length : 0;
@@ -147,14 +147,17 @@ function classify(card, tried, look = {}) {
 
 // ── GATHER ──────────────────────────────────────────────────────────────────
 async function gather(pool, { days = 7 } = {}) {
+  // "This month" is Hunter's billing period (services/hunterPeriod), the window
+  // the budget below is counted over.
+  const period = await require('./hunterPeriod').forCount();
   const cards = (await pool.query(
     `SELECT q.id, q.agent_id, q.athlete_id, q.brand_name, q.brand_key, q.channel, q.lane, q.email_note, q.email_tier, q.created_at,
             q.contact_name, q.contact_title, q.instagram, q.instagram_scope, q.phone, q.business_category, q.email_verified, q.email,
             to_char((q.created_at AT TIME ZONE 'America/Chicago')::date, 'YYYY-MM-DD') AS night,
-            date_trunc('month', q.created_at) = date_trunc('month', NOW()) AS "thisMonth", u.name AS agent_name,
+            q.created_at >= $2 AS "thisMonth", u.name AS agent_name,
             a.data->>'name' AS athlete_name
        FROM outreach_queue q LEFT JOIN users u ON u.id = q.agent_id LEFT JOIN athletes a ON a.id = q.athlete_id
-      WHERE q.created_at > NOW() - make_interval(days => $1)`, [days])).rows;
+      WHERE q.created_at > NOW() - make_interval(days => $1)`, [days, period.start])).rows;
   const runs = (await pool.query(
     `SELECT agent_id, run_date, details FROM outreach_queue_runs WHERE run_date >= CURRENT_DATE - $1::int`, [days + 1])).rows;
   // agent|athlete|brand(lower) -> latest queued tried entry
@@ -230,6 +233,8 @@ async function hunterAccount(fetchImpl) {
     const r = await (fetchImpl || fetch)('https://api.hunter.io/v2/account?api_key=' + encodeURIComponent(key));
     const j = await r.json();
     const d = (j && j.data) || {};
+    // The answer sets the billing period too (services/hunterPeriod).
+    require('./hunterPeriod').noteAccount({ ok: !!d.reset_date, resetDate: d.reset_date ? String(d.reset_date).slice(0, 10) : null });
     return { plan: d.plan_name || null, resetDate: d.reset_date || null,
       searches: d.requests && d.requests.searches ? { used: d.requests.searches.used, available: d.requests.searches.available } : null,
       verifications: d.requests && d.requests.verifications ? { used: d.requests.verifications.used, available: d.requests.verifications.available } : null,
@@ -251,8 +256,8 @@ function format(r, account) {
   for (const x of r.rows) sites[x.site] = (sites[x.site] || 0) + 1;
   L.push('', 'THE SITE SCRAPE ON THESE CARDS (step 1 of the address ladder):');
   for (const [k, v] of Object.entries(sites).sort((a, b) => b[1] - a[1])) L.push(`  ${String(v).padStart(5)}  ${k}`);
-  L.push('', 'HUNTER THIS MONTH:');
-  if (r.budget) L.push(`  our count: ${r.budget.used} of the ${r.budget.budget} we allow (HUNTER_MONTHLY_BUDGET): ${r.budget.ladderUsed} domain searches, ${r.budget.verifyUsed} verifications; ${r.budget.remaining} left`);
+  L.push('', 'HUNTER THIS BILLING PERIOD:');
+  if (r.budget) L.push(`  our count ${r.budget.periodLine || ''}: ${r.budget.used} of the ${r.budget.budget} we allow (HUNTER_MONTHLY_BUDGET): ${r.budget.ladderUsed} domain searches, ${r.budget.verifyUsed} verifications; ${r.budget.remaining} left`);
   else L.push('  our count: could not be read');
   if (account) {
     if (account.error) L.push(`  Hunter's account: could not be read (${account.error})`);

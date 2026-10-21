@@ -14269,6 +14269,8 @@ async function _hunterCoverageAndBurn() {
         budget: budget.budget,
         usedThisMonth: budget.used,
         remainingThisMonth: budget.remaining,
+        // The window those two cover: Hunter's billing period (services/hunterPeriod).
+        periodLine: budget.periodLine || null,
         // A 30-day window needs 30 days behind it to mean anything.
         historyThin: daysOfHistory < 30,
       },
@@ -14846,7 +14848,7 @@ ${!hcb ? '<p class="note">Could not compute — see the errors above.</p>' : (()
   <tr><td><b>Projected credits/month</b> <span class="dim">(30-day window)</span></td><td class="mono" style="color:${over ? '#f59e0b' : '#84CC16'}">${bn.projected30d}</td></tr>
   <tr><td><b>Projected credits/month</b> <span class="dim">(90-day average)</span></td><td class="mono">${bn.projected90dAvg}</td></tr>
   <tr><td>Budget cap <span class="dim">(HUNTER_MONTHLY_BUDGET, of 2,000 on the plan)</span></td><td class="mono">${bn.budget}</td></tr>
-  <tr><td>Spent this calendar month</td><td class="mono">${bn.usedThisMonth} <span class="dim">· ${bn.remainingThisMonth} left</span></td></tr>
+  <tr><td>Spent this billing period <span class="dim">(${esc(bn.periodLine || 'since the 1st')})</span></td><td class="mono">${bn.usedThisMonth} <span class="dim">· ${bn.remainingThisMonth} left</span></td></tr>
 </tbody></table>
 <p class="note">A domain is cached 30 days, so a business costs <b>one credit per month however many
 times it is scanned</b>. The burn tracks NEW businesses, not scan volume — rescanning the same
@@ -15062,7 +15064,7 @@ function hbPoll(){
            '<tr><td><b>Projected credits/month</b> <span class="dim">(30-day window)</span></td><td class="mono" style="color:'+(over?'#f59e0b':'#84CC16')+'">'+bn.projected30d+'</td></tr>'+
            '<tr><td><b>Projected credits/month</b> <span class="dim">(90-day average)</span></td><td class="mono">'+bn.projected90dAvg+'</td></tr>'+
            '<tr><td>Budget cap <span class="dim">(HUNTER_MONTHLY_BUDGET, of 2,000 on the plan)</span></td><td class="mono">'+bn.budget+'</td></tr>'+
-           '<tr><td>Spent this calendar month</td><td class="mono">'+bn.usedThisMonth+' <span class="dim">· '+bn.remainingThisMonth+' left</span></td></tr>'+
+           '<tr><td>Spent this billing period <span class="dim">('+esc(bn.periodLine||'since the 1st')+')</span></td><td class="mono">'+bn.usedThisMonth+' <span class="dim">· '+bn.remainingThisMonth+' left</span></td></tr>'+
            '</tbody></table>'+
            '<p class="note">A domain is cached 30 days, so a business costs <b>one credit per month however '+
            'many times it is scanned</b>. The burn tracks NEW businesses, not scan volume — rescanning the '+
@@ -15647,6 +15649,13 @@ try {
   const hpTick = () => { if (HPace.ON()) HPace.tick(store.pool).catch((e) => console.error('[hunter-pace] tick failed:', e.message)); };
   setTimeout(hpTick, 7 * 60 * 1000);
   setInterval(hpTick, 60 * 60 * 1000);
+  // HUNTER'S BILLING PERIOD (services/hunterPeriod), whatever HUNTER_PACE_ON
+  // says: every Hunter count is from the period's start, read now and again
+  // every few hours. Free.
+  const HPer = require('./services/hunterPeriod');
+  const perTick = () => { if (HPer.stale()) HPer.refresh().then((w) => console.log('[hunter-period] counting ' + HPer.describe(w))).catch((e) => console.error('[hunter-period] read failed:', e.message)); };
+  perTick();
+  setInterval(perTick, 30 * 60 * 1000);
 } catch (e) {
   console.error('[hunter-pace] scheduler failed to start:', e.message);
 }

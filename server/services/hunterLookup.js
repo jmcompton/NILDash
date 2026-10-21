@@ -28,6 +28,10 @@ const store = require('../store');
 // TONIGHT'S ALLOWANCE (services/hunterPace, HUNTER_PACE_ON): counted where a
 // credit is committed, in the same synchronous step as the monthly ceiling.
 const HP = require('./hunterPace');
+// THE WINDOW: Hunter's billing period (the 20th to the 20th on our plan), not
+// the calendar month. services/hunterPeriod.
+const HPer = require('./hunterPeriod');
+const _since = (w) => w.start.toISOString().slice(0, 10);
 
 const SEARCH_URL = 'https://api.hunter.io/v2/domain-search';
 const TIMEOUT_MS = parseInt(process.env.HUNTER_TIMEOUT_MS, 10) || 8000;
@@ -108,15 +112,16 @@ async function creditsThisMonth(force) {
     if (!_inflight) {
       _inflight = (async () => {
         try {
+          const w = await HPer.forCount();
           const r = await store.pool.query(
             `SELECT COUNT(*)::int AS n FROM brand_evidence_cache
               WHERE lane = ANY($1::text[]) AND outcome <> 'NO_KEY'
-                AND refreshed_at >= date_trunc('month', NOW())`, [SEARCH_LANES]);
-          _budgetCache = { at: Date.now(), used: r.rows[0].n };
+                AND refreshed_at >= $2`, [SEARCH_LANES, w.start]);
+          _budgetCache = { at: Date.now(), used: r.rows[0].n, since: _since(w) };
         } catch (e) {
           console.error('[hunter] budget read failed: ' + e.message);
           // Fail SAFE: an unreadable budget must not read as "plenty left".
-          _budgetCache = { at: Date.now(), used: MONTHLY_BUDGET };
+          _budgetCache = { at: Date.now(), used: MONTHLY_BUDGET, since: _budgetCache.since };
         }
         // The count now includes every row written before it ran, so the
         // reservations it supersedes are cleared with it. Requests still in
@@ -149,9 +154,10 @@ let _verifyCache = { at: 0, used: 0 };
 async function verifyCreditsThisMonth(force) {
   if (force || Date.now() - _verifyCache.at >= BUDGET_TTL_MS) {
     try {
+      const w = await HPer.forCount();
       const r = await store.pool.query(
         `SELECT COUNT(*)::int AS n FROM email_verify_credit_log
-          WHERE checked_at >= date_trunc('month', NOW())`);
+          WHERE checked_at >= $1`, [w.start]);
       _verifyCache = { at: Date.now(), used: r.rows[0].n };
     } catch (e) {
       console.error('[hunter] verification credit read failed: ' + e.message);
@@ -226,11 +232,16 @@ async function reserveCredit(force) {
 
 // used / budget / remaining are SEARCHES. verifyUsed / verifyBudget /
 // verifyRemaining are the verification pool.
+// periodStart / resetDate / periodFrom say which window the counts cover:
+// Hunter's billing period ('hunter'), or the calendar month when the account
+// could not be read ('calendar'). periodLine says it in words.
 async function budgetStatus() {
   const a = await accountUsedThisMonth(true);
+  const w = HPer.current();
   return { used: a.ladder, ladderUsed: a.ladder, verifyUsed: a.verify,
     budget: MONTHLY_BUDGET, remaining: Math.max(0, MONTHLY_BUDGET - a.ladder),
-    verifyBudget: VERIFY_MONTHLY_BUDGET, verifyRemaining: Math.max(0, VERIFY_MONTHLY_BUDGET - a.verify) };
+    verifyBudget: VERIFY_MONTHLY_BUDGET, verifyRemaining: Math.max(0, VERIFY_MONTHLY_BUDGET - a.verify),
+    periodStart: _since(w), resetDate: w.resetDate, periodFrom: w.from, periodLine: HPer.describe(w) };
 }
 
 // Outcomes written to brand_evidence_cache.outcome. OK and NONE are answers;
@@ -451,7 +462,7 @@ async function findDomainEmails(domain, opts = {}) {
   const acct = await reserveCredit();
   if (!acct.ok) {
     console.warn(acct.pace ? `[hunter] @${key} SKIPPED: ${acct.pace}`
-      : `[hunter] @${key} SKIPPED: monthly budget spent (${acct.used}/${MONTHLY_BUDGET}`
+      : `[hunter] @${key} SKIPPED: search budget spent (${acct.used}/${MONTHLY_BUDGET} since ${_since(HPer.current())}`
       + ` — ${acct.ladder} domain searches, ${acct.verify} verifications)`);
     return null;
   }
@@ -547,9 +558,9 @@ async function verifyEmail(email, opts = {}) {
 
   const b = await budgetStatus().catch(() => null);
   if (b && b.verifyRemaining <= 0) {
-    console.warn(`[hunter-verify] refused: monthly verification budget spent (${b.verifyUsed}/${b.verifyBudget})`);
-    require('./ourFault').record('hunter', `verification budget spent (${b.verifyUsed}/${b.verifyBudget})`, '@' + addr.split('@')[1]);
-    return { ok: false, why: `this month's Hunter verification budget is spent (${b.verifyUsed}/${b.verifyBudget})`, budget: true };
+    console.warn(`[hunter-verify] refused: verification budget spent (${b.verifyUsed}/${b.verifyBudget} since ${b.periodStart})`);
+    require('./ourFault').record('hunter', `verification budget spent (${b.verifyUsed}/${b.verifyBudget} since ${b.periodStart})`, '@' + addr.split('@')[1]);
+    return { ok: false, why: `this billing period's Hunter verification budget is spent (${b.verifyUsed}/${b.verifyBudget} since ${b.periodStart})`, budget: true };
   }
   // Tonight's allowance (HUNTER_PACE_ON), checked and counted in one step.
   const pace = HP.take('verify');
@@ -634,9 +645,10 @@ async function _findEmail(first, last, dom, key, opts) {
   if (!acct.ok) {
     // Tonight's allowance is a plan, not a fault: no fault row for it.
     if (acct.pace) { console.warn(`[hunter-finder] ${key} SKIPPED: ${acct.pace}`); return { email: null, budget: true, pace: true, why: acct.pace }; }
-    console.warn(`[hunter-finder] ${key} SKIPPED: monthly search budget spent (${acct.used}/${MONTHLY_BUDGET})`);
-    require('./ourFault').record('hunter', `search budget spent (${acct.used}/${MONTHLY_BUDGET})`, '@' + dom);
-    return { email: null, budget: true, why: `this month's Hunter search budget is spent (${acct.used}/${MONTHLY_BUDGET})` };
+    const since = _since(HPer.current());
+    console.warn(`[hunter-finder] ${key} SKIPPED: search budget spent (${acct.used}/${MONTHLY_BUDGET} since ${since})`);
+    require('./ourFault').record('hunter', `search budget spent (${acct.used}/${MONTHLY_BUDGET} since ${since})`, '@' + dom);
+    return { email: null, budget: true, why: `this billing period's Hunter search budget is spent (${acct.used}/${MONTHLY_BUDGET} since ${since})` };
   }
   const params = new URLSearchParams({ domain: dom, first_name: first, last_name: last, api_key: apiKey });
   let resp;

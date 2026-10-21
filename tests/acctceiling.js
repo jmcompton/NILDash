@@ -57,7 +57,7 @@ const out=[]; const check=(n,c,d)=>{out.push({n,ok:!!c});console.log((c?'  PASS 
   a = await VB.accountStatus(P);
   check('the warning fires at 75%', a.low === true, 'usedPct='+a.usedPct);
   check('it is not yet exhausted', a.exhausted === false, 'remaining='+a.remaining);
-  check('and it says what to do about it in words', /runs out before the month/.test(a.line), a.line);
+  check('and it says what to do about it in words', /runs out before the plan resets on \d{4}-\d\d-\d\d/.test(a.line), a.line);
 
   console.log('\n4. Share spent');
   await fill(VB.VERIFY_MONTHLY_CAP);
@@ -82,7 +82,7 @@ const out=[]; const check=(n,c,d)=>{out.push({n,ok:!!c});console.log((c?'  PASS 
   const rep = { run:{ran:true}, sentence:'x', needsYou:{items:[],overflow:0},
     moving:null, closer:null, roles:[], verifyBudget:a };
   const mail = SE.renderShiftEmail(rep, { agentName:'Jordan' });
-  check('the HTML carries the line', mail.html.includes('checks this month') || /verification/i.test(mail.html));
+  check('the HTML carries the line', mail.html.includes('checks this billing period') || /verification/i.test(mail.html));
   check('the plain text carries it too', /verification/i.test(mail.text), mail.text.split('\n').filter(l=>/verification/i.test(l))[0]);
   const quiet = SE.renderShiftEmail({ ...rep, verifyBudget:null }, {});
   check('and a healthy month adds nothing', !/verification/i.test(quiet.html+quiet.text));
