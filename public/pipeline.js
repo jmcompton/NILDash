@@ -12,7 +12,28 @@
   };
   var draggedDeal = null;
 
+  // ── THE DEAL'S STAGE AND NEXT STEP (CRM_ON, services/crm) ─────────────────
+  // Drawn only when the server sent the words (window._crmVocab).
+  function _e(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function crmLine(d) {
+    var v = window._crmVocab;
+    if (!v || !d || !d.crm || d.manualEntry) return '';
+    var c = d.crm;
+    var opts = '<option value="">None</option>' + (v.next || []).map(function (x) {
+      return '<option value="' + _e(x.key) + '"' + (x.key === c.nextStep ? ' selected' : '') + '>' + _e(x.label) + '</option>';
+    }).join('');
+    return '<div style="font-size:10px;color:var(--muted);margin-bottom:6px">'
+      + (c.stageLabel ? '<div>Stage: <span style="color:var(--text)">' + _e(c.stageLabel) + '</span></div>' : '')
+      + (c.declineLabel ? '<div>Declined: ' + _e(c.declineLabel) + '</div>' : '')
+      + '<label>Next step: <select onchange="NILPipeline.setNext(' + Number(c.dealId) + ', this)" style="font-size:10px;padding:2px 4px;border-radius:4px;background:var(--surface);border:1px solid var(--border);color:var(--text)">' + opts + '</select></label>'
+      + '</div>';
+  }
+
   window.NILPipeline = {
+    setNext: function (dealId, sel) {
+      if (typeof crmSetNext !== 'function') return;
+      crmSetNext({ dealId: dealId }, sel.value, function () { if (typeof loadPipeline === 'function') loadPipeline(); });
+    },
     render: function(allDeals, board) {
       if (!board) return;
       board.style.cssText = 'display:grid;grid-template-columns:repeat(6,1fr);gap:12px;align-items:stretch';
@@ -51,6 +72,7 @@
             '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">' + (d.athleteName||'') + '</div>' +
             '<div style="font-size:10px;color:var(--muted);margin-bottom:4px;opacity:0.6">Updated: ' + (d.updatedAt ? new Date(d.updatedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : d.createdAt ? new Date(d.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—") + '</div>' +
             (d.notes ? '<div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-style:italic;opacity:0.7">' + (d.notes.length > 50 ? d.notes.substring(0,50)+'…' : d.notes) + '</div>' : '') +
+            crmLine(d) +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
               '<div style="font-size:18px;font-weight:700;color:var(--accent);letter-spacing:-0.02em">$' + (d.value||0).toLocaleString() + '</div>' +
               '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:' + color + '20;color:' + color + ';font-weight:700">' + stage.split(' ')[0] + '</span>' +
@@ -69,7 +91,7 @@
               // only dragged. A card already in Closed does not offer it again.
               (stage !== 'Closed' && typeof dealSignedOpen === 'function' ?
                 '<button onclick="dealSignedOpen(\'' + String(d.athleteId || '').replace(/'/g, "\\'") + '\',\'' + String(d.brand || '').replace(/'/g, "\\'") + '\')" ' +
-                'style="font-size:10px;padding:2px 8px;border-radius:999px;background:transparent;color:var(--muted);border:1px solid var(--border);cursor:pointer">Deal signed</button>' : '') +
+                'style="font-size:10px;padding:2px 8px;border-radius:6px;background:transparent;color:var(--muted);border:1px dashed var(--border);cursor:pointer">Mark deal signed</button>' : '') +
               '<button onclick="NILPipeline.deleteCard(\'' + d.id + '\',\'' + d.athleteId + '\')" ' +
               'style="font-size:11px;color:#ef4444;background:transparent;border:none;cursor:pointer;padding:0">✕</button>' +
             '</div>' +

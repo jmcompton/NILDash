@@ -1617,7 +1617,7 @@ async function sendOutreach(outreachId) {
 function bouncedButton(outreachId) {
   const b = document.createElement('button');
   b.type = 'button';
-  b.textContent = 'This bounced';
+  b.textContent = 'Got a bounce email';
   b.title = 'The email came back undelivered. Stops every follow-up to this address.';
   b.style.cssText = 'margin-left:10px;padding:3px 10px;font-size:11px;background:transparent;border:1px solid #f87171;border-radius:6px;color:#f87171;cursor:pointer';
   b.onclick = async function () {
