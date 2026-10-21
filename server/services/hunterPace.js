@@ -113,13 +113,14 @@ async function readAccount(fetchImpl) {
 }
 
 // When the account endpoint does not answer: our own counts against the
-// monthly ceilings, resetting on the 1st. Said so wherever it is shown.
+// ceilings, over the same window the counters use (services/hunterPeriod):
+// Hunter's billing period from the last answer that still covers today, else
+// the calendar month. Said so wherever it is shown.
 async function estimateAccount(now) {
   const H = require('./hunterLookup');
   const b = await H.budgetStatus().catch(() => null);
   if (!b) return null;
-  const d = new Date(now == null ? Date.now() : now);
-  const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+  const next = require('./hunterPeriod').current({ now }).resetDate;
   return { ok: true, estimated: true, plan: null, resetDate: next,
     searches: { used: b.used, available: b.budget, left: b.remaining },
     verifications: { used: b.verifyUsed, available: b.verifyBudget, left: b.verifyRemaining } };
@@ -164,8 +165,7 @@ function projection(account, now) {
   const t = now == null ? Date.now() : new Date(now).getTime();
   if (!account || !account.resetDate) return [];
   const reset = Date.parse(account.resetDate + 'T00:00:00Z');
-  const r = new Date(reset);
-  const start = Date.UTC(r.getUTCFullYear(), r.getUTCMonth() - 1, r.getUTCDate());
+  const start = require('./hunterPeriod').monthBefore(account.resetDate).getTime();
   const elapsed = Math.max(1, (t - start) / DAY);
   const daysLeft = Math.max(0, (reset - t) / DAY);
   return poolsOf(account).map((p) => {
@@ -218,6 +218,7 @@ async function beginNight(pool, opts = {}) {
     return _night;
   }
   let account = await readAccount(opts.fetchImpl);
+  require('./hunterPeriod').noteAccount(account, opts.now);
   let readError = null;
   if (!account.ok) {
     readError = account.error;
@@ -226,6 +227,10 @@ async function beginNight(pool, opts = {}) {
   }
   const plan = account.ok ? planFor(account, { runDate }) : { runDate, resetDate: null, nights: null, pools: [], unknown: true };
   if (readError) plan.readError = readError;
+  // OUR OWN COUNT, over the same window (services/hunterPeriod), for the 5:30
+  // line: a counter that disagrees with Hunter shows up there, not in a log.
+  const ours = await require('./hunterLookup').budgetStatus().catch(() => null);
+  if (ours) plan.ourCount = { since: ours.periodStart, from: ours.periodFrom, searches: ours.used, searchBudget: ours.budget, verifications: ours.verifyUsed, verifyBudget: ours.verifyBudget };
   const started = new Date(opts.now == null ? Date.now() : opts.now);
   await pool.query(
     `INSERT INTO hunter_nights (run_date, started_at, account, plan, spent) VALUES ($1,$2,$3::jsonb,$4::jsonb,'{}'::jsonb)
@@ -250,6 +255,7 @@ async function endNight(pool, opts = {}) {
   // What the night spent may have put the period on track to run out.
   if (_refs === 0 && opts.check !== false) {
     const account = await readAccount(opts.fetchImpl);
+    require('./hunterPeriod').noteAccount(account, opts.now);
     if (account.ok) await alertIfRunningOut(pool, account, { now: opts.now, send: opts.send }).catch((e) => console.error('[hunter-pace] alert: ' + e.message));
   }
   return n;
@@ -373,6 +379,7 @@ async function alertIfRunningOut(pool, account, opts = {}) {
 async function tick(pool, opts = {}) {
   if (!ON()) return { skipped: 'HUNTER_PACE_ON is not set' };
   const account = await readAccount(opts.fetchImpl);
+  require('./hunterPeriod').noteAccount(account, opts.now);
   if (!account.ok) return { error: account.error };
   return { alerted: await alertIfRunningOut(pool, account, opts) };
 }
@@ -403,6 +410,11 @@ function renderMorning(row, runDate) {
     L.push(`Hunter: ${p.leftNow} ${p.unit} left, resets ${plan.resetDate || '?'}, tonight's allowance ${p.allowance}`
       + ` (used ${fmt(p.used)} tonight; ${p.reserve} held in reserve; ${plan.nights} night${plan.nights === 1 ? '' : 's'} to the reset)`
       + (plan.estimated ? ' [estimated from our own count: the account endpoint did not answer]' : ''));
+  }
+  const oc = plan.ourCount;
+  if (oc) {
+    L.push(`Our own count since ${oc.since}${oc.from === 'calendar' ? ' (the calendar month: the account could not be read)' : ''}: `
+      + `${oc.searches} of ${oc.searchBudget} searches, ${oc.verifications} of ${oc.verifyBudget} verifications.`);
   }
   const low = pools.filter((p) => p.leftNow < WARN_BELOW());
   for (const p of low) {

@@ -151,10 +151,15 @@ async function accountStatus(pool) {
   let verifyUsed = 0;
   let ladderUsed = 0;
   let fault = null;
+  let period = null;
   try {
+    // Hunter's billing period, the window every Hunter count uses
+    // (services/hunterPeriod), not the calendar month.
+    const w = await require('./hunterPeriod').forCount();
+    period = w;
     const r = await pool.query(
       `SELECT COUNT(*)::int AS n FROM email_verify_credit_log
-        WHERE checked_at >= date_trunc('month', NOW())`);
+        WHERE checked_at >= $1`, [w.start]);
     verifyUsed = (r.rows[0] && r.rows[0].n) || 0;
   } catch (e) {
     fault = e.message;
@@ -180,7 +185,7 @@ async function accountStatus(pool) {
       // and unmetered verification is the other bug in this incident. `unknown`
       // is what tells every reader WHY it stopped.
       remaining: 0, usedPct: null,
-      unknown: true, exhausted: false, low: false, fault,
+      unknown: true, exhausted: false, low: false, fault, periodStart: null,
       line: 'Address verification is switched off because its credit log could not be '
         + 'read (' + fault + '). Nothing has been spent and no month has run out — '
         + 'this is a fault to fix, not a bill. Cards still appear, marked unverified.',
@@ -193,20 +198,22 @@ async function accountStatus(pool) {
   const remaining = Math.max(0, VERIFY_MONTHLY_CAP - verifyUsed);
   const usedPct = VERIFY_MONTHLY_CAP > 0 ? verifyUsed / VERIFY_MONTHLY_CAP : 1;
 
+  const resets = period ? period.resetDate : null;
   return {
     verifyUsed, ladderUsed, accountUsed, accountMonthly: ACCOUNT_MONTHLY,
     verifyCap: VERIFY_MONTHLY_CAP, ladderReserve: reserve,
     remaining, usedPct: Math.round(usedPct * 1000) / 10,
     unknown: false, fault: null,
+    periodStart: period ? period.start.toISOString().slice(0, 10) : null, resetDate: resets, periodFrom: period ? period.from : null,
     low: remaining <= 0 || usedPct >= WARN_AT_PCT,
     exhausted: remaining <= 0,
     // Said in words once, here, so every surface that reports this says the same
     // thing rather than inventing its own phrasing.
     line: remaining <= 0
-      ? `Address verification is paused for the rest of the month — ${verifyUsed} of `
+      ? `Address verification is paused until the plan resets${resets ? ' on ' + resets : ''}: ${verifyUsed} of `
         + `${VERIFY_MONTHLY_CAP} checks used. Cards still appear; they are marked unverified.`
       : `Address verification has used ${verifyUsed} of ${VERIFY_MONTHLY_CAP} checks this `
-        + `month (${Math.round(usedPct * 100)}%). At this rate it runs out before the month does.`,
+        + `billing period (${Math.round(usedPct * 100)}%). At this rate it runs out before the plan resets${resets ? ' on ' + resets : ''}.`,
   };
 }
 
@@ -276,7 +283,7 @@ function limiter(pool, opts = {}) {
       const who = (emailToAthlete && emailToAthlete.get(addr)) || athleteId || null;
       if (accountLeft <= 0) {
         skipped++;
-        return { ok: false, why: "this month's verification share is spent" };
+        return { ok: false, why: "this billing period's verification share is spent" };
       }
       const mine = who && per.has(who) ? per.get(who) : (who ? 0 : accountLeft);
       if (who && mine <= 0) {

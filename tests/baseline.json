@@ -667,6 +667,11 @@
       "total": 73,
       "fault": null
     },
+    "hunterperiod.js": {
+      "failed": 0,
+      "total": 38,
+      "fault": null
+    },
     "ident.js": {
       "failed": 0,
       "total": 12,
