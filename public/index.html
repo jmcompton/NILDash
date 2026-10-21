@@ -3688,6 +3688,34 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <option value="in portal - seeking lower competition">In Portal — Seeking lower competition</option>
             </select>
           </div>
+          <!-- ── THE PROFILE FOR PITCHES (ATHLETE_PROFILE_ON) ──────────────────
+               What makes this athlete worth a business's money, in the agent's
+               words. Niche, causes and marketable points give the pitch writer
+               its "why this brand fits" line; the rate card never reaches a
+               pitch. Shown only when the switch is on. -->
+          <div id="a_profile" style="display:none;border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">Profile for pitches</div>
+            <div class="form-group-sm"><label class="form-label-sm">Content niche <span style="font-weight:400;color:var(--muted)">(up to 3)</span></label>
+              <div id="a_niche" style="display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px"></div>
+              <div id="a_niche_msg" style="font-size:11px;color:var(--muted);margin-top:4px"></div></div>
+            <div class="form-group-sm"><label class="form-label-sm">Causes and ambassador roles</label>
+              <textarea class="input-sm" id="a_causes" maxlength="400" placeholder="e.g. Special Olympics volunteer, ambassador for the campus food bank" style="min-height:52px;resize:vertical;font-family:inherit"></textarea></div>
+            <div class="form-group-sm"><label class="form-label-sm">Current partnerships</label>
+              <div id="a_partners"></div>
+              <button type="button" class="run-btn" onclick="apfAddPartner()" style="padding:6px 12px;font-size:11px;margin-top:6px">Add a partnership</button>
+              <div id="a_partners_nil" style="font-size:11px;color:var(--muted);margin-top:6px"></div></div>
+            <div class="form-group-sm"><label class="form-label-sm">Media exposure</label>
+              <select class="select-sm" id="a_media"><option value="">None yet</option><option value="national_tv">National TV</option><option value="regional_tv">Regional TV</option><option value="streamed">Streamed only</option></select>
+              <textarea class="input-sm" id="a_media_links" placeholder="Links to recent articles, one per line" style="min-height:52px;resize:vertical;font-family:inherit;margin-top:6px"></textarea></div>
+            <div class="form-group-sm"><label class="form-label-sm">What makes them marketable</label>
+              <input class="input-sm" id="a_mk1" maxlength="120" placeholder="e.g. Team captain, two seasons" style="margin-bottom:6px">
+              <input class="input-sm" id="a_mk2" maxlength="120" placeholder="e.g. Known on campus for game-day cooking videos" style="margin-bottom:6px">
+              <input class="input-sm" id="a_mk3" maxlength="120" placeholder="e.g. Grew up ten minutes from campus"></div>
+            <div class="form-group-sm"><label class="form-label-sm">Rate card</label>
+              <div id="a_rates"></div>
+              <button type="button" class="run-btn" onclick="apfUseSuggested()" style="padding:6px 12px;font-size:11px;margin-top:6px">Use the suggested prices</button>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Your prices, for you and your media kit. They never go into a pitch.</div></div>
+          </div>
           <button class="run-btn" style="width:100%;margin-top:8px" id="saveAthleteBtn" onclick="addAthlete()">Save Client →</button>
           <div id="addAthleteError" style="color:var(--red);font-size:12px;margin-top:8px;text-align:center"></div>
         </div>
@@ -6739,6 +6767,114 @@ let _editingAthleteId = null;
 //
 // The only reset that existed ran AFTER a successful create, which is the one
 // moment the form is already being left.
+// ══ THE PROFILE FOR PITCHES (ATHLETE_PROFILE_ON, services/athleteProfile) ══
+var APF_NICHES = ['health and wellness', 'fitness', 'food', 'fashion', 'faith', 'family', 'gaming', 'music', 'outdoors', 'pets', 'business', 'other'];
+var APF_RATES = [['post', 'Instagram post'], ['reel', 'Reel'], ['story', 'Story'], ['appearance', 'Appearance']];
+var APF_SUGGESTED = null;
+function apfOn() { return !!(typeof currentUser !== 'undefined' && currentUser && currentUser.athleteProfileOn); }
+function apfEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function apfPartnerRow(p) {
+  p = p || {};
+  return '<div class="apf-partner" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">'
+    + '<input class="input-sm apf-p-brand" maxlength="80" placeholder="Brand" value="' + apfEsc(p.brand) + '" style="flex:1;min-width:110px">'
+    + '<input class="input-sm apf-p-what" maxlength="160" placeholder="What they do" value="' + apfEsc(p.what) + '" style="flex:2;min-width:140px">'
+    + '<input class="input-sm apf-p-start" type="date" aria-label="Start date" value="' + apfEsc(p.start) + '" style="width:150px">'
+    + '<button type="button" onclick="this.parentNode.remove()" aria-label="Remove" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;padding:0 10px">Remove</button></div>';
+}
+function apfAddPartner() { var w = document.getElementById('a_partners'); if (w) w.insertAdjacentHTML('beforeend', apfPartnerRow({})); }
+function apfRateRows(card) {
+  card = card || {};
+  return APF_RATES.map(function (r) {
+    var s = APF_SUGGESTED && APF_SUGGESTED[r[0]];
+    return '<div style="display:grid;grid-template-columns:110px 110px 1fr;gap:8px;align-items:start;margin-bottom:8px;font-size:12px">'
+      + '<label for="a_rate_' + r[0] + '" style="padding-top:8px">' + r[1] + '</label>'
+      + '<input class="input-sm" id="a_rate_' + r[0] + '" inputmode="numeric" placeholder="' + (s && s.amount ? s.amount : '$') + '" value="' + (card[r[0]] ? apfEsc(card[r[0]]) : '') + '">'
+      + '<div id="a_rate_how_' + r[0] + '" style="color:var(--muted);font-size:11px;line-height:1.4;padding-top:4px">'
+      + (s ? (s.amount ? 'Suggested $' + s.amount + '. ' : '') + apfEsc(s.how) : 'Suggested prices appear once followers are on file.') + '</div></div>';
+  }).join('');
+}
+function apfFill(a) {
+  var box = document.getElementById('a_profile');
+  if (!box) return;
+  box.style.display = apfOn() ? '' : 'none';
+  if (!apfOn()) return;
+  a = a || {};
+  var picked = Array.isArray(a.contentNiche) ? a.contentNiche : [];
+  document.getElementById('a_niche').innerHTML = APF_NICHES.map(function (n) {
+    return '<label style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" name="a_niche" value="' + apfEsc(n) + '"' + (picked.indexOf(n) > -1 ? ' checked' : '') + ' onchange="apfNicheLimit(this)">' + apfEsc(n) + '</label>';
+  }).join('');
+  document.getElementById('a_niche_msg').textContent = '';
+  document.getElementById('a_causes').value = a.causes || '';
+  document.getElementById('a_partners').innerHTML = (Array.isArray(a.partnerships) ? a.partnerships : []).map(apfPartnerRow).join('');
+  document.getElementById('a_partners_nil').textContent = '';
+  var m = a.mediaExposure || {};
+  document.getElementById('a_media').value = m.level || '';
+  document.getElementById('a_media_links').value = (Array.isArray(m.links) ? m.links : []).join('\n');
+  var mk = Array.isArray(a.marketable) ? a.marketable : [];
+  ['a_mk1', 'a_mk2', 'a_mk3'].forEach(function (id, i) { document.getElementById(id).value = mk[i] || ''; });
+  APF_SUGGESTED = null;
+  document.getElementById('a_rates').innerHTML = apfRateRows(a.rateCard);
+  apfLoadExtras(a.id || null, a.rateCard || {});
+}
+function apfNicheLimit(el) {
+  var on = document.querySelectorAll('input[name="a_niche"]:checked');
+  var msg = document.getElementById('a_niche_msg');
+  if (on.length > 3) { el.checked = false; if (msg) msg.textContent = 'Pick up to 3.'; }
+  else if (msg) msg.textContent = '';
+}
+// The suggested rate card (and, for a saved athlete, the partnerships NILDash
+// deals add on their own). A new athlete is priced from what the form holds.
+async function apfLoadExtras(id, card) {
+  try {
+    var d;
+    if (id) {
+      var r = await fetch(API_BASE + '/api/athletes/' + encodeURIComponent(id) + '/profile-extras', { credentials: 'include' });
+      d = r.ok ? await r.json() : null;
+    } else {
+      var val = function (x) { var e = document.getElementById(x); return e ? e.value : ''; };
+      var r2 = await fetch(API_BASE + '/api/athlete-profile/suggest-rates', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instagram: val('a_ig'), tiktok: val('a_tt'), engagement: val('a_eng'), sport: val('a_sport'), schoolTier: val('a_tier'), position: val('a_pos'), school: val('a_school') }) });
+      d = r2.ok ? await r2.json() : null;
+    }
+    if (!d) return;
+    APF_SUGGESTED = d.rates || null;
+    var current = apfRates();
+    document.getElementById('a_rates').innerHTML = apfRateRows(Object.assign({}, card || {}, current));
+    var nil = (d.partnerships || []).filter(function (p) { return p.source === 'nildash'; });
+    document.getElementById('a_partners_nil').innerHTML = nil.length
+      ? 'From NILDash deals: ' + nil.map(function (p) { return '<b>' + apfEsc(p.brand) + '</b>' + (p.what ? ', ' + apfEsc(p.what) : '') + (p.start ? ', since ' + apfEsc(p.start) : ''); }).join('; ')
+      : '';
+  } catch (e) { /* the form still saves without suggestions */ }
+}
+async function apfUseSuggested() {
+  // Priced from what is on the form now, for a client not saved yet.
+  if (!_editingAthleteId) await apfLoadExtras(null, apfRates());
+  if (!APF_SUGGESTED) { showToast('No suggested prices yet: add followers first.'); return; }
+  APF_RATES.forEach(function (r) { var s = APF_SUGGESTED[r[0]], el = document.getElementById('a_rate_' + r[0]); if (el && s && s.amount) el.value = s.amount; });
+}
+function apfRates() {
+  var out = {};
+  APF_RATES.forEach(function (r) { var el = document.getElementById('a_rate_' + r[0]); if (el && el.value.trim()) out[r[0]] = el.value.trim(); });
+  return out;
+}
+// What the form sends. Nothing at all when the switch is off.
+function apfCollect() {
+  if (!apfOn() || !document.getElementById('a_profile')) return {};
+  var partners = Array.prototype.map.call(document.querySelectorAll('#a_partners .apf-partner'), function (row) {
+    return { brand: row.querySelector('.apf-p-brand').value.trim(), what: row.querySelector('.apf-p-what').value.trim(), start: row.querySelector('.apf-p-start').value || null };
+  }).filter(function (p) { return p.brand; });
+  var rates = {};
+  APF_RATES.forEach(function (r) { var el = document.getElementById('a_rate_' + r[0]); rates[r[0]] = el && el.value.trim() ? el.value.trim() : null; });
+  return {
+    contentNiche: Array.prototype.map.call(document.querySelectorAll('input[name="a_niche"]:checked'), function (x) { return x.value; }).slice(0, 3),
+    causes: document.getElementById('a_causes').value.trim(),
+    partnerships: partners,
+    mediaExposure: { level: document.getElementById('a_media').value || null, links: document.getElementById('a_media_links').value.split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean) },
+    marketable: ['a_mk1', 'a_mk2', 'a_mk3'].map(function (id) { return document.getElementById(id).value.trim(); }).filter(Boolean),
+    rateCard: rates,
+  };
+}
+
 function resetAthleteForm() {
   _editingAthleteId = null;
   _statFetchedSource = null;
@@ -6755,6 +6891,7 @@ function resetAthleteForm() {
   const o18 = document.getElementById('a_over18');
   if (o18) { o18.checked = false; delete o18.dataset.touched; }
   if (typeof renderTagPicker === 'function') renderTagPicker('a_tags', []);
+  apfFill({});
   // The per-field provenance labels describe numbers that are now gone. Leaving
   // them would caption an empty box with where the LAST athlete's figure came from.
   ['a-ig-src', 'a-eng-src', 'a-fetch-status'].forEach((id) => {
@@ -6900,6 +7037,7 @@ async function editAthlete(id) {
   if (statsEl) statsEl.value = a.stats || '';
   const trEl = document.getElementById('a_transfer_reason');
   if (trEl && a.transferReason) trEl.value = a.transferReason;
+  apfFill(a);
   // Change save button to update mode
   const btn = document.getElementById('saveAthleteBtn');
   if (btn) { btn.textContent = 'Update Client →'; btn.setAttribute('onclick', `updateAthlete('${id}')`); }
@@ -7057,6 +7195,8 @@ async function updateAthlete(id) {
     productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
     instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
     igStatsSource: _statFetchedSource || 'manual',
+    // The profile for pitches (ATHLETE_PROFILE_ON); nothing when off.
+    ...apfCollect(),
   };
   // ── A FAILED SAVE MUST SAY SO ─────────────────────────────────────────────
   // This read the body, swapped it into the roster and toasted "updated!"
@@ -7379,6 +7519,8 @@ async function addAthlete() {
         productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
         instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
         igStatsSource: _statFetchedSource || 'manual',
+        // The profile for pitches (ATHLETE_PROFILE_ON); nothing when off.
+        ...apfCollect(),
       }),
     });
     const data = await r.json();

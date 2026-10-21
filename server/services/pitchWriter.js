@@ -1199,6 +1199,15 @@ function describeAthlete(a) {
   return L.join('\n');
 }
 
+// WHY THIS BRAND FITS (services/athleteProfile, ATHLETE_PROFILE_ON): one line
+// from the agent's profile of the athlete, their content niche matched to this
+// business, their causes and what makes them marketable. Empty when off or
+// when the agent has filled in none of it, so the prompt is unchanged.
+function _whyFits(ctx) {
+  const line = require('./athleteProfile').fitLine((ctx && ctx.athlete) || {}, (ctx && ctx.business) || {});
+  return line ? '\n' + line : '';
+}
+
 // The college prompt is a HEAD (who the athlete is, the shape of the message)
 // plus SHARED_RULES (everything that is true of any message that leaves under
 // the agent's name). The pro prompt below swaps the head and keeps the rules,
@@ -1382,7 +1391,7 @@ function buildPrompt(ctx) {
 ${describeBusiness(ctx.business || {})}
 
 THE ATHLETE
-${describeAthlete(ctx.athlete || {})}
+${describeAthlete(ctx.athlete || {})}${_whyFits(ctx)}
 
 WHAT THIS CATEGORY TYPICALLY WANTS
 ${play.wants}. A fitting ask looks like: ${play.ask}.
