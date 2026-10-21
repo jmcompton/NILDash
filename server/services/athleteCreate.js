@@ -305,6 +305,9 @@ async function createAthlete(user, body, opts) {
     // number on a media kit can be traced to a page.
     lookupSources: lookupSrc || null,
     lookupAt: lookupSrc ? new Date().toISOString() : null,
+    // The profile for pitches (services/athleteProfile, ATHLETE_PROFILE_ON):
+    // checked, and only what the form sent. Nothing when the switch is off.
+    ...require('./athleteProfile').fromBody(b),
     createdAt: new Date().toISOString(),
   });
   store.markChecklistItem(user.id, 'add_athlete').catch(() => {}); // Getting Started checklist

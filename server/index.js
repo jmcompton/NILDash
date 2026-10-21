@@ -1140,6 +1140,8 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     // the onboarding assistant instead of an empty dashboard (assistant.js).
     athleteCount: await store.pool.query('SELECT COUNT(*)::int AS n FROM athletes WHERE agent_id=$1', [user.id])
       .then((r) => (r.rows[0] && r.rows[0].n) || 0).catch(() => 0),
+    // The athlete profile for pitches (services/athleteProfile), on or off.
+    athleteProfileOn: require('./services/athleteProfile').ON(),
   });
 
 // ── Admin seed + university link endpoint ─────────────────────────
@@ -1427,8 +1429,51 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   }
   if ('city' in patch) patch.city = String(patch.city || '').trim().slice(0, 120);
   if ('team' in patch) patch.team = String(patch.team || '').trim().slice(0, 120);
+  // THE PROFILE FOR PITCHES (services/athleteProfile, ATHLETE_PROFILE_ON):
+  // checked like everything else here. Off, those keys are not written.
+  {
+    const AP = require('./services/athleteProfile');
+    const sent = AP.KEYS.filter((k) => k in patch);
+    if (sent.length) {
+      if (!AP.ON()) { for (const k of sent) delete patch[k]; }
+      else {
+        const c = AP.clean(patch);
+        if (!c.ok) return res.status(400).json({ error: c.errors.join(' ') });
+        Object.assign(patch, c.profile);
+      }
+    }
+  }
   const updated = await store.saveAthlete(req.params.id, { ...existing, ...patch });
   res.json(updated);
+});
+
+// ── THE PROFILE FOR PITCHES (services/athleteProfile, ATHLETE_PROFILE_ON) ───
+// GET  /api/athletes/:id/profile-extras   the suggested rate card and how it was
+//                                         worked out, and the partnerships NILDash
+//                                         deals add on their own
+// POST /api/athlete-profile/suggest-rates the same rates for a form not saved yet
+app.get('/api/athletes/:id/profile-extras', requireAuth, async (req, res) => {
+  const AP = require('./services/athleteProfile');
+  if (!AP.ON()) return res.status(404).json({ error: 'not enabled' });
+  try {
+    const a = await store.getAthlete(req.params.id);
+    if (!a) return res.status(404).json({ error: 'Not found' });
+    if (a.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    res.json({ rates: AP.suggestRates(a), partnerships: await AP.partnershipsFor(store.pool, req.params.id, a.partnerships || []),
+      niches: AP.NICHES, media: AP.MEDIA.map(([key, label]) => ({ key, label })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/athlete-profile/suggest-rates', requireAuth, async (req, res) => {
+  const AP = require('./services/athleteProfile');
+  if (!AP.ON()) return res.status(404).json({ error: 'not enabled' });
+  try {
+    const b = req.body || {};
+    const a = { instagram: parseInt(b.instagram, 10) || 0, tiktok: parseInt(b.tiktok, 10) || 0,
+      engagement: b.engagement === '' || b.engagement == null ? null : Number(b.engagement),
+      sport: String(b.sport || '').slice(0, 60), schoolTier: String(b.schoolTier || '').slice(0, 40),
+      position: String(b.position || '').slice(0, 60), school: String(b.school || '').slice(0, 120) };
+    res.json({ rates: AP.suggestRates(a) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/athletes/:id', requireAuth, async (req, res) => {

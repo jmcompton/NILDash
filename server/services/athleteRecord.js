@@ -153,6 +153,12 @@ function resolveAthlete(row, opts = {}) {
     tags: Array.isArray(d.tags) ? d.tags.filter((x) => typeof x === 'string' && x.trim()) : [],
     productWants: _str(d.productWants),
     notes: _str(d.notes),
+    // THE AGENT'S PROFILE FOR PITCHES (services/athleteProfile): the content
+    // niche, causes and what makes them marketable feed the writer's one line,
+    // "why this brand fits". Not counted as missing: none of it is required.
+    contentNiche: Array.isArray(d.contentNiche) ? d.contentNiche.filter((x) => typeof x === 'string' && x.trim()).slice(0, 3) : [],
+    causes: _str(d.causes),
+    marketable: Array.isArray(d.marketable) ? d.marketable.filter((x) => typeof x === 'string' && x.trim()).slice(0, 3) : [],
   };
   rec.reach = (rec.instagram || 0) + (rec.tiktok || 0) || null;
   // The fields that do not apply to this athlete's type are absent by
@@ -160,6 +166,7 @@ function resolveAthlete(row, opts = {}) {
   const notApplicable = isPro ? new Set(['school', 'year', 'schoolMatched']) : new Set(['city', 'team']);
   rec.missing = Object.keys(rec).filter((k) =>
     k !== 'missing' && k !== 'tags' && k !== 'marketSource' && !notApplicable.has(k)
+      && k !== 'contentNiche' && k !== 'causes' && k !== 'marketable'
       && (rec[k] === null || rec[k] === undefined));
   // Does the local lane have a market to work in at all?
   rec.hasLocalMarket = !!rec.schoolCity;
