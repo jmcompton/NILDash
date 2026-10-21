@@ -238,7 +238,7 @@ const off = () => { delete process.env.CRM_ON; };
   ok('  Declined asks why before it saves', /crmWhyOpen\('declined', 'Why did they decline\?'/.test(html) && /'\/api\/agent\/crm\/declined', \{ logId: id, reason: w\.reason, note: w\.note \}/.test(html));
   ok('Home: the to-do list above the news, and the sent row\'s three controls', /news\.innerHTML = hqFaultsHtml\(d\) \+ hqTodoHtml\(d\) \+ hqNewsHtml\(d\);/.test(html)
     && /<span>What happened<\/span>/.test(html) && /<span>Stage<\/span>/.test(html) && /<span>Next step<\/span>/.test(html));
-  ok('  a decline from Home asks why too', /if \(outcome === 'declined' && !why && crmV\(\)\) \{\s*crmWhyOpen\('declined'/.test(html));
+  ok('  a decline from Home asks why too', /if \(outcome === 'declined' && !why && typeof crmV === 'function' && crmV\(\)\) \{\s*crmWhyOpen\('declined'/.test(html));
   ok('  Ask the athlete first, on a card before it goes out', /\+ hqAskHtml\(c, i\)/.test(html) && /stage: 'ask_athlete'/.test(html));
   ok('the deal form asks why it worked with the CRM on', /id="deal-form-why"/.test(html) && /body\.winReason = document\.getElementById\('deal-form-why'\)\.value/.test(html)
     && /winReason: b\.winReason \|\| null, winNote: b\.winNote \|\| null/.test(idx));
