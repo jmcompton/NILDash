@@ -277,8 +277,11 @@ async function main() {
   ok('  because the rules are one shared block, not two copies',
     /const SYSTEM = SYSTEM_COLLEGE_HEAD \+ '\\n' \+ SHARED_RULES;/.test(src('server/services/pitchWriter.js'))
     && /const SYSTEM_PRO = SYSTEM_PRO_HEAD \+ '\\n' \+ SHARED_RULES;/.test(src('server/services/pitchWriter.js')));
-  ok('  the college prompt is byte-for-byte what it was', /^You write short outreach messages for a sports agent pitching local businesses on partnering with a college athlete\./.test(PW.SYSTEM)
-    && /5\. The athlete's Instagram link on its own line, when one is given\.\n\nONE FACT ABOUT THE BUSINESS, FROM THE EVIDENCE, OR NONE\./.test(PW.SYSTEM));
+  // The college prompt's shape changed on purpose since (the ask moved last,
+  // after the Instagram link: tests/pitchask.js); the pro work still left it
+  // a college prompt followed directly by the shared rules.
+  ok('  the college prompt is still the college prompt, then the shared rules', /^You write short outreach messages for a sports agent pitching local businesses on partnering with a college athlete\./.test(PW.SYSTEM)
+    && /4\. The athlete's Instagram link on its own line, when one is given\.\n5\. THE ASK, LAST:[\s\S]*?worse than not offering a call at all\.\n\nONE FACT ABOUT THE BUSINESS, FROM THE EVIDENCE, OR NONE\./.test(PW.SYSTEM));
   ok('systemFor picks by type', PW.systemFor({ athleteType: 'pro' }) === PW.SYSTEM_PRO && PW.systemFor({}) === PW.SYSTEM && PW.systemFor(null) === PW.SYSTEM);
   // writePitch hands the pro prompt to the model.
   let seenSystem = null;

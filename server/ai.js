@@ -4343,12 +4343,14 @@ Return ONLY valid JSON: {"subject":"...","body":"..."}`;
     if (!m) throw new Error('No JSON');
     const out = JSON.parse(m[0]);
     if (!out.subject || !out.body) throw new Error('Missing fields');
+    // THE SUBJECT IS BUILT, NOT WRITTEN (services/pitchSubject).
+    out.subject = require('./services/pitchSubject').firstTouchSubject(brand.brand || brand.brand_name, { pro: require('./services/proLane').isPro(athlete || {}) });
     return out;
   } catch (err) {
     console.error('[generateDealPitch]', err.message);
     const bn = brand.brand || brand.brand_name || 'your business';
     return {
-      subject: `${athlete.name} x ${bn} — local partnership idea`,
+      subject: require('./services/pitchSubject').firstTouchSubject(bn, { pro: require('./services/proLane').isPro(athlete || {}) }),
       body: `Hi,\n\nI'm ${athlete.name}, a ${sport} player at ${school} here in ${loc.city}. I follow ${bn} and love what you do in the community.\n\nI've built an audience of about ${reach} followers, most of them local, and I'd love to partner with you on some content that puts ${bn} in front of them. I think a simple social campaign could be a great fit.\n\nWould you be open to a quick chat about it?\n\nThanks,\n${(athlete.name||'').split(' ')[0] || athlete.name}`,
     };
   }
@@ -4478,6 +4480,15 @@ Return ONLY this JSON — no markdown, no extra keys, no code fences:
   }
 }
 
+// THE FIRST EMAIL'S SUBJECT IS BUILT, NOT WRITTEN (services/pitchSubject):
+// "NIL opportunity for {Business}". The follow-up keeps its reply subject.
+function _firstTouchSubjectOn(out, athlete, targetBrand) {
+  if (out && out.sponsorshipEmail && typeof out.sponsorshipEmail === 'object') {
+    out.sponsorshipEmail.subject = require('./services/pitchSubject').firstTouchSubject(targetBrand, { pro: require('./services/proLane').isPro(athlete || {}) });
+  }
+  return out;
+}
+
 async function generateOutreach(athlete, targetBrand, category, outreachType, goal) {
   const rate = nilViewVal(athlete, 'ig-reel');
 
@@ -4494,7 +4505,7 @@ Generate outreach messages. Return ONLY JSON: {"sponsorshipEmail":{"subject":"su
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
-    return JSON.parse(match[0]);
+    return _firstTouchSubjectOn(JSON.parse(match[0]), athlete, targetBrand);
   }
 
   // ── v2: human operator voice ──────────────────────────────────
@@ -4545,7 +4556,7 @@ TARGET EMAIL STYLE:
 Return ONLY this JSON:
 {
   "sponsorshipEmail": {
-    "subject": "${athlete.name} × ${targetBrand} — NIL",
+    "subject": "${require('./services/pitchSubject').firstTouchSubject(targetBrand)}",
     "body": "Full email — 150-175 words, no bullets, no headers, reads like a real human email"
   },
   "instagramDm": "Under 140 chars — casual opener that sounds like a real DM, not a pitch. Reference one specific thing about the brand.",
@@ -4563,7 +4574,7 @@ Return ONLY this JSON:
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
-    return JSON.parse(match[0]);
+    return _firstTouchSubjectOn(JSON.parse(match[0]), athlete, targetBrand);
   } catch(err) {
     console.error('[generateOutreach v2] error:', err.message);
     throw err;

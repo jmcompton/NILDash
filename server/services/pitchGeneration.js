@@ -90,7 +90,7 @@ STRUCTURE (follow this order, no extras):
 2. Who the athlete is — 1 short paragraph, 1–2 facts that matter
 3. One content idea — plain English. What it actually is. No over-explaining.
 4. Audience connection — 1–2 lines, grounded, not effusive
-5. Soft close — "Happy to share more if helpful." or similar. Mention pitch deck naturally.
+5. The ask, last: one question, one sentence, alone on its own line after a blank line ("Would you be open to a quick call this week?"). Mention the pitch deck naturally before it.
 6. Sign off: Name, Role
 
 FORBIDDEN — any of these in full_email_body causes the output to fail:
@@ -153,9 +153,11 @@ Paragraph 3 (2-3 sentences): Describe one content idea in plain English. What it
 
 Paragraph 4 (1-2 sentences): How ${athleteData.name}'s audience lines up with ${enrichment.brand_name}. Specific, not effusive.
 
-Paragraph 5 (2 sentences): "I've attached a quick overview if helpful." Then a soft close — "Happy to share more if it's worth a conversation." or similar.
+Paragraph 5 (1 sentence): "I've attached a quick overview if helpful."
 
-Do NOT write a sign-off, closing, your name, or any signature. End after the soft close above. The platform adds the signature automatically.
+Last line, on its own after a blank line: the ask, one question, one sentence, for example "Would you be open to a quick call this week?"
+
+Do NOT write a sign-off, closing, your name, or any signature. End with the ask above. The platform adds the signature automatically.
 
 Total: 150-175 words. No headers. No bullets. No bold text. Reads like a real email from a real person.`
     : `Write a 5-paragraph outreach email.
@@ -164,8 +166,9 @@ P1 (2-3 sentences): Observation about ${enrichment.brand_name}.
 P2 (2-3 sentences): Introduce ${athleteData.name} with 1-2 key credentials.
 P3 (2-3 sentences): One specific campaign idea in plain English.
 P4 (1-2 sentences): Audience alignment — grounded, use "around" before numbers.
-P5 (2 sentences): Soft close referencing the attached pitch deck.
-Do NOT write a sign-off, name, or signature. End after the soft close. The platform adds the signature automatically.
+P5 (1 sentence): Reference the attached pitch deck.
+Last line, on its own after a blank line: the ask, one question, for example "Would you be open to a quick call this week?"
+Do NOT write a sign-off, name, or signature. End with the ask. The platform adds the signature automatically.
 Total: 160-200 words. No bullets. No headers.`;
 
   const prompt = `Write a complete NIL partnership outreach pitch package.
@@ -215,7 +218,7 @@ AGENT SIGNING THIS EMAIL:
 
 Generate this exact JSON:
 {
-  "subject_line": "${athleteData.name} × ${enrichment.brand_name} — NIL. Clean format. No exclamation points.",
+  "subject_line": "${require('./pitchSubject').firstTouchSubject(enrichment.brand_name, { pro: require('./proLane').isPro(athleteData || {}) })}",
   "personalized_intro": "1-2 sentences — one specific, observational opening about ${enrichment.brand_name}. Not flattery. Not generic.",
   "athlete_fit": "2 sentences — why ${athleteData.name} fits ${enrichment.brand_name}, grounded in stats or geography",
   "audience_alignment": "1-2 sentences on audience overlap, specific and grounded",
@@ -227,7 +230,7 @@ Generate this exact JSON:
   "value_proposition": "2-3 sentences on what ${enrichment.brand_name} actually gets — concrete, not vague",
   "partnership_structure": "2 sentences — realistic deliverables and timeline",
   "roi_messaging": "1-2 sentences on reach and engagement — use 'around' before any follower number",
-  "cta": "Happy to share more if helpful.",
+  "cta": "Would you be open to a quick call this week?",
   "full_email_body": "${emailBodyInstruction}",
   "deck_talking_points": [
     "Specific point 1 — grounded in athlete data",
@@ -259,6 +262,10 @@ Generate this exact JSON:
       businessNumbers: [enrichment && enrichment.employee_count].filter(Boolean),
     });
     for (const p2 of facts.problems) out.push(p2);
+    // THE ASK, LAST: one question on its own line after a blank line, the
+    // same check the nightly writer runs (services/pitchWriter.askProblem).
+    const ask = PW.askProblem(pitch.full_email_body);
+    if (ask) out.push('full_email_body ' + ask);
     return out;
   };
 
@@ -311,8 +318,10 @@ function parsePitch(raw, athleteData, enrichment, contact, dealScanData) {
       console.warn(`[pitchGeneration] brand="${enrichment.brand_name}" model greeted "${g.removedName}", `
         + `who is not a verified contact. Greeting replaced with "Hi,".`);
     }
+    // THE SUBJECT IS BUILT, NOT WRITTEN (services/pitchSubject).
+    const subject = require('./pitchSubject').firstTouchSubject(enrichment.brand_name, { pro: require('./proLane').isPro(athleteData || {}) });
     return {
-      subject_line:          strNull(parsed.subject_line) || `NIL Partnership — ${athleteData.name} × ${enrichment.brand_name}`,
+      subject_line:          subject,
       personalized_intro:    strNull(parsed.personalized_intro) || '',
       athlete_fit:           strNull(parsed.athlete_fit) || '',
       audience_alignment:    strNull(parsed.audience_alignment) || '',
@@ -321,7 +330,8 @@ function parsePitch(raw, athleteData, enrichment, contact, dealScanData) {
       partnership_structure: strNull(parsed.partnership_structure) || '',
       roi_messaging:         strNull(parsed.roi_messaging) || '',
       cta:                   strNull(parsed.cta) || 'Would you be open to a brief call this week?',
-      full_email_body:       g.body,
+      // Layout only: the closing question onto its own line (pitchWriter.repairAsk).
+      full_email_body:       require('./pitchWriter').repairAsk(g.body),
       deck_talking_points:   Array.isArray(parsed.deck_talking_points) ? parsed.deck_talking_points.slice(0, 5) : [],
     };
   } catch (e) {
@@ -336,7 +346,7 @@ function buildFallbackPitch(athleteData, enrichment, contact, dealScanData) {
   const campaign = dealScanData?.campaign || 'brand ambassador partnership';
 
   return {
-    subject_line: `NIL Partnership Opportunity — ${name} × ${brand}`,
+    subject_line: require('./pitchSubject').firstTouchSubject(brand, { pro: require('./proLane').isPro(athleteData || {}) }),
     personalized_intro: `I'm reaching out on behalf of ${name}, a standout ${athleteData.sport} athlete at ${athleteData.school}, regarding a potential NIL partnership with ${brand}.`,
     // NO ENGAGEMENT FIGURE IN THE FALLBACK. This stated "0% engagement" whenever
     // none was stored, and an invented 3% whenever the old default was, straight
@@ -349,7 +359,7 @@ function buildFallbackPitch(athleteData, enrichment, contact, dealScanData) {
     partnership_structure: 'We propose a 3-month initial campaign with 4-6 deliverables across social platforms.',
     roi_messaging: `Based on ${name}'s current engagement rates, partners typically see 3-5x the reach of equivalent paid social placements.`,
     cta: 'Would you be open to a 15-minute call this week to explore this opportunity?',
-    full_email_body: `I'm reaching out on behalf of ${name}, a ${athleteData.sport} athlete at ${athleteData.school}, to explore a potential NIL partnership with ${brand}.\n\n${name} has built an engaged following of ${formatFollowers(athleteData.instagram)} on Instagram. We believe ${brand} and ${name} share a natural audience alignment that could make for a high-impact campaign.\n\nWe'd love to discuss a ${campaign} — an opportunity that would give ${brand} authentic reach into the college sports community.\n\nWould you be open to a brief call this week?\n\nBest regards,`,
+    full_email_body: `I'm reaching out on behalf of ${name}, a ${athleteData.sport} athlete at ${athleteData.school}, to explore a potential NIL partnership with ${brand}.\n\n${name} has built an engaged following of ${formatFollowers(athleteData.instagram)} on Instagram. We believe ${brand} and ${name} share a natural audience alignment that could make for a high-impact campaign.\n\nWe'd love to discuss a ${campaign}, an opportunity that would give ${brand} authentic reach into the college sports community.\n\nWould you be open to a brief call this week?`,
     deck_talking_points: [`${name} Profile`, 'Social Reach & Engagement', 'Brand Alignment', 'Campaign Concepts', 'Proposed Partnership Structure'],
   };
 }

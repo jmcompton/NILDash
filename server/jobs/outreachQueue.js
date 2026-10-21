@@ -2721,7 +2721,7 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       const card = Q.buildCard({
         brandKey: cand.brand_key, brand: cand.brand_name,
         rationale: (match && match.reasoning) || null,
-        athleteName, pitch,
+        athleteName, pitch, pro: proLane,
       }, ladder, ig);
       // The lane is a PROPERTY of the result, and the sponsorship signal is why
       // this one outranked the rest. Both recorded, so the card can say "they

@@ -173,6 +173,62 @@ function sentenceCount(text) {
     .split(/(?<=[.?])\s+/).map((s) => s.trim()).filter((s) => s.length > 1).length;
 }
 
+// ── THE LAST LINE IS THE ASK ────────────────────────────────────────────────
+// A business should never have to hunt for what it is being asked. A first
+// pitch ends on one question, one sentence, alone on its line after a blank
+// line; only the agent's first name (and the signature block appended after
+// the writer) comes after it. Follow-ups are not held to this.
+const _IG_LINE = /^[ \t]*(?:https?:\/\/)?(?:www\.)?instagram\.com\/[A-Za-z0-9._]+\/?[ \t]*$/i;
+const _sentencesIn = (line) => String(line || '').split(/(?<=[.?!])\s+/).map((x) => x.trim()).filter((x) => x.length > 1);
+// The sign-off line, if the message ends with one: { body, sign }.
+function _splitSignOff(text) {
+  const t = String(text || '').trim();
+  const m = t.match(/\n+([ \t]*[A-Za-z][A-Za-z.'\- ]{0,30}[ \t]*)$/);
+  return m ? { body: t.slice(0, m.index).trimEnd(), sign: m[1].trim() } : { body: t, sign: null };
+}
+// -> null when the message ends on the ask, else the problem, said plainly.
+function askProblem(text) {
+  const lines = _splitSignOff(text).body.split('\n');
+  const last = (lines[lines.length - 1] || '').trim();
+  if (!/\?$/.test(last)) return 'does not end with the ask: the last line before the sign-off must be one question';
+  if (_sentencesIn(last).length > 1) return 'the ask is not one sentence on its own line';
+  if (lines.length < 3 || lines[lines.length - 2].trim() !== '') return 'the ask is not on its own line after a blank line';
+  return null;
+}
+// LAYOUT ONLY, never a word changed: the Instagram link moved above a closing
+// question that it followed, the closing question split onto its own line,
+// and a blank line put before it. A message whose last sentence is not a
+// question is left alone, for the check to reject and the retry to rewrite.
+function repairAsk(text) {
+  const { body, sign } = _splitSignOff(text);
+  const lines = body.split('\n').map((l) => l.replace(/[ \t]+$/, ''));
+  const trimEnd = () => { while (lines.length && !lines[lines.length - 1].trim()) lines.pop(); };
+  trimEnd();
+  // The link after the question: lifted out, to go back just above it.
+  let link = null;
+  if (lines.length > 1 && _IG_LINE.test(lines[lines.length - 1])) {
+    let k = lines.length - 2;
+    while (k >= 0 && !lines[k].trim()) k--;
+    if (k >= 0 && /\?\s*$/.test(lines[k])) { link = lines.pop().trim(); trimEnd(); }
+  }
+  const last = (lines[lines.length - 1] || '').trim();
+  if (/\?$/.test(last)) {
+    // The question at the end of a paragraph: split onto its own line.
+    const parts = _sentencesIn(last);
+    const q = parts.length > 1 ? parts[parts.length - 1] : last;
+    const rest = parts.length > 1 ? last.slice(0, last.lastIndexOf(q)).trim() : '';
+    lines.pop();
+    if (rest) lines.push(rest);
+    trimEnd();
+    if (link) lines.push('', link);
+    lines.push('', q);
+  } else if (link) {
+    lines.push('', link);
+  }
+  const out = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return sign ? out + '\n\n' + sign : out;
+}
+
 function lintMessage(msg, opts = {}) {
   const problems = [];
   const t = String(msg || '').trim();
@@ -236,6 +292,11 @@ function lintMessage(msg, opts = {}) {
   // check threw away two good pitches for exactly that.
   if (opts.signOff && !signsOffAs(t, opts.signOff)) {
     problems.push('does not sign off as ' + opts.signOff);
+  }
+  // THE ASK, LAST (a first pitch only: writePitch asks for it).
+  if (opts.requireAsk) {
+    const ask = askProblem(t);
+    if (ask) problems.push(ask);
   }
   // THE FIRST LINE NAMES THE READER. "Hi," "Hi there," "Hello," or no greeting
   // at all is a rejected draft when we know who we are writing to.
@@ -1219,13 +1280,14 @@ This structure comes from agents who send these for a living. Follow it in order
    said about their existing partnerships. Use its wording. Do not upgrade it.
 3. ONE LINE ON WHAT THEY POST: training, game days, day in the life, whatever
    the ATHLETE block actually lists. This is what a business is buying.
-4. THE CLOSE, as a question:
+4. The athlete's Instagram link on its own line, when one is given.
+5. THE ASK, LAST: one question, one sentence, alone on its own line after a
+   blank line. Nothing comes after it but your first name.
    "Would you like to learn more about this NIL opportunity with [athlete]?"
-   When the prompt says a scheduling link is present, the close may point at it:
+   When the prompt says a scheduling link is present, the ask may point at it:
    "...or use my scheduling link below to set up a call." Only say that when you
    are told there is one. Referring a business to a link that is not there is
    worse than not offering a call at all.
-5. The athlete's Instagram link on its own line, when one is given.
 `;
 
 const SHARED_RULES = `ONE FACT ABOUT THE BUSINESS, FROM THE EVIDENCE, OR NONE. THE BUSINESS block may
@@ -1255,6 +1317,7 @@ HARD RULES FOR THE MESSAGE:
 - No corporate words. Nothing leverages, nothing is seamless, nobody circles back, nothing is a game-changer.
 - Use contractions. Write how a person talks.
 - NEVER put a dollar amount, a rate, a fee or a budget in the message. Not a range, not "starting at", not "around". Money comes up after they reply, and the agent handles it from there. A number in a cold message turns a conversation into a negotiation before there is anything to negotiate about.
+- The last line before your sign-off is the ask: one question, one sentence, on its own line after a blank line.
 - Sign off with the agent's first name on its own line.
 - DO NOT WRITE A SIGNATURE, a title, a company, a phone number or any link other
   than the athlete's Instagram. The agent's signature block is appended after you,
@@ -1312,13 +1375,14 @@ Follow it in order.
    package, no counts, no schedule, no price. Where the prompt gives a fitting
    ask for this category, let it shape the sentence. Never use the word NIL.
    Lead with the team and the market, never with a hometown or a school.
-5. THE CLOSE, as a question:
+5. The athlete's Instagram link on its own line, when one is given.
+6. THE ASK, LAST: one question, one sentence, alone on its own line after a
+   blank line. Nothing comes after it but your first name.
    "Would you like to learn more about this endorsement opportunity with [athlete]?"
-   When the prompt says a scheduling link is present, the close may point at it:
+   When the prompt says a scheduling link is present, the ask may point at it:
    "...or use my scheduling link below to set up a call." Only say that when you
    are told there is one. Referring a business to a link that is not there is
    worse than not offering a call at all.
-6. The athlete's Instagram link on its own line, when one is given.
 `;
 
 const SYSTEM_PRO = SYSTEM_PRO_HEAD + '\n' + SHARED_RULES;
@@ -1401,7 +1465,7 @@ Return ONLY JSON, in exactly this order:
   "ask": "what you would propose if they reply — for the agent's card, NOT for the message itself",
   "confidence": "strong" | "thin",
   "evidenceUsed": the number of the ONE evidence line the message states, or 0 if it states none,
-  "message": "the message itself, four to five sentences in the prescribed order, ${ctx.athlete && ctx.athlete.instagramHandle ? 'the Instagram link on its own line, ' : ''}signed off"
+  "message": "the message itself, four to five sentences in the prescribed order, ${ctx.athlete && ctx.athlete.instagramHandle ? 'the Instagram link on its own line, ' : ''}the ask last on its own line after a blank line, signed off"
 }
 
 If there is no real connection worth pitching, return instead:
@@ -1429,7 +1493,7 @@ async function writePitch(ctx, opts = {}) {
   // "Hi," is rejected and rewritten once, then refused.
   const _biz = ctx.business || {};
   const greetFirstName = _biz.greetFirstName || (_biz.ownerName ? firstNameOf(_biz.ownerName) : null) || null;
-  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true, greetFirstName,
+  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true, greetFirstName, requireAsk: true,
     // The pro rules (services/proLane): no post-only deal, no hometown or school lead, never NIL.
     pro: !!(ctx.athlete && ctx.athlete.athleteType === 'pro'), athlete: ctx.athlete || null };
 
@@ -1466,7 +1530,7 @@ async function writePitch(ctx, opts = {}) {
 
   // REPAIRED BEFORE IT IS JUDGED. The sign-off is a string we control at the end
   // of the message; there is no reason for it to be able to fail a pitch.
-  let message = repairSignOff(autoRepair(j.message), agentFirst);
+  let message = repairSignOff(repairAsk(autoRepair(j.message)), agentFirst);
   let lint = lintMessage(message, lintOpts);
   // A FABRICATED FACT IS A LINT FAILURE. Same path, same retry, same refusal:
   // an invented hometown is worse than an em dash, not softer.
@@ -1482,7 +1546,7 @@ async function writePitch(ctx, opts = {}) {
   if (!lint.ok && lint.problems.some((x) => /but the stored sport is/.test(x))) {
     const al = alignSport(message, ctx.athlete || {});
     if (al.changed) {
-      const mFixed = repairSignOff(autoRepair(al.text), agentFirst);
+      const mFixed = repairSignOff(repairAsk(autoRepair(al.text)), agentFirst);
       const lFixed = lintMessage(mFixed, lintOpts);
       const fFixed = factsOf(mFixed, j.evidenceUsed);
       if (lFixed.ok && fFixed.ok) {
@@ -1503,7 +1567,7 @@ async function writePitch(ctx, opts = {}) {
       + `About the business, state at most ONE line of its EVIDENCE, as written, or nothing.`);
     if (j2 && j2.skip) return { skipped: true, reason: String(j2.reason || 'no real connection').trim() };
     if (j2 && j2.message) {
-      const m2 = repairSignOff(autoRepair(j2.message), agentFirst);
+      const m2 = repairSignOff(repairAsk(autoRepair(j2.message)), agentFirst);
       const l2 = lintMessage(m2, lintOpts);
       const f2 = factsOf(m2, j2.evidenceUsed);
       if (l2.ok && f2.ok) { j = j2; message = m2; lint = l2; }
@@ -1511,7 +1575,7 @@ async function writePitch(ctx, opts = {}) {
         // The second draft got the sport wrong too: repair rather than lose
         // the card, on the same terms as the first.
         const al2 = alignSport(m2, ctx.athlete || {});
-        const m3 = al2.changed ? repairSignOff(autoRepair(al2.text), agentFirst) : null;
+        const m3 = al2.changed ? repairSignOff(repairAsk(autoRepair(al2.text)), agentFirst) : null;
         const l3 = m3 ? lintMessage(m3, lintOpts) : null;
         const f3 = m3 ? factsOf(m3, j2.evidenceUsed) : null;
         if (l3 && l3.ok && f3 && f3.ok) {
@@ -1585,7 +1649,7 @@ module.exports = {
   writePitch, lintMessage, autoRepair, containsPrice, verifyAthleteFacts, checkEvidence, evidenceOf, BUSINESS_CLAIMS,
   playbookFor, describeBusiness, describeAthlete,
   buildPrompt, sentenceCount, stripSignOff, learnedAngles,
-  signsOffAs, repairSignOff, firstNameOf,
+  signsOffAs, repairSignOff, firstNameOf, askProblem, repairAsk,
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
   DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, SYSTEM_PRO, systemFor, MIN_SAMPLE,
   POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
