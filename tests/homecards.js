@@ -101,7 +101,14 @@ const AG='hc-agent', ATH='hc-ath';
   // who this goes to", which is the part that was actually load-bearing.
   const HTML=fs.readFileSync(ROOT+'public/index.html','utf8');
   const home=HTML.slice(HTML.indexOf('function hqRender'), HTML.indexOf('async function hqApprove'));
-  ok('no dropdown anywhere on the card', !/<select/i.test(home));
+  // CRM_ON put dropdowns on the SENT list and the to-do list (what happened,
+  // the stage, the next step): records of what already happened. Never on a
+  // card that is about to go out, and none of them picks a recipient.
+  const cardFn = HTML.slice(HTML.indexOf('function hqRenderCard'), HTML.indexOf('function mailFromHtml'));
+  const selects = home.match(/<select[^>]*>/gi) || [];
+  ok('no dropdown anywhere on the card', cardFn.length > 500 && !/<select/i.test(cardFn));
+  ok('  the only dropdowns on Home are the CRM\'s, on the sent list and the to-do list',
+    selects.every((t) => /onchange="(hqCrmWhat|hqCrmStage|hqCrmNext|hqTodoNext)\(/.test(t)), selects);
   ok('no recipient field', !/hq-(to|recipient|email)['"]/i.test(home) && !/name=["']to["']/i.test(home));
   // SCOPED TO THE EMAIL CARD, because there are three kinds of card now. The
   // rule this protects has not changed -- an email card offers the subject and

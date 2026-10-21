@@ -4432,6 +4432,22 @@ async function ensureMarketSightings() {
   }
   // (The deal's own columns are added by services/dealLog.ensureTable.)
 
+  // ── THE AGENT'S CRM (services/crm, CRM_ON) ────────────────────────────────
+  // The deal's finer stage, its next step and the reasons: why a business
+  // declined (on the card too, so a decline with no deal row still counts) and
+  // why a signed deal worked. All new and nullable: existing deals keep their
+  // status.
+  for (const [t, cols] of [
+    ['athlete_self_deals', ['crm_stage TEXT', 'crm_stage_at TIMESTAMPTZ', 'next_step TEXT', 'next_step_at TIMESTAMPTZ',
+      'decline_reason TEXT', 'decline_note TEXT', 'win_reason TEXT', 'win_note TEXT']],
+    ['outreach_queue', ['decline_reason TEXT', 'decline_note TEXT']],
+    ['deal_outcomes', ['win_reason TEXT', 'win_note TEXT']],
+  ]) {
+    for (const col of cols) {
+      await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS ${col}`).catch((e) => console.error('[init] ' + t + '.' + col + ':', e.message));
+    }
+  }
+
   // ── WHERE VERIFICATION CREDITS ACTUALLY WENT ──────────────────────────────
   //
   // CREATED HERE, IN THE NORMAL PATH, because the lazy version never ran. It
