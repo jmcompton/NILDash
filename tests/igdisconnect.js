@@ -117,6 +117,11 @@ const read = (f) => fs.readFileSync(REPO + f, 'utf8');
   ok('  an open edit form drops the deleted numbers, so saving cannot write them back', /igEl\.value = a2\.instagram \|\| ''/.test(go) && /engEl\.value = a2\.engagement \|\| ''/.test(go));
   ok('no em dash in the button\'s words', !/—|&mdash;/.test(grab(/function igDisconnectHtml[\s\S]*?\n}\n/) + go));
 
+  console.log('\n5. THE PRIVACY PAGE SAYS SO');
+  const PRIV = read('public/privacy.html');
+  ok('its removal steps start with Disconnect on the athlete page in NILDash', /<p><strong>How to remove it\.<\/strong><\/p>\s*<ul>\s*<li><strong>In NILDash:<\/strong> Disconnect on the athlete page in NILDash\./.test(PRIV));
+  ok('  and still no em dash on the page', !/\u2014|&mdash;/.test(PRIV));
+
   srv.close();
   await P.end().catch(() => {});
   console.log(`\n${N - F}/${N} passed`);
