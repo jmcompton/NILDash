@@ -121,7 +121,7 @@ async function athleteFacts(pool, athleteId) {
 // ── LOG IT ──────────────────────────────────────────────────────────────────
 // Returns { ok, id, brand, athleteId, value, deliverable, stage } or
 // { ok:false, error } in words an agent can read.
-async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, deliverable, category, contactEmail, source, now, queueId, suggestedValue, offeredValue, offerKind } = {}) {
+async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, deliverable, category, contactEmail, source, now, queueId, suggestedValue, offeredValue, offerKind, winReason, winNote } = {}) {
   let brand = text(brandName, 200);
   // FROM A HOME CARD: the card names the athlete, the business and its key,
   // and it must be this agent's.
@@ -148,6 +148,14 @@ async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, d
   if (!owns) return { ok: false, error: 'That athlete is not on your roster.' };
 
   await ensureTable(pool);
+  // WHY IT WORKED (services/crm, CRM_ON): optional here, checked when given.
+  let why = null;
+  if (winReason) {
+    const CRM = require('./crm');
+    await CRM.ensureColumns(pool);
+    why = CRM.checkReason('won', winReason, winNote);
+    if (!why.ok) return { ok: false, error: why.error };
+  }
   const val = money(value);
   const what = text(deliverable, 300);
   const when = now ? new Date(now) : new Date();
@@ -222,6 +230,23 @@ async function logDeal(pool, { agentId, athleteId, brandName, brandKey, value, d
       [athleteId, brand, id, val, when, brandKey || '']);
   } catch (e) { console.error(`[deal-log] ledger deal columns for "${brand}": ${e.message}`); }
   const cards = await markCards(pool, { agentId, athleteId, brand, queueId });
+  // The CRM keeps why it worked on the deal and its outcome, and with the
+  // switch on the deal's stage reads Contract signed (never moved back from a
+  // later one).
+  if (why || require('./crm').ON()) {
+    try {
+      if (why && id) await pool.query(`UPDATE deal_outcomes SET win_reason = $2, win_note = $3 WHERE id = $1`, [id, why.reason, why.note]);
+      if (dealRowId != null) {
+        await require('./crm').ensureColumns(pool);
+        await pool.query(
+          `UPDATE athlete_self_deals
+              SET win_reason = COALESCE($2, win_reason), win_note = CASE WHEN $2 IS NULL THEN win_note ELSE $3 END,
+                  crm_stage = CASE WHEN $4 AND COALESCE(crm_stage, '') NOT IN ('contract_signed','filed_nil_go','cleared','paid') THEN 'contract_signed' ELSE crm_stage END,
+                  crm_stage_at = CASE WHEN $4 AND COALESCE(crm_stage, '') NOT IN ('contract_signed','filed_nil_go','cleared','paid') THEN NOW() ELSE crm_stage_at END
+            WHERE id = $1`, [dealRowId, why ? why.reason : null, why ? why.note : null, require('./crm').ON()]);
+      }
+    } catch (e) { console.error(`[deal-log] why it worked for "${brand}": ${e.message}`); }
+  }
 
   console.log(`[deal-log] agent=${agentId} athlete=${athleteId} "${brand}" signed${val ? ' $' + val : ' (no value given)'}${what ? ' — ' + what : ''} (outcome ${id})`);
   return { ok: true, id, brand, athleteId, athleteName: facts.name, value: val, deliverable: what, stage: stage || 'Closed', cards, suggestedValue: suggested, offeredValue: offered, offerKind: kind };

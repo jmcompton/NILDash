@@ -414,6 +414,26 @@ router.get('/logs', async (req, res) => {
         if (p) row.finder = { email: p.email, verified: p.verified, label: p.label, why: p.why };
       }
     }
+    // CRM_ON: what happened to each email, and its deal's stage and next step.
+    const CRM = require('../services/crm');
+    if (CRM.ON() && r.rows.length) {
+      await CRM.ensureColumns(pool);
+      const deals = (await pool.query(
+        `SELECT d.* FROM athlete_self_deals d JOIN athletes a ON a.id = d.athlete_id AND a.agent_id = $1
+          WHERE d.athlete_id = ANY($2::text[])`, [req.principal.id, [...new Set(r.rows.map((x) => String(x.athlete_id)))]])).rows;
+      const byKey = new Map();
+      for (const d of deals) { const k = d.athlete_id + '|' + String(d.brand_name || '').trim().toLowerCase(); if (!byKey.has(k)) byKey.set(k, d); }
+      const declined = new Set((await pool.query(
+        `SELECT outreach_log_id FROM outreach_queue WHERE agent_id = $1 AND outcome = 'declined' AND outreach_log_id = ANY($2::text[])`,
+        [req.principal.id, r.rows.map((x) => String(x.id))])).rows.map((x) => x.outreach_log_id));
+      for (const row of r.rows) {
+        const d = byKey.get(row.athlete_id + '|' + String(row.brand_name || '').trim().toLowerCase()) || null;
+        row.crm = CRM.payloadOf(d);
+        row.whatHappened = row.bounced_at ? 'bounced'
+          : (declined.has(String(row.id)) || (d && d.crm_stage === 'declined')) ? 'declined'
+          : (row.replied_at || row.status === 'replied') ? 'replied' : 'no_reply';
+      }
+    }
     res.json(r.rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -759,6 +779,9 @@ router.post('/logs/:id/replied', async (req, res) => {
         [log.id, req.principal.id]
       );
     }
+    // CRM_ON: the deal's stage follows (Replied / No reply yet).
+    const CRM = require('../services/crm');
+    if (CRM.ON()) await CRM.afterLogReply(pool, req.principal.id, log.id, replied).catch((e) => console.error('[outreach/replied] crm:', e.message));
     const out = await pool.query('SELECT * FROM outreach_logs WHERE id=$1', [log.id]);
     res.json(out.rows[0]);
   } catch (e) {

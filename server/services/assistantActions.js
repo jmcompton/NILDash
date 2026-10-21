@@ -106,7 +106,10 @@ const ACTIONS = {
   // logged without a price.
   log_deal: {
     tier: 'direct',
-    description: 'Log a deal an athlete has signed with a business. Use when the agent says a deal is signed, closed or done ("Kaleb signed with Rama Jama\'s for $500", "we closed Legion Hair Studio for Messiah"). The value and what the athlete will do are both optional. Returns logged:true once it is recorded, or a question when the athlete cannot be identified.',
+    // ONLY A SIGNED DEAL. This also fired on "done", so "I'm done with the vet
+    // hospital" could log a deal nobody signed. A deal shows signed only when
+    // the agent says it was signed.
+    description: 'Log a deal an athlete has signed with a business. Use ONLY when the agent says in words that the business signed or the deal closed ("Kaleb signed with Rama Jama\'s for $500", "we closed Legion Hair Studio for Messiah"). Never for "done", "finished", "sent", "reached out", "handled" or "followed up": those are not a signed deal. When it is not clear the deal was signed, ask instead. The value and what the athlete will do are both optional. Returns logged:true once it is recorded, or a question when the athlete cannot be identified.',
     input: {
       type: 'object',
       properties: {

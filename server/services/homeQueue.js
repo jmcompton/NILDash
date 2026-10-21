@@ -793,6 +793,28 @@ async function buildHome(pool, agentId, opts = {}) {
       if (p) { card.toVerified = p.verified; card.toLabel = p.label; card.toWhy = p.why; }
     }
   }
+  // ── THE AGENT'S CRM (services/crm, CRM_ON) ──────────────────────────────
+  // Each sent row and each card carries its deal's stage and next step; the
+  // page gets the words and the to-do list. Off: none of it is on the payload.
+  const CRM = require('./crm');
+  if (CRM.ON()) {
+    try {
+      await CRM.ensureColumns(pool);
+      home.crm = CRM.vocab();
+      home.todo = await CRM.todo(pool, agentId);
+      const athleteIds = [...new Set([...(home.sent || []).map(() => selected), ...(home.cards || []).map((c) => c.athleteId || selected)].filter(Boolean))];
+      const deals = athleteIds.length ? (await pool.query(
+        `SELECT d.* FROM athlete_self_deals d JOIN athletes a ON a.id = d.athlete_id AND a.agent_id = $1
+          WHERE d.athlete_id = ANY($2::text[])`, [agentId, athleteIds.map(String)])).rows : [];
+      const byKey = new Map();
+      for (const d of deals) { const k = d.athlete_id + '|' + String(d.brand_name || '').trim().toLowerCase(); if (!byKey.has(k)) byKey.set(k, d); }
+      const dealOf = (athleteId, brand) => byKey.get(athleteId + '|' + String(brand || '').trim().toLowerCase()) || null;
+      // The email's log id, for "Got a bounce email" (POST /api/agent/crm/bounced).
+      const logOf = new Map((sentRows || []).map((x) => [x.id, (x.sent_via || x.channel) === 'email' ? x.outreach_log_id : null]));
+      for (const r of home.sent || []) { r.crm = CRM.payloadOf(dealOf(selected, r.business)); r.logId = logOf.get(r.id) || null; }
+      for (const c of home.cards || []) c.crm = CRM.payloadOf(dealOf(c.athleteId || selected, c.business));
+    } catch (e) { errs.push('crm: ' + e.message); }
+  }
   return home;
 }
 

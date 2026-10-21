@@ -2020,8 +2020,19 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-sentrow .hq-rowbtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
 .hq-mark{font-size:11.5px;padding:5px 10px;border-radius:999px;background:transparent;border:1px solid var(--border,#2a2a2a);color:var(--muted,#9a9a8e);cursor:pointer;font-family:inherit}
 .hq-mark:hover{color:var(--text,#fff);border-color:var(--muted,#9a9a8e)}
-.hq-mark.deal{color:#84CC16;border-color:rgba(132,204,22,.45);font-weight:700}
+/* THE ACTION, NOT THE STATE. This was green and bold, the same look as the
+   signed chip below it, so every unsigned row read "Deal signed". A dashed
+   button says "do this"; only .hq-sentstate.signed says it happened. */
+.hq-mark.deal{border-style:dashed}
 .hq-mark[disabled]{opacity:.5;cursor:default}
+/* THE AGENT'S CRM (CRM_ON): what happened, the stage, the next step. */
+.hq-crm{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted,#9a9a8e)}
+.hq-crm select,.hq-todo-row select{font-size:11.5px;padding:4px 6px;border-radius:6px;background:var(--surface2,#151515);border:1px solid var(--border,#2a2a2a);color:var(--text,#fff);font-family:inherit;max-width:190px}
+.hq-crm-why{font-size:11px;color:var(--muted,#9a9a8e);white-space:nowrap}
+.hq-todo{border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:10px 12px;margin:0 0 12px}
+.hq-todo-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border,#2a2a2a);font-size:12.5px}
+.hq-todo-row:first-of-type{border-top:0}
+.hq-todo-row>span{flex:1;min-width:180px}
 .hq-sentstate{font-size:11.5px;padding:4px 10px;border-radius:999px;border:1px solid var(--border,#2a2a2a);color:var(--muted,#9a9a8e);white-space:nowrap}
 .hq-sentstate.replied{color:#60a5fa;border-color:rgba(96,165,250,.35)}
 .hq-sentstate.signed{color:#84CC16;border-color:rgba(132,204,22,.45);background:rgba(132,204,22,.12);font-weight:700}
@@ -11359,6 +11370,8 @@ async function loadPipeline() {
     ? res.stages
     : ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
   let allDeals = (res && Array.isArray(res.deals)) ? res.deals : [];
+  // THE AGENT'S CRM (CRM_ON): the words for each deal's stage and next step.
+  if (res && res.crm) window._crmVocab = res.crm;
 
   var filterEl = document.getElementById('pipe-filter-client');
   var filterActive = filterEl && filterEl.checked;
@@ -15278,11 +15291,13 @@ window.addEventListener('DOMContentLoaded', checkSession);
         </div>
         <div>
           <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">STAGE</label>
+          <!-- NEVER SIGNED BY DEFAULT: this preselected Closed, so a deal added only to
+               track it read "deal signed" on My Brands. -->
           <select id="md-stage" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px">
-            <option>Closed</option>
-            <option>Negotiating</option>
+            <option selected>Prospecting</option>
             <option>Outreach Sent</option>
-            <option>Prospecting</option>
+            <option>Negotiating</option>
+            <option value="Closed">Closed (signed)</option>
           </select>
         </div>
       </div>
@@ -15469,7 +15484,95 @@ function nilBadgeHtml(flags) {
   if (flags.nilActive) return '<span title="This business has completed an NIL deal on NILDash." style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35);margin-left:6px;vertical-align:middle">NIL-active</span>';
   return '';
 }
-function dealSignedOpen(athleteId, brand, brandKey, queueId, offer) {
+// ══ THE AGENT'S CRM (CRM_ON, services/crm) ═════════════════════════════════
+// What happened, the stages after a reply, the next step and why. The server
+// sends the words (GET /api/agent/crm, or on Home's payload); with the switch
+// off it sends nothing and every page draws what it always did.
+var CRM_VOCAB_P = null;
+function crmV() { return (typeof HQ !== 'undefined' && HQ && HQ.data && HQ.data.crm) || window._crmVocab || null; }
+function crmLoad() {
+  if (!CRM_VOCAB_P) {
+    CRM_VOCAB_P = fetch(API_BASE + '/api/agent/crm', { credentials: 'include' })
+      .then(function (r) { return r.ok ? r.json() : { on: false }; })
+      .then(function (d) { window._crmVocab = d && d.on ? d.vocab : null; return window._crmVocab; })
+      .catch(function () { window._crmVocab = null; return null; });
+  }
+  return CRM_VOCAB_P;
+}
+function crmOpts(list, cur, blank) {
+  return (blank ? '<option value="">' + escHtml(blank) + '</option>' : '')
+    + (list || []).map(function (x) { return '<option value="' + escHtml(x.key) + '"' + (x.key === cur ? ' selected' : '') + '>' + escHtml(x.label) + '</option>'; }).join('');
+}
+async function crmPost(path, body) {
+  var r = await fetch(API_BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body || {}) });
+  var d = await r.json().catch(function () { return {}; });
+  return { ok: r.ok && d.ok !== false, status: r.status, data: d };
+}
+// WHY: a decline needs its reason; a signed or paid deal asks why it worked.
+// "Other" takes a short note. Calls back with { reason, note }.
+var CRMWHY = null;
+function crmWhyOpen(kind, title, onSave) {
+  var v = crmV(); if (!v) return;
+  if (!CRMWHY) {
+    CRMWHY = document.createElement('div');
+    CRMWHY.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:none;align-items:center;justify-content:center;z-index:9100;padding:16px';
+    CRMWHY.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:380px;width:100%;padding:20px">'
+      + '<div id="crm-why-title" style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:12px"></div>'
+      + '<select class="input-sm" id="crm-why-reason" style="width:100%;margin-bottom:10px"></select>'
+      + '<input class="input-sm" id="crm-why-note" maxlength="200" placeholder="A short note" style="width:100%;margin-bottom:10px;display:none">'
+      + '<div id="crm-why-error" style="font-size:11px;color:#ef4444;margin-bottom:8px"></div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+      + '<button onclick="crmWhyClose()" style="font-size:12px;padding:8px 12px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer">Cancel</button>'
+      + '<button id="crm-why-save" style="font-size:12px;padding:8px 14px;background:#84CC16;border:none;border-radius:8px;color:#0A0E1A;font-weight:700;cursor:pointer">Save</button>'
+      + '</div></div>';
+    document.body.appendChild(CRMWHY);
+    CRMWHY.addEventListener('click', function (e) { if (e.target === CRMWHY) crmWhyClose(); });
+    document.getElementById('crm-why-reason').addEventListener('change', function () {
+      document.getElementById('crm-why-note').style.display = this.value === 'other' ? '' : 'none';
+    });
+  }
+  document.getElementById('crm-why-title').textContent = title;
+  document.getElementById('crm-why-reason').innerHTML = crmOpts(kind === 'declined' ? v.decline : v.win, '', kind === 'declined' ? 'Why did they decline?' : 'Why did it work?');
+  document.getElementById('crm-why-note').value = '';
+  document.getElementById('crm-why-note').style.display = 'none';
+  document.getElementById('crm-why-error').textContent = '';
+  document.getElementById('crm-why-save').onclick = async function () {
+    var reason = document.getElementById('crm-why-reason').value;
+    var note = (document.getElementById('crm-why-note').value || '').trim();
+    var err = document.getElementById('crm-why-error');
+    if (!reason) { err.textContent = kind === 'declined' ? 'Pick why they declined.' : 'Pick why it worked.'; return; }
+    if (reason === 'other' && !note) { err.textContent = 'Add a short note for Other.'; return; }
+    this.disabled = true;
+    try { var bad = await onSave({ reason: reason, note: note }); if (bad) { err.textContent = bad; return; } crmWhyClose(); }
+    finally { this.disabled = false; }
+  };
+  CRMWHY.style.display = 'flex';
+}
+function crmWhyClose() { if (CRMWHY) CRMWHY.style.display = 'none'; }
+// A stage after Replied. Contract signed and later need a logged deal (the
+// deal form asks the amount and why it worked) and a reason on record.
+async function crmSetStage(ref, stage, ctx, done) {
+  var r = await crmPost('/api/agent/crm/deal', Object.assign({}, ref, { stage: stage }));
+  if (r.ok) { showToast('Stage: ' + (r.data.deal && r.data.deal.stageLabel || stage)); if (done) done(); return; }
+  if (r.data.needs === 'deal' && ctx) { dealSignedOpen(ctx.athleteId, ctx.brand, ctx.brandKey || null, ctx.queueId || null, ctx.offer || null, stage); return; }
+  if (r.data.needs === 'why') {
+    crmWhyOpen('won', 'Why did it work?', async function (w) {
+      var r2 = await crmPost('/api/agent/crm/deal', Object.assign({}, ref, { stage: stage, reason: w.reason, note: w.note }));
+      if (!r2.ok) return r2.data.error || ('error ' + r2.status);
+      showToast('Stage: ' + (r2.data.deal && r2.data.deal.stageLabel || stage)); if (done) done();
+    });
+    return;
+  }
+  showToast(r.data.error || ('Could not save: error ' + r.status)); if (done) done();
+}
+async function crmSetNext(ref, step, done) {
+  var r = await crmPost('/api/agent/crm/deal', Object.assign({}, ref, { nextStep: step || null }));
+  if (!r.ok) { showToast(r.data.error || ('Could not save: error ' + r.status)); return; }
+  showToast(step ? 'Next step: ' + (r.data.deal && r.data.deal.nextStepLabel || step) : 'Next step cleared');
+  if (done) done();
+}
+
+function dealSignedOpen(athleteId, brand, brandKey, queueId, offer, thenStage) {
   if (!athleteId || !brand) { showToast('Which athlete and which business?'); return; }
   if (!DEALFORM) {
     DEALFORM = document.createElement('div');
@@ -15482,6 +15585,10 @@ function dealSignedOpen(athleteId, brand, brandKey, queueId, offer) {
       + '<div id="deal-form-offer" style="font-size:11px;color:var(--muted);margin-bottom:12px"></div>'
       + '<label class="form-label-sm">What will they do?</label>'
       + '<input class="input-sm" id="deal-form-what" placeholder="e.g. two Instagram posts, an appearance day" style="width:100%;margin-bottom:16px">'
+      // WHY IT WORKED (CRM_ON): shown only when the CRM is on.
+      + '<div id="deal-form-why-wrap" style="display:none"><label class="form-label-sm">Why did it work?</label>'
+      + '<select class="input-sm" id="deal-form-why" style="width:100%;margin-bottom:6px"></select>'
+      + '<input class="input-sm" id="deal-form-why-note" maxlength="200" placeholder="A short note" style="width:100%;margin-bottom:12px;display:none"></div>'
       + '<div id="deal-form-error" style="font-size:11px;color:#ef4444;margin-bottom:8px"></div>'
       + '<div style="display:flex;gap:8px;justify-content:flex-end">'
       + '<button onclick="dealSignedClose()" style="font-size:12px;padding:8px 12px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer">Cancel</button>'
@@ -15489,7 +15596,17 @@ function dealSignedOpen(athleteId, brand, brandKey, queueId, offer) {
       + '</div></div>';
     document.body.appendChild(DEALFORM);
     DEALFORM.addEventListener('click', function (e) { if (e.target === DEALFORM) dealSignedClose(); });
+    document.getElementById('deal-form-why').addEventListener('change', function () {
+      document.getElementById('deal-form-why-note').style.display = this.value === 'other' ? '' : 'none';
+    });
   }
+  DEALFORM.dataset.thenStage = thenStage || '';
+  document.getElementById('deal-form-why-wrap').style.display = 'none';
+  crmLoad().then(function () {
+    var v = crmV();
+    document.getElementById('deal-form-why-wrap').style.display = v ? '' : 'none';
+    if (v) { document.getElementById('deal-form-why').innerHTML = crmOpts(v.win, '', 'Pick one'); document.getElementById('deal-form-why-note').value = ''; document.getElementById('deal-form-why-note').style.display = 'none'; }
+  });
   DEALFORM.dataset.athleteId = athleteId;
   DEALFORM.dataset.brand = brand;
   DEALFORM.dataset.brandKey = brandKey || '';
@@ -15522,12 +15639,24 @@ async function dealSignedSave() {
     offeredValue: DEALFORM.dataset.offered || null,
     offerKind: DEALFORM.dataset.offerKind || null,
   };
+  // WHY IT WORKED (CRM_ON): asked, and needed, when the CRM is on.
+  if (crmV()) {
+    body.winReason = document.getElementById('deal-form-why').value || null;
+    body.winNote = (document.getElementById('deal-form-why-note').value || '').trim() || null;
+    if (!body.winReason) { err.textContent = 'Pick why it worked.'; return; }
+    if (body.winReason === 'other' && !body.winNote) { err.textContent = 'Add a short note for Other.'; return; }
+  }
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
     var r = await fetch(API_BASE + '/api/deals/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
     var d = await r.json();
     if (!r.ok || !d.ok) { err.textContent = d.error || ('error ' + r.status); return; }
     dealSignedClose();
+    // A later stage the agent picked (Paid, say) is set once the deal is logged.
+    var _then = DEALFORM.dataset.thenStage;
+    if (_then && _then !== 'contract_signed' && crmV()) {
+      await crmPost('/api/agent/crm/deal', DEALFORM.dataset.queueId ? { cardId: 'queue:' + DEALFORM.dataset.queueId, stage: _then } : { athleteId: body.athleteId, brand: body.brand, stage: _then });
+    }
     // The undo is offered where the deal was logged, not buried on a page.
     showToast('Deal logged with ' + d.brand + (d.value ? ' for $' + Number(d.value).toLocaleString() : '') + ' \u00b7 tap Undo in Recent deals to take it back');
     if (typeof mbLoad === 'function' && document.getElementById('mb-body')) mbLoad();
@@ -15555,8 +15684,11 @@ function dealButtonHtml(athleteId, brand, brandKey, loggedId) {
     return '<button onclick="dealUndo(' + Number(loggedId) + ')" title="Undo this logged deal" '
       + 'style="font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35);cursor:pointer">Deal signed \u2713 Undo</button>';
   }
+  // THE ACTION, NOT THE STATE: a dashed button reading "Mark deal signed". It
+  // was a pill reading "Deal signed" beside the status chip, which read as the
+  // deal being signed on every row that was not.
   return '<button onclick="dealSignedOpen(\'' + esc(athleteId) + '\',\'' + esc(brand) + '\',\'' + esc(brandKey) + '\')" '
-    + 'style="font-size:10px;padding:2px 8px;border-radius:999px;background:transparent;color:var(--muted);border:1px solid var(--border);cursor:pointer">Deal signed</button>';
+    + 'style="font-size:10px;padding:2px 8px;border-radius:6px;background:transparent;color:var(--muted);border:1px dashed var(--border);cursor:pointer">Mark deal signed</button>';
 }
 function mbRender(d) {
   var k = d.counts || {};
@@ -19718,6 +19850,8 @@ async function loadAiOutreachLogs() {
     var r = await fetch(API_BASE + '/api/outreach/logs', { credentials: 'include' });
     if (!r.ok) throw new Error('failed');
     var rows = await r.json();
+    // THE AGENT'S CRM (CRM_ON): the last column is "What happened".
+    var crm = await crmLoad();
     // Only emails that actually went out or came back matter for reply tracking.
     rows = (rows || []).filter(function(x) { return x.status === 'sent' || x.status === 'replied'; });
     if (!rows.length) {
@@ -19734,7 +19868,7 @@ async function loadAiOutreachLogs() {
         '<th style="text-align:left;padding:8px 10px">Brand</th>' +
         '<th style="text-align:left;padding:8px 10px">Sent</th>' +
         '<th style="text-align:left;padding:8px 10px">Status</th>' +
-        '<th style="text-align:left;padding:8px 10px">Action</th>' +
+        '<th style="text-align:left;padding:8px 10px">' + (crm ? 'What happened' : 'Action') + '</th>' +
       '</tr></thead><tbody>' +
       rows.map(function(row) {
         var sentDate = row.sent_at ? new Date(row.sent_at).toLocaleDateString() : '-';
@@ -19751,16 +19885,52 @@ async function loadAiOutreachLogs() {
           // The same one-tap log as My Brands and the Pipeline card: two
           // optional questions, then the deal is recorded and the Pipeline
           // row moves to Closed (services/dealLog).
+          (crm ? '<td style="padding:10px 10px">' + trackerCrmCell(row, crm) + '</td>' :
           '<td style="padding:10px 10px">' + action + ' ' + dealButtonHtml(row.athlete_id, row.brand_name, row.brand_key, null) +
             // "This bounced" (SEND_GATE_ON): suppresses the address, stops its follow-ups.
             (row.finder ? ' ' + (row.bounced_at
               ? '<span style="color:#f87171;font-size:10px;font-weight:700">Bounced</span>'
-              : '<button onclick="markOutreachBounced(this,\'' + row.id + '\')" style="padding:4px 10px;border-radius:6px;background:transparent;border:1px solid rgba(248,113,113,0.5);color:#f87171;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">This bounced</button>') : '') + '</td>' +
+              : '<button onclick="markOutreachBounced(this,\'' + row.id + '\')" style="padding:4px 10px;border-radius:6px;background:transparent;border:1px solid rgba(248,113,113,0.5);color:#f87171;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">Got a bounce email</button>') : '') + '</td>') +
         '</tr>';
       }).join('') +
       '</tbody></table></div>';
   } catch (e) {
     el.innerHTML = '<div style="color:var(--muted);padding:16px 0;font-size:12px">Could not load AI outreach right now.</div>';
+  }
+}
+
+// ── WHAT HAPPENED, ON THE TRACKER (CRM_ON) ─────────────────────────────────
+// Replied / No reply yet / Declined (with why) / Got a bounce email, then the
+// deal's next step if it has one, and the one way to mark a deal signed.
+function trackerCrmCell(row, v) {
+  var what = row.whatHappened || 'no_reply';
+  var list = (v.what || []).filter(function (x) { return x.key !== 'bounced' || row.sent_to_email; });
+  var c = row.crm || {};
+  return '<select aria-label="What happened" onchange="trackerWhat(this,\'' + escapeHtml(String(row.id)) + '\')" style="padding:4px 6px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:11px;font-family:inherit">'
+      + crmOpts(list, what) + '</select> '
+    + dealButtonHtml(row.athlete_id, row.brand_name, row.brand_key, null)
+    + (what === 'declined' && c.declineLabel ? '<div style="font-size:10px;color:var(--muted);margin-top:4px">Declined: ' + escapeHtml(c.declineLabel) + (c.declineNote ? ' (' + escapeHtml(c.declineNote) + ')' : '') + '</div>' : '')
+    + (c.stageLabel && what === 'replied' ? '<div style="font-size:10px;color:var(--muted);margin-top:4px">Stage: ' + escapeHtml(c.stageLabel) + '</div>' : '')
+    + (c.nextStepLabel ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">Next step: ' + escapeHtml(c.nextStepLabel) + '</div>' : '');
+}
+async function trackerWhat(sel, id) {
+  var v = sel.value;
+  if (v === 'replied' || v === 'no_reply') { markOutreachReplied(id, v === 'replied'); return; }
+  loadAiOutreachLogs();   // shows what is saved until the save lands
+  if (v === 'declined') {
+    crmWhyOpen('declined', 'Why did they decline?', async function (w) {
+      var r = await crmPost('/api/agent/crm/declined', { logId: id, reason: w.reason, note: w.note });
+      if (!r.ok) return r.data.error || ('error ' + r.status);
+      showToast('Marked declined: ' + (r.data.reason || ''));
+      loadAiOutreachLogs();
+    });
+    return;
+  }
+  if (v === 'bounced') {
+    var b = await crmPost('/api/agent/crm/bounced', { logId: id });
+    if (!b.ok) { showToast(b.data.error || ('Could not save: error ' + b.status)); return; }
+    showToast('Got a bounce email: ' + (b.data.suppressed || 'the address') + ' gets no more email');
+    loadAiOutreachLogs();
   }
 }
 
@@ -19771,7 +19941,7 @@ async function markOutreachBounced(btn, id) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' });
     var j = await r.json().catch(function () { return {}; });
     if (!r.ok) { showToast(j.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
-    showToast('Marked bounced: ' + (j.suppressed || 'the address') + ' gets no more email' + (j.stopped ? '; ' + j.stopped + ' follow-up' + (j.stopped === 1 ? '' : 's') + ' stopped' : ''));
+    showToast('Got a bounce email: ' + (j.suppressed || 'the address') + ' gets no more email' + (j.stopped ? '; ' + j.stopped + ' follow-up' + (j.stopped === 1 ? '' : 's') + ' stopped' : ''));
     loadAiOutreachLogs();
   } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }
 }
@@ -21299,7 +21469,7 @@ async function hqLoad(athleteId) {
 function hqRender() {
   var d = HQ.data; if (!d) return;
   var news = document.getElementById('home-news');
-  if (news) news.innerHTML = hqFaultsHtml(d) + hqNewsHtml(d);
+  if (news) news.innerHTML = hqFaultsHtml(d) + hqTodoHtml(d) + hqNewsHtml(d);
   var tabs = document.getElementById('home-tabs');
   var panel = document.getElementById('home-panel');
   var bar = document.getElementById('home-bar');
@@ -21727,7 +21897,7 @@ function hqNewsHtml(d) {
       + '<span>' + [r.athlete ? 'for ' + hqEscape(r.athlete) : null, r.from ? hqEscape(r.from) : null, when ? hqEscape(when) : null].filter(Boolean).join(' &middot; ') + '</span></div>'
       + '<div class="hq-reply-t">' + (r.text ? hqEscape(r.text) : '<i>Their reply is in your mailbox; the text was not captured.</i>') + '</div>'
       + '<div class="hq-reply-b">'
-      + (r.cardId ? '<button class="hq-mark deal" onclick="hqReplyDeal(' + Number(r.cardId) + ',\'' + hqEscape(r.athleteId) + '\')">Deal signed</button>'
+      + (r.cardId ? '<button class="hq-mark deal" onclick="hqReplyDeal(' + Number(r.cardId) + ',\'' + hqEscape(r.athleteId) + '\')">Mark deal signed</button>'
         + '<button class="hq-mark" onclick="hqReplyNo(this,' + Number(r.cardId) + ')">Not interested</button>' : '')
       + '<button class="hq-mark" onclick="hqReplyHandled(this,\'' + hqEscape(r.logId) + '\')">Handled</button>'
       + '</div></div>';
@@ -21763,7 +21933,11 @@ function hqSentHtml(d) {
   return '<p class="hq-sub hq-outhd">Sent &middot; what happened? <span style="font-weight:400">' + head + '</span></p>'
     + '<div class="hq-cards">' + rows.map(function (r) {
       var state = '', btns = '';
-      if (r.outcome === 'signed') {
+      if (d.crm) {
+        // THE AGENT'S CRM (CRM_ON): one control per question.
+        var cx = hqSentCrm(r, d.crm);
+        state = cx.state; btns = cx.btns;
+      } else if (r.outcome === 'signed') {
         state = '<span class="hq-sentstate signed">Deal signed' + (r.dealValue ? ' &middot; $' + Number(r.dealValue).toLocaleString() : '') + '</span>';
         if (r.dealId) btns = '<button class="hq-mark" onclick="hqSentUndo(' + Number(r.dealId) + ')">Undo</button>';
       } else {
@@ -21773,9 +21947,9 @@ function hqSentHtml(d) {
         if (r.outcome !== 'replied' && r.outcome !== 'declined') btns += '<button class="hq-mark" onclick="hqSentMark(this,' + Number(r.id) + ',\'replied\')">They replied</button>';
         if (r.outcome !== 'declined') btns += '<button class="hq-mark" onclick="hqSentMark(this,' + Number(r.id) + ',\'declined\')">Not interested</button>';
         if (r.outcome === 'waiting' || r.outcome === 'no_reply') btns += '<button class="hq-mark" title="No more follow-ups to this business" onclick="hqSentMark(this,' + Number(r.id) + ',\'dead\')">Stop follow-ups</button>';
-        btns += '<button class="hq-mark deal" onclick="hqSentDeal(' + Number(r.id) + ')">Deal signed</button>';
+        btns += '<button class="hq-mark deal" onclick="hqSentDeal(' + Number(r.id) + ')">Mark deal signed</button>';
       }
-      btns += hqBounceBtn(r);
+      if (!d.crm) btns += hqBounceBtn(r);
       var when = r.sentAt ? new Date(r.sentAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
       return '<div class="hq-card hq-row hq-sentrow">'
         + '<div class="hq-rowhead hq-outhead">'
@@ -21787,14 +21961,98 @@ function hqSentHtml(d) {
         + '</div>';
     }).join('') + '</div>';
 }
+// ── THE AGENT'S CRM ON A SENT ROW (CRM_ON) ─────────────────────────────────
+// What happened (No reply yet / Replied / Declined / Got a bounce email), the
+// stage after a reply, and the next step. Signed only from a logged deal.
+function hqSentCrm(r, v) {
+  var c = r.crm || {};
+  var signed = r.outcome === 'signed';
+  var what = r.bounced ? 'bounced' : r.outcome === 'declined' ? 'declined' : (r.outcome === 'replied' || signed) ? 'replied' : 'no_reply';
+  var state = '', btns = '';
+  if (signed) {
+    state = '<span class="hq-sentstate signed">Deal signed' + (r.dealValue ? ' &middot; $' + Number(r.dealValue).toLocaleString() : '') + '</span>';
+    if (r.dealId) btns += '<button class="hq-mark" onclick="hqSentUndo(' + Number(r.dealId) + ')">Undo</button>';
+  } else if (r.outcome === 'dead') state = '<span class="hq-sentstate declined">Stopped</span>';
+  if (r.bounced) state = '<span class="hq-sentstate declined">Bounced</span>' + state;
+  if (what === 'declined' && c.declineLabel) state += ' <span class="hq-crm-why">Declined: ' + hqEscape(c.declineLabel) + (c.declineNote ? ' (' + hqEscape(c.declineNote) + ')' : '') + '</span>';
+  if (signed && c.winLabel) state += ' <span class="hq-crm-why">Why it worked: ' + hqEscape(c.winLabel) + (c.winNote ? ' (' + hqEscape(c.winNote) + ')' : '') + '</span>';
+  if (!signed) {
+    var whatList = (v.what || []).filter(function (x) { return x.key !== 'bounced' || r.logId; });
+    btns += '<label class="hq-crm"><span>What happened</span><select onchange="hqCrmWhat(this,' + Number(r.id) + ')">' + crmOpts(whatList, what) + '</select></label>';
+  }
+  if (what === 'replied' || signed) {
+    var cur = (v.stages || []).some(function (s) { return s.key === c.stage; }) ? c.stage : '';
+    btns += '<label class="hq-crm"><span>Stage</span><select onchange="hqCrmStage(this,' + Number(r.id) + ')">' + crmOpts(v.stages, cur, 'Pick a stage') + '</select></label>';
+  }
+  btns += '<label class="hq-crm"><span>Next step</span><select onchange="hqCrmNext(this,' + Number(r.id) + ')">' + crmOpts(v.next, c.nextStep || '', 'None') + '</select></label>';
+  if (!signed) btns += '<button class="hq-mark deal" onclick="hqSentDeal(' + Number(r.id) + ')">Mark deal signed</button>';
+  if (!signed && (r.outcome === 'waiting' || r.outcome === 'no_reply')) btns += '<button class="hq-mark" title="No more follow-ups to this business" onclick="hqSentMark(this,' + Number(r.id) + ',\'dead\')">Stop follow-ups</button>';
+  return { state: state, btns: btns };
+}
+function hqSentRow(id) { return ((HQ.data && HQ.data.sent) || []).find(function (x) { return x.id === id; }) || null; }
+async function hqCrmWhat(sel, id) {
+  var v = sel.value, r = hqSentRow(id);
+  if (!r) return;
+  hqRender();   // the control shows what is saved until the save lands
+  if (v === 'declined') { hqSentMark(null, id, 'declined'); return; }
+  if (v === 'bounced') {
+    var b = await crmPost('/api/agent/crm/bounced', { logId: r.logId });
+    if (!b.ok) { showToast(b.data.error || ('Could not save: error ' + b.status)); return; }
+    showToast('Got a bounce email: ' + (b.data.suppressed || 'the address') + ' gets no more email');
+    hqLoad(HQ.selected); return;
+  }
+  hqSentMark(null, id, v === 'replied' ? 'replied' : 'no_reply');
+}
+function hqCrmStage(sel, id) {
+  var stage = sel.value, r = hqSentRow(id);
+  if (!stage || !r) return;
+  hqRender();
+  var ctx = { athleteId: HQ.selected, brand: r.business, brandKey: r.brandKey, queueId: id, offer: r.offer || null };
+  if (stage === 'contract_signed' && r.outcome !== 'signed') { dealSignedOpen(ctx.athleteId, ctx.brand, ctx.brandKey, id, ctx.offer, 'contract_signed'); return; }
+  crmSetStage({ cardId: 'queue:' + id }, stage, ctx, function () { hqLoad(HQ.selected); });
+}
+function hqCrmNext(sel, id) { crmSetNext({ cardId: 'queue:' + id }, sel.value, function () { hqLoad(HQ.selected); }); }
+
+// ── THE TO-DO LIST (CRM_ON) ────────────────────────────────────────────────
+// Every deal with a next step that is not Done, for every athlete, oldest
+// first. Change the step here, or mark it done.
+function hqTodoHtml(d) {
+  if (!d || !d.crm || !(d.todo || []).length) return '';
+  return '<div class="hq-todo"><p class="hq-sub" style="margin:0 0 4px"><b>Your next steps</b> <span style="font-weight:400">' + d.todo.length + '</span></p>'
+    + d.todo.map(function (t) {
+      return '<div class="hq-todo-row"><span><b>' + hqEscape(t.nextStepLabel || '') + '</b> &middot; ' + hqEscape(t.business || '')
+        + (t.athlete ? ' &middot; ' + hqEscape(t.athlete) : '') + (t.stageLabel ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(t.stageLabel) + ')</span>' : '') + '</span>'
+        + '<select aria-label="Change the next step" onchange="hqTodoNext(this,' + Number(t.dealId) + ')">' + crmOpts(d.crm.next, t.nextStep) + '</select>'
+        + '<button class="hq-mark" onclick="hqTodoNext(null,' + Number(t.dealId) + ',\'done\')">Done</button></div>';
+    }).join('') + '</div>';
+}
+function hqTodoNext(sel, dealId, step) { crmSetNext({ dealId: dealId }, step || (sel && sel.value), function () { hqLoad(HQ.selected); }); }
+
+// ── ASK THE ATHLETE FIRST (CRM_ON) ─────────────────────────────────────────
+// An optional first stage before a card goes out. It becomes the deal's next
+// step, so it is on the to-do list until it is done.
+function hqAskHtml(c, i) {
+  if (typeof crmV !== 'function' || !crmV() || !c || c.crm === undefined) return '';
+  if (c.crm && c.crm.stage === 'ask_athlete') return '<p class="hq-note">Asking the athlete first' + (c.crm.nextStepLabel ? '. Next step: ' + hqEscape(c.crm.nextStepLabel) : '') + '.</p>';
+  return '<p class="hq-note"><button class="hm-btn ghost" type="button" onclick="hqAskAthlete(' + i + ', this)">Ask the athlete first</button> Optional: check with the athlete before this goes out.</p>';
+}
+async function hqAskAthlete(i, btn) {
+  var c = hqCardAt(i); if (!c) return;
+  if (btn) btn.disabled = true;
+  var r = await crmPost('/api/agent/crm/deal', { cardId: c.id, stage: 'ask_athlete' });
+  if (!r.ok) { showToast(r.data.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
+  showToast('Next step: Ask the athlete');
+  hqLoad(HQ.selected);
+}
+
 // ── "THIS BOUNCED" (SEND_GATE_ON) ──────────────────────────────────────────
 // On every sent email. A bounce lands in the agent's own inbox, where NILDash
 // cannot see it: one click suppresses the address and stops its follow-ups.
 // The server sends bounceId only with the switch on.
 function hqBounceBtn(r) {
   if (!r || !r.bounceId) return '';
-  if (r.bounced) return '<span class="hq-sentstate declined" title="Marked bounced: no more email to this address">Bounced</span>';
-  return '<button class="hq-mark" title="It came back undelivered. Blocks the address and stops its follow-ups." onclick="hqBounced(this,\'' + hqEscape(String(r.bounceId)) + '\')">This bounced</button>';
+  if (r.bounced) return '<span class="hq-sentstate declined" title="Got a bounce email: no more email to this address">Bounced</span>';
+  return '<button class="hq-mark" title="It came back undelivered. Blocks the address and stops its follow-ups." onclick="hqBounced(this,\'' + hqEscape(String(r.bounceId)) + '\')">Got a bounce email</button>';
 }
 async function hqBounced(btn, logId) {
   if (btn) btn.disabled = true;
@@ -21802,16 +22060,23 @@ async function hqBounced(btn, logId) {
     var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(logId) + '/bounced', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' });
     var j = await r.json().catch(function () { return {}; });
     if (!r.ok) { showToast(j.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
-    showToast('Marked bounced: ' + (j.suppressed || 'the address') + ' gets no more email' + (j.stopped ? '; ' + j.stopped + ' follow-up' + (j.stopped === 1 ? '' : 's') + ' stopped' : ''));
+    showToast('Got a bounce email: ' + (j.suppressed || 'the address') + ' gets no more email' + (j.stopped ? '; ' + j.stopped + ' follow-up' + (j.stopped === 1 ? '' : 's') + ' stopped' : ''));
     hqLoad(HQ.selected);
   } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }
 }
-async function hqSentMark(btn, id, outcome) {
+async function hqSentMark(btn, id, outcome, why) {
+  // CRM_ON: a decline asks why first.
+  if (outcome === 'declined' && !why && typeof crmV === 'function' && crmV()) {
+    crmWhyOpen('declined', 'Why did they decline?', async function (w) { await hqSentMark(btn, id, 'declined', w); });
+    return;
+  }
   if (btn) btn.disabled = true;
   try {
-    var r = await fetch(API_BASE + '/api/agent/outreach-queue/' + id + '/outcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ outcome: outcome }) });
+    var r = await fetch(API_BASE + '/api/agent/outreach-queue/' + id + '/outcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify(why ? { outcome: outcome, reason: why.reason, note: why.note } : { outcome: outcome }) });
     if (!r.ok) { var e = await r.json().catch(function () { return {}; }); showToast(e.error || ('Could not save: error ' + r.status)); if (btn) btn.disabled = false; return; }
-    showToast(outcome === 'declined' ? 'Marked not interested' : outcome === 'dead' ? 'No more follow-ups to this business' : 'Marked replied');
+    showToast(outcome === 'declined' ? (typeof crmV === 'function' && crmV() ? 'Marked declined' : 'Marked not interested') : outcome === 'dead' ? 'No more follow-ups to this business'
+      : outcome === 'no_reply' ? 'Marked no reply yet' : 'Marked replied');
     hqLoad(HQ.selected);
   } catch (e) { showToast('Could not save: ' + e.message); if (btn) btn.disabled = false; }
 }
@@ -21880,6 +22145,7 @@ function hqRenderCard(c, i) {
     + (c.why ? '<p class="hq-why">' + hqEscape(c.why) + '</p>' : '')
     + (c.sponsorNote ? '<p class="hq-why"><b>' + hqEscape(c.sponsorNote) + '</b></p>' : '')
     + hqOfferHtml(c, i)
+    + hqAskHtml(c, i)
     // A thin row says so: it reached a slot because nothing with
     // marketing-activity evidence was left.
     + (c.thin && c.thinNote ? '<p class="hq-note hq-thin">' + hqEscape(c.thinNote) + '</p>' : '')
