@@ -50,6 +50,7 @@ ok('never sold, never used for advertising', /We never sell it, and we never use
 ok('access tokens are encrypted; kept while the connection is active', /Instagram access tokens are encrypted/.test(SEC) && /keep the data while the connection is active/.test(SEC));
 
 console.log('\n4. HOW TO REMOVE IT');
+ok('in NILDash: Disconnect on the athlete page, which deletes the token and the data right away', /In NILDash: Disconnect on the athlete page in NILDash\. The athlete's agent can do it for them\. We delete the access token and everything we fetched from the account right away\./.test(SEC), SEC.match(/In NILDash:[^\n]*/));
 ok('in Instagram: Settings > Apps and websites, remove NILDash', /Settings > Apps and websites, find NILDash and remove it/.test(SEC), SEC.match(/In Instagram:[^.]*\./));
 ok('Meta\'s data deletion callback deletes the fetched data', /Meta's data deletion callback tells us, and we delete everything we fetched/.test(SEC));
 ok('by email: contact@mynildash.com', /By email: write to contact@mynildash\.com/.test(SEC) && /mailto:contact@mynildash\.com/.test(SEC_HTML));
