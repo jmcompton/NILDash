@@ -3522,6 +3522,10 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       estimatedValueLow: d.estimatedValueLow || valLow,
       estimatedValueHigh: d.estimatedValueHigh || valHigh,
       suggestedRate: { low: rate.low, high: rate.high },
+      // The size signals the suggested offer reads, from the Places candidate.
+      ...(meta && meta.user_ratings_total != null ? { user_ratings_total: meta.user_ratings_total } : {}),
+      ...(meta && meta.price_level != null ? { price_level: meta.price_level } : {}),
+      ...(meta && Array.isArray(meta.types) && !d.types ? { types: meta.types } : {}),
     };
   };
 
@@ -3653,6 +3657,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         place_id: it.place_id || null,
         types: Array.isArray(it.types) ? it.types : undefined,
         chain: it.chain === true ? true : undefined,
+        // The size signals the suggested offer reads (services/offerSuggest).
+        user_ratings_total: it.user_ratings_total != null ? it.user_ratings_total : undefined,
+        price_level: it.price_level != null ? it.price_level : undefined,
       });
     };
     // ── Manual "Add a Business" injection ─────────────────────────────────────

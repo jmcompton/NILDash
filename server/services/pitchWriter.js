@@ -94,8 +94,17 @@ const PRICE_PATTERNS = [
   /\bpaid?\s+\$?\d/i,                              // "paid 500"
   /\bper\s+(post|story|reel|appearance|video)\s*[:,]?\s*\$?\d/i,
 ];
-function containsPrice(text) {
-  const t = String(text || '');
+// opts.allow: the card's suggested offer ("$250", "$500 in product",
+// services/offerSuggest, OFFER_ON), the one figure a first pitch may name.
+// That exact figure is not a price here; any other money still is.
+// The one figure a card may name (its suggested offer), exactly, and never as
+// part of a bigger number: "$250" is the offer, "$2500" and "$250,000" are not.
+function offerRe(label) {
+  return new RegExp(String(label).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?!\\d|[,.]\\d)', 'g');
+}
+function containsPrice(text, opts = {}) {
+  let t = String(text || '');
+  if (opts.allow) t = t.replace(offerRe(opts.allow), ' ');
   for (const re of PRICE_PATTERNS) { const m = t.match(re); if (m) return m[0]; }
   return null;
 }
@@ -267,8 +276,10 @@ function lintMessage(msg, opts = {}) {
   if (t.length > 700) problems.push('too long for a DM');
   // NO MONEY. Checked here rather than trusted to the prompt, because this is
   // the one rule where a single slip reaches a real business as a real number.
-  const price = containsPrice(t);
+  const price = containsPrice(t, { allow: opts.offer || null });
   if (price) problems.push(`names a price ("${price.trim()}") — outreach names the deliverable, never the money`);
+  // THE SUGGESTED OFFER (OFFER_ON): named at most once, exactly as given.
+  if (opts.offer && (t.match(offerRe(opts.offer)) || []).length > 1) problems.push(`names the offer (${opts.offer}) more than once`);
   // ── THE DELIVERABLE LINT IS OFF FOR THIS VOICE, DELIBERATELY ────────────
   // It demanded a countable deliverable, and the voice agents asked for sells
   // POTENTIAL rather than a package: a first message that hands over a menu can
@@ -1424,6 +1435,21 @@ function igVerifiedLine(ctx) {
     + 'Use no other audience number, and do not round or restate them differently.\n';
 }
 
+// ── THE SUGGESTED OFFER (services/offerSuggest, OFFER_ON) ───────────────────
+// The card's dollar figure, the agent's to change, is where the conversation
+// starts: the one exception to the money rule, named exactly and at most once,
+// inside a sentence the message already has. A restaurant's menu item named
+// after the athlete may ride along as an add-on.
+function offerLines(ctx) {
+  const o = ctx && ctx.offer;
+  if (!o || !o.label) return '';
+  return `\nTHE STARTING OFFER: ${o.label}. This one figure is the exception to the money rule: you may name exactly "${o.label}", once, `
+    + `as where the conversation starts, inside a sentence the message already has (for example "...and we'd start the conversation at ${o.label}."). `
+    + 'Name no other amount, no range, no percentage, and never offer anything for free. '
+    + 'Where the category note suggests product in exchange, this offer replaces it: the deal is this dollar figure.\n'
+    + (o.menuItem ? `THE ADD-ON, for this restaurant: a menu item named after the athlete, "${o.menuItem}". You may offer it alongside, in the same sentence.\n` : '');
+}
+
 function buildPrompt(ctx) {
   const play = playbookFor(ctx.business && ctx.business.category);
   const learned = (ctx.learnedAngles && ctx.learnedAngles.length)
@@ -1451,7 +1477,7 @@ ${describeAthlete(ctx.athlete || {})}
 WHAT THIS CATEGORY TYPICALLY WANTS
 ${play.wants}. A fitting ask looks like: ${play.ask}.
 ${dealLines.length ? '\nWHAT WE ALREADY WORKED OUT\n' + dealLines.join('\n') + '\n' : ''}${learned}
-${igVerifiedLine(ctx)}The agent's first name, for the sign-off: ${_signOffName(ctx)}
+${igVerifiedLine(ctx)}${offerLines(ctx)}The agent's first name, for the sign-off: ${_signOffName(ctx)}
 ${ctx.hasSchedulingLink
     ? 'The agent HAS a scheduling link, and it is appended below your message. You may '
       + 'invite them to use it: "use my scheduling link below to set up a call".'
@@ -1494,6 +1520,8 @@ async function writePitch(ctx, opts = {}) {
   const _biz = ctx.business || {};
   const greetFirstName = _biz.greetFirstName || (_biz.ownerName ? firstNameOf(_biz.ownerName) : null) || null;
   const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true, greetFirstName, requireAsk: true,
+    // The card's suggested offer, the one figure it may name (OFFER_ON).
+    offer: (ctx.offer && ctx.offer.label) || null,
     // The pro rules (services/proLane): no post-only deal, no hometown or school lead, never NIL.
     pro: !!(ctx.athlete && ctx.athlete.athleteType === 'pro'), athlete: ctx.athlete || null };
 

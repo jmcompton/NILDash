@@ -304,6 +304,7 @@ function renderPrewarmedDraft(pre, dealResult, athleteId) {
   // personal contact, so nothing else in the email is rewritten client-side.
   const named = contact && contact.name && resolvePersonalEmail(contact) ? contact.name : null;
   if (named) personalizeGreeting(named);
+  applyCardOffer(dealResult);
 
   // THE MISSING PIECE. Pre-warming skips the contact ladder, so a pre-warmed modal
   // opened saying "No named contact found" even for businesses where a decision
@@ -369,6 +370,24 @@ function salutationNameFE(fullName) {
 // Replace a bare "Hi," on the first line with "Hi <first name},". Deliberately
 // narrow: it touches the greeting line only, never the body, and does nothing if
 // the draft already greets someone.
+// THE OFFER THE AGENT SET ON THE SCAN CARD (OFFER_ON). The pre-warmed draft was
+// written at scan time with the suggested figure; a changed offer replaces that
+// figure in the body, and nothing else. Never part of a bigger number.
+function offerSwap(text, o) {
+  if (!o || !o.amount || o.suggested == null) return text;
+  const from = '$' + Number(o.suggested).toLocaleString('en-US');
+  const to = '$' + Number(o.amount).toLocaleString('en-US') + (o.kind === 'product' ? ' in product' : '');
+  if (from === to) return text;
+  const re = new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?!\\d|[,.]\\d)', 'g');
+  return String(text || '').replace(re, to);
+}
+function applyCardOffer(d) {
+  const ta = document.getElementById('outreach-body-input');
+  if (!ta || !d || !d.offer) return;
+  const next = offerSwap(ta.value, d.offer);
+  if (next !== ta.value) ta.value = next;
+}
+
 function personalizeGreeting(fullName) {
   const ta = document.getElementById('outreach-body-input');
   if (!ta) return;

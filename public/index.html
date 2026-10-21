@@ -9350,20 +9350,90 @@ function _dsPitchFor(opp, athlete) {
   if (_dsCatHas(cat, _DS_CAT_BUDGET)) {
     return { pitch: scaled('Two feed posts and one appearance at their location'), why: 'Category with real local marketing budget' };
   }
+  // THE SUGGESTED OFFER (OFFER_ON): a card that carries a dollar offer never
+  // proposes free product on its own or a percentage. The offer is the money.
+  var _off = opp && opp.offer && opp.offer.amount ? opp.offer : null;
   // 4. Food and drink.
   if (_dsCatHas(cat, _DS_CAT_FOOD)) {
+    if (_off) return { pitch: scaled('Two feed posts and a story set') + (_off.menuItem ? ', plus a menu item named after the athlete' : ''), why: 'Food businesses like a menu item named after a local athlete' };
     return { pitch: 'Free meals plus a named menu item, athlete takes 10 percent', why: 'Food businesses trade product before they pay cash' };
   }
   // 5. Service businesses.
   if (_dsCatHas(cat, _DS_CAT_SERVICE)) {
+    if (_off) return { pitch: scaled('Two feed posts and a story set'), why: 'Service businesses want local customers through the door' };
     return { pitch: 'Free membership plus two feed posts and a story set', why: 'Service businesses trade access before cash' };
   }
   // 6. Retail / apparel.
   if (_dsCatHas(cat, _DS_CAT_RETAIL)) {
+    if (_off) return { pitch: scaled('Two feed posts and a story set, with a discount code for followers'), why: 'Retail can track a discount code' };
     return { pitch: 'Product plus a discount code, athlete takes 10 percent', why: 'Retail pays in product and code revenue first' };
   }
   // 7. No strong budget signal.
   return { pitch: scaled('Two feed posts and a story set'), why: 'No strong budget signal, start with a standard package' };
+}
+
+// ── THE SUGGESTED OFFER ON A SCAN CARD (OFFER_ON) ──────────────────────────
+// "Suggested offer: $250", editable here. AI Outreach and + Pipeline read the
+// card's offer (d IS window._dealScanResults[i]), so the edit carries through.
+function _dsOfferLine(o) {
+  if (!o || !o.amount) return '';
+  var lbl = '$' + Number(o.amount).toLocaleString('en-US') + (o.kind === 'product' ? ' in product' : '');
+  var edited = o.suggested != null && (Number(o.suggested) !== Number(o.amount) || o.kind === 'product');
+  return (edited ? 'Your offer: <b>' + esc(lbl) + '</b> <span style="color:var(--muted)">(suggested $' + Number(o.suggested).toLocaleString('en-US') + ')</span>'
+    : 'Suggested offer: <b>' + esc(lbl) + '</b>' + (o.why ? ' <span style="color:var(--muted)">(' + esc(o.why) + ')</span>' : ''));
+}
+function _dsOfferHtml(d, i) {
+  var o = d && d.offer;
+  if (!o || !o.amount) return '';
+  if (o.suggested == null) o.suggested = o.amount;
+  return '<div style="font-size:11px;color:var(--muted);margin-top:9px">Offer</div>'
+    + '<div id="dsoff-read-' + i + '" style="font-size:13px;color:var(--text);margin-top:2px;line-height:1.5"><span id="dsoff-line-' + i + '">' + _dsOfferLine(o) + '</span>'
+    + ' <button onclick="dsOfferEdit(' + i + ')" style="font-size:11px;padding:2px 8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer">Change</button></div>'
+    + (o.menuItem ? '<div style="font-size:12px;color:var(--muted);margin-top:4px">Add-on: a menu item named after the athlete, &ldquo;' + esc(o.menuItem) + '&rdquo;.</div>' : '')
+    + '<div id="dsoff-edit-' + i + '" style="display:none;margin-top:6px">'
+    + '<input id="dsoff-amt-' + i + '" inputmode="numeric" value="' + esc(String(o.amount)) + '" aria-label="Offer in dollars" style="width:110px;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">'
+    + ' <select id="dsoff-kind-' + i + '" aria-label="Cash or product" style="padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">'
+    + '<option value="cash"' + (o.kind !== 'product' ? ' selected' : '') + '>Cash</option>'
+    + '<option value="product"' + (o.kind === 'product' ? ' selected' : '') + '>Product, at its dollar value</option></select>'
+    + ' <button onclick="dsOfferSave(' + i + ')" style="font-size:11px;padding:6px 10px;background:var(--accent);border:none;border-radius:6px;color:#0A0E1A;font-weight:700;cursor:pointer">Save</button>'
+    + ' <button onclick="dsOfferCancel(' + i + ')" style="font-size:11px;padding:6px 10px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer">Cancel</button>'
+    + '<div id="dsoff-err-' + i + '" style="font-size:11px;color:#ef4444;margin-top:4px"></div>'
+    + '</div>';
+}
+// The same rules as services/offerSuggest.parseOffer: one dollar amount, never
+// a percentage, never a range, never nothing.
+function dsParseOffer(raw, kind) {
+  raw = String(raw == null ? '' : raw).trim();
+  if (!raw) return { ok: false, why: 'Enter a dollar amount.' };
+  if (/%|percent/i.test(raw)) return { ok: false, why: 'An offer is a dollar amount, never a percentage.' };
+  if (/\d\s*(-|to|\u2013)\s*\$?\d/i.test(raw)) return { ok: false, why: 'One dollar amount, not a range.' };
+  var m = raw.replace(/[,\s]/g, '').match(/^\$?(\d+)(?:\.(\d{1,2}))?$/);
+  if (!m) return { ok: false, why: 'Enter a dollar amount, like 250.' };
+  var amount = Math.round(Number(m[1] + (m[2] ? '.' + m[2] : '')));
+  if (!(amount > 0)) return { ok: false, why: 'The amount has to be more than $0.' };
+  if (amount > 100000) return { ok: false, why: 'The amount has to be $100,000 or less.' };
+  return { ok: true, amount: amount, kind: kind === 'product' ? 'product' : 'cash' };
+}
+function dsOfferEdit(i) {
+  var r = document.getElementById('dsoff-read-' + i), e = document.getElementById('dsoff-edit-' + i);
+  if (r) r.style.display = 'none'; if (e) e.style.display = '';
+}
+function dsOfferCancel(i) {
+  var r = document.getElementById('dsoff-read-' + i), e = document.getElementById('dsoff-edit-' + i);
+  if (r) r.style.display = ''; if (e) e.style.display = 'none';
+}
+function dsOfferSave(i) {
+  var d = (window._dealScanResults || [])[i]; if (!d || !d.offer) return;
+  var a = document.getElementById('dsoff-amt-' + i), k = document.getElementById('dsoff-kind-' + i), err = document.getElementById('dsoff-err-' + i);
+  var p = dsParseOffer(a ? a.value : '', k ? k.value : 'cash');
+  if (!p.ok) { if (err) err.textContent = p.why; return; }
+  if (err) err.textContent = '';
+  d.offer.amount = p.amount; d.offer.kind = p.kind;
+  d.offer.label = '$' + p.amount.toLocaleString('en-US') + (p.kind === 'product' ? ' in product' : '');
+  d.offer.edited = Number(d.offer.suggested) !== p.amount || p.kind === 'product';
+  var line = document.getElementById('dsoff-line-' + i); if (line) line.innerHTML = _dsOfferLine(d.offer);
+  dsOfferCancel(i);
+  showToast('Offer saved. AI Outreach and + Pipeline use it.');
 }
 
 function _dsCardHtml(d, i, lane, isTop) {
@@ -9417,6 +9487,7 @@ function _dsCardHtml(d, i, lane, isTop) {
       '<div style="font-size:14px;font-weight:500;color:var(--text);margin-top:2px;line-height:1.4">' + esc(_pw.pitch) + '</div>' +
       '<div style="font-size:11px;color:var(--muted);margin-top:9px">Why</div>' +
       '<div style="font-size:13px;color:var(--muted);margin-top:2px;line-height:1.5">' + esc(_pw.why) + '</div>' +
+      _dsOfferHtml(d, i) +
     '</div>';
 
   // Contacts load lazily (after the card renders) so the scan stays fast. The
@@ -10321,6 +10392,8 @@ async function addDealToPipeline(brand, dealType, campaign) {
       }
     } catch(e) {}
     const dealId = 'deal-' + Date.now();
+    // The card's offer (OFFER_ON): what NILDash suggested and what the agent set.
+    var _po = ((window._dealScanResults || []).find(function (x) { return (x.brand || x.brand_name) === brand; }) || {}).offer || null;
     await fetch(API_BASE + '/api/athletes/' + selectedAthleteId + '/deals', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -10332,7 +10405,8 @@ async function addDealToPipeline(brand, dealType, campaign) {
         value: estimatedValue,
         dealType: dealType || 'ig-post',
         notes: 'Added from Deal Scan — est. value from NILViewVal',
-        athleteId: selectedAthleteId
+        athleteId: selectedAthleteId,
+        ...(_po && _po.amount ? { offeredValue: _po.amount, suggestedValue: _po.suggested != null ? _po.suggested : _po.amount, offerKind: _po.kind || 'cash' } : {})
       })
     });
     // Track for NILViewVal feedback
@@ -15395,7 +15469,7 @@ function nilBadgeHtml(flags) {
   if (flags.nilActive) return '<span title="This business has completed an NIL deal on NILDash." style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35);margin-left:6px;vertical-align:middle">NIL-active</span>';
   return '';
 }
-function dealSignedOpen(athleteId, brand, brandKey, queueId) {
+function dealSignedOpen(athleteId, brand, brandKey, queueId, offer) {
   if (!athleteId || !brand) { showToast('Which athlete and which business?'); return; }
   if (!DEALFORM) {
     DEALFORM = document.createElement('div');
@@ -15404,7 +15478,8 @@ function dealSignedOpen(athleteId, brand, brandKey, queueId) {
       + '<div id="deal-form-title" style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px"></div>'
       + '<div style="font-size:11px;color:var(--muted);margin-bottom:14px">Both answers are optional. Skip either one.</div>'
       + '<label class="form-label-sm">Deal value</label>'
-      + '<input class="input-sm" id="deal-form-value" inputmode="decimal" placeholder="e.g. 500" style="width:100%;margin-bottom:12px">'
+      + '<input class="input-sm" id="deal-form-value" inputmode="decimal" placeholder="e.g. 500" style="width:100%;margin-bottom:4px">'
+      + '<div id="deal-form-offer" style="font-size:11px;color:var(--muted);margin-bottom:12px"></div>'
       + '<label class="form-label-sm">What will they do?</label>'
       + '<input class="input-sm" id="deal-form-what" placeholder="e.g. two Instagram posts, an appearance day" style="width:100%;margin-bottom:16px">'
       + '<div id="deal-form-error" style="font-size:11px;color:#ef4444;margin-bottom:8px"></div>'
@@ -15420,7 +15495,14 @@ function dealSignedOpen(athleteId, brand, brandKey, queueId) {
   DEALFORM.dataset.brandKey = brandKey || '';
   DEALFORM.dataset.queueId = queueId || '';
   document.getElementById('deal-form-title').textContent = 'Deal signed with ' + brand;
-  document.getElementById('deal-form-value').value = '';
+  // THE OFFER THE PITCH MADE (OFFER_ON) is the starting figure; the agent
+  // changes it to what was signed.
+  var _off = offer && Number(offer.amount) > 0 ? offer : null;
+  DEALFORM.dataset.offered = _off ? String(Number(_off.amount)) : '';
+  DEALFORM.dataset.offerKind = _off ? (_off.kind === 'product' ? 'product' : 'cash') : '';
+  document.getElementById('deal-form-value').value = _off ? String(Number(_off.amount)) : '';
+  document.getElementById('deal-form-offer').textContent = _off
+    ? 'Your offer was $' + Number(_off.amount).toLocaleString() + (_off.kind === 'product' ? ' in product' : '') + '. Change it to what was signed.' : '';
   document.getElementById('deal-form-what').value = '';
   document.getElementById('deal-form-error').textContent = '';
   DEALFORM.style.display = 'flex';
@@ -15437,6 +15519,8 @@ async function dealSignedSave() {
     queueId: DEALFORM.dataset.queueId || null,
     value: (document.getElementById('deal-form-value').value || '').trim() || null,
     deliverable: (document.getElementById('deal-form-what').value || '').trim() || null,
+    offeredValue: DEALFORM.dataset.offered || null,
+    offerKind: DEALFORM.dataset.offerKind || null,
   };
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
@@ -21734,7 +21818,7 @@ async function hqSentMark(btn, id, outcome) {
 function hqSentDeal(id) {
   var r = ((HQ.data && HQ.data.sent) || []).find(function (x) { return x.id === id; });
   if (!r) return;
-  dealSignedOpen(HQ.selected, r.business, r.brandKey, id);
+  dealSignedOpen(HQ.selected, r.business, r.brandKey, id, r.offer || null);
 }
 async function hqSentUndo(dealId) { await dealUndo(dealId); hqLoad(HQ.selected); }
 
@@ -21795,6 +21879,7 @@ function hqRenderCard(c, i) {
         + ' <span class="role">&middot; ' + hqEscape(c.role) + '</span></p>' : '')
     + (c.why ? '<p class="hq-why">' + hqEscape(c.why) + '</p>' : '')
     + (c.sponsorNote ? '<p class="hq-why"><b>' + hqEscape(c.sponsorNote) + '</b></p>' : '')
+    + hqOfferHtml(c, i)
     // A thin row says so: it reached a slot because nothing with
     // marketing-activity evidence was left.
     + (c.thin && c.thinNote ? '<p class="hq-note hq-thin">' + hqEscape(c.thinNote) + '</p>' : '')
@@ -21808,6 +21893,68 @@ function hqRenderCard(c, i) {
   return '<div class="hq-card hq-row ' + ch.cls + (open ? ' open' : '') + '">' + head
     + '<div class="hq-x" id="' + xId + '"' + (open ? '' : ' hidden') + '>' + ctx + body + '</div>'
     + '</div>';
+}
+
+// ── THE SUGGESTED OFFER (OFFER_ON) ─────────────────────────────────────────
+// "Suggested offer: $250", the agent's to change. Saving changes the card and
+// the figure in its draft (PATCH /api/agent/cards/offer). Always dollars: a
+// product deal is "$500 in product", never a percentage.
+function hqOfferHtml(c, i) {
+  var o = c && c.offer;
+  if (!o || !o.amount) return '';
+  var dim = 'color:var(--dim,#63635a)';
+  var line = o.edited && o.suggestedLabel
+    ? 'Your offer: <b>' + hqEscape(o.label) + '</b> <span style="' + dim + '">(suggested ' + hqEscape(o.suggestedLabel) + ')</span>'
+    : 'Suggested offer: <b>' + hqEscape(o.label) + '</b>' + (o.why ? ' <span style="' + dim + '">(' + hqEscape(o.why) + ')</span>' : '');
+  return '<div class="hq-offer" id="hq-offer-' + i + '">'
+    + '<p class="hq-why" id="hq-offread-' + i + '">' + line
+    + ' <button class="hm-btn ghost" type="button" onclick="hqOfferEdit(' + i + ')">Change</button></p>'
+    + (o.menuItem ? '<p class="hq-note">Add-on: a menu item named after the athlete, &ldquo;' + hqEscape(o.menuItem) + '&rdquo;.</p>' : '')
+    + '<div class="hq-offedit" id="hq-offedit-' + i + '" hidden>'
+    + '<label class="hq-lbl" for="hq-offamt-' + i + '">Offer in dollars</label>'
+    + '<input class="hq-in" id="hq-offamt-' + i + '" inputmode="numeric" value="' + hqEscape(String(o.amount)) + '" style="max-width:140px">'
+    + ' <select class="hq-in" id="hq-offkind-' + i + '" style="max-width:200px">'
+    + '<option value="cash"' + (o.kind !== 'product' ? ' selected' : '') + '>Cash</option>'
+    + '<option value="product"' + (o.kind === 'product' ? ' selected' : '') + '>Product, at its dollar value</option>'
+    + '</select>'
+    + '<div class="hq-xbtns">'
+    + '<button class="hm-btn primary" type="button" onclick="hqOfferSave(' + i + ', this)">Save</button>'
+    + '<button class="hm-btn ghost" type="button" onclick="hqOfferCancel(' + i + ')">Cancel</button>'
+    + '</div>'
+    + '<p class="hq-note">The amount in the draft changes with it.</p>'
+    + '</div></div>';
+}
+function hqOfferEdit(i) {
+  var r = document.getElementById('hq-offread-' + i), e = document.getElementById('hq-offedit-' + i);
+  if (!r || !e) return;
+  r.hidden = true; e.hidden = false;
+  var a = document.getElementById('hq-offamt-' + i); if (a) a.focus();
+}
+function hqOfferCancel(i) {
+  var r = document.getElementById('hq-offread-' + i), e = document.getElementById('hq-offedit-' + i);
+  if (r) r.hidden = false; if (e) e.hidden = true;
+}
+async function hqOfferSave(i, btn) {
+  var card = hqCardAt(i); if (!card) return;
+  var a = document.getElementById('hq-offamt-' + i), k = document.getElementById('hq-offkind-' + i);
+  var st = document.getElementById('hq-est-' + i);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (st) st.textContent = '';
+  try {
+    var r = await fetch(API_BASE + '/api/agent/cards/offer', {
+      method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cardId: card.id, amount: a ? a.value : '', kind: k ? k.value : 'cash' }),
+    });
+    var d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || 'could not save');
+    card.offer = d.offer;
+    // The draft's words changed too: read the card back from the server.
+    if (d.rewritten) await hqLoad(HQ.selected); else hqRender(HQ.data);
+    if (typeof showToast === 'function') showToast('Offer saved');
+  } catch (e) {
+    if (st) st.textContent = 'Could not save the offer: ' + e.message;
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
 }
 
 // ── WHO IT SENDS FROM, said on every draft ─────────────────────────────────

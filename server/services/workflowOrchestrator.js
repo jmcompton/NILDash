@@ -334,6 +334,9 @@ async function buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment
       bodyHtml,
     ]
   );
+  // The card's suggested offer on the draft (OFFER_ON), as Home's cards carry it.
+  { const OFFER = require('./offerSuggest'); const o = OFFER.fromCard(dealScanResult && dealScanResult.offer);
+    if (o) await OFFER.record(pool, { logId: id, offer: o }); }
 
   return r.rows[0];
 }
@@ -366,6 +369,9 @@ async function createCRMDeal(agentId, athleteId, athlete, dealScanResult, enrich
         stage:       'Prospecting',
         dealType:    dealScanResult.dealType,
         source:      'outreach_engine',
+        // The offer the card carried (OFFER_ON): suggested and what the agent set.
+        ...((() => { const o = require('./offerSuggest').fromCard(dealScanResult && dealScanResult.offer);
+          return o ? { offeredValue: o.amount, suggestedValue: o.suggested, offerKind: o.kind } : {}; })()),
         notes:       `Auto-created by Outreach Engine. Fit score: ${dealScanResult.fitScore || 'N/A'}. Enrichment ID: ${enrichment.id}. Outreach ID: ${outreach?.id || 'N/A'}.`,
         createdAt:   new Date().toISOString(),
       }),
