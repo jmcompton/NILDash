@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-20",
+  "recordedAt": "2026-10-21",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_neartest.js": {
@@ -1080,6 +1080,11 @@
     "prewarmread.js": {
       "failed": 0,
       "total": 15,
+      "fault": null
+    },
+    "privacyinstagram.js": {
+      "failed": 0,
+      "total": 37,
       "fault": null
     },
     "proadd.js": {
