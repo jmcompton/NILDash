@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-20",
+  "recordedAt": "2026-10-21",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_neartest.js": {
@@ -120,6 +120,11 @@
     "athleteonb.js": {
       "failed": 0,
       "total": 39,
+      "fault": null
+    },
+    "athleteprofile.js": {
+      "failed": 0,
+      "total": 49,
       "fault": null
     },
     "athmode.js": {
