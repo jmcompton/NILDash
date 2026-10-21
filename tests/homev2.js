@@ -140,7 +140,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
     && /<form class="wl" id="wl" action="\/api\/public\/waitlist" method="post"/.test(pr) && /type="email"/.test(pr));
   ok('  Schools and collectives: talk to us, by email', /<span class="who">Schools and collectives<\/span>\s*<div class="soon">Talk to us<\/div>/.test(pr) && /mailto:contact@mynildash\.com/.test(pr));
   ok('  no athlete price anywhere', !/id="athletes"[\s\S]*?\$\d/.test(pr.slice(pr.indexOf('id="athletes"'), pr.indexOf('id="teams"'))));
-  ok('the footer keeps the postal address, Privacy and Terms', /Compton Group LLC, 3796 Turnberry Court, Duluth, GA 30096/.test(HTML)
+  ok('the footer keeps the postal address, Privacy and Terms', /Compton Group LLC, 3000 Northwoods Pkwy, Suite 115, Norcross, GA 30071/.test(HTML)
     && /href="\/privacy"/.test(HTML) && /href="\/terms"/.test(HTML));
 
   console.log('\n2. THE FONTS');
