@@ -72,6 +72,9 @@ ok('every email link on the page is contact@mynildash.com', mailtos.length >= 5 
 ok('  the contact card and the questions box say it too', /Questions\? Contact us at any time at contact@mynildash\.com/.test(TEXT) && /please contact us: contact@mynildash\.com/.test(TEXT));
 ok('the "last updated" date is the day the Instagram section was added', /Last updated: October 21, 2026/.test(TEXT));
 ok('no em dash in the new section', !/—|&mdash;/.test(SEC_HTML));
+ok('no em dash anywhere on the page, the older sections and the title included', !/—|&mdash;|&#8212;/.test(HTML) && /<title>Privacy Policy \| NILDash<\/title>/.test(HTML));
+ok('  the list labels read "Label: text" instead', /<strong>Platform functionality<\/strong>: to authenticate users/.test(HTML) && /<strong>Deletion<\/strong>: you may request deletion/.test(HTML)
+  && /<strong>Railway<\/strong> \(cloud hosting and database infrastructure\):/.test(HTML) && /one-way cryptographic hash; we never store your plaintext password/.test(HTML));
 ok('Meta is listed among the third-party services', /Meta \(Instagram API, only for athletes who connect Instagram\)/.test(TEXT));
 ok('section references still point at the right sections', /\(see Section 8\)/.test(HTML) && /Section 08 Third-Party Services/.test(TEXT) && /described in Section 4\./.test(TEXT));
 const nums = [...HTML.matchAll(/<div class="section-number">Section (\d+)<\/div>/g)].map((m) => Number(m[1]));
