@@ -76,6 +76,8 @@ const UNI = 'univ-opstest';
 async function main() {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));
   const P = store.pool;
+  // When this suite started, by the database's clock. Faults written before it came from other suites.
+  const STARTED = (await P.query(`SELECT NOW() AS t`)).rows[0].t;
 
   // ── 1. THE CHECKS ─────────────────────────────────────────────────────────
   OUT.push('-- every outside service, one real call each --');
@@ -227,6 +229,9 @@ async function main() {
   ok('  and says no preflight ran', /NO PREFLIGHT RAN for 2031-04-09/.test(txt.text) && /no preflight ran for last night/.test(txt.subject));
   ok('  and links the status page', /Status: https?:\/\/[^\s]+\/admin\/status/.test(txt.text));
   // A failed preflight and faults of our own show up with their words.
+  // The alert lists 20 services at most, from the real last 24 hours. On a test database used
+  // all day, faults other suites left there filled all 20 and pushed ours off the list.
+  await P.query(`DELETE FROM service_faults WHERE at > NOW() - INTERVAL '24 hours' AND at < $1`, [STARTED]);
   await P.query(`INSERT INTO preflight_runs (night, status, failed, alert, run_id) VALUES ($1, 'failed', 1, 'sent', $2)`, [MDAY, down.runId]);
   const rep2 = await MA.collect(P, { now: MNOW });
   const t2 = MA.render(rep2);
