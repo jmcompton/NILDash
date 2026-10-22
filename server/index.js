@@ -1536,6 +1536,8 @@ app.get('/api/agent/pipeline', requireAuth, async (req, res) => {
       stageHistory: Array.isArray(r.stage_history) ? r.stage_history : [],
       createdAt: r.created_at, updatedAt: r.updated_at,
       manualEntry: false,
+      // The CRM's stage and next step (services/crm, CRM_ON).
+      ...(require('./services/crm').ON() ? { crm: require('./services/crm').payloadOf(r) } : {}),
     }));
 
     const seen = new Set(deals.map((d) => d.athleteId + '|' + String(d.brand || '').trim().toLowerCase()));
@@ -1561,7 +1563,7 @@ app.get('/api/agent/pipeline', requireAuth, async (req, res) => {
       }
     } catch (e) { console.warn('[agent/pipeline] manual deals unavailable:', e.message); }
 
-    res.json({ stages: PIPE.STAGES, lost: PIPE.LOST, deals });
+    res.json({ stages: PIPE.STAGES, lost: PIPE.LOST, deals, ...(require('./services/crm').ON() ? { crm: require('./services/crm').vocab() } : {}) });
   } catch (e) {
     console.error('[agent/pipeline]', e.message);
     res.status(500).json({ error: e.message });
@@ -1675,7 +1677,10 @@ app.post('/api/deals', requireAuth, async (req, res) => {
   const deal = await store.saveDeal(id, {
     athleteId, agentId: req.session.userId,
     brand, campaign: campaign || 'Manual Entry',
-    value: parseInt(value), stage: stage || 'Closed',
+    // NEVER SIGNED BY DEFAULT. This defaulted to Closed, so a deal added only to
+    // track it read "deal signed" on My Brands. A deal is signed when the
+    // agent says so.
+    value: parseInt(value), stage: stage || 'Prospecting',
     notes: notes || '', source: source || 'manual',
     status: stage === 'Closed' ? 'closed' : 'active',
     createdAt: new Date().toISOString()
@@ -10986,6 +10991,14 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
   try {
     const outcome = String(req.body.outcome || '');
     if (OQ.OUTCOMES.indexOf(outcome) === -1) return res.status(400).json({ error: 'Unknown outcome' });
+    // CRM_ON: a decline needs its reason (services/crm). Written so the route
+    // still runs where the module cannot be loaded.
+    let _crm = null, _why = null;
+    try { _crm = require('./services/crm'); if (!_crm.ON()) _crm = null; } catch (_) { _crm = null; }
+    if (_crm && outcome === 'declined') {
+      _why = _crm.checkReason('declined', req.body.reason, req.body.note);
+      if (!_why.ok) return res.status(400).json({ error: _why.error });
+    }
     // A REPLY IS A REPLY WHICHEVER WAY IT ARRIVED. This used to set outcome only.
     // learnedAngles counts outreach_queue.replied_at, so an agent ticking
     // "replied" on a DM or call card taught the Writer nothing -- the only
@@ -11001,6 +11014,7 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
       [req.params.id, req.session.userId, outcome, replied]);
     const card = r.rows[0];
     if (!card) return res.status(404).json({ error: 'Card not found' });
+    if (_crm) await _crm.afterCardOutcome(store.pool, card, outcome, _why).catch((e) => console.error('[queue/outcome] crm:', e.message));
     // ANY ANSWER ENDS THE SEQUENCE. Replied, no, signed or dead: every unsent
     // follow-up on this card's thread stops now (services/followUps).
     if (stopsFollowUps && card.outreach_log_id) {
@@ -12475,6 +12489,7 @@ app.post('/api/deals/log', requireAuth, async (req, res) => {
       category: b.category || null, contactEmail: b.contactEmail || null, source: b.source || 'deal-button',
       queueId: b.queueId || null,
       suggestedValue: b.suggestedValue, offeredValue: b.offeredValue, offerKind: b.offerKind || null,
+      winReason: b.winReason || null, winNote: b.winNote || null,
     });
     if (!out.ok) return res.status(400).json(out);
     res.json(out);
@@ -12490,6 +12505,52 @@ app.post('/api/deals/undo', requireAuth, async (req, res) => {
 app.get('/api/deals/recent', requireAuth, async (req, res) => {
   try { res.json({ rows: await require('./services/dealLog').recentFor(store.pool, req.session.userId, req.query.limit) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── THE AGENT'S CRM (services/crm, CRM_ON) ─────────────────────────────────
+// GET  /api/agent/crm            the words (stages, next steps, reasons) and the to-do list
+// POST /api/agent/crm/deal       {dealId | cardId | athleteId+brand, stage?, nextStep?, reason?, note?}
+// POST /api/agent/crm/declined   {logId, reason, note}   an email the business said no to
+// POST /api/agent/crm/bounced    {logId}                 Got a bounce email
+const _crmOff = (res) => res.status(404).json({ ok: false, error: 'not enabled' });
+app.get('/api/agent/crm', requireAuth, async (req, res) => {
+  const CRM = require('./services/crm');
+  if (!CRM.ON()) return res.json({ on: false });
+  try { res.json({ on: true, vocab: CRM.vocab(), todo: await CRM.todo(store.pool, req.session.userId) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/agent/crm/deal', requireAuth, async (req, res) => {
+  const CRM = require('./services/crm');
+  if (!CRM.ON()) return _crmOff(res);
+  try {
+    const b = req.body || {};
+    const change = {};
+    if (b.stage) change.stage = b.stage;
+    if (Object.prototype.hasOwnProperty.call(b, 'nextStep')) change.nextStep = b.nextStep;
+    if (b.reason) { change.reason = b.reason; change.note = b.note; }
+    const out = await CRM.update(store.pool, req.session.userId, { dealId: b.dealId, cardId: b.cardId, athleteId: b.athleteId, brand: b.brand }, change);
+    if (!out.ok) return res.status(out.status || 400).json(out);
+    res.json(out);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/agent/crm/declined', requireAuth, async (req, res) => {
+  const CRM = require('./services/crm');
+  if (!CRM.ON()) return _crmOff(res);
+  try {
+    const b = req.body || {};
+    const out = await CRM.declineLog(store.pool, req.session.userId, String(b.logId || ''), b.reason, b.note);
+    if (!out.ok) return res.status(out.status || 400).json(out);
+    res.json(out);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/agent/crm/bounced', requireAuth, async (req, res) => {
+  const CRM = require('./services/crm');
+  if (!CRM.ON()) return _crmOff(res);
+  try {
+    const out = await CRM.bounceLog(store.pool, req.session.userId, String((req.body || {}).logId || ''));
+    if (!out.ok) return res.status(out.status || 400).json(out);
+    res.json(out);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // PATCH /api/agent/cards/offer {cardId, amount, kind} -- the agent changes a
