@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Privacy Policy — NILDash</title>
+<title>Privacy Policy | NILDash</title>
 <link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
 <link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -319,7 +319,7 @@ body{
     <p><strong>Account Information</strong></p>
     <ul>
       <li>Name and email address provided at registration</li>
-      <li>Password (stored as a one-way cryptographic hash — we never store your plaintext password)</li>
+      <li>Password (stored as a one-way cryptographic hash; we never store your plaintext password)</li>
       <li>Role (sports agent or athlete) and associated agent–athlete relationship</li>
       <li>Profile details such as sport, school, and social media handles (athletes)</li>
     </ul>
@@ -357,13 +357,13 @@ body{
     <h2 class="section-title">How We Use Your Information</h2>
     <p>We use the information we collect solely to provide, maintain, and improve the NILDash Service:</p>
     <ul>
-      <li><strong>Platform functionality</strong> — to authenticate users, power the dashboard, and enable core features such as pipeline management, AI analysis, and reporting</li>
-      <li><strong>Gmail sending</strong> — when an athlete connects their Gmail account, we use their OAuth token solely to send emails they compose in the NILDash portal, directly from their own Gmail address</li>
-      <li><strong>Google Calendar sync</strong> — when a user connects Google Calendar, we create and update calendar events corresponding to NIL deliverables they choose to sync</li>
-      <li><strong>Communications</strong> — to send transactional notifications (e.g., athlete invite emails, delivery confirmations) via our email provider</li>
-      <li><strong>Platform improvement</strong> — to understand how features are used so we can improve the product</li>
-      <li><strong>Security</strong> — to detect, prevent, and respond to fraud, abuse, or security incidents</li>
-      <li><strong>Business activity on NILDash</strong> — NILDash may show that a business has completed an NIL deal on the platform, without revealing the agent, athlete, or deal terms</li>
+      <li><strong>Platform functionality</strong>: to authenticate users, power the dashboard, and enable core features such as pipeline management, AI analysis, and reporting</li>
+      <li><strong>Gmail sending</strong>: when an athlete connects their Gmail account, we use their OAuth token solely to send emails they compose in the NILDash portal, directly from their own Gmail address</li>
+      <li><strong>Google Calendar sync</strong>: when a user connects Google Calendar, we create and update calendar events corresponding to NIL deliverables they choose to sync</li>
+      <li><strong>Communications</strong>: to send transactional notifications (e.g., athlete invite emails, delivery confirmations) via our email provider</li>
+      <li><strong>Platform improvement</strong>: to understand how features are used so we can improve the product</li>
+      <li><strong>Security</strong>: to detect, prevent, and respond to fraud, abuse, or security incidents</li>
+      <li><strong>Business activity on NILDash</strong>: NILDash may show that a business has completed an NIL deal on the platform, without revealing the agent, athlete, or deal terms</li>
     </ul>
     <div class="highlight-box">
       <strong>A business's NIL activity is shown; nobody's deal is.</strong> When an agent logs a signed deal,
@@ -408,9 +408,9 @@ body{
       <strong>Scopes we request.</strong> NILDash requests only the minimum scopes necessary:
     </p>
     <ul>
-      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/gmail.send</code> — to send emails on behalf of the athlete from their own Gmail address</li>
-      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/calendar.events</code> — to create and update deliverable events in Google Calendar</li>
-      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/userinfo.email</code> — to confirm which Google account was authorized</li>
+      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/gmail.send</code>: to send emails on behalf of the athlete from their own Gmail address</li>
+      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/calendar.events</code>: to create and update deliverable events in Google Calendar</li>
+      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/userinfo.email</code>: to confirm which Google account was authorized</li>
     </ul>
     <p>
       <strong>Disconnecting Google.</strong> Athletes and agents can disconnect their Google account at any
@@ -466,6 +466,7 @@ body{
     </p>
     <p><strong>How to remove it.</strong></p>
     <ul>
+      <li><strong>In NILDash:</strong> Disconnect on the athlete page in NILDash. The athlete's agent can do it for them. We delete the access token and everything we fetched from the account right away.</li>
       <li><strong>In Instagram:</strong> go to Settings &gt; Apps and websites, find NILDash and remove it. Then choose to send a data deletion request. Meta's data deletion callback tells us, and we delete everything we fetched from the account and give you a confirmation code.</li>
       <li><strong>By email:</strong> write to <a href="mailto:contact@mynildash.com" style="color:var(--accent);text-decoration:none;">contact@mynildash.com</a> and we will delete it for you.</li>
     </ul>
@@ -487,11 +488,11 @@ body{
     </p>
     <p>We take the following measures to protect your information:</p>
     <ul>
-      <li><strong>Password hashing</strong> — passwords are stored using bcrypt, a one-way hashing algorithm. We cannot recover or view your plaintext password.</li>
-      <li><strong>HTTPS</strong> — all data in transit between your browser and our servers is encrypted using TLS.</li>
-      <li><strong>OAuth token storage</strong> — Google OAuth refresh tokens are stored in the database with access restricted to the NILDash application server only.</li>
-      <li><strong>Authentication</strong> — user sessions are protected with signed JSON Web Tokens (JWTs).</li>
-      <li><strong>Access controls</strong> — agent accounts can only access their own athletes' data; athlete accounts can only access their own records.</li>
+      <li><strong>Password hashing</strong>: passwords are stored using bcrypt, a one-way hashing algorithm. We cannot recover or view your plaintext password.</li>
+      <li><strong>HTTPS</strong>: all data in transit between your browser and our servers is encrypted using TLS.</li>
+      <li><strong>OAuth token storage</strong>: Google OAuth refresh tokens are stored in the database with access restricted to the NILDash application server only.</li>
+      <li><strong>Authentication</strong>: user sessions are protected with signed JSON Web Tokens (JWTs).</li>
+      <li><strong>Access controls</strong>: agent accounts can only access their own athletes' data; athlete accounts can only access their own records.</li>
     </ul>
     <p>
       While we implement commercially reasonable security measures, no system is 100% secure. In the event of
@@ -505,11 +506,11 @@ body{
     <h2 class="section-title">Your Rights</h2>
     <p>You have the following rights with respect to your personal information:</p>
     <ul>
-      <li><strong>Access</strong> — you may request a copy of the personal information we hold about you</li>
-      <li><strong>Correction</strong> — you may request that we correct inaccurate or incomplete information</li>
-      <li><strong>Deletion</strong> — you may request deletion of your account and all associated personal data at any time</li>
-      <li><strong>Google integration disconnect</strong> — you may revoke NILDash's access to your Google account at any time from your NILDash dashboard or directly from your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Google Account permissions</a>. Upon disconnection, your OAuth token is immediately deleted from our systems.</li>
-      <li><strong>Data portability</strong> — upon request, we can provide your data in a machine-readable format</li>
+      <li><strong>Access</strong>: you may request a copy of the personal information we hold about you</li>
+      <li><strong>Correction</strong>: you may request that we correct inaccurate or incomplete information</li>
+      <li><strong>Deletion</strong>: you may request deletion of your account and all associated personal data at any time</li>
+      <li><strong>Google integration disconnect</strong>: you may revoke NILDash's access to your Google account at any time from your NILDash dashboard or directly from your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Google Account permissions</a>. Upon disconnection, your OAuth token is immediately deleted from our systems.</li>
+      <li><strong>Data portability</strong>: upon request, we can provide your data in a machine-readable format</li>
     </ul>
     <p>
       To exercise any of these rights, contact us at
@@ -528,15 +529,15 @@ body{
     </p>
     <ul>
       <li>
-        <strong>Google</strong> (Gmail API, Google Calendar API, Google OAuth) —
+        <strong>Google</strong> (Gmail API, Google Calendar API, Google OAuth):
         <a href="https://policies.google.com/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Google Privacy Policy</a>
       </li>
       <li>
-        <strong>Anthropic</strong> (AI analysis features using the Claude API) —
+        <strong>Anthropic</strong> (AI analysis features using the Claude API):
         <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Anthropic Privacy Policy</a>
       </li>
       <li>
-        <strong>Resend</strong> (transactional email delivery, e.g., athlete invite notifications) —
+        <strong>Resend</strong> (transactional email delivery, e.g., athlete invite notifications):
         <a href="https://resend.com/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Resend Privacy Policy</a>
       </li>
       <li>
@@ -544,7 +545,7 @@ body{
         <a href="https://privacycenter.instagram.com/policy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Instagram Privacy Policy</a>
       </li>
       <li>
-        <strong>Railway</strong> (cloud hosting and database infrastructure) —
+        <strong>Railway</strong> (cloud hosting and database infrastructure):
         <a href="https://railway.app/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Railway Privacy Policy</a>
       </li>
     </ul>
