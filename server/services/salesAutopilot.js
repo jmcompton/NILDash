@@ -626,7 +626,14 @@ async function sendOne(pool, e, { now, deps = {} } = {}) {
     return cancel('not sent: ' + rule.reason);
   }
   // The text: the email, then the CAN-SPAM footer. Plain, one link, nothing added.
-  const body = String(e.body_text || '').replace(/\s+$/, '');
+  let body = String(e.body_text || '').replace(/\s+$/, '');
+  // Written while SALES_TRIAL_ON said otherwise (a dry run before the trial
+  // went on, or the trial turned off since): a first email that would
+  // promise the wrong thing goes as today's template instead.
+  if (e.step === 1 && /14-day trial/i.test(body) !== TRIAL_ON()) {
+    body = W.templateEmail(p, writerCtx()).body;
+    await pool.query(`UPDATE sales_emails SET body_text = $2, written_by = 'template' WHERE id = $1`, [e.id, body]);
+  }
   const problems = W.checkEmail({ subject: e.step === 1 ? e.subject : 'x', body }, p, writerCtx(), e.step);
   if (problems.length) return cancel('the email fails its checks: ' + problems.join('; '));
   const text = require('./canSpam').appendText(body, p.email, { why: footerWhy(p.lane) });

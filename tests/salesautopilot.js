@@ -239,6 +239,18 @@ async function main() {
   ok('  each send is in the shared send log', (await P().query(`SELECT COUNT(*)::int n FROM email_sends WHERE system = 'sales-autopilot'`)).rows[0].n === 10);
   ok('no third-party sending service: the prospect path uses Graph only', !/resend/i.test(src('server/services/salesMailbox.js').replace(/^\s*\/\/.*$/gm, ''))
     && /MB\.sendNew\(/.test(src('server/services/salesAutopilot.js')) && /MB\.reply\(/.test(src('server/services/salesAutopilot.js')));
+  // A draft written before SALES_TRIAL_ON went on is not cancelled: it goes
+  // as today's template, which offers the trial.
+  const pT = (await P().query(`SELECT p.*, e.id AS eid FROM sales_prospects p JOIN sales_emails e ON e.prospect_id = p.id AND e.step = 1 WHERE p.status = 'drafted' LIMIT 1`)).rows[0];
+  await P().query(`UPDATE sales_emails SET body_text = $2 WHERE id = $1`, [pT.eid, W.templateEmail(pT, { ...ctx, trialOn: false }).body]);
+  ok('  (the draft was written without the trial)', !/14-day trial/.test((await P().query(`SELECT body_text FROM sales_emails WHERE id = $1`, [pT.eid])).rows[0].body_text));
+  const gT = fakeGraph();
+  await P().query(`UPDATE sales_emails SET state = 'sending' WHERE id = $1`, [pT.eid]);
+  const sT = await SA.sendOne(P(), (await P().query(`SELECT * FROM sales_emails WHERE id = $1`, [pT.eid])).rows[0], { now: CT(DAY(1), 11), deps: { ...deps, graph: gT.fn } });
+  ok('a draft written before the trial went on is sent with the trial, not cancelled', sT.ok && /14-day trial/.test(gT.sent[0].body.content), sT);
+  await P().query(`UPDATE sales_emails SET state = 'draft', sent_at = NULL WHERE id = $1`, [pT.eid]);
+  await P().query(`UPDATE sales_prospects SET status = 'drafted', first_sent_at = NULL, last_sent_at = NULL, root_message_id = NULL, conversation_id = NULL WHERE id = $1`, [pT.id]);
+  await P().query(`DELETE FROM email_sends WHERE ref_id = $1`, ['sales:' + pT.id]);
   ok('nothing on Saturday', (await SA.sendTick(P(), { now: CT(DAY(5), 11), deps })).skipped === 'a weekend' && (await SA.planDay(P(), { now: CT(DAY(5), 7), deps, save: false })).ok === false);
 
   // ── 5. WARM-UP AND THE DOMAIN CAP ─────────────────────────────────────
