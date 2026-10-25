@@ -163,6 +163,10 @@ async function collect(pool, { now } = {}) {
     out.cost = await require('./nightCost').forRunDate(pool, runDate).catch((e) => ({ error: e.message }));
     out.cache = cacheModeOf(runs);
   }
+  // SALES_AUTOPILOT_ON: yesterday's sends, replies, interested, trials,
+  // bounces and today's warm-up level (services/salesAutopilot).
+  const SA = require('./salesAutopilot');
+  if (SA.ON()) out.sales = await SA.morningSection(pool, { now }).catch((e) => ({ lines: [`SALES AUTOPILOT: the numbers could not be read (${e.message})`], paused: false }));
   return out;
 }
 
@@ -187,7 +191,7 @@ function render(r) {
   const bf = r.backfills || [];
   const bfNote = bf.length ? `, ${bf.length} brand seat${bf.length === 1 ? '' : 's'} backfilled from local` : '';
   const what = r.mixOn ? 'verified emails or official program cards' : 'verified emails';
-  const loud = r.hunter && r.hunter.warn ? 'HUNTER LOW. ' : '';
+  const loud = (r.sales && r.sales.paused ? 'SALES STOPPED. ' : '') + (r.hunter && r.hunter.warn ? 'HUNTER LOW. ' : '');
   const cacheNote = r.cache ? ', cache mode' : '';
   const subject = loud + (r.short.length
     ? `NILDash: ${r.short.length} athlete${r.short.length === 1 ? '' : 's'} under ${FIVE} ${what}${bfNote}${cacheNote} (${r.runDate})`
@@ -201,6 +205,7 @@ function render(r) {
       + `${r.cache.skipped} business${r.cache.skipped === 1 ? '' : 'es'} skipped with no recently verified address.`);
   }
   if (r.cost) L.push(...(r.cost.error ? [`Last night's cost could not be read: ${r.cost.error}`] : require('./nightCost').render(r.cost)));
+  if (r.sales) { if (L.length) L.push(''); L.push(...r.sales.lines); }
   if (L.length) L.push('');
   L.push(`${r.short.length} of ${r.athletes} athlete(s) hold fewer than ${FIVE} ${r.mixOn ? 'email cards with a verified address for a named person or program cards on an official application page' : 'email cards with a verified address for a named person'}, as of 5:30am Central.`, '');
   let agent = null;
@@ -235,7 +240,7 @@ function render(r) {
 // backfilled from the local lane (MARKET_MIX_ON): that is always said.
 // HUNTER_PACE_ON: every morning, for Hunter's line and the night's cost.
 // NIGHTLY_SKIP_ON: and whenever something was skipped, which is always said.
-function needsEmail(r) { return (r.short || []).length > 0 || (r.backfills || []).length > 0 || !!r.hunter || (r.skips || []).length > 0; }
+function needsEmail(r) { return (r.short || []).length > 0 || (r.backfills || []).length > 0 || !!r.hunter || (r.skips || []).length > 0 || !!r.sales; }
 
 async function _send(msg) {
   if (!TO()) throw new Error('no alert destination: neither ADMIN_ALERT_EMAIL nor ADMIN_EMAIL is set');
@@ -248,7 +253,7 @@ async function _send(msg) {
 
 // One tick. opts: { now, send (tests), force (ignore the switch and the time) }
 async function runOnce(pool, opts = {}) {
-  if (!opts.force && process.env.EMAIL_FIVE_ON !== '1' && !HP.ON()) return { skipped: 'EMAIL_FIVE_ON is not set' };   // nor HUNTER_PACE_ON
+  if (!opts.force && process.env.EMAIL_FIVE_ON !== '1' && !HP.ON() && !require('./salesAutopilot').ON()) return { skipped: 'EMAIL_FIVE_ON is not set' };   // nor HUNTER_PACE_ON, nor SALES_AUTOPILOT_ON
   if (!opts.force && !windowOpen(opts.now)) return { skipped: 'before 5:30am Central' };
   await ensureTable(pool);
   const report = await collect(pool, opts);

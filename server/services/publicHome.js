@@ -117,7 +117,10 @@ function template() {
 
 async function render(pool, opts = {}) {
   const s = await statsForPage(pool, opts);
-  let html = template().replace('<!--HOME_STATS-->', renderStats(s));
+  let html = template().replace('<!--HOME_STATS-->', renderStats(s))
+    // "Start 14-day trial" (SALES_TRIAL_ON, services/salesAutopilot). Off: nothing.
+    .replace('<!--TRIAL_CTA-->', require('./salesAutopilot').TRIAL_ON()
+      ? '<a class="btn ghost" href="/?signin=agent&amp;tab=signup&amp;trial=14">Start 14-day trial</a>' : '');
   if (opts.preview) html = html.replace('<head>', '<head>\n<meta name="robots" content="noindex">');
   return html;
 }

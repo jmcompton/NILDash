@@ -49,7 +49,11 @@ const SCOPES_READ = [G('Mail.Send'), G('Mail.Read'), G('User.Read'), 'offline_ac
 // plus the calendar, for the sales calls booked through Calendly and Teams.
 // Offered by one route, to the admin login alone; never to a customer.
 const SCOPES_PROSPECTS = [...SCOPES_READ, G('Calendars.Read')];
-const scopesFor = (opts = {}) => (opts.calendar ? SCOPES_PROSPECTS : opts.read ? SCOPES_READ : SCOPES_SEND);
+// SALES (the admin's sales mailbox only, services/salesAutopilot): the
+// prospect scopes plus Mail.ReadWrite, to move prospect replies into the
+// "NILDash Prospects" folder. One route, the admin login alone.
+const SCOPES_SALES = [...SCOPES_PROSPECTS, G('Mail.ReadWrite')];
+const scopesFor = (opts = {}) => (opts.sales ? SCOPES_SALES : opts.calendar ? SCOPES_PROSPECTS : opts.read ? SCOPES_READ : SCOPES_SEND);
 const canCalendarFrom = (granted) => (granted || []).some((g) => /Calendars\.Read(Write)?$/i.test(String(g)));
 const SCOPES = SCOPES_SEND;
 const canReadFrom = (granted) => (granted || []).some((g) => /Mail\.Read(Write)?$/i.test(String(g)));
@@ -296,4 +300,4 @@ function extractSkip(nextLink) {
 }
 
 module.exports = { isAvailable, getAuthUrl, exchangeCode, refreshAccessToken, fetchMessages, sendEmail, normalizeGraphMessage, adminConsentUrl, isConsentError,
-  SCOPES, SCOPES_SEND, SCOPES_READ, SCOPES_PROSPECTS, scopesFor, canReadFrom, canCalendarFrom, redirectUri, adminRedirectUri, DEFAULT_REDIRECT };
+  SCOPES, SCOPES_SEND, SCOPES_READ, SCOPES_PROSPECTS, SCOPES_SALES, scopesFor, canReadFrom, canCalendarFrom, redirectUri, adminRedirectUri, DEFAULT_REDIRECT };

@@ -235,9 +235,20 @@ router.get('/oauth/outlook', async (req, res) => {
       calendar = !!me && String(me.email || '').toLowerCase() === require('../services/coldAgent').adminEmail();
       if (!calendar) return res.status(403).json({ error: 'Calendar access is only for the admin prospect mailbox.' });
     }
-    const state = encodeState({ userId: req.session.userId, provider: 'outlook', returnTo: returnTo || undefined, read: (read || calendar) || undefined, calendar: calendar || undefined });
-    const url = await outlook.getAuthUrl(state, { read: read || calendar, calendar,
-      loginHint: calendar ? require('../services/mailboxProspects').mailboxAddress() : undefined });
+    // ?sales=1: the admin's sales mailbox (services/salesAutopilot): the
+    // prospect scopes plus Mail.ReadWrite to file replies in a folder. The
+    // admin login only, like ?calendar=1.
+    let sales = false;
+    if (req.query.sales === '1') {
+      const { pool } = require('../store');
+      const me = (await pool.query('SELECT email FROM users WHERE id = $1', [req.session.userId])).rows[0];
+      sales = !!me && String(me.email || '').toLowerCase() === require('../services/coldAgent').adminEmail();
+      if (!sales) return res.status(403).json({ error: 'The sales mailbox is only for the admin login.' });
+      calendar = true;
+    }
+    const state = encodeState({ userId: req.session.userId, provider: 'outlook', returnTo: returnTo || undefined, read: (read || calendar) || undefined, calendar: calendar || undefined, sales: sales || undefined });
+    const url = await outlook.getAuthUrl(state, { read: read || calendar, calendar, sales,
+      loginHint: sales ? require('../services/salesMailbox').fromAddress() : calendar ? require('../services/mailboxProspects').mailboxAddress() : undefined });
     res.redirect(url);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -266,7 +277,7 @@ router.get('/oauth/outlook/callback', async (req, res) => {
     const { userId } = st;
     if (!userId) return res.status(400).send('Invalid state parameter');
 
-    const tokens = await outlook.exchangeCode(code, { read: !!st.read, calendar: !!st.calendar });
+    const tokens = await outlook.exchangeCode(code, { read: !!st.read, calendar: !!st.calendar, sales: !!st.sales });
     const accountId = 'ea_' + crypto.randomBytes(8).toString('hex');
 
     // Saved like Gmail: with the scopes Microsoft granted, and marked

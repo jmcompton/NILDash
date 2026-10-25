@@ -5669,6 +5669,8 @@ async function doSignup() {
         email: _email,
         password: document.getElementById('signupPassword').value,
         role: selectedRole,
+        // The "Start 14-day trial" link (?trial=14); the server decides.
+        trial: (function () { try { return new URLSearchParams(window.location.search).get('trial') || undefined; } catch (e) { return undefined; } })(),
       }),
     });
     const data = await r.json();
