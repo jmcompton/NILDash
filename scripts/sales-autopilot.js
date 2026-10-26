@@ -133,6 +133,11 @@ async function main() {
   const argv = process.argv.slice(2);
   const store = require(ROOT + 'server/store.js');
   await new Promise((r) => setTimeout(r, INIT_WAIT_MS));
+  // A script is its own process: it never ran the server's boot read of
+  // Hunter's billing period (services/hunterPeriod), so every Hunter count
+  // fell back to the calendar month and the dry run saw the October 1st
+  // total (1989/1800) as "budget spent". Read the period first.
+  try { await require(ROOT + 'server/services/hunterPeriod').refresh(); } catch (e) { console.error('[hunter-period] read failed:', e.message); }
   const pool = store.pool;
   const SA = require(ROOT + 'server/services/salesAutopilot');
   await SA.ensureTables(pool);
