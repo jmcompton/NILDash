@@ -89,6 +89,22 @@ function splitName(full) {
   return ok(first) && ok(last) && first.length > 1 && last.length > 1 ? { first, last, full: parts.join(' ') } : null;
 }
 
+// A STAFF-DIRECTORY ADDRESS MUST BE THE NAMED PERSON'S. The research once named
+// "Jenny Miller" and handed back jeheimstead@cpp.edu from the same page:
+// someone else's mailbox, which would have gone out as "Hi Jenny". The
+// address's local part has to carry the last name or the first name (3+
+// letters), or be first initial + last / first + last initial.
+function emailFitsName(email, name) {
+  if (!email || !name) return false;
+  const local = String(email).split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
+  const f = String(name.first || '').toLowerCase().replace(/[^a-z]/g, '');
+  const l = String(name.last || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (!local || !f || !l) return false;
+  if (l.length >= 3 && local.includes(l)) return true;
+  if (f.length >= 3 && local.includes(f)) return true;
+  return local === f[0] + l || local === f + l[0];
+}
+
 // ── TIME ZONE BY STATE (the send window is 9 to 4 in theirs) ─────────────
 const TZ = {};
 for (const s of ['CT', 'DE', 'DC', 'FL', 'GA', 'IN', 'KY', 'ME', 'MD', 'MA', 'MI', 'NH', 'NJ', 'NY', 'NC', 'OH', 'PA', 'RI', 'SC', 'VT', 'VA', 'WV']) TZ[s] = 'America/New_York';
@@ -286,7 +302,7 @@ async function findPerson(cand, ctx) {
     if (f && f.fault) return { skip: 'Hunter could not be asked (' + String(f.fault.reason || f.fault).slice(0, 80) + ')', notRun: true };
     if (f && f.acceptAll === true) return { skip: 'catch-all domain (Hunter accept_all)', domain };
     if (f && f.email) { email = lc(f.email); how = 'Hunter Email Finder'; }
-    else if (cand.email && lc(cand.email).split('@')[1] === domain) { email = lc(cand.email); how = 'the staff directory'; }
+    else if (cand.email && lc(cand.email).split('@')[1] === domain && emailFitsName(cand.email, name)) { email = lc(cand.email); how = 'the staff directory'; }
   }
   // 2. Nobody named, or the finder had nothing: Domain Search, the best
   //    personal address with a title that fits the lane.
@@ -319,6 +335,6 @@ async function findPerson(cand, ctx) {
 
 module.exports = {
   LEAGUES, LEAGUE_ASK, STATES, GIANTS, OUR_DOMAINS, ROLE_LOCALS,
-  giant, secondWind, isRole, isFree, cleanDomain, splitName, tzFor, schoolList, agencySlices, agencyPrompt, schoolPrompt, webJson, firstJson,
+  giant, secondWind, isRole, isFree, cleanDomain, splitName, emailFitsName, tzFor, schoolList, agencySlices, agencyPrompt, schoolPrompt, webJson, firstJson,
   liveHunter, verifiedOk, exclusions, findPerson,
 };
