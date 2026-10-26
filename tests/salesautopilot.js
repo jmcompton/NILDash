@@ -182,6 +182,15 @@ async function main() {
   ctxB.hunter.findEmail = async () => ({ email: null, fault: { reason: 'HUNTER_API_KEY is not set' } });
   const rF = await SF.findPerson({ lane: 'agency', org: 'Later Sports', domain: 'latersports.test', person: { name: 'Lee Later' } }, ctxB);
   ok('Hunter out of credits stops the lane; Hunter unreachable is retried another night', rB.budget === true && rF.notRun === true && /HUNTER_API_KEY/.test(rF.skip), [rB, rF]);
+  // A directory address that is not the named person's is never used.
+  ok('a staff-directory address must be the named person\'s',
+    SF.emailFitsName('jeheimstead@cpp.edu', SF.splitName('Jenny Miller')) === false
+    && SF.emailFitsName('jmiller@cpp.edu', SF.splitName('Jenny Miller')) === true
+    && SF.emailFitsName('jenny.m@cpp.edu', SF.splitName('Jenny Miller')) === true
+    && SF.emailFitsName('marushka_eddy@emerson.edu', SF.splitName('Marushka Eddy')) === true);
+  const ctxD = { hunter: { findEmail: async () => ({ email: null }), domainSearch: async () => ({ emails: [] }), verify: async () => ({ status: 'valid', result: 'deliverable' }) }, ex: await SF.exclusions(P()), credits: { used: 0, max: 99 } };
+  const rD = await SF.findPerson({ lane: 'school', org: 'Pomona Test', domain: 'pomona-test.edu', person: { name: 'Jenny Miller', title: 'NIL Coordinator' }, email: 'jeheimstead@pomona-test.edu' }, ctxD);
+  ok('  and findPerson skips it instead of writing to the wrong person', !rD.email && /no address for Jenny Miller/.test(rD.skip || ''), rD);
   ctxB.credits.used = 99;
   ok('  and the sales cap on Hunter credits holds', (await SF.findPerson({ lane: 'agency', org: 'X', domain: 'x-sports.test', person: { name: 'Al Ex' } }, ctxB)).budget === true);
   const drafts = (await P().query(`SELECT e.*, p.lane, p.org, p.fact, p.person FROM sales_emails e JOIN sales_prospects p ON p.id = e.prospect_id`)).rows;
