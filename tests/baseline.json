@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-21",
+  "recordedAt": "2026-10-25",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_neartest.js": {
@@ -1157,6 +1157,11 @@
       "total": 27,
       "fault": null
     },
+    "prospectresearch.js": {
+      "failed": 0,
+      "total": 14,
+      "fault": null
+    },
     "providerfaults.js": {
       "failed": 0,
       "total": 45,
@@ -1260,6 +1265,11 @@
     "rosterstarve.js": {
       "failed": 0,
       "total": 30,
+      "fault": null
+    },
+    "salesautopilot.js": {
+      "failed": 0,
+      "total": 106,
       "fault": null
     },
     "scanfix.js": {

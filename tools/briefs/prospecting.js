@@ -254,7 +254,7 @@ async function main() {
   }
   if (DRY) { console.log(`[prospecting] --dry: ${people.length} connections, ${matches.length} matches, ${dropped.excluded} excluded by --exclude, ${queue.length} in the queue, would research ${batch.length}. Nothing drafted or sent.`); return; }
 
-  const drafted = [], filtered = [];
+  const drafted = [], filtered = [], fellBack = [];
   for (const p of batch) {
     const name = `${p.first} ${p.last}`.trim();
     const prompt = `Research this person briefly on the web and draft a LinkedIn opener from me.
@@ -266,6 +266,9 @@ Return ONLY JSON: {"summary": "two lines on who they are and what they do, from 
     try {
       const r = await L.askModel(prompt, { cfg, label: `prospect:${name}`, maxTurns: cfg.maxTurns.prospect, tools: ['WebSearch', 'WebFetch'] });
       calls.push(r);
+      // DeepSeek could not finish it and Anthropic answered (lib.js askModel):
+      // drafted all the same, and the brief says what broke.
+      if (r.fellBackFrom) { fellBack.push(r.fellBackFrom); L.log(KIND, `${name}: DeepSeek failed (${r.fellBackFrom}); answered by Anthropic`); }
       const j = r.json && !Array.isArray(r.json) ? r.json : {};
       const summary = String(j.summary || '(no research returned)');
       const reason = filterReason(j);
@@ -288,6 +291,7 @@ Return ONLY JSON: {"summary": "two lines on who they are and what they do, from 
   L.writeState(STATE, done);
 
   const n = drafted.length;
+  if (fellBack.length) warnings.push(`${fellBack.length} research call(s) were answered by Anthropic because DeepSeek could not finish them. The first DeepSeek error: ${fellBack[0]}`);
   const reasons = {};
   for (const f of filtered) { const k = f.retry ? 'research failed' : f.reason.replace(/ \(.*\)$/, ''); reasons[k] = (reasons[k] || 0) + 1; }
   const breakdown = Object.entries(reasons).map(([k, v]) => `${v} ${k}`).join(', ');

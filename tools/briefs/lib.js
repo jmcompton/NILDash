@@ -105,6 +105,8 @@ const ENV_MAP = {
   BRIEFS_DEEPSEEK_API_KEY: 'deepseekApiKey',
   BRIEFS_DEEPSEEK_MODEL: 'deepseekModel', BRIEFS_DEEPSEEK_BASE_URL: 'deepseekBaseUrl',
   BRAVE_SEARCH_API_KEY: 'braveSearchApiKey', SERPER_API_KEY: 'serperApiKey', TAVILY_API_KEY: 'tavilyApiKey',
+  // The Anthropic fallback for a searched call (anthropicSearch): its model and endpoint.
+  BRIEFS_ANTHROPIC_SEARCH_MODEL: 'anthropicSearchModel', BRIEFS_ANTHROPIC_BASE_URL: 'anthropicBaseUrl',
 };
 const LIST_KEYS = new Set(['myAddresses', 'mailAccounts', 'skipDomains', 'nildashUsers', 'prospectKeywords', 'newsTerms', 'mailSources']);
 const NUM_KEYS = new Set(['lookbackDays', 'silentDays', 'prospectsPerRun', 'newsLines', 'callTimeoutMin']);
@@ -380,19 +382,61 @@ async function askModel(prompt, opts = {}) {
   const wantsSearch = (opts.tools || []).some((t) => /websearch|webfetch|web_search|fetch_page/i.test(String(t)));
   const t0 = Date.now();
   if (wantsSearch) {
-    const sp = applySearchKeys(cfg);
-    if (!sp) throw new Error('This brief searches the web, and no search provider key is set. Put braveSearchApiKey, serperApiKey or tavilyApiKey in ' + CONFIG_PATH + ' (or BRAVE_SEARCH_API_KEY / SERPER_API_KEY / TAVILY_API_KEY in the environment).');
-    const WST = require(path.join(SERVER_SERVICES, 'webSearchTool'));
     const maxSearches = Math.max(1, parseInt(opts.maxTurns, 10) || 3);
-    const r = await WST.searchLoop({ prompt, system: opts.system, maxSearches, maxFetches: maxSearches, maxTokens: opts.maxTokens || 2500,
-      temperature: opts.temperature, model: useModel, apiKey: k.key, baseUrl: cfg.deepseekBaseUrl, timeoutMs, ledger: false, provider: sp });
-    return { text: r.text, json: firstJson(r.text), numTurns: r.rounds, searches: r.searches, fetches: r.fetches, usage: r.usage,
-      costUsd: Ledger.estimateUsd(useModel, r.usage, 'deepseek'), ms: Date.now() - t0, model: useModel, keySource: k.source, searchProvider: sp.name };
+    try {
+      const sp = applySearchKeys(cfg);
+      if (!sp) throw new Error('This brief searches the web, and no search provider key is set. Put braveSearchApiKey, serperApiKey or tavilyApiKey in ' + CONFIG_PATH + ' (or BRAVE_SEARCH_API_KEY / SERPER_API_KEY / TAVILY_API_KEY in the environment).');
+      const WST = require(path.join(SERVER_SERVICES, 'webSearchTool'));
+      const r = await WST.searchLoop({ prompt, system: opts.system, maxSearches, maxFetches: maxSearches, maxTokens: opts.maxTokens || 2500,
+        temperature: opts.temperature, model: useModel, apiKey: k.key, baseUrl: cfg.deepseekBaseUrl, timeoutMs, ledger: false, provider: sp });
+      return { text: r.text, json: firstJson(r.text), numTurns: r.rounds, searches: r.searches, fetches: r.fetches, usage: r.usage,
+        costUsd: Ledger.estimateUsd(useModel, r.usage, 'deepseek'), ms: Date.now() - t0, model: useModel, keySource: k.source, searchProvider: sp.name };
+    } catch (e) {
+      // THE SAME FALLBACK THE APP HAS (ai.js oneShotWebSearch): a searched
+      // call DeepSeek or the search provider could not finish is asked of
+      // Anthropic's own web search instead, when an Anthropic key is set. The
+      // first failure rides along so the brief can say what broke.
+      const fb = await anthropicSearch(prompt, { cfg, system: opts.system, maxSearches, maxTokens: opts.maxTokens || 2500, timeoutMs, t0 }).catch((e2) => ({ error: e2 }));
+      if (fb && !fb.error) return { ...fb, fellBackFrom: String(e.message || e).slice(0, 300) };
+      if (fb && fb.error) e.message = `${e.message}; the Anthropic fallback failed too: ${String(fb.error.message || fb.error).slice(0, 200)}`;
+      throw e;
+    }
   }
   const r = await DS.chat({ system: opts.system, messages: [{ role: 'user', content: prompt }], maxTokens: opts.maxTokens || 2500,
     temperature: opts.temperature, model: useModel, apiKey: k.key, baseUrl: cfg.deepseekBaseUrl, timeoutMs, ledger: false });
   return { text: r.text, json: firstJson(r.text), numTurns: 1, searches: 0, fetches: 0, usage: r.usage,
     costUsd: Ledger.estimateUsd(useModel, r.usage, 'deepseek'), ms: Date.now() - t0, model: useModel, keySource: k.source, searchProvider: null };
+}
+
+// ── THE FALLBACK: ANTHROPIC'S OWN WEB SEARCH ───────────────────────────────
+// The model the app's fallback uses (ai.js MODEL_FAST), with Anthropic's
+// server-side web_search tool, on anthropicApiKey or ANTHROPIC_API_KEY. No
+// key: null, and the caller reports the DeepSeek failure as before.
+// anthropicBaseUrl (or ANTHROPIC_BASE_URL) points it elsewhere; the tests use it.
+const ANTHROPIC_SEARCH_MODEL = 'claude-haiku-4-5-20251001';
+async function anthropicSearch(prompt, o = {}) {
+  const cfg = o.cfg || loadConfig();
+  let k = null;
+  try { k = resolveApiKey(cfg); } catch (_) { return null; }
+  const Anthropic = require('@anthropic-ai/sdk');
+  const baseURL = String(cfg.anthropicBaseUrl || process.env.ANTHROPIC_BASE_URL || '').trim() || undefined;
+  const client = new Anthropic({ apiKey: k.key, baseURL, timeout: Math.max(30000, o.timeoutMs || 120000), maxRetries: 1 });
+  const model = String(cfg.anthropicSearchModel || '').trim() || ANTHROPIC_SEARCH_MODEL;
+  const msg = await client.messages.create({
+    model, max_tokens: o.maxTokens || 2500, temperature: 0,
+    system: o.system || 'You research people from public web sources and return strict JSON. You never invent facts.',
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: Math.max(1, o.maxSearches || 3) }],
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const blocks = Array.isArray(msg.content) ? msg.content : [];
+  const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+  const searches = blocks.filter((b) => b.type === 'server_tool_use').length;
+  const u = msg.usage || {};
+  const usage = { inputTokens: Number(u.input_tokens) || 0, outputTokens: Number(u.output_tokens) || 0,
+    cacheReadTokens: Number(u.cache_read_input_tokens) || 0, cacheWriteTokens: Number(u.cache_creation_input_tokens) || 0, webSearches: searches };
+  const Ledger = require(path.join(SERVER_SERVICES, 'aiLedger'));
+  return { text, json: firstJson(text), numTurns: 1, searches, fetches: 0, usage, costUsd: Ledger.estimateUsd(model, usage, 'anthropic'),
+    ms: Date.now() - (o.t0 || Date.now()), model, keySource: k.source, searchProvider: 'anthropic' };
 }
 
 // What the footer of every brief reports about the model: which one, on
@@ -540,4 +584,4 @@ if (require.main === module && process.argv.includes('--api-test')) { apiTest().
 module.exports = { DIRS, ROOT, CONFIG_PATH, loadConfig, configFromEnv, ENV_MAP, today, dateOffset, daysBetween, claudeP, firstJson, claudeTest,
   readState, writeState, writeBrief, log, sendBrief, mdToHtml, footer, authAudit, API_ENV_KEYS, OTHER_AUTH_ENV,
   resolveApiKey, claudeEnv, strippedEnv, maskKey,
-  askModel, resolveDeepseekKey, modelAudit, applySearchKeys, apiTest };
+  askModel, anthropicSearch, ANTHROPIC_SEARCH_MODEL, resolveDeepseekKey, modelAudit, applySearchKeys, apiTest };

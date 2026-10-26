@@ -191,4 +191,8 @@ node tools/briefs/prospecting.js --debug --dry
 
 **The quality filter.** Each researched person is drafted or filtered. Filtered means the research found them not US-based, or not working in US sports markets, or no opener came back. The brief's subject is `Prospects: N drafted, M filtered`, and a Filtered section lists each with the reason. Filtered people are recorded in `state/prospecting-done.json` with the reason so they are not researched again; a research call that failed outright is not recorded and is retried next run. The batch is still `prospectsPerRun` people researched, so a run with 3 filtered drafts 17.
 
+**"20 research failed, 0 drafted".** A research call that fails outright is a DeepSeek search the loop could not finish. Two things now stop that from emptying the brief:
+- The search loop sends DeepSeek's `reasoning_content` back with each tool call. In thinking mode DeepSeek refuses the second round without it (HTTP 400), which failed every person at the same step.
+- A searched call DeepSeek still cannot finish goes to Anthropic's web search (`claude-haiku-4-5-20251001`, the app's own fallback) when `anthropicApiKey` or `ANTHROPIC_API_KEY` is set. The brief then carries a warning with the first DeepSeek error. With no Anthropic key the person is "research failed" as before and retried next run.
+
 **Skipping people for one run.** `--exclude "Ann Lee,https://www.linkedin.com/in/bobray"` (or `--exclude=...`, repeatable) skips those connections on that run only, by full name, LinkedIn URL or the handle after `/in/`. Nothing is recorded; they are back in the queue next time. An item that matches nobody in the CSV is reported as a warning.

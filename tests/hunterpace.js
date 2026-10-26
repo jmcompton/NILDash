@@ -288,6 +288,10 @@ async function morningEmail(P) {
   await P.query(`INSERT INTO ai_call_ledger (site, model, est_usd, at) VALUES ('writer','m',0.40,'2026-10-26T07:00:00Z'), ('contacts','m',0.35,'2026-10-26T08:00:00Z'), ('writer','m',9.99,'2026-10-24T07:00:00Z')`);
   await P.query(`UPDATE outreach_queue_runs SET details = jsonb_set(details, '{0,spendLog}', '[{"brand":"[places refresh]","lane":"market-refresh","cost":0.32,"placesCalls":10}]'::jsonb) WHERE run_date = '2026-10-26'`);
   await P.query(`UPDATE outreach_queue SET created_at = '2026-10-26T08:30:00Z' WHERE athlete_id = 'hp-a1'`);
+  // The night is a fixed date, so a card this test placed "now" (hp-a2's)
+  // fell inside it whenever the suite ran between 18:00 UTC on 2026-10-25
+  // and 12:00 UTC on 2026-10-26. Only hp-a1's two belong to that night.
+  await P.query(`UPDATE outreach_queue SET created_at = '2026-10-20T08:30:00Z' WHERE athlete_id LIKE 'hp-%' AND athlete_id <> 'hp-a1'`);
   const c = await NC.forRunDate(P, '2026-10-26');
   ok('last night\'s cost: model calls in the window ($0.75) + Places (10 x $0.032)', Math.abs(c.ledgerUsd - 0.75) < 1e-6 && Math.abs(c.placesUsd - 0.32) < 1e-6 && Math.abs(c.usd - 1.07) < 1e-6, c);
   ok('  per verified email: $1.07 / 2 cards', c.verified === 2 && Math.abs(c.perVerified - 0.535) < 1e-6, c);

@@ -189,7 +189,16 @@ async function searchLoop(o = {}) {
     text = r.text || text;
     if (!r.toolCalls.length) break;
 
-    convo.push({ role: 'assistant', content: r.text || '', tool_calls: r.toolCalls });
+    // THE MODEL'S REASONING GOES BACK WITH ITS TOOL CALLS. In DeepSeek's
+    // thinking mode, an assistant turn that called tools has to be sent back
+    // with its reasoning_content; without it the next round is refused with a
+    // 400. The app's searches fall back to Anthropic on that 400 and look
+    // fine; the Prospects brief has no fallback, so all 20 of its research
+    // calls failed at the second round. A reply with no reasoning sends nothing extra.
+    const turn = { role: 'assistant', content: r.text || '', tool_calls: r.toolCalls };
+    const reasoning = r.message && r.message.reasoning_content;
+    if (typeof reasoning === 'string' && reasoning) turn.reasoning_content = reasoning;
+    convo.push(turn);
     for (const tc of r.toolCalls) {
       const fn = (tc.function && tc.function.name) || '';
       let args = {}; try { args = JSON.parse((tc.function && tc.function.arguments) || '{}'); } catch (_) { args = {}; }

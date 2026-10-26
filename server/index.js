@@ -879,7 +879,10 @@ function stripeConfigured() {
 // Create (or reuse) the agent's Stripe customer and open a trial subscription
 // Checkout session. Card is collected up front even though the trial is free, so
 // the auto-charge at trial end always has a payment method. Returns the URL.
-async function createAgentCheckoutSession(user) {
+// opts.trialDays: the 14-day trial (SALES_TRIAL_ON, services/salesAutopilot
+// trialDaysFor): the card is still taken at checkout and the first charge
+// is on day 15. Without it, nothing about checkout changes.
+async function createAgentCheckoutSession(user, opts = {}) {
   const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim();
   const agentPrice = (process.env.STRIPE_AGENT_PRICE_ID || '').trim();
   const stripe = require('stripe')(stripeKey);
@@ -901,8 +904,10 @@ async function createAgentCheckoutSession(user) {
     payment_method_types: ['card'],
     mode: 'subscription',
     line_items: [{ price: agentPrice, quantity: 1 }],
-    // No trial: the subscription starts immediately and the card is charged at checkout.
+    // No trial: the subscription starts immediately and the card is charged at
+    // checkout. The 14-day trial link is the one exception (opts.trialDays).
     payment_method_collection: 'always',
+    ...(opts.trialDays > 0 ? { subscription_data: { trial_period_days: opts.trialDays, metadata: { trial_days: String(opts.trialDays) } } } : {}),
     success_url: `${appUrl}/api/agent/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${appUrl}/?subscribe=cancelled`,
     metadata: { user_id: user.id },
@@ -975,7 +980,7 @@ app.get('/api/health', (req, res) => {
 
 // ── Auth routes ────────────────────────────────────────────────
 app.post('/api/auth/signup', async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, trial } = req.body;
   if (!name || !email || !password || !role)
     return res.status(400).json({ error: 'All fields required' });
   if (!['agent', 'university'].includes(role))
@@ -1022,7 +1027,11 @@ app.post('/api/auth/signup', async (req, res) => {
     // subscription exists (status trialing/active), enforced by agentHasAccess.
     if (stripeConfigured()) {
       try {
-        const checkoutUrl = await createAgentCheckoutSession(user);
+        // The "Start 14-day trial" link (SALES_TRIAL_ON): 0 days otherwise.
+        const SA = require('./services/salesAutopilot');
+        const trialDays = SA.trialDaysFor(trial);
+        const checkoutUrl = await createAgentCheckoutSession(user, { trialDays });
+        if (trialDays) SA.recordTrial(store.pool, user, 'signup').catch((e) => console.error('[signup] trial record:', e.message));
         return res.json({ id: user.id, name: user.name, email: user.email, role: user.role, checkoutUrl });
       } catch (e) {
         console.error('[signup] agent checkout failed:', e.message);
@@ -12257,6 +12266,8 @@ app.post('/unsubscribe', express.urlencoded({ extended: false, limit: '4kb' }), 
     return res.status(500).send(unsubscribePage({ address, done: false }));
   }
   console.log(`[unsubscribe] ${address} suppressed for every agent; ${out.stopped} queued message(s) stopped`);
+  // A sales prospect's sequence stops now, not at the next scan.
+  if (require('./services/salesAutopilot').ON()) require('./services/salesAutopilot').onSuppressed(store.pool, address).catch((e) => console.error('[unsubscribe] sales stop:', e.message));
   res.send(unsubscribePage({ address, done: true }));
 });
 
@@ -12371,6 +12382,20 @@ app.post('/api/admin/cold-agent/prospects/:userId/mark', _coldAdmin, async (req,
 // calendar flag to anyone but the admin.
 app.get('/admin/prospects/connect-mailbox', _coldAdmin, (req, res) => {
   res.redirect('/api/email/oauth/outlook?calendar=1&returnTo=' + encodeURIComponent('/admin/prospects'));
+});
+// ── THE SALES AUTOPILOT (services/salesAutopilot) ──────────────────────────
+// Its mailbox, SALES_FROM_ADDRESS: the prospect scopes plus Mail.ReadWrite,
+// so replies can be filed in the "NILDash Prospects" folder. Admin only.
+app.get('/admin/sales/connect-mailbox', _coldAdmin, (req, res) => {
+  res.redirect('/api/email/oauth/outlook?sales=1&returnTo=' + encodeURIComponent('/admin/prospects'));
+});
+// /try: the one link in every sales email. Book 15 minutes with JohnMark, or
+// (SALES_TRIAL_ON) start the 14-day trial. Off while both switches are off.
+app.get('/try', async (req, res, next) => {
+  const SA = require('./services/salesAutopilot');
+  if (!SA.ON() && !SA.TRIAL_ON()) return next();
+  try { res.type('html').send(await SA.tryPage(store.pool)); }
+  catch (e) { console.error('[try] ' + e.message); res.status(500).type('text/plain').send('Could not render the page.'); }
 });
 app.get('/api/admin/mailbox-prospects', _coldAdmin, async (req, res) => {
   try {
@@ -15833,6 +15858,8 @@ setTimeout(() => require('./services/schoolMarketCheck').load(store.pool)
   .then((n) => n && console.log(`[school-keep] ${n} athlete(s) with an ambiguous school kept on the market they already produce in`)), 20 * 1000).unref?.();
 try {
   require('./services/coldAgent').start(store.pool);
+  // The sales autopilot: idle unless SALES_AUTOPILOT_ON (services/salesAutopilot).
+  require('./services/salesAutopilot').start(store.pool);
 } catch (e) {
   console.error('[cold-agent] failed to start:', e.message);
 }
