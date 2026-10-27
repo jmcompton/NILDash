@@ -3379,6 +3379,10 @@ const INACTIVE_AFTER_DAYS = parseInt(process.env.OUTREACH_QUEUE_INACTIVE_DAYS, 1
 const DORMANT_EVERY_DAYS = parseInt(process.env.OUTREACH_QUEUE_DORMANT_EVERY_DAYS, 10) || 7;
 // The reason an agent is DORMANT, or null when active. (Was the skip itself.)
 function inactiveSkip(agent, now) {
+  // AUTO-SEND IS ACTIVE (services/autoSend). An agent who has NILDash send
+  // their pitches every morning never needs to sign in, and is filled nightly
+  // like anyone who does; otherwise the 9:00 send would find a week-old queue.
+  if (agent && agent.auto_send_on === true && require('../services/autoSend').ON()) return null;
   const ref = now ? new Date(now) : new Date();
   const last = agent && agent.last_login ? new Date(agent.last_login) : null;
   if (last && !isNaN(last.getTime())) {
@@ -3426,14 +3430,20 @@ async function runAgents(opts = {}) {
   // which ambiguous names are already producing and keep running.
   await require('../services/schoolMarketCheck').load(pool);
   await require('../services/schoolKeep').load(pool);
+  // auto_send_on is read by inactiveSkip; the column is ensured first so the
+  // night never fails on a database that has not seen services/autoSend yet.
+  // If that fails (a lock timeout), the night runs exactly as before, without it.
+  let autoCol = ', auto_send_on';
+  try { await require('../services/autoSend').ensureTables(pool); } catch (e) {
+    console.error('[queue] auto-send columns not ready (' + e.message + '); filling without them'); autoCol = ''; }
   const agents = opts.agentId
     // signature_text / scheduling_url travel with the agent so fillAgent can read
     // them once rather than querying per business.
     ? (await pool.query(
-      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login FROM users WHERE id = $1`,
+      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login${autoCol} FROM users WHERE id = $1`,
       [opts.agentId])).rows
     : (await pool.query(
-      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login FROM users
+      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login${autoCol} FROM users
         WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
   let filled = 0, spent = 0, skipped = 0;
   // Shared by every agent and athlete tonight: a market refreshed from Places

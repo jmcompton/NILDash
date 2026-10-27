@@ -4434,6 +4434,24 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
     </div>
 
+    <!-- ══ DONE FOR YOU: SEND MY PITCHES EVERY MORNING (services/autoSend).
+         GET/POST /api/agent/settings/auto-send. Hidden until AUTO_SEND_ON. ══ -->
+    <div id="auto-send-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Send my pitches every morning</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.5">
+            NILDash sends that morning's email pitches for you, from your own mailbox, every weekday at 9am Central. No login needed.
+            You get one short email listing what went out, and replies come straight to your inbox. Turn it off any time.
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">
+          <input type="checkbox" id="auto-send-toggle" onchange="saveAutoSend(this.checked)" style="width:18px;height:18px"> On
+        </label>
+      </div>
+      <div id="auto-send-status" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
+    </div>
+
     <!-- ══ FIRST NAME FOR SIGN-OFFS — exactly as typed, capitals and all
          ("JohnMark" stays "JohnMark"). POST /api/agent/sign-first-name. ══ -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
@@ -8113,7 +8131,7 @@ async function showView(id, btn) {
   }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
-  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); }
+  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); setTimeout(loadAutoSend, 60); }
   // The Outreach tab no longer renders the queue; loadUnifiedOutreach and
   // loadAiOutreachLogs are its own tracking reads, wired to their own buttons.
   if (id === 'outreach') { setTimeout(loadUnifiedOutreach, 60); setTimeout(loadAiOutreachLogs, 80); }
@@ -19183,6 +19201,43 @@ async function saveSignature() {
     if (st) { st.style.color = 'var(--accent)'; st.textContent = 'Saved. Every new pitch will use it.'; }
     if (typeof showToast === 'function') showToast('Signature saved', 'success');
   } catch (e) {
+    if (st) { st.style.color = '#f87171'; st.textContent = e.message; }
+  }
+}
+
+// ── Done for you: the morning's pitches go out without a login (services/autoSend) ──
+function renderAutoSend(d) {
+  var card = document.getElementById('auto-send-card'); if (!card) return;
+  if (!d || !d.available) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  var t = document.getElementById('auto-send-toggle'); if (t) t.checked = !!d.on;
+  var st = document.getElementById('auto-send-status'); if (!st) return;
+  if (d.on && d.last && d.last.approved > 0) { st.style.color = 'var(--accent)'; st.textContent = 'On. Last run ' + d.last.date + ': ' + d.last.approved + ' sent.'; }
+  else if (d.on) { st.style.color = 'var(--accent)'; st.textContent = 'On. Your pitches go out at ' + (d.sendsAt || '9:00 am Central, weekdays') + '.'; }
+  else if (d.missing && d.missing.length) { st.style.color = '#f59e0b'; st.textContent = 'To turn this on: ' + d.missing.join('; ') + '.'; }
+  else { st.style.color = 'var(--muted)'; st.textContent = 'Off. Your pitches wait for you to approve them.'; }
+}
+async function loadAutoSend() {
+  try {
+    var r = await fetch(API_BASE + '/api/agent/settings/auto-send', { credentials: 'include' });
+    if (!r.ok) return null;
+    var d = await r.json(); renderAutoSend(d); return d;
+  } catch (e) { return null; }
+}
+async function saveAutoSend(on) {
+  var st = document.getElementById('auto-send-status');
+  if (st) { st.style.color = 'var(--muted)'; st.textContent = 'Saving...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/settings/auto-send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ on: !!on }),
+    });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not save');
+    await loadAutoSend();
+    if (typeof showToast === 'function') showToast(on ? 'Your pitches will send every morning' : 'Automatic sending is off', 'success');
+  } catch (e) {
+    var t = document.getElementById('auto-send-toggle'); if (t) t.checked = !on;
     if (st) { st.style.color = '#f87171'; st.textContent = e.message; }
   }
 }

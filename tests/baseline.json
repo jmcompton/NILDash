@@ -152,6 +152,11 @@
       "total": 41,
       "fault": null
     },
+    "autosend.js": {
+      "failed": 0,
+      "total": 63,
+      "fault": null
+    },
     "bb.js": {
       "failed": 0,
       "total": 39,
