@@ -49,6 +49,11 @@ const FOOTER = 'Pitches expire in 14 days. Approving sends the email from your o
 function waitingSubjectFor(n) { return `${n} pitch${n === 1 ? '' : 'es'} waiting for you`; }
 const WAITING_INTRO = 'Nothing new was found last night, but these are still waiting on you. Approve or skip each one right here.';
 const WAITING_EVERY_DAYS = 3;
+// AUTO-SEND (services/autoSend). On: the morning send approves these at 9:00
+// Central, so the email says so and Skip is the only decision left. Off but
+// available: one line offers the one-tap link.
+const AUTO_INTRO = 'Automatic sending is on: each weekday at 9:00 am Central, NILDash sends the email pitches that are ready from your mailbox. Skip any of these you don\'t want sent.';
+const OFFER_LINE = 'Don\'t want to approve these every day? NILDash can send them for you every weekday morning.';
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -120,7 +125,7 @@ function button(href, label, { primary } = {}) {
 // a link.
 const MAX_ATHLETES = 10;
 
-function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes }) {
+function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes, autoSendUrl, autoOn }) {
   const all = Array.isArray(rows) ? rows : [];
   const shown = all.slice(0, MAX_ATHLETES);
   const hidden = typeof moreAthletes === 'number' ? moreAthletes : Math.max(0, all.length - shown.length);
@@ -133,7 +138,7 @@ function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes }) 
   // are still sitting there. Same email, different first line, and a subject
   // that says what it is rather than claiming a fill that did not happen.
   const subject = require('./sendRules').withDate(waiting ? waitingSubjectFor(n) : subjectFor(n), date, tz);
-  const intro = waiting ? WAITING_INTRO : INTRO;
+  const intro = autoOn ? AUTO_INTRO : waiting ? WAITING_INTRO : INTRO;
   const review = esc(reviewUrl);
 
   const block = (r) => {
@@ -181,6 +186,9 @@ function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes }) 
     <tr><td align="center" style="padding:24px 12px">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:10px;padding:24px 20px">
         <tr><td style="font-size:15px;line-height:1.5;color:#111827">${esc(intro)}</td></tr>
+        ${autoSendUrl && !autoOn ? `<tr><td style="padding-top:14px"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px">
+          <div style="font-size:14px;line-height:1.5;color:#374151">${esc(OFFER_LINE)}</div>
+          <div style="margin-top:10px">${button(autoSendUrl, 'Send my pitches every morning', { primary: true })}</div></div></td></tr>` : ''}
         ${shown.map(block).join('')}
         ${more}
         <tr><td style="padding-top:20px;border-top:1px solid #e5e7eb;font-size:13px;line-height:1.5;color:#6b7280">${esc(FOOTER)}</td></tr>
@@ -192,6 +200,7 @@ function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes }) 
 </body></html>`;
 
   const lines = [intro, ''];
+  if (autoSendUrl && !autoOn) lines.push(OFFER_LINE, `Send my pitches every morning: ${autoSendUrl}`, '');
   for (const r of shown) {
     lines.push(`${r.name}${r.place ? ` (${r.place})` : ''} — ${(r.pitches || []).length} pitch${(r.pitches || []).length === 1 ? '' : 'es'}`);
     for (const p of r.pitches || []) {
@@ -315,6 +324,18 @@ async function rowsFor(pool, agentId, details) {
   }).filter((x) => x.count > 0).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
+// -> { autoOn, autoSendUrl } for render. Never throws: a digest goes out without it.
+async function autoSendBits(pool, agentId) {
+  try {
+    const AS = require('./autoSend');
+    if (!AS.ON()) return {};
+    await AS.ensureTables(pool);
+    const u = (await pool.query(`SELECT auto_send_on FROM users WHERE id = $1`, [agentId])).rows[0];
+    if (u && u.auto_send_on) return { autoOn: true };
+    return { autoSendUrl: await AS.offerUrl(pool, agentId) };
+  } catch (e) { console.error('[nightly-digest] auto-send offer:', e.message); return {}; }
+}
+
 async function unsubToken(pool, user) {
   if (user.digest_unsub_token) return user.digest_unsub_token;
   const token = require('crypto').randomBytes(24).toString('hex');
@@ -400,7 +421,8 @@ async function _sendClaimed(pool, { id, agentId, runDate, rows, cards, u }, opts
 
   const token = await unsubToken(pool, u);
   const unsubUrl = `${APP_URL()}/api/digest/unsubscribe?token=${encodeURIComponent(token)}`;
-  const msg = render({ rows: groups, reviewUrl: `${APP_URL()}/`, unsubUrl, date: opts.now || new Date(), tz: u.report_tz });
+  const auto = await autoSendBits(pool, agentId);
+  const msg = render({ rows: groups, reviewUrl: `${APP_URL()}/`, unsubUrl, date: opts.now || new Date(), tz: u.report_tz, ...auto });
   await pool.query(`UPDATE nightly_digest_sends SET subject = $2 WHERE id = $1`, [id, msg.subject]).catch(() => {});
   try {
     const send = opts.send || (async (m) => {
@@ -514,7 +536,8 @@ async function _sendWaitingClaimed(pool, { id, agentId, runDate, groups, cards, 
   await attachActionUrls(pool, agentId, groups, opts);
   const token = await unsubToken(pool, u);
   const unsubUrl = `${APP_URL()}/api/digest/unsubscribe?token=${encodeURIComponent(token)}`;
-  const msg = render({ rows: groups, reviewUrl: `${APP_URL()}/`, unsubUrl, date: now, tz: u.report_tz, waiting: true });
+  const auto = await autoSendBits(pool, agentId);
+  const msg = render({ rows: groups, reviewUrl: `${APP_URL()}/`, unsubUrl, date: now, tz: u.report_tz, waiting: true, ...auto });
   await pool.query(`UPDATE nightly_digest_sends SET subject = $2 WHERE id = $1`, [id, msg.subject]).catch(() => {});
   try {
     const send = opts.send || (async (m) => {

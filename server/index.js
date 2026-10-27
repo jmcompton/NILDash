@@ -12265,6 +12265,34 @@ app.get('/unsubscribe', (req, res) => {
   res.status(address ? 200 : 400).send(unsubscribePage({ address, done: false, badToken: !address }));
 });
 
+// ── ONE-TAP "SEND MY PITCHES EVERY MORNING" (services/autoSend) ──────────────
+// The link in the nightly email. GET only shows the page (a mail scanner that
+// follows every link changes nothing); the button POSTs. The token is the auth.
+app.get('/auto-send/on', pitchActionLimiter, async (req, res) => {
+  const AS = require('./services/autoSend');
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex');
+  try {
+    if (!AS.ON()) return res.send(AS.page('off'));
+    const u = await AS.byToken(store.pool, req.query.t);
+    if (!u) return res.status(404).send(AS.page('bad'));
+    if (u.auto_send_on) return res.send(AS.page('already', { user: u }));
+    res.send(AS.page('ask', { user: u, token: String(req.query.t) }));
+  } catch (e) { console.error('[auto-send/on]', e.message); res.status(500).send(AS.page('bad')); }
+});
+app.post('/auto-send/on', pitchActionLimiter, express.urlencoded({ extended: false, limit: '2kb' }), async (req, res) => {
+  const AS = require('./services/autoSend');
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex');
+  try {
+    if (!AS.ON()) return res.send(AS.page('off'));
+    const u = await AS.byToken(store.pool, req.body && req.body.t);
+    if (!u) return res.status(404).send(AS.page('bad'));
+    if (u.auto_send_on) return res.send(AS.page('already', { user: u }));
+    const r = await AS.set(store.pool, u.id, true);
+    if (!r.ok) return res.send(AS.page(r.missing ? 'missing' : 'off', { user: u, missing: r.missing }));
+    res.send(AS.page('on', { user: u }));
+  } catch (e) { console.error('[auto-send/on]', e.message); res.status(500).send(AS.page('bad')); }
+});
+
 // The form posts urlencoded and nothing else on this server does, so the
 // parser is mounted on this one route rather than globally: adding a body
 // parser to every request to change one page is how a JSON API starts
