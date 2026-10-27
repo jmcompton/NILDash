@@ -69,7 +69,19 @@ const lc = (s) => String(s || '').trim().toLowerCase();
 function appUrl() { return String(process.env.APP_URL || 'https://mynildash.com').replace(/\/+$/, ''); }
 function link() { return appUrl() + '/try'; }
 function senderName() { return String(process.env.SALES_SENDER_NAME || 'JohnMark Compton').replace(/[^A-Za-z .'-]/g, '').trim() || 'JohnMark Compton'; }
-function writerCtx() { return { link: link(), trialOn: TRIAL_ON(), senderName: senderName() }; }
+function writerCtx() { return { link: link(), trialOn: TRIAL_ON(), senderName: senderName(), senderPhone: String(process.env.SALES_SENDER_PHONE || '').trim() }; }
+// The writer's context for one prospect: a ready sample's page is that
+// email's one link (services/salesSample); everyone else gets /try.
+function ctxFor(p) {
+  const base = writerCtx();
+  return p && p.sample_status === 'ready' && p.sample_token ? { ...base, link: require('./salesSample').sampleUrl(p.sample_token) } : base;
+}
+// A first email as it should read today: the sample version when there is a
+// ready sample, the template otherwise.
+function firstEmailFor(p) {
+  const ctx = ctxFor(p);
+  return p && p.sample_status === 'ready' && p.sample ? W.sampleEmail(p, ctx, p.sample) : W.templateEmail(p, ctx);
+}
 function footerWhy(lane) {
   return lane === 'school'
     ? 'You received this because of your work with NIL at your athletic department.'
@@ -114,6 +126,11 @@ function ensureTables(pool) {
       key TEXT PRIMARY KEY, lane TEXT, outcome TEXT, tried_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
     await pool.query(`CREATE TABLE IF NOT EXISTS sales_trials (
       user_id TEXT PRIMARY KEY, email TEXT, source TEXT, prospect_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+    // THE SAMPLE (services/salesSample): pending, ready or failed; its page token; what it holds.
+    await pool.query(`ALTER TABLE sales_prospects ADD COLUMN IF NOT EXISTS sample_status TEXT`);
+    await pool.query(`ALTER TABLE sales_prospects ADD COLUMN IF NOT EXISTS sample_token TEXT`);
+    await pool.query(`ALTER TABLE sales_prospects ADD COLUMN IF NOT EXISTS sample JSONB`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS sales_prospects_sample_token ON sales_prospects (sample_token) WHERE sample_token IS NOT NULL`);
     await require('./sendRules').ensureTable(pool).catch(() => {});
   })().catch((e) => { _ready = null; throw e; });
   return _ready;
@@ -199,26 +216,35 @@ async function saveProspect(pool, cand, found, ctx) {
   };
   p.tz = F.tzFor(p.state);
   const mail = await W.write(p, writerCtx(), ctx.deps);
+  // A client on record and SALES_SAMPLE_ON: the sample is built after the
+  // Hunter night (services/salesSample), and the email waits for it.
+  const sample = cand.sample && cand.sample.athlete && require('./salesSample').ON() ? cand.sample : null;
   const ins = await pool.query(
     `INSERT INTO sales_prospects (id, lane, org, domain, person, title, email, verify_status, verify_result, verified_at, found_by,
-       league, level, city, state, tz, fact, source, detail, status, run_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'drafted',$20)
+       league, level, city, state, tz, fact, source, detail, status, run_id, sample_status, sample)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'drafted',$20,$21,$22)
      ON CONFLICT (email) DO NOTHING RETURNING id`,
     [id, p.lane, p.org, p.domain, p.person, p.title, p.email, found.verify.status, found.verify.result, found.verify.at, found.how,
-      p.league, p.level, p.city, p.state, p.tz, p.fact, p.source, JSON.stringify({ writerProblems: mail.writerProblems || null, writerError: mail.writerError || null }), ctx.runId || null]);
+      p.league, p.level, p.city, p.state, p.tz, p.fact, p.source, JSON.stringify({ writerProblems: mail.writerProblems || null, writerError: mail.writerError || null }), ctx.runId || null,
+      sample ? 'pending' : null, sample ? JSON.stringify(sample) : null]);
   if (!ins.rowCount) return null;
   await pool.query(`INSERT INTO sales_emails (id, prospect_id, step, subject, body_text, state, written_by) VALUES ($1,$2,1,$3,$4,'draft',$5)`,
     [newId('se'), id, mail.subject, mail.body, mail.by]);
   return { id, lane: p.lane, org: p.org, person: p.person, title: p.title, email: p.email, state: p.state, tz: p.tz,
-    verify: found.verify, foundBy: found.how, subject: mail.subject, body: mail.body, writtenBy: mail.by };
+    verify: found.verify, foundBy: found.how, subject: mail.subject, body: mail.body, writtenBy: mail.by,
+    sample: sample ? { athlete: sample.athlete, status: 'pending' } : null };
 }
 
 function skipper(out) { return (why) => { const k = String(why || 'unknown').replace(/ \(.*\)$/, ''); out.skipped[k] = (out.skipped[k] || 0) + 1; }; }
 
 async function laneAgencies(pool, want, ctx, cursors) {
-  const out = { lane: 'agency', want, drafted: [], skipped: {}, searches: 0, budgetOut: false, held: 0 };
+  const out = { lane: 'agency', want, drafted: [], skipped: {}, searches: 0, budgetOut: false, held: 0, fromList: 0 };
   if (want <= 0) return out;
   const skip = skipper(out);
+  if (require('./salesSample').ON()) {
+    await laneFromList(pool, want, ctx, out, skip);
+    if (out.drafted.length >= want || out.budgetOut) return out;
+  }
   const start = cursors.agency || 0;
   const slices = F.agencySlices(start, Math.max(6, want));
   const enough = () => out.drafted.length + out.held >= want || out.budgetOut;
@@ -262,6 +288,60 @@ async function laneAgencies(pool, want, ctx, cursors) {
     }
   }, enough);
   return out;
+}
+
+// The agency list first (services/salesSample): agencies with college
+// clients on record, so the email can bring a sample for one of them.
+async function laneFromList(pool, want, ctx, out, skip) {
+  const SS = require('./salesSample');
+  const rows = await SS.nextAgencies(pool, Math.max(want * 3, 6));
+  const enough = () => out.drafted.length + out.held >= want || out.budgetOut;
+  await eachLimit(rows, 3, async (row) => {
+    if (enough()) return;
+    const key = 'pool:' + row.slug;
+    if (await tried(pool, key)) { skip('tried on an earlier night'); await SS.markUsed(pool, row.slug, 'tried before'); return; }
+    const pre = ctx.ex.org(row.agency, null);
+    if (pre) { skip(pre); await SS.markUsed(pool, row.slug, pre); await markTried(pool, key, 'agency', pre); return; }
+    out.searches++;
+    let res = null;
+    try { res = ctx.deps.research ? await ctx.deps.research('pool', row) : await F.webJson(F.poolPrompt(row), 'sales.research', 3); }
+    catch (e) { skip('the web search failed: ' + String(e.message || e).slice(0, 80)); return; }
+    const domain = F.cleanDomain(res && res.domain);
+    if (!domain) { skip('no website found for the agency'); await SS.markUsed(pool, row.slug, 'no website'); await markTried(pool, key, 'agency', 'no website'); return; }
+    const blocked = ctx.ex.org(row.agency, domain);
+    if (blocked) { skip(blocked); await SS.markUsed(pool, row.slug, blocked); await markTried(pool, key, 'agency', blocked); return; }
+    const agents = (row.agents || []).map((a) => String(a));
+    const named = res && res.person && res.person.name && agents.find((a) => lc(a) === lc(res.person.name));
+    const person = { name: named || agents[0], title: (named && res.person.title) || 'Agent' };
+    const client = SS.pickClient(row.players);
+    const cand = { lane: 'agency', org: row.agency, domain, person, league: 'NFL', state: (res && res.state) || null, city: (res && res.city) || null,
+      fact: null, source: 'scoutszn:' + row.slug, sample: client ? { athlete: client, slug: row.slug } : null };
+    const r = await F.findPerson(cand, ctx);
+    if (r.skip) {
+      skip(r.skip);
+      if (r.budget) { out.budgetOut = true; return; }
+      if (!r.notRun) { await markTried(pool, key, 'agency', r.skip); await SS.markUsed(pool, row.slug, r.skip); }
+      return;
+    }
+    // The email names their client, so it goes only to an agent the list
+    // names: never to whoever Domain Search turned up at a domain the web
+    // search may have got wrong.
+    if (r.how === 'Hunter Domain Search' || !agents.some((a) => lc(a) === lc(r.person))) {
+      const why = 'not one of the agents on record for the agency';
+      skip(why); await markTried(pool, key, 'agency', why); await SS.markUsed(pool, row.slug, why);
+      return;
+    }
+    if (enough()) return;
+    out.held++;
+    ctx.ex.claim(r.email, domain);
+    try {
+      await markTried(pool, key, 'agency', 'drafted');
+      await markTried(pool, 'agency:' + domain, 'agency', 'drafted');
+      await SS.markUsed(pool, row.slug, 'drafted');
+      const saved = await saveProspect(pool, cand, r, ctx);
+      if (saved) { out.drafted.push(saved); out.fromList++; }
+    } finally { out.held--; }
+  }, enough);
 }
 
 async function laneSchools(pool, want, ctx, cursors) {
@@ -445,7 +525,9 @@ async function planDay(pool, { now, save = true, deps = {}, date } = {}) {
   const drafts = (await pool.query(
     `SELECT e.id AS email_id, e.subject, e.body_text, p.* FROM sales_emails e JOIN sales_prospects p ON p.id = e.prospect_id
       WHERE e.step = 1 AND e.state = 'draft' AND p.status = 'drafted' AND p.verified_at >= $1
-      ORDER BY e.created_at, e.id`, [verifiedSince])).rows;
+        AND (p.sample_status IS NULL OR p.sample_status <> 'building')
+        AND (p.sample_status IS NULL OR p.sample_status <> 'pending' OR NOT $2)
+      ORDER BY e.created_at, e.id`, [verifiedSince, require('./salesSample').ON()])).rows;
   const byLane = { agency: drafts.filter((d) => d.lane === 'agency'), school: drafts.filter((d) => d.lane !== 'agency') };
   const turn = [];
   for (let i = 0; i < Math.max(byLane.agency.length, byLane.school.length); i++) {
@@ -631,10 +713,10 @@ async function sendOne(pool, e, { now, deps = {} } = {}) {
   // went on, or the trial turned off since): a first email that would
   // promise the wrong thing goes as today's template instead.
   if (e.step === 1 && /14-day trial/i.test(body) !== TRIAL_ON()) {
-    body = W.templateEmail(p, writerCtx()).body;
-    await pool.query(`UPDATE sales_emails SET body_text = $2, written_by = 'template' WHERE id = $1`, [e.id, body]);
+    body = firstEmailFor(p).body;
+    await pool.query(`UPDATE sales_emails SET body_text = $2, written_by = $3 WHERE id = $1`, [e.id, body, p.sample_status === 'ready' ? 'sample' : 'template']);
   }
-  const problems = W.checkEmail({ subject: e.step === 1 ? e.subject : 'x', body }, p, writerCtx(), e.step);
+  const problems = W.checkEmail({ subject: e.step === 1 ? e.subject : 'x', body }, p, e.step === 1 ? ctxFor(p) : writerCtx(), e.step);
   if (problems.length) return cancel('the email fails its checks: ' + problems.join('; '));
   const text = require('./canSpam').appendText(body, p.email, { why: footerWhy(p.lane) });
   const mb = deps.mailbox || await MB.account(pool);
@@ -785,6 +867,7 @@ async function tick(pool, { now, deps = {} } = {}) {
     const done = (await pool.query(`SELECT 1 FROM sales_runs WHERE run_date = $1 AND trigger = 'schedule' LIMIT 1`, [c.date])).rowCount;
     if (!done) out.run = await runOnce(pool, { trigger: 'schedule', now, deps });
   }
+  if (require('./salesSample').ON()) out.samples = await require('./salesSample').tick(pool, { now, deps }).catch((e) => ({ error: e.message }));
   if (SEND_ON() && !weekend(c) && c.minutes >= PLAN_AT && c.minutes < WINDOW_TO + 60) out.plan = await planDay(pool, { now, deps });
   out.replies = await require('./salesReplies').scan(pool, { now, deps }).catch((e) => ({ error: e.message }));
   return out;
@@ -804,7 +887,7 @@ module.exports = {
   ON, SEND_ON, TRIAL_ON, DAILY_NEW, DAILY_CAP, HUNTER_MAX, MAX_QUEUE, SYSTEM, WARMUP_START, WARMUP_STEP, WINDOW_FROM, WINDOW_TO,
   MIN_GAP_MS, DOMAIN_PER_DAY, FOLLOW_UP_AFTER, BOUNCE_LIMIT, BOUNCE_DAYS, VERIFY_MAX_DAYS, RUN_AT, PLAN_AT, CENTRAL,
   ensureTables, getState, warmup, runOnce, planDay, sendTick, sendOne, stopProspect, event, onSuppressed, syncStops, pause, resume,
-  bounceCheck, alert, alertTo, numbers, morningSection, tick, start, link, appUrl, senderName, writerCtx, footerWhy,
+  bounceCheck, alert, alertTo, numbers, morningSection, tick, start, link, appUrl, senderName, writerCtx, footerWhy, ctxFor, firstEmailFor,
   trialDaysFor, recordTrial, tryPage, bookingUrl, TRIAL_DAYS,
   partsIn, centralDay, zonedTime, addDays, nextWeekday, fmtLocal, truthy,
 };

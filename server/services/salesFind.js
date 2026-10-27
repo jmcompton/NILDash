@@ -180,6 +180,15 @@ For each firm, from its own website or a news source: the firm name, its website
 Return ONLY JSON: {"firms":[{"firm":"","domain":"","city":"","state":"","person":{"name":"","title":""},"fact":"","source":""}]}
 Up to 8 firms. null for anything you cannot find with a source. Never guess a name or a domain.`;
 }
+// One agency from the list (services/salesSample): its website and which of
+// its named agents to write to.
+function poolPrompt(row) {
+  const agents = (row.agents || []).slice(0, 8).join(', ');
+  return `The sports agency "${row.agency}" represents college football players${agents ? `; agents reported for it: ${agents}` : ''}.
+From the agency's own website or a news source: its website domain, its city and state, and which ONE of those agents is its founder, president or lead agent, with their title.
+Return ONLY JSON: {"domain":"","city":"","state":"two letters","person":{"name":"one of the agents named above","title":""},"source":"URL"}
+null for anything you cannot find with a source. Never guess a domain.`;
+}
 function schoolPrompt(s) {
   return `Find the person who runs NIL (name, image and likeness) for ${s.name} athletics${s.city ? ` in ${s.city}, ${s.state}` : s.state ? ` (${s.state})` : ''}, a ${s.level} school: the NIL director, NIL coordinator, or the athletics staff member whose title covers NIL. Use the athletics staff directory or a school news release.
 Return ONLY JSON: {"person":{"name":"","title":""},"emailDomain":"the domain athletics staff email addresses use, e.g. school.edu","email":"their address if the directory lists it, else null","state":"the two-letter state","fact":"one plain sentence about the department that a source states (its conference, how many sports it sponsors, or an NIL program it runs)","source":"URL"}
@@ -335,6 +344,6 @@ async function findPerson(cand, ctx) {
 
 module.exports = {
   LEAGUES, LEAGUE_ASK, STATES, GIANTS, OUR_DOMAINS, ROLE_LOCALS,
-  giant, secondWind, isRole, isFree, cleanDomain, splitName, emailFitsName, tzFor, schoolList, agencySlices, agencyPrompt, schoolPrompt, webJson, firstJson,
+  giant, secondWind, isRole, isFree, cleanDomain, splitName, emailFitsName, tzFor, schoolList, agencySlices, agencyPrompt, poolPrompt, schoolPrompt, webJson, firstJson,
   liveHunter, verifiedOk, exclusions, findPerson,
 };

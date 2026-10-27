@@ -1499,6 +1499,19 @@
       "prospect_id": "TEXT",
       "tag": "TEXT"
     },
+    "sales_pool": {
+      "agency": "TEXT",
+      "agents": "JSONB DEFAULT '[]'",
+      "clients": "INTEGER",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "outcome": "TEXT",
+      "players": "JSONB DEFAULT '[]'",
+      "schools": "TEXT",
+      "slug": "TEXT",
+      "source": "TEXT",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "used_at": "TIMESTAMPTZ"
+    },
     "sales_prospects": {
       "city": "TEXT",
       "conversation_id": "TEXT",

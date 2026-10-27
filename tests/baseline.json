@@ -1277,6 +1277,11 @@
       "total": 108,
       "fault": null
     },
+    "salessample.js": {
+      "failed": 0,
+      "total": 43,
+      "fault": null
+    },
     "scanfix.js": {
       "failed": 0,
       "total": 60,
