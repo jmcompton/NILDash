@@ -16,6 +16,7 @@ const def = {
       q.resume === '1' ? ['--resume'] : [],
       q.dry === '1' ? ['--dry'] : [],
       q.plan === '1' ? ['--plan'] : [],
+      q.samples === '1' ? ['--samples'] : [],
       d(q.from) ? ['--from', d(q.from)] : [],
       d(q.to) ? ['--to', d(q.to)] : [],
       q.days ? ['--days', String(Math.max(1, Math.min(366, parseInt(q.days, 10) || 7)))] : []);

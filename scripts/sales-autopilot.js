@@ -13,6 +13,8 @@
 //     send on day 1. NOTHING IS SENT, whatever the switches say.
 //   /api/admin/scripts/sales-autopilot?text=1&plan=1     the next sending day's plan
 //   /api/admin/scripts/sales-autopilot?text=1&resume=1   turn it back on after a stop
+//   /api/admin/scripts/sales-autopilot?text=1&samples=1  build the pending samples now
+//     (services/salesSample; SALES_SAMPLE_ON), and list every sample with its page
 const path = require('path');
 const ROOT = path.join(__dirname, '..') + path.sep;
 const INIT_WAIT_MS = parseInt(process.env.INIT_WAIT_MS, 10) || 8000;
@@ -129,6 +131,39 @@ async function dryRunText(pool, { deps, now } = {}) {
   return { text: L.join('\n'), run: r, plan };
 }
 
+// The samples (services/salesSample): build what is pending now, then list them all.
+async function samplesText(pool, { deps, limit } = {}) {
+  const SS = require(ROOT + 'server/services/salesSample');
+  await SS.ensureTables(pool);
+  const L = [`SALES SAMPLES. SALES_SAMPLE_ON ${SS.ON() ? 'on' : 'off'}, SALES_SAMPLE_USD ${SS.SAMPLE_USD()}.`];
+  const left = (await pool.query(`SELECT COUNT(*) FILTER (WHERE used_at IS NULL)::int AS fresh, COUNT(*)::int AS total FROM sales_pool`)).rows[0];
+  L.push(`Agency list: ${left.fresh} of ${left.total} not yet tried.`, '');
+  if (SS.ON()) {
+    const r = await SS.tick(pool, { force: true, limit: limit || 6, deps: deps || {} });
+    L.push(`Built now: ${(r.built || []).length}${r.skipped ? ' (' + r.skipped + ')' : ''}`);
+    for (const b of r.built || []) L.push(`  ${b.status.toUpperCase()}  ${b.person}, ${b.org}: ${b.athlete || '?'}, ${b.cards} card(s)${b.url ? '  ' + b.url : ''}${b.why ? '  (' + b.why + ')' : ''}`);
+    L.push('');
+  }
+  const rows = (await pool.query(
+    `SELECT p.person, p.org, p.email, p.status, p.sample_status, p.sample_token, p.sample, e.subject, e.body_text, e.state AS email_state
+       FROM sales_prospects p LEFT JOIN sales_emails e ON e.prospect_id = p.id AND e.step = 1
+      WHERE p.sample_status IS NOT NULL ORDER BY p.created_at DESC LIMIT 40`)).rows;
+  L.push(`Samples (${rows.length}, newest first):`);
+  for (const r of rows) {
+    const s = r.sample || {};
+    const a = s.athlete || {};
+    L.push('', `${r.sample_status.toUpperCase()}  ${r.person}, ${r.org} <${r.email}>  for ${a.name || '?'} (${a.position || '?'}, ${a.school || '?'})  email: ${r.email_state || '?'}`);
+    if (r.sample_token) L.push('  page: ' + SS.sampleUrl(r.sample_token));
+    if (s.why) L.push('  why: ' + s.why);
+    for (const c of (s.cards || []).slice(0, SS.SHOW)) L.push(`  - ${c.business}${c.contactName ? ', ' + c.contactName + (c.contactTitle ? ' (' + c.contactTitle + ')' : '') : ''} [${c.channel || '?'}]`);
+    if (r.sample_status === 'ready') {
+      L.push(`  Subject: ${r.subject}`);
+      for (const line of String(r.body_text || '').split('\n')) L.push('  | ' + line);
+    }
+  }
+  return L.join('\n');
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const store = require(ROOT + 'server/store.js');
@@ -146,7 +181,9 @@ async function main() {
     console.log('Resumed: the sales autopilot is no longer stopped.' + (SA.SEND_ON() ? ' It sends from the next planned time.' : ' SALES_AUTOSEND_ON is off, so it still sends nothing.'));
     console.log('');
   }
-  if (argv.includes('--dry')) {
+  if (argv.includes('--samples')) {
+    console.log(await samplesText(pool));
+  } else if (argv.includes('--dry')) {
     console.log((await dryRunText(pool)).text);
   } else if (argv.includes('--plan')) {
     const d1 = dayOne(SA);
@@ -164,4 +201,4 @@ async function main() {
 }
 if (require.main === module) main().catch((e) => { console.error('sales-autopilot: FAILED', e.message); process.exit(1); });
 
-module.exports = { reportText, dryRunText, dayOne, planLines, numbersLines };
+module.exports = { reportText, dryRunText, samplesText, dayOne, planLines, numbersLines };

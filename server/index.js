@@ -12397,6 +12397,24 @@ app.get('/try', async (req, res, next) => {
   try { res.type('html').send(await SA.tryPage(store.pool)); }
   catch (e) { console.error('[try] ' + e.message); res.status(500).type('text/plain').send('Could not render the page.'); }
 });
+// /sample/<token>: NILDash run for one of a prospect agent's own clients
+// (services/salesSample). Public by its unguessable token, never indexed.
+app.get('/sample/:token', async (req, res) => {
+  try {
+    const html = await require('./services/salesSample').page(store.pool, req.params.token);
+    if (!html) return res.status(404).type('text/plain').send('This sample is not available.');
+    res.set('X-Robots-Tag', 'noindex, nofollow').type('html').send(html);
+  } catch (e) { console.error('[sample] ' + e.message); res.status(500).type('text/plain').send('Could not render the sample.'); }
+});
+// The agency list the samples come from (services/salesSample). Admin only
+// (the /api/admin gate), JSON: { source, agencies: [{ slug, agency, clients, agents, players|notable, schools }] }.
+app.post('/api/admin/sales/pool', _coldAdmin, express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const b = req.body || {};
+    const out = await require('./services/salesSample').importPool(store.pool, b.agencies, b.source || 'admin import');
+    res.json({ ok: true, ...out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/admin/mailbox-prospects', _coldAdmin, async (req, res) => {
   try {
     const MP = require('./services/mailboxProspects');

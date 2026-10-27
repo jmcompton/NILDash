@@ -18,6 +18,17 @@
 // The model writes it (the cold agent's pattern: services/coldAgent
 // writeEmail); a draft that fails a check is replaced by the template, which
 // always passes. The pitch writer is not used and not touched.
+//
+// THE SAMPLE EMAIL (services/salesSample, SALES_SAMPLE_ON). When NILDash has
+// already run for one of the agent's own clients, the email leads with that:
+// "I ran NILDash for <athlete> at <school>", and its one link is the sample
+// page (which carries the 15 minutes and the trial), not /try.
+//
+// THE SPECIFIC LINE is about their workload, not a sentence read back off
+// their own website ("X is a family owned agency...", Oct 27 review): it
+// names them and says what the mornings are worth to them.
+//
+// THE SIGN-OFF: name, "Founder, NILDash", and SALES_SENDER_PHONE when set.
 
 const lc = (s) => String(s || '').trim().toLowerCase();
 
@@ -79,21 +90,54 @@ function fallbackFact(p) {
   return `I came across ${p.org || 'your agency'} while looking at ${league}agencies${where ? ` in ${where}` : ''}.`;
 }
 
+// The sign-off block: name, title, and the phone when SALES_SENDER_PHONE is set.
+function signOff(ctx) {
+  const phone = String((ctx && ctx.senderPhone) || '').replace(/[^0-9()+ .-]/g, '').trim();
+  return [ctx.senderName, 'Founder, NILDash'].concat(phone ? [phone] : []).join('\n');
+}
+// "Jordan Sports Group's", "Rosenhaus Sports'".
+function possessive(org) { const o = String(org || '').trim(); return /s$/i.test(o) ? o + "'" : o + "'s"; }
+// The one specific line: them, and what the mornings are worth to them.
+function workloadLine(p) {
+  if (p.lane === 'school') return `For ${p.org || 'your department'}, that is hours back every week for your staff.`;
+  return `For the team at ${p.org || 'your agency'}, that is hours of writing back every week.`;
+}
+
 // ── THE TEMPLATE: ALWAYS PASSES ──────────────────────────────────────────
-// ctx: { link, trialOn, senderName }
+// ctx: { link, trialOn, senderName, senderPhone }
 function askLine(p, ctx) {
   const what = p.lane === 'school' ? `for ${p.org || 'your department'}` : 'with your roster';
   return `Worth 15 minutes to see it ${what}? You can book a time${ctx.trialOn ? ' or start a 14-day trial' : ''} here: ${ctx.link}`;
 }
 function templateEmail(p, ctx) {
   const first = firstName(p.person) || 'there';
-  const fact = cleanFact(p.fact) || fallbackFact(p);
+  const fact = p.org ? workloadLine(p) : (cleanFact(p.fact) || fallbackFact(p));
   const lead = p.lane === 'school'
     ? 'NILDash gives athletic departments their mornings back. Every morning, each of your teams and programs has 5 sponsorship pitches ready for local businesses, already written and going to verified people at those businesses. Your staff reviews and sends.'
     : 'NILDash gives agents their mornings back. Every morning, each athlete you represent has 5 pitches ready for local and social brands, already written and going to verified people at those businesses. You review and send.';
-  const body = [`Hi ${first},`, '', lead, '', fact, '', askLine(p, ctx), '', ctx.senderName, 'NILDash'].join('\n');
+  const body = [`Hi ${first},`, '', lead, '', fact, '', askLine(p, ctx), '', signOff(ctx)].join('\n');
   const subject = p.lane === 'school' ? 'Sponsor pitches for your teams, ready daily' : 'Pitches for your athletes, ready each morning';
   return { subject, body };
+}
+
+// ── THE SAMPLE EMAIL ─────────────────────────────────────────────────────
+// sample: { athlete: { name, school }, cards: [...] }; ctx.link is the sample page.
+function sampleEmail(p, ctx, sample) {
+  const first = firstName(p.person) || 'there';
+  const a = (sample && sample.athlete) || {};
+  const n = Math.min(3, ((sample && sample.cards) || []).length);
+  const what = n === 1 ? 'a local business' : `${n} local businesses`;
+  const at = a.school ? ` at ${a.school}` : '';
+  const lines = [
+    `Hi ${first},`, '',
+    `I ran NILDash for one of ${possessive(p.org || 'your agency')} clients, ${a.name}${at}. It found ${what}, the right person to contact, and a pitch already written in your name: ${ctx.link}`, '',
+    'Every athlete you represent would get that each morning: 5 pitches, already written, going to verified people. You review and send.', '',
+    `Worth 15 minutes to see it with your whole roster?${ctx.trialOn ? ' The page also lets you start a 14-day trial.' : ''}`, '',
+    signOff(ctx),
+  ];
+  const last = String(a.name || '').trim().split(/\s+/).slice(-1)[0] || '';
+  const subject = a.name ? `${a.name}: ${n === 1 ? '1 brand' : n + ' brands'} ready to pitch` : 'Brands ready to pitch for your athletes';
+  return { subject: words(subject) <= MAX_SUBJECT_WORDS ? subject : `${last}: ${n} brands ready to pitch`, body: lines.join('\n') };
 }
 
 // The follow-ups: day 3 and day 7, replies in the same thread.
@@ -158,8 +202,8 @@ async function write(p, ctx, deps = {}) {
       const scanMeter = require('../scanMeter');
       const facts = {
         to: { firstName: firstName(p.person), org: p.org, title: p.title || null, lane: p.lane, league: p.league || null, level: p.level || null, state: stateName(p.state) },
-        specificLine: cleanFact(p.fact) || fallbackFact(p),
-        link: ctx.link, trialOn: !!ctx.trialOn, signOff: `${ctx.senderName}\nNILDash`,
+        specificLine: p.org ? workloadLine(p) : (cleanFact(p.fact) || fallbackFact(p)),
+        link: ctx.link, trialOn: !!ctx.trialOn, signOff: signOff(ctx),
       };
       const team = p.lane === 'school';
       const prompt = `Write a short cold email from ${ctx.senderName}, founder of NILDash, to ${team ? 'a college athletic department NIL director' : 'a sports agent'}.
@@ -167,7 +211,7 @@ FACTS (use only these): ${JSON.stringify(facts)}
 Shape, in this order:
 1. "Hi ${facts.to.firstName || 'there'}," on its own line.
 2. Lead with the time they get back: every morning ${team ? 'each of their teams and programs has 5 sponsorship pitches ready for local businesses' : 'each athlete they represent has 5 pitches ready for local and social brands'}, already written and going to verified people at those businesses; ${team ? 'their staff reviews and sends' : 'they review and send'}. Two or three plain sentences.
-3. The specific line, in your own words, keeping its facts: ${JSON.stringify(facts.specificLine)}
+3. The specific line, in your own words, keeping its facts: ${JSON.stringify(facts.specificLine)} (it must name them and say what the time is worth to them; never describe their company back to them)
 4. One ask, one sentence: 15 minutes to see it, with this link exactly once: ${ctx.link}${ctx.trialOn ? ' (the same link also starts a 14-day trial; say so)' : ''}.
 5. The sign-off exactly: ${JSON.stringify(facts.signOff)}
 Rules: under 110 words including the sign-off. Plain text, no links but that one. No exclamation marks, no em dashes, no hype or marketing words, never the word AI. Never say NILDash closes, negotiates or signs deals.${team ? ' It is about teams and programs, never individual athletes.' : ''}
@@ -189,5 +233,6 @@ Return ONLY JSON: {"subject":"under 8 words, plain","body":"the email with \\n l
   }
 }
 
-module.exports = { write, templateEmail, followUp, checkEmail, cleanFact, fallbackFact, firstName, words, links, stateName,
+module.exports = { write, templateEmail, sampleEmail, followUp, checkEmail, cleanFact, fallbackFact, firstName, words, links, stateName,
+  signOff, workloadLine, possessive,
   HYPE, DEAL_CLAIM, MAX_WORDS, STATE_NAMES };
