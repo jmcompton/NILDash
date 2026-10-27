@@ -1904,6 +1904,21 @@ app.post('/api/agent/settings/media-kit', requireAuth, async (req, res) => {
   }
 });
 
+// Done for you: "send my pitches every morning" (services/autoSend).
+app.get('/api/agent/settings/auto-send', requireAuth, async (req, res) => {
+  try { res.json(await require('./services/autoSend').status(store.pool, req.session.userId)); } catch (e) {
+    console.error('[settings/auto-send]', e.message); res.status(500).json({ error: e.message });
+  }
+});
+app.post('/api/agent/settings/auto-send', requireAuth, async (req, res) => {
+  try {
+    const out = await require('./services/autoSend').set(store.pool, req.session.userId, !!(req.body && req.body.on === true));
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (e) {
+    console.error('[settings/auto-send]', e.message); res.status(500).json({ error: e.message });
+  }
+});
+
 // The agent dismisses the "approvals did not send" line once they have read
 // it (services/sendFaults). ids: the ones to dismiss; none: all of them.
 app.post('/api/agent/send-faults/ack', requireAuth, async (req, res) => {
@@ -15878,6 +15893,8 @@ try {
   require('./services/coldAgent').start(store.pool);
   // The sales autopilot: idle unless SALES_AUTOPILOT_ON (services/salesAutopilot).
   require('./services/salesAutopilot').start(store.pool);
+  // Done-for-you sending: idle unless AUTO_SEND_ON (services/autoSend).
+  require('./services/autoSend').start(store.pool);
 } catch (e) {
   console.error('[cold-agent] failed to start:', e.message);
 }

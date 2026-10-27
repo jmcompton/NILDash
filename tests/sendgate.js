@@ -73,6 +73,7 @@ function guard() {
     'server/services/mailboxNotice.js': { n: 1, why: 'to the agent' },
     'server/services/morningAlert.js': { n: 1, why: 'to the admin' },
     'server/services/nightlyDigest.js': { n: 2, why: 'to the agent' },
+    'server/services/autoSend.js': { n: 1, why: 'the morning note to the agent who turned it on' },
     'server/services/ourFault.js': { n: 1, why: 'to the admin' },
     'server/services/preflight.js': { n: 1, why: 'to the admin' },
     'server/services/sendFaults.js': { n: 1, why: 'to the agent' },

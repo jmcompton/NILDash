@@ -337,6 +337,17 @@
       "id": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "auto_send_runs": {
+      "agent_id": "TEXT",
+      "approved": "INTEGER DEFAULT 0",
+      "detail": "JSONB",
+      "emailed_at": "TIMESTAMPTZ",
+      "finished_at": "TIMESTAMPTZ",
+      "note": "TEXT",
+      "offered": "INTEGER DEFAULT 0",
+      "run_date": "DATE",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "automation_runs": {
       "agent_id": "TEXT",
       "athlete_id": "TEXT",
