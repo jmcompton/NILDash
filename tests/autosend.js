@@ -274,6 +274,14 @@ async function main() {
   ok('off: the invite refuses, because the link would not work', /off/.test((await AS.invite(P(), {})).skipped || ''));
   process.env.AUTO_SEND_ON = 'true';
 
+  // ── NEW AGENTS: ON BY DEFAULT, AND THEY SEE IT ────────────────────────
+  OUT.push('', '-- the setup screen\'s last step --');
+  const SJ = require('fs').readFileSync(REPO + 'public/agent-setup.js', 'utf8');
+  ok('a ticked box they can untick, shown only when available, off and ready', /id="as-auto" checked/.test(SJ)
+    && /!d\.available \|\| d\.on \|\| !d\.ready/.test(SJ));
+  ok('Continue turns it on only when ticked, and goes Home either way', /if \(!box \|\| !box\.checked\) \{ go\(\); return; \}/.test(SJ)
+    && /JSON\.stringify\(\{ on: true \}\)/.test(SJ) && /\.then\(go, go\)/.test(SJ));
+
   console.log(OUT.join('\n'));
   const total = OUT.filter((l) => /^(PASS|FAIL) /.test(l)).length;
   console.log(`\n${total - F}/${total} passed`);
