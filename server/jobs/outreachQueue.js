@@ -3506,10 +3506,21 @@ async function runAgents(opts = {}) {
           WHERE agent_id = $1 AND run_date = $2`, [a.id, runDate, dormant]).catch(() => {});
     }
   };
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(CONC, agents.length) }, async () => {
-    while (next < agents.length) { const a = agents[next++]; await one(a); }
-  }));
+  // HUNTER_PRIORITY_AGENTS (services/hunterPriority): the listed agents run
+  // first, as their own phase, so tonight's Hunter allowance reaches them
+  // before anyone else. Unset: one phase, signup order, as before.
+  const phases = (() => {
+    const HPr = require('../services/hunterPriority');
+    const { first, rest } = HPr.split(agents, HPr.priorityList());
+    if (first.length) console.log(`[queue] Hunter priority first: ${first.length} agent(s), then ${rest.length}`);
+    return first.length ? [first, rest] : [agents];
+  })();
+  for (const list of phases) {
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(CONC, list.length) }, async () => {
+      while (next < list.length) { const a = list[next++]; await one(a); }
+    }));
+  }
   console.log(`[queue] run complete agents=${agents.length} skipped=${skipped} filled=${filled} spent=$${spent.toFixed(2)}`);
   return { agents: agents.length, skipped, filled, spent };
 }

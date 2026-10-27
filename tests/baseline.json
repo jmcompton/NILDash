@@ -677,6 +677,11 @@
       "total": 73,
       "fault": null
     },
+    "hunterpriority.js": {
+      "failed": 0,
+      "total": 6,
+      "fault": null
+    },
     "hunterperiod.js": {
       "failed": 0,
       "total": 38,
