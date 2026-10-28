@@ -3433,18 +3433,21 @@ async function runAgents(opts = {}) {
   // auto_send_on is read by inactiveSkip; the column is ensured first so the
   // night never fails on a database that has not seen services/autoSend yet.
   // If that fails (a lock timeout), the night runs exactly as before, without it.
-  let autoCol = ', auto_send_on';
-  try { await require('../services/autoSend').ensureTables(pool); } catch (e) {
-    console.error('[queue] auto-send columns not ready (' + e.message + '); filling without them'); autoCol = ''; }
+  let autoOn = new Set();
+  try {
+    await require('../services/autoSend').ensureTables(pool);
+    autoOn = new Set((await pool.query(`SELECT id FROM users WHERE auto_send_on = TRUE`)).rows.map((r) => String(r.id)));
+  } catch (e) { console.error('[queue] auto-send flags not read (' + e.message + '); filling without them'); }
   const agents = opts.agentId
     // signature_text / scheduling_url travel with the agent so fillAgent can read
     // them once rather than querying per business.
     ? (await pool.query(
-      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login${autoCol} FROM users WHERE id = $1`,
+      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login FROM users WHERE id = $1`,
       [opts.agentId])).rows
     : (await pool.query(
-      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login${autoCol} FROM users
+      `SELECT id, name, email, sign_first_name, signature_text, scheduling_url, last_login FROM users
         WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
+  for (const a of agents) a.auto_send_on = autoOn.has(String(a.id));
   let filled = 0, spent = 0, skipped = 0;
   // Shared by every agent and athlete tonight: a market refreshed from Places
   // mid-run is refreshed once, and the run's allowance of refreshes holds.

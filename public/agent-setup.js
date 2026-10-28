@@ -153,15 +153,44 @@
   }
 
   function finish() {
+    if (S.offering) return;
     stopPoll();
     S.shownStep = null;
     var was = !!(S.el && (S.el.style.display === 'block' || S.hidden));
-    if (S.el) S.el.style.display = 'none';
     S.hidden = false;
-    if (was) {
+    var home = function () {
+      S.offering = false;
+      if (S.el) S.el.style.display = 'none';
+      if (!was) return;
       try { if (typeof showToast === 'function') showToast("You're set up. Your first businesses come tonight."); } catch (e) {}
       try { if (typeof showView === 'function') showView('home', document.getElementById('homeNavBtn')); if (typeof loadAgentHome === 'function') loadAgentHome(); } catch (e) {}
-    }
+    };
+    if (!was) { home(); return; }
+    offerAutoSend(home);
+  }
+
+  // ── THE LAST SCREEN: SEND MY PITCHES EVERY MORNING (services/autoSend) ──
+  // ON BY DEFAULT, AND THEY SEE IT. A ticked box they can untick, never a
+  // silent switch: the emails go out from their own inbox under their name.
+  // Shown only when it is available, not already on, and ready (mailbox and
+  // address, which the steps before this just did). Any failure goes Home.
+  function offerAutoSend(done) {
+    S.offering = true;
+    fetch('/api/agent/settings/auto-send', { credentials: 'include' }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.available || d.on || !d.ready) { done(); return; }
+      var el = root();
+      el.innerHTML = '<div class="as-box">'
+        + '<div class="as-top"><div style="flex:1"><div class="as-progress">Last step</div></div>'
+        + '<img src="/images/nildash-logo-header.png" alt="NILDash" style="height:26px;width:auto"></div>'
+        + '<h1>Send my pitches every morning</h1>'
+        + '<p>Every weekday at 9:00 am Central, NILDash sends that morning\'s email pitches for your athletes from your inbox. You don\'t have to log in. You get one short email listing what went out, and replies come straight to you.</p>'
+        + '<label style="display:flex;gap:10px;align-items:center;font-size:15px;margin:18px 0;cursor:pointer"><input type="checkbox" id="as-auto" checked style="width:20px;height:20px"> Yes, send them for me</label>'
+        + '<button class="as-btn go" onclick="agentSetup.autoContinue(this)">Continue</button>'
+        + '<div class="as-note">You can change this any time in Settings.</div>'
+        + '</div>';
+      el.style.display = 'block';
+      S.autoDone = done;
+    }).catch(function () { done(); });
   }
 
   // Still in one of the app's own screens for step 3: the add-athlete form,
@@ -212,6 +241,14 @@
           if (!x.ok) { err.textContent = (x.d && x.d.error) || 'That address could not be saved.'; err.style.display = 'block'; btn.disabled = false; btn.textContent = 'Save and continue'; return; }
           refresh();
         }).catch(function () { err.textContent = 'Could not reach the server. Try again.'; err.style.display = 'block'; btn.disabled = false; btn.textContent = 'Save and continue'; });
+    },
+    autoContinue: function (btn) {
+      var box = document.getElementById('as-auto');
+      var go = function () { var d = S.autoDone; S.autoDone = null; if (d) d(); };
+      if (btn) btn.disabled = true;
+      if (!box || !box.checked) { go(); return; }
+      fetch('/api/agent/settings/auto-send', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: true }) })
+        .then(go, go);
     },
     addAthlete: function () {
       stepAside();
