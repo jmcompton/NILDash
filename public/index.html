@@ -4452,6 +4452,43 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div id="auto-send-status" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
     </div>
 
+    <!-- ══ MY PITCH SCRIPT (services/agentScript). The agent's own words;
+         every pitch follows it. GET/POST /api/agent/settings/script,
+         POST /api/agent/settings/script/improve. ══ -->
+    <div id="script-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">My pitch script</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.5">
+            Paste the pitch you like to send. Every pitch NILDash writes for you will follow it: your words, your order, your ask, filled in for each business and athlete.
+            Tap Improve it to get a stronger version in your voice and a few ideas. Leave it empty and NILDash writes them for you.
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">
+          <input type="checkbox" id="script-on" checked style="width:18px;height:18px"> Use my script
+        </label>
+      </div>
+      <textarea id="script-text" class="input-sm" rows="8" maxlength="2000" style="width:100%;margin-top:12px;font-family:inherit;line-height:1.5;resize:vertical"
+        placeholder="Hi [Owner], I represent [Athlete], a [Position] at [School]. [Why it fits] Would you be open to a quick call about a partnership?"></textarea>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">Use blanks in square brackets for what changes: [Owner], [Business], [Athlete], [Sport], [Position], [School], [City], [Why it fits].</div>
+      <div id="script-notes" style="font-size:11px;color:#f59e0b;margin-top:8px;line-height:1.5"></div>
+      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+        <button class="run-btn" id="script-improve-btn" style="padding:8px 18px" onclick="improveScript()">Improve it</button>
+        <button class="run-btn" style="padding:8px 18px;background:transparent;border:1px solid var(--border);color:var(--text)" onclick="saveScript()">Save my script</button>
+      </div>
+      <div id="script-improved" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">Improved, in your voice. Edit anything you like.</div>
+        <textarea id="script-improved-text" class="input-sm" rows="8" maxlength="2000" style="width:100%;font-family:inherit;line-height:1.5;resize:vertical"></textarea>
+        <div id="script-changes" style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6"></div>
+        <div id="script-ideas" style="font-size:12px;color:var(--text);margin-top:10px;line-height:1.6"></div>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+          <button class="run-btn" style="padding:8px 18px" onclick="useImprovedScript()">Use this version</button>
+          <button class="run-btn" style="padding:8px 18px;background:transparent;border:1px solid var(--border);color:var(--text)" onclick="document.getElementById('script-improved').style.display='none'">Keep mine</button>
+        </div>
+      </div>
+      <div id="script-status" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
+    </div>
+
     <!-- ══ FIRST NAME FOR SIGN-OFFS — exactly as typed, capitals and all
          ("JohnMark" stays "JohnMark"). POST /api/agent/sign-first-name. ══ -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
@@ -8167,7 +8204,7 @@ async function showView(id, btn) {
   }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
-  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); setTimeout(loadAutoSend, 60); }
+  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); setTimeout(loadAutoSend, 60); setTimeout(loadScript, 60); }
   // The Outreach tab no longer renders the queue; loadUnifiedOutreach and
   // loadAiOutreachLogs are its own tracking reads, wired to their own buttons.
   if (id === 'outreach') { setTimeout(loadUnifiedOutreach, 60); setTimeout(loadAiOutreachLogs, 80); }
@@ -19276,6 +19313,72 @@ async function saveAutoSend(on) {
     var t = document.getElementById('auto-send-toggle'); if (t) t.checked = !on;
     if (st) { st.style.color = '#f87171'; st.textContent = e.message; }
   }
+}
+
+// ── My pitch script (services/agentScript) ──────────────────────────────────────
+function _scriptEsc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function _scriptStatus(msg, color) { var st = document.getElementById('script-status'); if (st) { st.style.color = color || 'var(--muted)'; st.textContent = msg || ''; } }
+function _scriptNotes(list) {
+  var el = document.getElementById('script-notes'); if (!el) return;
+  el.innerHTML = (list && list.length) ? list.map(function (n) { return '&bull; ' + _scriptEsc(n); }).join('<br>') : '';
+}
+async function loadScript() {
+  try {
+    var r = await fetch(API_BASE + '/api/agent/settings/script', { credentials: 'include' });
+    if (!r.ok) return null;
+    var d = await r.json();
+    var t = document.getElementById('script-text'); if (t) t.value = d.script || '';
+    var on = document.getElementById('script-on'); if (on) on.checked = d.on !== false;
+    _scriptNotes(d.notes);
+    _scriptStatus(d.script ? (d.on !== false ? 'Saved. Your pitches follow this script.' : 'Saved, but switched off. NILDash writes your pitches.') : 'No script yet. NILDash writes your pitches for you.');
+    return d;
+  } catch (e) { return null; }
+}
+async function saveScript(text) {
+  var t = document.getElementById('script-text');
+  var on = document.getElementById('script-on');
+  var script = text != null ? text : (t ? t.value : '');
+  _scriptStatus('Saving...');
+  try {
+    var r = await fetch(API_BASE + '/api/agent/settings/script', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ script: script, on: on ? on.checked : true }),
+    });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not save');
+    await loadScript();
+    if (typeof showToast === 'function') showToast(d.script ? 'Your script is saved' : 'Script cleared', 'success');
+  } catch (e) { _scriptStatus(e.message, '#f87171'); }
+}
+async function improveScript() {
+  var t = document.getElementById('script-text');
+  var btn = document.getElementById('script-improve-btn');
+  var script = t ? t.value : '';
+  if (!script.trim()) { _scriptStatus('Paste your pitch first, then tap Improve it.', '#f59e0b'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Improving...'; }
+  _scriptStatus('');
+  try {
+    var r = await fetch(API_BASE + '/api/agent/settings/script/improve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ script: script }),
+    });
+    var d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || 'Could not improve it just now');
+    _scriptNotes(d.notes);
+    document.getElementById('script-improved-text').value = d.improved || '';
+    document.getElementById('script-changes').innerHTML = (d.changes && d.changes.length)
+      ? '<b>What changed:</b><br>' + d.changes.map(function (c) { return '&bull; ' + _scriptEsc(c); }).join('<br>') : '';
+    document.getElementById('script-ideas').innerHTML = (d.ideas && d.ideas.length)
+      ? '<b>Ideas to try:</b><br>' + d.ideas.map(function (c) { return '&bull; ' + _scriptEsc(c); }).join('<br>') : '';
+    document.getElementById('script-improved').style.display = '';
+  } catch (e) { _scriptStatus(e.message, '#f87171'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Improve it'; } }
+}
+async function useImprovedScript() {
+  var v = document.getElementById('script-improved-text').value;
+  var t = document.getElementById('script-text'); if (t) t.value = v;
+  document.getElementById('script-improved').style.display = 'none';
+  await saveScript(v);
 }
 
 // ── The agent's business address (services/canSpam.senderAddress) ─────────────

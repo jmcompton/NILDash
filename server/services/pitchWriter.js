@@ -1492,7 +1492,7 @@ ${ctx.hasSchedulingLink
       + 'invite them to use it: "use my scheduling link below to set up a call".'
     : 'The agent has NO scheduling link. Do not mention one, and do not refer to anything "below".'}
 The channel: ${ctx.channel === 'email' ? 'email' : 'an Instagram DM'}
-${ctx.athlete && ctx.athlete.instagramHandle ? '' : 'There is NO Instagram link for this athlete. Do not write a link, a handle, or any placeholder for one.\n'}
+${ctx.athlete && ctx.athlete.instagramHandle ? '' : 'There is NO Instagram link for this athlete. Do not write a link, a handle, or any placeholder for one.\n'}${ctx.agentScript ? require('./agentScript').promptBlock(ctx.agentScript) : ''}
 Return ONLY JSON, in exactly this order:
 {
   "angle": "one sentence naming the real connection between THIS athlete and THIS business",

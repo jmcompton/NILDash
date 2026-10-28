@@ -2059,6 +2059,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             hasSchedulingLink: !!signature.hasLink,
             channel: _mixRoute === 'email' ? 'email' : 'dm',
             learnedAngles: await PW.learnedAngles(pool, PW.playbookFor(cand.category || null).key).catch(() => []),
+            // The agent's own script (services/agentScript), or null.
+            agentScript: await require('../services/agentScript').forAgent(pool, agentId),
           }, { oneShot: (p2, sys, mt) => scanMeter.label(
             { site: 'writer', agentId, athleteId, brand: cand.brand_name },
             () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN, { prose: true })) });
@@ -2669,6 +2671,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           channel: channel === 'email' ? 'email' : 'dm',
           learnedAngles: await PW.learnedAngles(pool,
             PW.playbookFor((place && place.primaryType) || null).key).catch(() => []),
+          // The agent's own script (services/agentScript), or null.
+          agentScript: await require('../services/agentScript').forAgent(pool, agentId),
         }, { oneShot: (p2, sys, mt) => scanMeter.label(
           { site: 'writer', agentId, athleteId, brand: cand.brand_name },
           () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN, { prose: true })) });
