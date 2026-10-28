@@ -1266,6 +1266,19 @@ tbody td{padding:11px 14px;vertical-align:middle}
 #mktLanding .pcard li{display:flex;gap:10px;color:var(--text);font-size:15px}
 #mktLanding .pcard li .ck{color:var(--accent);font-family:'DM Mono'}
 #mktLanding .pcard .free{font-family:'Syne';font-weight:800;font-size:30px;margin-top:14px}
+/* Tiered agent plans (PRICING_V2_ON). Hidden until /api/pricing says on. */
+#mktLanding .pcards.four{grid-template-columns:repeat(4,1fr);max-width:1180px}
+#mktLanding .pcards.four .pcard{padding:26px 20px;display:flex;flex-direction:column}
+#mktLanding .pcards.four .pcard .btn{margin-top:auto}
+#mktLanding .pcards.four .price{font-size:40px}
+#mktLanding .pcards.four .price span{font-size:15px}
+#mktLanding .ptoggle{display:inline-flex;gap:4px;margin-top:22px;padding:4px;border:1px solid var(--line);border-radius:999px;background:var(--card)}
+#mktLanding .ptoggle button{font-family:'DM Mono';font-size:12px;letter-spacing:.06em;color:var(--muted);background:transparent;border:0;border-radius:999px;padding:8px 14px;cursor:pointer}
+#mktLanding .ptoggle button.on{background:var(--accent);color:#0a0a0a}
+#mktLanding .pop{display:inline-block;margin-left:8px;font-family:'DM Mono';font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#0a0a0a;background:var(--accent);border-radius:999px;padding:2px 8px;vertical-align:middle}
+#mktLanding .pnote{color:var(--muted);font-size:13px;margin-top:6px;min-height:18px}
+#mktLanding .plans-cheap{text-align:center;font-family:'Syne';font-weight:800;font-size:20px;margin-top:30px}
+@media (max-width:1100px){#mktLanding .pcards.four{grid-template-columns:repeat(2,1fr)}}
 #mktLanding .founder{max-width:760px;margin:0 auto;text-align:center}
 #mktLanding .founder p{font-size:20px;line-height:1.6;color:var(--text)}
 #mktLanding .founder .by{font-family:'DM Mono';font-size:13px;color:var(--muted);margin-top:22px;letter-spacing:.04em}
@@ -1298,6 +1311,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
 #mktLanding .feature:nth-child(even) .fimg{order:0}
 #mktLanding .pcards{grid-template-columns:1fr}
 #mktLanding .pcards.three{grid-template-columns:1fr}
+#mktLanding .pcards.four{grid-template-columns:1fr}
 #mktLanding .audcards{grid-template-columns:1fr}
 #mktLanding .audcard .what{min-height:0}
 #mktLanding section{padding:60px 0}
@@ -1512,6 +1526,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <a class="btn ghost" href="#contact-teams" style="width:100%;justify-content:center">Talk to us &#8594;</a>
     </div>
   </div>
+</div></section>
+
+<!-- Agent plans by roster size (PRICING_V2_ON). Hidden, and empty, until
+     /api/pricing says pricing is on; then filled from it, so this page and
+     checkout read the same table. Off, the page is exactly as before. -->
+<section id="agent-plans" class="pricing" style="display:none"><div class="wrap">
+  <div class="sechead">
+    <span class="eyebrow">Agent plans</span>
+    <h2>Priced by how many athletes you run.</h2>
+    <p>Every plan includes every feature: daily pitches for every athlete, automatic sending, your own pitch script, the CRM and media kits.</p>
+    <div class="ptoggle" role="group" aria-label="Billing period">
+      <button type="button" class="on" data-period="monthly" onclick="mktSetPlanPeriod('monthly')">Monthly</button>
+      <button type="button" data-period="yearly" onclick="mktSetPlanPeriod('yearly')">Yearly, 2 months free</button>
+    </div>
+  </div>
+  <div class="pcards four" id="agentPlanCards"></div>
+  <p class="plans-cheap">Less than one local deal a month.</p>
 </div></section>
 
 <section><div class="wrap"><div class="founder">
@@ -5726,6 +5757,9 @@ async function doSignup() {
         role: selectedRole,
         // The "Start 14-day trial" link (?trial=14); the server decides.
         trial: (function () { try { return new URLSearchParams(window.location.search).get('trial') || undefined; } catch (e) { return undefined; } })(),
+        // The plan picked on the homepage plan cards (tiered pricing on only).
+        tier: window.__mktPlan ? window.__mktPlan.tier : undefined,
+        period: window.__mktPlan ? window.__mktPlan.period : undefined,
       }),
     });
     const data = await r.json();
@@ -5742,23 +5776,146 @@ async function doSignup() {
   finally { btn.disabled = false; btn.textContent = 'Create Account →'; }
 }
 
-async function startAgentSubscribe() {
+// ── TIERED AGENT PRICING (PRICING_V2_ON, server/services/pricing) ────────────
+// GET /api/pricing says whether it is on and what the four plans are (names,
+// athlete counts, dollars; never a Stripe id). Off, every spot below keeps the
+// text it has always had and the subscribe button sells the one plan.
+let __pricing = null;
+function loadPricing() {
+  if (!window.__pricingP) {
+    window.__pricingP = fetch(`${API_BASE}/api/pricing`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : { on: false, tiers: [] }))
+      .catch(() => ({ on: false, tiers: [] }))
+      .then((d) => { __pricing = (d && d.on && Array.isArray(d.tiers) && d.tiers.length) ? d : { on: false, tiers: [] }; return __pricing; });
+  }
+  return window.__pricingP;
+}
+function pricingOn() { return !!(__pricing && __pricing.on); }
+function _planMoney(n) { return '$' + Number(n).toLocaleString('en-US'); }
+function _planEsc(x) { return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function pricingTier(key) { return ((__pricing && __pricing.tiers) || []).find((t) => t.key === key) || null; }
+// The smallest plan that fits this many athletes (the server's tierFor).
+function pricingTierFor(count) {
+  const ts = (__pricing && __pricing.tiers) || [];
+  const n = Math.max(0, parseInt(count, 10) || 0);
+  const t = ts.find((x) => n <= x.athletes) || ts[ts.length - 1];
+  return t ? t.key : null;
+}
+function _planPrice(t, period) {
+  return period === 'yearly' ? _planMoney(t.yearly) + '<span>/year</span>' : _planMoney(t.monthly) + '<span>/month</span>';
+}
+function _planCount(t, period) {
+  if (!t.extra) return 'Up to ' + t.athletes + ' athletes';
+  return 'Up to ' + t.athletes + ' athletes, then ' + (period === 'yearly' ? _planMoney(t.extra.yearly) + ' a year' : _planMoney(t.extra.monthly) + ' a month') + ' for each one after';
+}
+
+// The homepage plan cards, with the monthly or yearly toggle.
+let __mktPlanPeriod = 'monthly';
+function mktSetPlanPeriod(p) {
+  __mktPlanPeriod = p === 'yearly' ? 'yearly' : 'monthly';
+  document.querySelectorAll('#agent-plans .ptoggle button').forEach((b) => b.classList.toggle('on', b.getAttribute('data-period') === __mktPlanPeriod));
+  renderMktPlans();
+}
+function renderMktPlans() {
+  const box = document.getElementById('agentPlanCards');
+  if (!box || !pricingOn()) return;
+  const per = __mktPlanPeriod;
+  box.innerHTML = __pricing.tiers.map((t) => '<div class="pcard' + (t.popular ? ' feat' : '') + '">'
+    + '<div class="ptag">' + _planEsc(t.name) + (t.popular ? '<span class="pop">Most popular</span>' : '') + '</div>'
+    + '<div class="price">' + _planPrice(t, per) + '</div>'
+    + '<div class="pnote">' + (per === 'yearly' ? 'Two months free' : 'or ' + _planMoney(t.yearly) + ' a year') + '</div>'
+    + '<ul>'
+    + '<li><span class="ck">&#10003;</span> ' + _planEsc(_planCount(t, per)) + '</li>'
+    + '<li><span class="ck">&#10003;</span> Every feature included</li>'
+    + '<li><span class="ck">&#10003;</span> Cancel anytime. No contract.</li>'
+    + '</ul>'
+    + '<a class="btn ' + (t.popular ? 'primary' : 'ghost') + '" href="#signin" style="width:100%;justify-content:center" onclick="mktPickPlan(\'' + t.key + '\');return false">Get started &#8594;</a>'
+    + '</div>').join('');
+}
+function mktPickPlan(tier) {
+  window.__mktPlan = { tier: tier, period: __mktPlanPeriod };
+  if (typeof mktOpenAuth === 'function') mktOpenAuth('agent');
+}
+
+// Every hard-coded "$99/month" on the page, replaced from the price list.
+// Only when on; the static text is what shows otherwise.
+function applyPricingCopy() {
+  if (!pricingOn()) return;
+  const from = _planMoney(__pricing.tiers[0].monthly);
+  const aud = document.querySelector('#for-agents .cost');
+  if (aud) aud.innerHTML = 'From ' + from + '<span>/month</span>';
+  const feat = document.querySelector('#pricing .pcard.feat');
+  if (feat) {
+    feat.innerHTML = '<div class="ptag">Agent</div>'
+      + '<div class="price">From ' + from + '<span>/month</span></div>'
+      + '<div class="mono" style="color:var(--accent);font-size:13px;margin-top:8px">Four plans by roster size. Cancel anytime.</div>'
+      + '<ul>'
+      + __pricing.tiers.map((t) => '<li><span class="ck">&#10003;</span> ' + _planEsc(t.name) + ': up to ' + t.athletes + ' athletes, ' + _planMoney(t.monthly) + '/month</li>').join('')
+      + '<li><span class="ck">&#10003;</span> Every plan includes every feature</li>'
+      + '</ul>'
+      + '<a class="btn primary" href="#agent-plans" style="width:100%;justify-content:center">See the plans &#8594;</a>';
+  }
+  const row = document.querySelector('#signin .acards .ac .d');
+  if (row && /\$99\/month/.test(row.textContent)) row.textContent = row.textContent.replace('$99/month', 'From ' + from + '/month');
+  const plans = document.getElementById('agent-plans');
+  if (plans) { plans.style.display = ''; renderMktPlans(); }
   const btn = document.getElementById('agentSubscribeBtn');
+  if (btn && !btn.disabled) btn.textContent = 'Subscribe, from ' + from + '/mo';
+}
+(function () {
+  const go = () => loadPricing().then(applyPricingCopy).catch(() => {});
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+})();
+
+// tier / period: what the plan picker chose (pricing on). With pricing on and
+// nothing chosen yet, the picker opens instead of checkout.
+async function startAgentSubscribe(tier, period) {
+  await loadPricing();
+  if (pricingOn() && !tier) { showSubscribeModal({ force: true }); return; }
+  const btn = document.getElementById('agentSubscribeBtn');
+  const label = pricingOn() ? 'Subscribe, from ' + _planMoney(__pricing.tiers[0].monthly) + '/mo' : 'Subscribe — $99/mo';
   if (btn) { btn.disabled = true; btn.textContent = 'Opening checkout...'; }
   try {
-    const r = await fetch(`${API_BASE}/api/agent/create-checkout`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+    const r = await fetch(`${API_BASE}/api/agent/create-checkout`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pricingOn() ? { tier: tier, period: period || 'monthly' } : {}) });
     const data = await r.json();
     if (data.url) { window.location.href = data.url; return; }
     alert(data.error || 'Could not start checkout. Please try again.');
   } catch (e) {
     alert('Could not start checkout. Please try again.');
   }
-  if (btn) { btn.disabled = false; btn.textContent = 'Subscribe — $99/mo'; }
+  if (btn) { btn.disabled = false; btn.textContent = label; }
 }
 
-function showSubscribeModal() {
-  if (window.__subSnoozeUntil && Date.now() < window.__subSnoozeUntil) return;
+// The plan picker (pricing on): four plans, monthly or yearly, preselected to
+// the smallest one that holds the agent's roster. A plan too small for the
+// roster cannot be picked.
+let __pickTier = null, __pickPeriod = 'monthly', __pickCount = 0;
+function _renderPlanPicker() {
+  const box = document.getElementById('planPickList');
+  if (!box) return;
+  box.innerHTML = __pricing.tiers.map((t) => {
+    const tooSmall = !t.extra && __pickCount > t.athletes;
+    const sel = t.key === __pickTier;
+    return '<button type="button" ' + (tooSmall ? 'disabled ' : '') + 'onclick="__pickTier=\'' + t.key + '\';_renderPlanPicker()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:12px 14px;margin-bottom:8px;border-radius:10px;cursor:' + (tooSmall ? 'not-allowed' : 'pointer') + ';opacity:' + (tooSmall ? '0.4' : '1') + ';background:' + (sel ? 'rgba(132,204,22,0.12)' : 'transparent') + ';border:1px solid ' + (sel ? '#84cc16' : 'rgba(255,255,255,0.15)') + ';color:#fff">'
+      + '<div style="flex:1"><div style="font-weight:700;font-size:15px">' + _planEsc(t.name) + (t.popular ? ' <span style="font-size:11px;color:#84cc16;font-family:monospace;letter-spacing:1px">MOST POPULAR</span>' : '') + '</div>'
+      + '<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:2px">' + _planEsc(_planCount(t, __pickPeriod)) + '</div></div>'
+      + '<div style="font-weight:800;font-size:16px">' + (__pickPeriod === 'yearly' ? _planMoney(t.yearly) + '<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.5)">/year</span>' : _planMoney(t.monthly) + '<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.5)">/month</span>') + '</div>'
+      + '</button>';
+  }).join('');
+  document.querySelectorAll('#subUnlockOverlay [data-period]').forEach((b) => {
+    const on = b.getAttribute('data-period') === __pickPeriod;
+    b.style.background = on ? '#84cc16' : 'transparent';
+    b.style.color = on ? '#0a0a0a' : 'rgba(255,255,255,0.6)';
+  });
+}
+function _pickPeriod(p) { __pickPeriod = p === 'yearly' ? 'yearly' : 'monthly'; _renderPlanPicker(); }
+
+function showSubscribeModal(opts) {
+  if (!(opts && opts.force) && window.__subSnoozeUntil && Date.now() < window.__subSnoozeUntil) return;
   if (document.getElementById('subUnlockOverlay')) return;
+  if (__pricing === null) { loadPricing().then(() => showSubscribeModal(opts)); return; }
+  if (pricingOn()) { _showPlanPicker(); return; }
   const ov = document.createElement('div');
   ov.id = 'subUnlockOverlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(5,8,16,0.82);backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -5774,6 +5931,72 @@ function showSubscribeModal() {
   document.body.appendChild(ov);
 }
 
+async function _showPlanPicker() {
+  let count = (typeof athletes !== 'undefined' && Array.isArray(athletes)) ? athletes.length : 0;
+  try {
+    const st = await fetch(`${API_BASE}/api/agent/seat-status`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null));
+    if (st && typeof st.currentCount === 'number') count = st.currentCount;
+  } catch (e) {}
+  if (document.getElementById('subUnlockOverlay')) return;
+  __pickCount = count;
+  __pickTier = pricingTierFor(count);
+  __pickPeriod = 'monthly';
+  const ov = document.createElement('div');
+  ov.id = 'subUnlockOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(5,8,16,0.82);backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = '<div style="background:#141929;border:1px solid rgba(132,204,22,0.25);border-radius:16px;max-width:460px;width:100%;max-height:92vh;overflow:auto;padding:26px 24px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">'
+    + '<div style="font-size:12px;letter-spacing:2px;color:#84cc16;font-family:monospace;margin-bottom:10px;text-align:center">PICK YOUR PLAN</div>'
+    + '<div style="font-size:21px;font-weight:700;color:#fff;margin-bottom:8px;text-align:center">Subscribe to unlock your tools</div>'
+    + '<div style="font-size:13px;line-height:1.5;color:rgba(255,255,255,0.65);margin-bottom:16px;text-align:center">Every plan includes every feature: daily pitches for every athlete, automatic sending, your own pitch script, the CRM and media kits. Plans differ only in how many athletes they cover.' + (count ? ' You have ' + count + ' athlete' + (count === 1 ? '' : 's') + '.' : '') + '</div>'
+    + '<div style="display:flex;gap:4px;justify-content:center;margin-bottom:14px">'
+    + '<button type="button" data-period="monthly" onclick="_pickPeriod(\'monthly\')" style="padding:7px 14px;border:1px solid rgba(255,255,255,0.15);border-radius:999px;font-size:12px;cursor:pointer">Monthly</button>'
+    + '<button type="button" data-period="yearly" onclick="_pickPeriod(\'yearly\')" style="padding:7px 14px;border:1px solid rgba(255,255,255,0.15);border-radius:999px;font-size:12px;cursor:pointer">Yearly, 2 months free</button>'
+    + '</div>'
+    + '<div id="planPickList"></div>'
+    + '<button onclick="startAgentSubscribe(__pickTier, __pickPeriod)" style="width:100%;padding:13px;background:#84cc16;border:none;border-radius:10px;color:#0a0a0a;font-weight:700;font-size:15px;cursor:pointer;margin:8px 0 10px">Subscribe now</button>'
+    + '<button onclick="window.__subSnoozeUntil = Date.now() + 60000; document.getElementById(\'subUnlockOverlay\').remove()" style="width:100%;padding:11px;background:transparent;border:1px solid rgba(255,255,255,0.15);border-radius:10px;color:rgba(255,255,255,0.6);font-size:13px;cursor:pointer">Maybe later</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  _renderPlanPicker();
+}
+
+// At the plan's athlete count (POST /api/athletes answers 402 PLAN_LIMIT):
+// say so plainly and offer the next plan up, prorated, in one tap.
+function showPlanLimitModal(data) {
+  if (document.getElementById('planLimitOverlay')) return;
+  const up = data && data.upgrade;
+  const period = (data && data.plan && data.plan.period) || 'monthly';
+  const ov = document.createElement('div');
+  ov.id = 'planLimitOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(5,8,16,0.82);backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = '<div style="background:#141929;border:1px solid rgba(132,204,22,0.25);border-radius:16px;max-width:420px;width:100%;padding:26px 24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5)">'
+    + '<div style="font-size:12px;letter-spacing:2px;color:#84cc16;font-family:monospace;margin-bottom:10px">YOUR PLAN IS FULL</div>'
+    + '<div style="font-size:15px;line-height:1.5;color:#fff;margin-bottom:18px">' + _planEsc((data && data.error) || 'You have reached the athlete limit on your plan.') + '</div>'
+    + (up ? '<button id="planLimitGo" onclick="planLimitMove(\'' + up.tier + '\', \'' + period + '\')" style="width:100%;padding:13px;background:#84cc16;border:none;border-radius:10px;color:#0a0a0a;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:6px">Move to ' + _planEsc(up.name) + ', ' + (period === 'yearly' ? _planMoney(up.yearly) + '/year' : _planMoney(up.monthly) + '/month') + '</button>'
+      + '<div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:12px">You pay only the difference for the rest of this billing period.</div>' : '')
+    + '<div id="planLimitErr" style="font-size:13px;color:#ff8a8a;margin-bottom:8px"></div>'
+    + '<button onclick="document.getElementById(\'planLimitOverlay\').remove()" style="width:100%;padding:11px;background:transparent;border:1px solid rgba(255,255,255,0.15);border-radius:10px;color:rgba(255,255,255,0.6);font-size:13px;cursor:pointer">Not now</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+async function planLimitMove(tier, period) {
+  const go = document.getElementById('planLimitGo');
+  const errEl = document.getElementById('planLimitErr');
+  if (go) { go.disabled = true; go.textContent = 'Changing your plan...'; }
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/change-plan`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier: tier, period: period }) });
+    const d = await r.json();
+    if (!r.ok) { if (errEl) errEl.textContent = d.error || 'Could not change your plan. Try again.'; if (go) { go.disabled = false; go.textContent = 'Try again'; } return; }
+    const t = pricingTier(tier);
+    const ov = document.getElementById('planLimitOverlay'); if (ov) ov.remove();
+    if (typeof currentUser !== 'undefined' && currentUser) { currentUser.planTier = tier; currentUser.planPeriod = period; }
+    if (typeof showToast === 'function') showToast('You are on ' + (t ? t.name : tier) + ' now. Save the athlete again to add them.');
+  } catch (e) {
+    if (errEl) errEl.textContent = 'Could not change your plan. Try again.';
+    if (go) { go.disabled = false; go.textContent = 'Try again'; }
+  }
+}
+
 (function () {
   if (window.__nilSubGuard) return;
   window.__nilSubGuard = true;
@@ -5784,6 +6007,7 @@ function showSubscribeModal() {
       if (res.status === 402) {
         const data = await res.clone().json();
         if (data && data.error === 'subscription_required') showSubscribeModal();
+        else if (data && data.code === 'PLAN_LIMIT') showPlanLimitModal(data);
       }
     } catch (e) {}
     return res;

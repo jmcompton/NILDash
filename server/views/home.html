@@ -149,6 +149,19 @@ p{margin:0}
 .plan li{padding-left:22px;position:relative}
 .plan li::before{content:"";position:absolute;left:2px;top:.55em;width:9px;height:9px;border-radius:2px;background:var(--accent)}
 .plan .go{margin-top:20px}
+.tiers-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px}
+.per{display:inline-flex;border:1px solid var(--line-2);border-radius:999px;padding:3px;gap:2px}
+.per button{font:inherit;font-size:13px;font-weight:600;border:0;background:transparent;color:var(--muted);padding:5px 12px;border-radius:999px;cursor:pointer}
+.per button[aria-pressed="true"]{background:var(--accent);color:#0a0a0a}
+.tier-list{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:8px}
+.tier-list li{padding:10px 12px;border:1px solid var(--line);border-radius:12px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.tier-list li::before{display:none}
+.tier-list li.pop{border-color:var(--accent)}
+.tier-list .tn{font-weight:700}
+.tier-list .ta{color:var(--muted);font-size:14px}
+.tier-list .tp{font-family:var(--head);font-weight:800;font-size:20px;font-variant-numeric:tabular-nums}
+.tier-list .tp span{font-family:var(--body);font-weight:500;font-size:13px;color:var(--muted)}
+.tier-list .badge{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-left:6px}
 .wl{margin-top:16px;display:grid;gap:10px}
 .wl input[type=email]{width:100%;min-height:48px;padding:12px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg);color:var(--text);font:inherit;font-size:16px}
 .wl input[type=email]:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
@@ -433,6 +446,39 @@ a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--
   </div>
 </div></section>
 </main>
+<script>
+// TIERED PRICING (services/pricing, PRICING_V2_ON). When it is on, the agent
+// card shows the four plans by athlete count; off, the card above is unchanged.
+(function () {
+  var card = document.getElementById('agents'); if (!card || !window.fetch) return;
+  fetch('/api/pricing', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+    if (!d || !d.on || !d.tiers || !d.tiers.length) return;
+    var esc = function (t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+    var money = function (n) { return '$' + Number(n).toLocaleString('en-US'); };
+    var period = 'monthly';
+    var priceEl = card.querySelector('.price'), whyEl = card.querySelector('.why'), noteEl = card.querySelector('.note'), ul = card.querySelector('ul');
+    var head = document.createElement('div'); head.className = 'tiers-head';
+    head.innerHTML = '<div class="price" style="margin-top:0">From ' + money(d.tiers[0].monthly) + '<span>/month</span></div>'
+      + '<div class="per" role="group" aria-label="Billing period"><button type="button" data-p="monthly" aria-pressed="true">Monthly</button><button type="button" data-p="yearly" aria-pressed="false">Yearly, 2 months free</button></div>';
+    var list = document.createElement('ul'); list.className = 'tier-list';
+    function draw() {
+      list.innerHTML = d.tiers.map(function (t) {
+        var amt = period === 'yearly' ? t.yearly : t.monthly, unit = period === 'yearly' ? '/year' : '/month';
+        var who = t.extra ? 'up to ' + t.athletes + ' athletes, then ' + money(period === 'yearly' ? t.extra.yearly : t.extra.monthly) + ' each' : 'up to ' + t.athletes + ' athletes';
+        return '<li class="' + (t.popular ? 'pop' : '') + '"><div><span class="tn">' + esc(t.name) + '</span>' + (t.popular ? '<span class="badge">Most popular</span>' : '')
+          + '<div class="ta">' + esc(who) + '</div></div><div class="tp">' + money(amt) + '<span>' + unit + '</span></div></li>';
+      }).join('');
+      head.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-p') === period)); });
+    }
+    head.addEventListener('click', function (e) { var b = e.target.closest('button[data-p]'); if (b) { period = b.getAttribute('data-p'); draw(); } });
+    if (priceEl) priceEl.replaceWith(head); else card.appendChild(head);
+    if (whyEl) whyEl.textContent = 'Less than one local deal a month';
+    if (noteEl) noteEl.textContent = 'Every plan includes every feature. Cancel anytime. No contract.';
+    if (ul) { ul.parentNode.insertBefore(list, ul); ul.remove(); }
+    draw();
+  }).catch(function () { /* the $99 card stays */ });
+})();
+</script>
 
 <footer><div class="wrap foot">
   <div>

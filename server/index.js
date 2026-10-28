@@ -45,6 +45,8 @@ if (store.ready && typeof store.ready.then === 'function') {
   // row and not several.
   store.ready.then(() => PitchActionTokens.ensureTable(store.pool)).catch(() => {});
   store.ready.then(() => PitchActions.ensureTable(store.pool)).catch(() => {});
+  // users.plan_period for tiered pricing (services/pricing, PRICING_V2_ON).
+  store.ready.then(() => require('./services/pricing').ensureColumns(store.pool)).catch((e) => console.error('[pricing] columns:', e.message));
   store.ready.then(() => require('./services/schoolFind').ensureLoaded())
     .then((n) => { if (n) console.log(`[schoolFind] ${n} learned school(s) loaded`); })
     .catch((e) => console.error('[schoolFind] boot load:', e.message));
@@ -236,6 +238,20 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
       console.log('[stripe-webhook] user subscription', sub.id, '->', status);
     } catch (e) {
       console.error('[stripe-webhook] user subscription sync failed:', e.message);
+    }
+    // Tiered pricing (services/pricing): a v2 checkout or plan change puts the
+    // plan in the subscription's metadata, and this keeps users.plan_tier and
+    // plan_period in step with it. A legacy $99 subscription carries no such
+    // metadata and is never touched here, so it stays grandfathered.
+    const _md = (sub && sub.metadata) || {};
+    if (event.type !== 'customer.subscription.deleted'
+        && /^(starter|growth|pro|agency)$/.test(String(_md.tier || '')) && /^(monthly|yearly)$/.test(String(_md.period || ''))) {
+      try {
+        await store.pool.query(`UPDATE users SET plan_tier = $1, plan_period = $2 WHERE stripe_customer_id = $3`,
+          [_md.tier, _md.period, sub.customer]);
+      } catch (e) {
+        console.error('[stripe-webhook] plan tier sync failed:', e.message);
+      }
     }
     // Athletes get the SAME full lifecycle, keyed by customer id like the users
     // query above. Previously only a delete touched an athlete row, so a card that
@@ -873,8 +889,30 @@ app.post('/api/athlete/create-checkout', verifyAthleteToken, async (req, res) =>
 // changed without a deploy) with a card-captured free trial. On day
 // AGENT_TRIAL_DAYS + 1 Stripe auto-charges the card on file. No manual re-subscribe.
 const AGENT_TRIAL_DAYS = parseInt(process.env.STRIPE_AGENT_TRIAL_DAYS, 10) || 7;
+// With tiered pricing on (services/pricing.ON(): PRICING_V2_ON and every tier's
+// price id set), the tier prices stand in for STRIPE_AGENT_PRICE_ID. Off, this
+// is the same check as always.
+const Pricing = require('./services/pricing');
 function stripeConfigured() {
-  return !!((process.env.STRIPE_SECRET_KEY || '').trim() && (process.env.STRIPE_AGENT_PRICE_ID || '').trim());
+  return !!((process.env.STRIPE_SECRET_KEY || '').trim()
+    && (Pricing.ON() || (process.env.STRIPE_AGENT_PRICE_ID || '').trim()));
+}
+// The plan a v2 checkout sells: the asked tier and period when they are valid
+// and the tier holds the agent's roster, else the smallest tier that fits,
+// monthly. { tier, period, count } or { error } in plain words.
+async function agentCheckoutPlan(user, asked = {}) {
+  const count = await Pricing.athleteCount(store.pool, user.id);
+  const hasTier = asked.tier !== undefined && asked.tier !== null && asked.tier !== '';
+  const hasPeriod = asked.period !== undefined && asked.period !== null && asked.period !== '';
+  const tier = hasTier ? Pricing.validTier(asked.tier) : Pricing.tierFor(count);
+  const period = hasPeriod ? Pricing.validPeriod(asked.period) : 'monthly';
+  if (!tier) return { error: 'Pick Starter, Growth, Pro or Agency.' };
+  if (!period) return { error: 'Pick monthly or yearly.' };
+  const t = Pricing.tier(tier);
+  if (tier !== 'agency' && count > t.athletes) {
+    return { error: `You have ${count} athletes and ${t.name} covers ${t.athletes}. Pick ${Pricing.tier(Pricing.tierFor(count)).name} or larger.` };
+  }
+  return { tier, period, count };
 }
 // Create (or reuse) the agent's Stripe customer and open a trial subscription
 // Checkout session. Card is collected up front even though the trial is free, so
@@ -882,10 +920,13 @@ function stripeConfigured() {
 // opts.trialDays: the 14-day trial (SALES_TRIAL_ON, services/salesAutopilot
 // trialDaysFor): the card is still taken at checkout and the first charge
 // is on day 15. Without it, nothing about checkout changes.
+// opts.tier / opts.period (tiered pricing on only), or user.signupPlan from the
+// signup form: the plan to sell; when absent or not valid for the roster,
+// agentCheckoutPlan picks it. Off, they
+// are ignored and the one STRIPE_AGENT_PRICE_ID plan is sold as before.
 async function createAgentCheckoutSession(user, opts = {}) {
-  const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim();
   const agentPrice = (process.env.STRIPE_AGENT_PRICE_ID || '').trim();
-  const stripe = require('stripe')(stripeKey);
+  const stripe = Pricing.stripe();
   const appUrl = process.env.APP_URL || 'https://mynildash.com';
 
   let customerId = user.stripe_customer_id;
@@ -897,6 +938,27 @@ async function createAgentCheckoutSession(user, opts = {}) {
     });
     customerId = customer.id;
     await store.pool.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [customerId, user.id]);
+  }
+
+  if (Pricing.ON()) {
+    const sp = user.signupPlan || {};
+    let plan = await agentCheckoutPlan(user, { tier: opts.tier !== undefined ? opts.tier : sp.tier, period: opts.period !== undefined ? opts.period : sp.period });
+    if (plan.error) plan = await agentCheckoutPlan(user, {});
+    const md = { user_id: user.id, tier: plan.tier, period: plan.period };
+    const subMd = { tier: plan.tier, period: plan.period, ...(opts.trialDays > 0 ? { trial_days: String(opts.trialDays) } : {}) };
+    const s2 = await stripe.checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: Pricing.lineItems(plan.tier, plan.period, plan.count),
+      payment_method_collection: 'always',
+      // The 14-day trial (opts.trialDays) rides along exactly as on the $99 plan.
+      subscription_data: { ...(opts.trialDays > 0 ? { trial_period_days: opts.trialDays } : {}), metadata: subMd },
+      success_url: `${appUrl}/api/agent/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/?subscribe=cancelled`,
+      metadata: md,
+    });
+    return s2.url;
   }
 
   const checkoutSession = await stripe.checkout.sessions.create({
@@ -922,6 +984,15 @@ app.post('/api/agent/create-checkout', requireAuth, async (req, res) => {
     }
     const user = await store.getUser(req.session.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
+    // Tiered pricing: { tier, period } from the plan picker, checked here so a
+    // bad pick is a plain 400 rather than a quiet swap to another plan.
+    if (Pricing.ON()) {
+      const b = req.body || {};
+      const plan = await agentCheckoutPlan(user, { tier: b.tier, period: b.period });
+      if (plan.error) return res.status(400).json({ error: plan.error });
+      const url = await createAgentCheckoutSession(user, { tier: plan.tier, period: plan.period });
+      return res.json({ url, tier: plan.tier, period: plan.period });
+    }
     const url = await createAgentCheckoutSession(user);
     res.json({ url });
   } catch (e) {
@@ -940,7 +1011,7 @@ app.get('/api/agent/stripe-complete', requireAuth, async (req, res) => {
     const stripeKey = process.env.STRIPE_SECRET_KEY || '';
     const sessionId = req.query.session_id;
     if (stripeKey && sessionId) {
-      const stripe = require('stripe')(stripeKey);
+      const stripe = Pricing.stripe();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       if (session && session.metadata && session.metadata.user_id) {
         // Store the REAL subscription status (a trial signup lands as 'trialing',
@@ -959,12 +1030,44 @@ app.get('/api/agent/stripe-complete', requireAuth, async (req, res) => {
            WHERE id = $3`,
           [status, session.subscription || null, session.metadata.user_id]
         );
+        // A tiered checkout names its plan in the metadata. A $99 checkout
+        // does not, and its user keeps no plan_period (grandfathered).
+        const t = Pricing.validTier(session.metadata.tier), p = Pricing.validPeriod(session.metadata.period);
+        if (t && p) {
+          await store.pool.query(`UPDATE users SET plan_tier = $1, plan_period = $2 WHERE id = $3`,
+            [t, p, session.metadata.user_id]);
+        }
       }
     }
   } catch (e) {
     console.error('[agent-stripe-complete] failed:', e.message);
   }
   res.redirect('/?subscribed=1');
+});
+
+// ── CHANGE PLAN (tiered pricing, services/pricing) ──────────────────────────
+// Body { tier, period }. For an agent on a v2 plan with a live subscription:
+// the subscription's items are replaced with the new plan's, prorated. A plan
+// smaller than the roster is refused in plain words. The founding $99 plan is
+// not changed from here.
+app.post('/api/agent/change-plan', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    const r = await Pricing.changePlan(store.pool, user, req.body || {});
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    res.json(r);
+  } catch (e) {
+    console.error('[change-plan] failed:', e.type || '', e.code || '', e.message);
+    res.status(500).json({ error: 'Could not change your plan. Try again, or email contact@mynildash.com.' });
+  }
+});
+
+// ── THE PRICE LIST (public) ─────────────────────────────────────────────────
+// What the homepage and the plan picker show. Names, athlete counts and
+// dollars only; no Stripe price id ever leaves the server.
+app.get('/api/pricing', (req, res) => {
+  const on = Pricing.ON();
+  res.json({ on, tiers: on ? Pricing.publicTiers() : [] });
 });
 
 // ── Health ─────────────────────────────────────────────────────
@@ -980,7 +1083,7 @@ app.get('/api/health', (req, res) => {
 
 // ── Auth routes ────────────────────────────────────────────────
 app.post('/api/auth/signup', async (req, res) => {
-  const { name, email, password, role, trial } = req.body;
+  const { name, email, password, role, trial, tier, period } = req.body;
   if (!name || !email || !password || !role)
     return res.status(400).json({ error: 'All fields required' });
   if (!['agent', 'university'].includes(role))
@@ -1028,6 +1131,9 @@ app.post('/api/auth/signup', async (req, res) => {
     if (stripeConfigured()) {
       try {
         // The "Start 14-day trial" link (SALES_TRIAL_ON): 0 days otherwise.
+        // The plan picked on the homepage cards (tiered pricing on only; the
+        // checkout ignores it when off and checks it for the roster when on).
+        user.signupPlan = { tier, period };
         const SA = require('./services/salesAutopilot');
         const trialDays = SA.trialDaysFor(trial);
         const checkoutUrl = await createAgentCheckoutSession(user, { trialDays });
@@ -1135,6 +1241,8 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     athleteId: user.athlete_id || null,
     agentId: user.agent_id || null,
     plan: user.plan || 'basic', planTier: user.plan_tier || 'basic',
+    // Set only on a tiered (v2) plan; null for everyone else, legacy included.
+    planPeriod: user.plan_period || null,
     subscription_status: user.subscription_status || 'inactive',
     agentAccess: agentHasAccess(user),
     isFounder: isFounderEmail(user.email),
@@ -4501,6 +4609,11 @@ app.post('/api/athletes/import/commit', requireAuth, importJson, async (req, res
       }
     }
     checkOff(user.id, 'add_athlete');
+    // Agency past 50 (tiered pricing): the extra-athlete quantity follows the
+    // roster, best effort, as on a single add.
+    if (created.length && Pricing.ON() && Pricing.isV2(user) && user.plan_tier === 'agency' && user.stripe_subscription_id) {
+      setImmediate(() => { Pricing.syncAgencyExtra(store.pool, user).catch((e) => console.error('[pricing] agency extra sync (import):', e.message)); });
+    }
     // An import is the agent at work: nightly again from tonight, and if they
     // were dormant the cards that waited for them start their seven days now.
     if (require('./jobs/outreachQueue').inactiveSkip(user)) require('./jobs/outreachQueue').restartCardClock(store.pool, user.id).catch(() => {});

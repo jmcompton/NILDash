@@ -41,6 +41,12 @@ function seatLimitFor(user) {
   const plan = u.plan_tier || u.plan || 'basic';
   const override = readOverride(u.seat_override);
   if (override !== null) return { limit: override === 0 ? null : override, source: 'override', plan, override };
+  // A v2 plan (services/pricing: plan_period set, plan_tier one of starter,
+  // growth, pro, agency) sets its own count. Without this a Growth agent would
+  // hit the old ten-seat default for an unknown plan name. Legacy rows have no
+  // plan_period and keep the rule above, unchanged.
+  const Pricing = require('./pricing');
+  if (Pricing.isV2(u)) return { limit: Pricing.isAdmin(u) ? null : Pricing.tierLimit(u), source: 'plan', plan, override: null };
   return { limit: planSeatLimit(plan), source: 'plan', plan, override: null };
 }
 

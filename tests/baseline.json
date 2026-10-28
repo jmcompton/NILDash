@@ -1601,6 +1601,11 @@
       "failed": 0,
       "total": 31,
       "fault": null
+    },
+    "tierpricing.js": {
+      "failed": 0,
+      "total": 76,
+      "fault": null
     }
   }
 }
