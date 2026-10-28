@@ -760,6 +760,10 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
           card.email, card.emailKind || null,
           card.angle || null, card.angleKey || null, card.categoryKey || null, card.ask || null,
           card.emailTier || null, card.emailSourceUrl || null]);
+      // The athlete's facts as written, for the last look before an automatic
+      // send (services/stillTrue). Never fails the card.
+      await require('../services/stillTrue').snapshot(pool, logId, athleteId)
+        .catch((e) => console.warn(`[queue] facts snapshot for ${logId} failed: ${e.message}`));
     } catch (e) {
       console.error(`[queue] athlete=${athleteId} "${card.brandName}" email draft failed: ${e.message}`);
       card._insertFault = 'email draft: ' + e.message;   // ours (services/ourFault)

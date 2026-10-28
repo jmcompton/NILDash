@@ -12318,6 +12318,30 @@ app.post('/auto-send/on', pitchActionLimiter, express.urlencoded({ extended: fal
     res.send(AS.page('on', { user: u }));
   } catch (e) { console.error('[auto-send/on]', e.message); res.status(500).send(AS.page('bad')); }
 });
+// The one-tap OFF link in every morning note. GET only shows the question
+// (mail scanners open links); the POST turns it off. Works even with the
+// feature switched off, because stopping must always be possible.
+app.get('/auto-send/off', pitchActionLimiter, async (req, res) => {
+  const AS = require('./services/autoSend');
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex');
+  try {
+    const u = await AS.byToken(store.pool, req.query.t);
+    if (!u) return res.status(404).send(AS.page('bad'));
+    if (!u.auto_send_on) return res.send(AS.page('alreadyoff', { user: u }));
+    res.send(AS.page('offask', { user: u, token: String(req.query.t) }));
+  } catch (e) { console.error('[auto-send/off]', e.message); res.status(500).send(AS.page('bad')); }
+});
+app.post('/auto-send/off', pitchActionLimiter, express.urlencoded({ extended: false, limit: '2kb' }), async (req, res) => {
+  const AS = require('./services/autoSend');
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex');
+  try {
+    const u = await AS.byToken(store.pool, req.body && req.body.t);
+    if (!u) return res.status(404).send(AS.page('bad'));
+    if (!u.auto_send_on) return res.send(AS.page('alreadyoff', { user: u }));
+    await AS.set(store.pool, u.id, false);
+    res.send(AS.page('offdone', { user: u }));
+  } catch (e) { console.error('[auto-send/off]', e.message); res.status(500).send(AS.page('bad')); }
+});
 
 // The form posts urlencoded and nothing else on this server does, so the
 // parser is mounted on this one route rather than globally: adding a body

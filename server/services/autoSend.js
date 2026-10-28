@@ -127,6 +127,14 @@ async function offerUrl(pool, agentId) {
   const t = await tokenFor(pool, agentId);
   return t ? `${APP_URL()}/auto-send/on?t=${encodeURIComponent(t)}` : null;
 }
+// The one-tap "stop automatic sending" link for the morning note, or null.
+async function offUrlFor(pool, agentId) {
+  await ensureTables(pool);
+  const u = (await pool.query(`SELECT auto_send_on FROM users WHERE id = $1`, [agentId])).rows[0];
+  if (!u || !u.auto_send_on) return null;
+  const t = await tokenFor(pool, agentId);
+  return t ? `${APP_URL()}/auto-send/off?t=${encodeURIComponent(t)}` : null;
+}
 async function byToken(pool, token) {
   const t = String(token || '').trim();
   if (!/^[a-f0-9]{48}$/.test(t)) return null;
@@ -148,8 +156,13 @@ function page(state, { user, token, missing } = {}) {
     ask: `<h1>Send your pitches every morning?</h1>
       <p>Every weekday at 9:00 am Central, NILDash sends that morning's email pitches for your athletes from your own mailbox. You don't need to log in.</p>
       <p>Every email still passes the same checks as when you approve it yourself: verified addresses only, unsubscribes respected, and no follow-up after a business replies.</p>
-      <p>You get one short email listing what went out. Replies come straight to your inbox. You can turn it off any time in Settings.</p>
+      <p>Right before each pitch goes out, NILDash checks it is still right. If an athlete changed schools or positions, or a pitch looks weak, it waits for you instead.</p>
+      <p>You get one short email listing what went out. Replies come straight to your inbox. It is optional: turn it off any time with one tap from that email, or in Settings.</p>
       <form method="post" action="/auto-send/on"><input type="hidden" name="t" value="${esc(token)}"><button type="submit">Yes, send my pitches every morning</button></form>`,
+    offask: `<h1>Turn off automatic sending?</h1><p>Your pitches will wait for you to approve them, like before. You can turn it back on any time in Settings.</p>
+      <form method="post" action="/auto-send/off"><input type="hidden" name="t" value="${esc(token)}"><button type="submit">Turn it off</button></form>`,
+    offdone: `<h1>Automatic sending is off.</h1><p>Your pitches will wait for you to approve them. Turn it back on any time in Settings.</p>`,
+    alreadyoff: `<h1>It's already off.</h1><p>Your pitches wait for you to approve them. Turn it back on any time in Settings.</p>`,
     on: `<h1>You're set, ${esc(firstOf(user))}.</h1><p>Your pitches go out every weekday at 9:00 am Central. You'll get a short email after each morning's send. Turn it off any time in Settings.</p>`,
     already: `<h1>It's already on.</h1><p>Your pitches go out every weekday at 9:00 am Central. Turn it off any time in Settings.</p>`,
     missing: `<h1>One thing first</h1><p>Before NILDash can send for you: ${esc((missing || []).join('; '))}.</p><p><a href="${esc(APP_URL())}/">Open NILDash</a>, then come back to this link.</p>`,
@@ -166,32 +179,52 @@ button{background:#111827;color:#fff;border:0;border-radius:8px;padding:12px 20p
 // ── THE MORNING NOTE ────────────────────────────────────────────────────────
 // sent: [{ athleteName, brand, to }]; held: how many a send-time check stopped
 // for good; still: how many are still waiting to go when the note is written.
-function noteFor(agent, sent, held = 0, still = 0) {
+function noteFor(agent, sent, held = 0, still = 0, opts = {}) {
   const first = firstOf(agent);
+  const waiting = (opts && Array.isArray(opts.waiting)) ? opts.waiting : [];
+  const offUrl = (opts && opts.offUrl) || null;
   const byAthlete = new Map();
   for (const it of sent) {
     const k = it.athleteName || 'Your athlete';
     if (!byAthlete.has(k)) byAthlete.set(k, []);
     byAthlete.get(k).push(it);
   }
-  const n = sent.length;
-  const subject = `NILDash sent ${n} pitch${n === 1 ? '' : 'es'} for your athletes this morning`;
+  const n = sent.length, w = waiting.length;
+  const subject = n
+    ? `NILDash sent ${n} pitch${n === 1 ? '' : 'es'} for your athletes this morning`
+    : `${w} pitch${w === 1 ? '' : 'es'} need${w === 1 ? 's' : ''} a quick look before ${w === 1 ? 'it goes' : 'they go'} out`;
   const heldLine = [
     held > 0 ? `${held} more didn't go out because a send check stopped ${held === 1 ? 'it' : 'them'} (for example the business replied first, or the address couldn't be confirmed). Your Home page shows why.` : null,
     still > 0 ? `${still} ${still === 1 ? 'is' : 'are'} still waiting to send and will go out shortly.` : null,
   ].filter(Boolean).join(' ') || null;
-  const lines = [`Hi ${first},`, '', `NILDash sent ${n} pitch${n === 1 ? '' : 'es'} from your mailbox this morning:`, ''];
-  for (const [ath, list] of byAthlete) {
-    lines.push(`${ath}:`);
-    for (const it of list) lines.push(`  - ${it.brand}${it.to ? ', to ' + it.to : ''}`);
-    lines.push('');
+  const waitIntro = w
+    ? `${w} pitch${w === 1 ? '' : 'es'} did not send, because NILDash checks every pitch is still right before it goes out. ${w === 1 ? 'It is' : 'They are'} waiting in NILDash for you to look at:`
+    : null;
+  const offText = offUrl ? `Don't want NILDash sending for you? Turn automatic sending off here: ${offUrl}` : 'To stop automatic sending, turn it off in Settings.';
+  const lines = [`Hi ${first},`, ''];
+  if (n) {
+    lines.push(`NILDash sent ${n} pitch${n === 1 ? '' : 'es'} from your mailbox this morning:`, '');
+    for (const [ath, list] of byAthlete) {
+      lines.push(`${ath}:`);
+      for (const it of list) lines.push(`  - ${it.brand}${it.to ? ', to ' + it.to : ''}`);
+      lines.push('');
+    }
   }
   if (heldLine) lines.push(heldLine, '');
-  lines.push('Replies come straight to your inbox. To stop automatic sending, turn it off in Settings.', '', 'NILDash');
-  const html = `<p>Hi ${esc(first)},</p><p>NILDash sent ${n} pitch${n === 1 ? '' : 'es'} from your mailbox this morning:</p>`
-    + Array.from(byAthlete).map(([ath, list]) => `<p><b>${esc(ath)}</b></p><ul>${list.map((it) => `<li>${esc(it.brand)}${it.to ? ', to ' + esc(it.to) : ''}</li>`).join('')}</ul>`).join('')
+  if (waitIntro) {
+    lines.push(waitIntro, '');
+    for (const it of waiting) lines.push(`  - ${it.brand}${it.athleteName ? ' (' + it.athleteName + ')' : ''}: ${it.why}`);
+    lines.push('');
+  }
+  lines.push(n ? 'Replies come straight to your inbox.' : 'Approve or edit them on your Home page.', offText, '', 'NILDash');
+  const html = `<p>Hi ${esc(first)},</p>`
+    + (n ? `<p>NILDash sent ${n} pitch${n === 1 ? '' : 'es'} from your mailbox this morning:</p>`
+      + Array.from(byAthlete).map(([ath, list]) => `<p><b>${esc(ath)}</b></p><ul>${list.map((it) => `<li>${esc(it.brand)}${it.to ? ', to ' + esc(it.to) : ''}</li>`).join('')}</ul>`).join('') : '')
     + (heldLine ? `<p>${esc(heldLine)}</p>` : '')
-    + `<p>Replies come straight to your inbox. To stop automatic sending, turn it off in Settings.</p><p>NILDash</p>`;
+    + (waitIntro ? `<p>${esc(waitIntro)}</p><ul>${waiting.map((it) => `<li>${esc(it.brand)}${it.athleteName ? ' (' + esc(it.athleteName) + ')' : ''}: ${esc(it.why)}</li>`).join('')}</ul>` : '')
+    + `<p>${n ? 'Replies come straight to your inbox.' : 'Approve or edit them on your Home page.'}</p>`
+    + (offUrl ? `<p style="color:#6b7280;font-size:13px">Don't want NILDash sending for you? <a href="${esc(offUrl)}">Turn automatic sending off</a>.</p>` : `<p>To stop automatic sending, turn it off in Settings.</p>`)
+    + `<p>NILDash</p>`;
   return { subject, text: lines.join('\n'), html };
 }
 
@@ -253,6 +286,17 @@ async function runAgent(pool, agent, { date, deps = {} } = {}) {
     const stale = items.length - items.filter((x) => fresh.has(String(x.id))).length;
     items = items.filter((x) => fresh.has(String(x.id)));
     if (!items.length) { await finish(0, 0, stale ? `nothing new to send (${stale} older than ${MAX_AGE_DAYS} days left for the agent)` : ((b && b.note) || 'nothing ready to send')); return { agentId: agent.id, approved: 0, note: b && b.note }; }
+    // STILL TRUE? The last look before a pitch goes out unread
+    // (services/stillTrue). What fails waits for the agent, as a draft.
+    const chk = deps.stillTrue ? await deps.stillTrue(items.map((x) => String(x.id)))
+      : await require('./stillTrue').check(pool, agent.id, items.map((x) => String(x.id)));
+    const waiting = items.filter((x) => !chk.ok.has(String(x.id)))
+      .map((x) => ({ id: String(x.id), athleteName: x.athleteName, brand: x.brand, why: chk.reasons.get(String(x.id)) || 'it needs your eyes' }));
+    items = items.filter((x) => chk.ok.has(String(x.id)));
+    if (!items.length) {
+      await finish(0, 0, `nothing sent: ${waiting.length} waiting for the agent (${waiting.map((w) => w.why).slice(0, 2).join('; ')})`, { items: [], waiting });
+      return { agentId: agent.id, approved: 0, waiting: waiting.length };
+    }
     const r = deps.approveBatch ? await deps.approveBatch(agent.id, items.map((x) => x.id)) : await Closer.approveBatch(pool, agent.id, { ids: items.map((x) => x.id) });
     const approved = (r && (r.approved || 0)) || 0;
     // The ones approved, as approveBatch reports them (`when`: one per approved draft).
@@ -261,9 +305,9 @@ async function runAgent(pool, agent, { date, deps = {} } = {}) {
     // "the general inbox".
     const toOf = (x) => (x.to && typeof x.to === 'object') ? (x.to.name || null) : (x.to || null);
     const list = items.filter((x) => ids.has(String(x.id))).map((x) => ({ id: String(x.id), athleteName: x.athleteName, brand: x.brand, to: toOf(x) }));
-    await finish(approved, items.length, r && (r.note || (r.blocked ? 'blocked' : null)), { items: list });
+    await finish(approved, items.length, r && (r.note || (r.blocked ? 'blocked' : null)), { items: list, waiting });
     if (approved > 0) { try { require('../jobs/closerRelease').kick(); } catch (_) { /* the release tick will find them */ } }
-    return { agentId: agent.id, approved, offered: items.length };
+    return { agentId: agent.id, approved, offered: items.length, waiting: waiting.length };
   } catch (e) {
     await finish(0, 0, 'failed: ' + String(e.message || e).slice(0, 200)).catch(() => {});
     try { require('./ourFault').record('auto-send', String(e.message || e).slice(0, 300), 'autoSend agent=' + agent.id); } catch (_) { /* best effort */ }
@@ -280,7 +324,8 @@ async function notes(pool, { now, deps = {} } = {}) {
   const runs = (await pool.query(
     `SELECT r.agent_id, r.run_date::text AS run_date, r.started_at, r.detail, u.email, u.name, u.sign_first_name
        FROM auto_send_runs r JOIN users u ON u.id = r.agent_id
-      WHERE r.approved > 0 AND r.note_at IS NULL AND r.started_at > $1::timestamptz - INTERVAL '2 days'`, [at])).rows;
+      WHERE (r.approved > 0 OR jsonb_array_length(COALESCE(r.detail->'waiting', '[]'::jsonb)) > 0)
+        AND r.note_at IS NULL AND r.started_at > $1::timestamptz - INTERVAL '2 days'`, [at])).rows;
   const out = [];
   for (const run of runs) {
     const items = (run.detail && run.detail.items) || [];
@@ -292,9 +337,11 @@ async function notes(pool, { now, deps = {} } = {}) {
     const claim = await pool.query(`UPDATE auto_send_runs SET note_at = NOW(), sent = $3, held = $4 WHERE agent_id = $1 AND run_date = $2 AND note_at IS NULL`,
       [run.agent_id, run.run_date, sent.length, held]);
     if (!claim.rowCount) continue;
-    if (!sent.length) { out.push({ agentId: run.agent_id, sent: 0, held }); continue; }
+    const waiting = (run.detail && Array.isArray(run.detail.waiting)) ? run.detail.waiting : [];
+    if (!sent.length && !waiting.length) { out.push({ agentId: run.agent_id, sent: 0, held }); continue; }
     try {
-      const msg = noteFor(run, sent, held, pending);
+      const offUrl = deps.offUrl !== undefined ? deps.offUrl : await offUrlFor(pool, run.agent_id).catch(() => null);
+      const msg = noteFor(run, sent, held, pending, { waiting, offUrl });
       await (deps.send ? deps.send(run.email, msg) : sendNote(run.email, msg));
       await pool.query(`UPDATE auto_send_runs SET emailed_at = NOW() WHERE agent_id = $1 AND run_date = $2`, [run.agent_id, run.run_date]);
       out.push({ agentId: run.agent_id, sent: sent.length, held, emailed: true });
@@ -318,6 +365,9 @@ function inviteFor(user, url) {
     `Hi ${first},`,
     'Quick update from NILDash. Every night we find businesses for your athletes and write the pitches, but they only go out when you approve them. Most mornings that doesn\'t happen, and I get it. You\'re busy.',
     'So now NILDash can send them for you. Every weekday at 9am Central, that morning\'s pitches go out from your own email. Same checks as before: verified addresses only, and no follow-up once a business replies. You get one short email listing what went out, and replies come straight to you.',
+    'Before anything sends, NILDash checks the pitch is still right: if an athlete changed schools or positions, or a pitch looks weak, it waits for you instead.',
+    'Want them in your own words? Add your pitch script in Settings and NILDash follows it.',
+    'This is completely optional. Nothing changes unless you turn it on. If you\'d rather keep approving every pitch yourself, just ignore this email. If you turn it on, you can turn it off any time with one tap.',
     'Turn it on with one tap:',
   ];
   const sign = ['JohnMark', 'Founder, NILDash'];
@@ -411,4 +461,4 @@ function start(pool) {
 }
 
 module.exports = { ON, SEND_AT, ensureTables, status, set, missingFor, noteFor, runAgent, notes, statusOf, tick, start, central,
-  tokenFor, offerUrl, byToken, page, NOTE_AFTER_MS, inviteFor, inviteList, invite };
+  tokenFor, offerUrl, offUrlFor, byToken, page, NOTE_AFTER_MS, inviteFor, inviteList, invite };
