@@ -135,7 +135,12 @@ async function byToken(pool, token) {
 }
 
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const firstOf = (u) => String((u && (u.sign_first_name || u.name)) || '').trim().split(/\s+/)[0] || 'there';
+// "ASANTE BRADFORD" reads as shouting: an all-caps name is written Asante.
+// Any other capitals stay as typed ("JohnMark").
+const firstOf = (u) => {
+  const f = String((u && (u.sign_first_name || u.name)) || '').trim().split(/\s+/)[0] || 'there';
+  return f.length > 1 && f === f.toUpperCase() && /[A-Z]/.test(f) ? f[0] + f.slice(1).toLowerCase() : f;
+};
 
 // The one-tap page. state: 'ask' | 'on' | 'already' | 'missing' | 'off' | 'bad'
 function page(state, { user, token, missing } = {}) {
@@ -336,13 +341,20 @@ async function inviteList(pool) {
   const internal = (u) => { try { return !!require('./coldAgent').isInternal(u, { excludeNames: [], excludeEmails: [] }); } catch (_) { return false; } };
   return rows.filter((u) => u.email && !INTERNAL_RE.test(u.email) && String(u.email).toLowerCase() !== admin && !internal(u));
 }
-async function invite(pool, { send = false, deps = {} } = {}) {
+// READY ONLY. An agent with no connected mailbox or no business address
+// would tap the button and land on "one thing first": a dead end from an
+// email that promised one tap. They are listed, not sent; they get the offer
+// in the nightly email once they are ready. exclude: emails never invited.
+async function invite(pool, { send = false, deps = {}, exclude = [] } = {}) {
   if (!ON()) return { skipped: 'AUTO_SEND_ON is off: the link would not work yet' };
+  const skip = new Set((exclude || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean));
   if (send && !deps.send && !process.env.RESEND_API_KEY) return { skipped: 'RESEND_API_KEY is not set, so nothing was sent and nobody was marked invited' };
   const list = await inviteList(pool);
   const out = [];
   for (const u of list) {
+    if (skip.has(String(u.email).toLowerCase())) { out.push({ id: u.id, email: u.email, name: u.name, excluded: true }); continue; }
     const missing = await missingFor(pool, u.id, deps);
+    if (missing.length) { out.push({ id: u.id, email: u.email, name: u.name, missing, notReady: true }); continue; }
     if (!send) { out.push({ id: u.id, email: u.email, name: u.name, missing }); continue; }
     const claim = await pool.query(`UPDATE users SET auto_send_invited_at = NOW() WHERE id = $1 AND auto_send_invited_at IS NULL`, [u.id]);
     if (!claim.rowCount) continue;

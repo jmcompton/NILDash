@@ -262,6 +262,19 @@ async function main() {
   const second = makeDeps();
   await AS.invite(P(), { send: true, deps: { ...d0.deps, send: second.deps.send } });
   ok('never twice', !second.calls.sent.some((x) => x.to === 'as-bob@agents.test') && real.list.some((x) => x.sent));
+  await P().query(`INSERT INTO athletes (id, agent_id, data) VALUES ('ath-nm', 'as-nomail', '{"name":"N"}') ON CONFLICT DO NOTHING`);
+  await P().query(`INSERT INTO users (id, name, email, password, role) VALUES ('as-caps', 'ASANTE BRADFORD', 'caps@agents.test', 'x', 'agent'), ('as-ex', 'Ex Cluded', 'ex@agents.test', 'x', 'agent') ON CONFLICT DO NOTHING`);
+  await P().query(`INSERT INTO athletes (id, agent_id, data) VALUES ('ath-caps', 'as-caps', '{"name":"C"}'), ('ath-ex', 'as-ex', '{"name":"E"}') ON CONFLICT DO NOTHING`);
+  const third = makeDeps();
+  const r3i = await AS.invite(P(), { send: true, exclude: ['EX@agents.test'], deps: { ...d0.deps, send: third.deps.send } });
+  const nmi = r3i.list.find((x) => x.email === 'as-nomail@agents.test');
+  ok('not ready (no mailbox): listed with what it needs, never sent, not marked invited', nmi && nmi.notReady && /mailbox/.test(nmi.missing.join(' '))
+    && !third.calls.sent.some((x) => x.to === 'as-nomail@agents.test')
+    && (await P().query(`SELECT auto_send_invited_at FROM users WHERE id = 'as-nomail'`)).rows[0].auto_send_invited_at === null, nmi);
+  ok('an excluded address is never sent', r3i.list.some((x) => x.email === 'ex@agents.test' && x.excluded) && !third.calls.sent.some((x) => x.to === 'ex@agents.test'));
+  const caps = third.calls.sent.find((x) => x.to === 'caps@agents.test');
+  ok('an all-caps name is greeted normally ("Hi Asante,")', caps && /^Hi Asante,/.test(caps.msg.text), caps && caps.msg.text.slice(0, 20));
+  ok('mixed capitals stay as typed', AS.inviteFor({ name: 'JohnMark Compton' }, 'u').text.startsWith('Hi JohnMark,'));
   const savedKey = process.env.RESEND_API_KEY; delete process.env.RESEND_API_KEY;
   await P().query(`UPDATE users SET auto_send_invited_at = NULL WHERE id = 'as-bob'`);
   const nokey = await AS.invite(P(), { send: true });

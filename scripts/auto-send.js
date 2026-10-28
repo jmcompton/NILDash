@@ -22,15 +22,20 @@ async function main() {
 
   if (has('--invite')) {
     const send = has('--send');
-    const r = await AS.invite(P, { send });
+    const ex = process.argv.indexOf('--exclude');
+    const exclude = ex > -1 ? String(process.argv[ex + 1] || '').split(',') : [];
+    const r = await AS.invite(P, { send, exclude });
     if (r.skipped) { console.log(`\nINVITE: not sent. ${r.skipped}.`); return; }
-    console.log(`\nINVITE ${send ? 'SENT' : 'DRY RUN (add &send=1 to send)'}: ${r.list.length} agent(s)`);
-    for (const x of r.list) {
-      console.log(`  ${x.email}${x.name ? ' (' + x.name + ')' : ''}${x.sent ? '  sent' : ''}${x.error ? '  FAILED: ' + x.error : ''}`
-        + (x.missing && x.missing.length ? `  [before it can turn on: ${x.missing.join('; ')}]` : ''));
-    }
-    if (!send && r.list.length) {
-      const m = AS.inviteFor(r.list[0], 'https://mynildash.com/auto-send/on?t=<their link>');
+    const go = r.list.filter((x) => !x.notReady && !x.excluded);
+    console.log(`\nINVITE ${send ? 'SENT' : 'DRY RUN (add &send=1 to send)'}: ${go.length} agent(s)`);
+    for (const x of go) console.log(`  ${x.email}${x.name ? ' (' + x.name + ')' : ''}${x.sent ? '  sent' : ''}${x.error ? '  FAILED: ' + x.error : ''}`);
+    const held = r.list.filter((x) => x.notReady);
+    if (held.length) console.log(`\nNOT READY, NOT SENT (they get the offer in the nightly email once ready): ${held.length}`);
+    for (const x of held) console.log(`  ${x.email}${x.name ? ' (' + x.name + ')' : ''}  [needs: ${x.missing.join('; ')}]`);
+    const exd = r.list.filter((x) => x.excluded);
+    if (exd.length) console.log(`\nEXCLUDED: ${exd.map((x) => x.email).join(', ')}`);
+    if (!send && go.length) {
+      const m = AS.inviteFor(go[0], 'https://mynildash.com/auto-send/on?t=<their link>');
       console.log(`\nTHE EMAIL\nSubject: ${m.subject}\n\n${m.text}`);
     }
     return;
