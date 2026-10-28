@@ -50,6 +50,7 @@ ok('never sold, never used for advertising', /We never sell it, and we never use
 ok('access tokens are encrypted; kept while the connection is active', /Instagram access tokens are encrypted/.test(SEC) && /keep the data while the connection is active/.test(SEC));
 
 console.log('\n4. HOW TO REMOVE IT');
+ok('in NILDash: Disconnect on the athlete page, which deletes the token and the data right away', /In NILDash: Disconnect on the athlete page in NILDash\. The athlete's agent can do it for them\. We delete the access token and everything we fetched from the account right away\./.test(SEC), SEC.match(/In NILDash:[^\n]*/));
 ok('in Instagram: Settings > Apps and websites, remove NILDash', /Settings > Apps and websites, find NILDash and remove it/.test(SEC), SEC.match(/In Instagram:[^.]*\./));
 ok('Meta\'s data deletion callback deletes the fetched data', /Meta's data deletion callback tells us, and we delete everything we fetched/.test(SEC));
 ok('by email: contact@mynildash.com', /By email: write to contact@mynildash\.com/.test(SEC) && /mailto:contact@mynildash\.com/.test(SEC_HTML));
@@ -72,6 +73,9 @@ ok('every email link on the page is contact@mynildash.com', mailtos.length >= 5 
 ok('  the contact card and the questions box say it too', /Questions\? Contact us at any time at contact@mynildash\.com/.test(TEXT) && /please contact us: contact@mynildash\.com/.test(TEXT));
 ok('the "last updated" date is the day the Instagram section was added', /Last updated: October 21, 2026/.test(TEXT));
 ok('no em dash in the new section', !/—|&mdash;/.test(SEC_HTML));
+ok('no em dash anywhere on the page, the older sections and the title included', !/—|&mdash;|&#8212;/.test(HTML) && /<title>Privacy Policy \| NILDash<\/title>/.test(HTML));
+ok('  the list labels read "Label: text" instead', /<strong>Platform functionality<\/strong>: to authenticate users/.test(HTML) && /<strong>Deletion<\/strong>: you may request deletion/.test(HTML)
+  && /<strong>Railway<\/strong> \(cloud hosting and database infrastructure\):/.test(HTML) && /one-way cryptographic hash; we never store your plaintext password/.test(HTML));
 ok('Meta is listed among the third-party services', /Meta \(Instagram API, only for athletes who connect Instagram\)/.test(TEXT));
 ok('section references still point at the right sections', /\(see Section 8\)/.test(HTML) && /Section 08 Third-Party Services/.test(TEXT) && /described in Section 4\./.test(TEXT));
 const nums = [...HTML.matchAll(/<div class="section-number">Section (\d+)<\/div>/g)].map((m) => Number(m[1]));

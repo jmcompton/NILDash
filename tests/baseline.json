@@ -697,6 +697,11 @@
       "total": 12,
       "fault": null
     },
+    "igdisconnect.js": {
+      "failed": 0,
+      "total": 28,
+      "fault": null
+    },
     "ignamelookup.js": {
       "failed": 0,
       "total": 27,

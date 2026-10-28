@@ -13,6 +13,7 @@
 //   POST /api/agents/athletes/:id/instagram-invite    a new link to send
 //   GET  /api/agents/instagram/status                 status for the whole roster
 //   POST /api/agents/athletes/:id/instagram-sync      re-fetch now
+//   POST /api/agents/athletes/:id/instagram-disconnect  erase the token, delete what was fetched
 const express = require('express');
 const IG = require('../services/instagramConnect');
 
@@ -234,6 +235,18 @@ function mount(app, { store, requireAuth }) {
           personal: v.filter((x) => x.display === 'personal_account').length, blocked: v.filter((x) => x.display === 'blocked').length } });
     }
     catch (e) { console.error('[instagram/status]', e.message); res.status(500).json({ error: e.message }); }
+  });
+
+  // DISCONNECT, from the athlete page: the token erased, the athlete's unused
+  // links revoked, and everything fetched from Instagram deleted right away,
+  // by the same path as Meta's data deletion callback (services/instagramConnect).
+  app.post('/api/agents/athletes/:id/instagram-disconnect', requireAuth, async (req, res) => {
+    try {
+      const a = await ownAthlete(req, res); if (!a) return;
+      const r = await IG.disconnect(pool, { athleteId: a.id, agentId: req.session.userId });
+      if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+      res.json(r);
+    } catch (e) { console.error('[instagram-disconnect]', e.message); res.status(500).json({ error: e.message }); }
   });
 
   app.post('/api/agents/athletes/:id/instagram-sync', requireAuth, async (req, res) => {
