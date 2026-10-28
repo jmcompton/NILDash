@@ -159,7 +159,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('no app markup in the page', !/id="(appScreen|authScreen|mktLanding|home-panel|home-tabs|loginForm)"/.test(HTML));
   ok('  no "Could not load today\'s outreach"', !/Could not load today/.test(HTML));
   ok('  no app scripts loaded', !/<script[^>]+src=/.test(HTML), (HTML.match(/<script[^>]+src=[^>]+>/g) || []));
-  ok('  the only request the page makes is the waitlist', (HTML.match(/fetch\('([^']+)'/g) || []).join() === "fetch('/api/public/waitlist'");
+  ok('  the only requests the page makes are the waitlist and the public plan list', (HTML.match(/fetch\('([^']+)'/g) || []).sort().join() === "fetch('/api/pricing',fetch('/api/public/waitlist'");
   ok('it is not under public/, so express.static can never serve it raw', !fs.existsSync(REPO + 'public/home.html') && /server\/views\/home\.html|'views', 'home\.html'/.test(read('server/services/publicHome.js')));
 
   console.log('\n4. THE LIVE COUNTS');
