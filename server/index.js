@@ -1919,6 +1919,32 @@ app.post('/api/agent/settings/auto-send', requireAuth, async (req, res) => {
   }
 });
 
+// The agent's own pitch script (services/agentScript): saved once, followed
+// by the writer for every pitch. "Improve it" returns an edit in their voice.
+app.get('/api/agent/settings/script', requireAuth, async (req, res) => {
+  try { res.json(await require('./services/agentScript').get(store.pool, req.session.userId)); } catch (e) {
+    console.error('[settings/script]', e.message); res.status(500).json({ error: e.message });
+  }
+});
+app.post('/api/agent/settings/script', requireAuth, async (req, res) => {
+  try {
+    const out = await require('./services/agentScript').save(store.pool, req.session.userId, req.body || {});
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (e) { console.error('[settings/script]', e.message); res.status(500).json({ error: e.message }); }
+});
+app.post('/api/agent/settings/script/improve', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    let agentFirst = null;
+    try {
+      const r = await store.pool.query(`SELECT sign_first_name, name FROM users WHERE id = $1`, [req.session.userId]);
+      const u = r.rows[0] || {};
+      agentFirst = String(u.sign_first_name || u.name || '').trim().split(/\s+/)[0] || null;
+    } catch (_) { agentFirst = null; }
+    const out = await require('./services/agentScript').improve((req.body || {}).script, { agentFirst });
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (e) { console.error('[settings/script/improve]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // The agent dismisses the "approvals did not send" line once they have read
 // it (services/sendFaults). ids: the ones to dismiss; none: all of them.
 app.post('/api/agent/send-faults/ack', requireAuth, async (req, res) => {

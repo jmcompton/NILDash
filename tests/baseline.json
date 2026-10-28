@@ -1591,6 +1591,11 @@
       "failed": 0,
       "total": 36,
       "fault": null
+    },
+    "agentscript.js": {
+      "failed": 0,
+      "total": 32,
+      "fault": null
     }
   }
 }
