@@ -74,6 +74,7 @@ function guard() {
     'server/services/morningAlert.js': { n: 1, why: 'to the admin' },
     'server/services/nightlyDigest.js': { n: 2, why: 'to the agent' },
     'server/services/autoSend.js': { n: 2, why: 'to the agent: the morning note, and the one-time invite to turn it on' },
+    'server/services/replyAutopilot.js': { n: 1, why: 'to the agent: a business replied, with a suggested reply' },
     'server/services/ourFault.js': { n: 1, why: 'to the admin' },
     'server/services/preflight.js': { n: 1, why: 'to the admin' },
     'server/services/sendFaults.js': { n: 1, why: 'to the agent' },

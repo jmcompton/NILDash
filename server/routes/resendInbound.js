@@ -208,11 +208,19 @@ async function processEvent(event) {
     [text, html, data.from || null, data.subject || null, logRow.id]
   ).catch((e) => console.error('[resend-inbound] failed to store reply content:', e.message));
 
-  await followUpSvc.markReplied(logRow.id, new Date(event.created_at || Date.now()));
+  // An ambiguous match is not handed to the reply autopilot: it would move a
+  // deal and draft an answer for what may be the wrong pitch.
+  const ambiguous = !!(match && match.ambiguous);
+  await followUpSvc.markReplied(logRow.id, new Date(event.created_at || Date.now()), { autopilot: !ambiguous });
 
   // A notification, not a forward -- see replyCapture.js for why. Best-effort:
   // a failed notify must never undo the markReplied above.
-  notifyAgentOfReply(logRow, text, match).catch((e) => console.error('[resend-inbound] notify failed:', e.message));
+  // With CRM_AUTO_ON the reply autopilot (started by markReplied) sends one
+  // fuller email instead: what they said, a suggested reply, the deal moved.
+  // An ambiguous match keeps this email, with its "check which pitch" warning.
+  if (!require('../services/replyAutopilot').ON() || ambiguous) {
+    notifyAgentOfReply(logRow, text, match).catch((e) => console.error('[resend-inbound] notify failed:', e.message));
+  }
 }
 
 // Every accepted inbound, matched or not. This is the table /admin/inbound

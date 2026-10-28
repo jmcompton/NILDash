@@ -103,6 +103,15 @@ async function markReplied(outreachLogId, repliedAt, opts = {}) {
       agentId: log.agent_id, brandKey: log.brand_key || null,
       brandName: log.brand_name || '', source: 'reply',
     });
+
+    // THE CRM FILLS ITSELF IN (services/replyAutopilot, CRM_AUTO_ON): the
+    // deal moves, a suggested reply is written and the agent is told. Not
+    // awaited: a slow model call must never hold up the webhook or the sync
+    // that found the reply, and a failure there never undoes anything above.
+    const RA = require('./replyAutopilot');
+    // opts.autopilot === false: the caller is not sure which pitch this
+    // answers (an ambiguous reply-domain match), so nothing is moved on a guess.
+    if (RA.ON() && opts.autopilot !== false) RA.onReply(pool, outreachLogId).catch((e) => console.error('[markReplied] reply autopilot:', e.message));
   }
 }
 
