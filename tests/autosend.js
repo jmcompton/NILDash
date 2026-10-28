@@ -47,6 +47,8 @@ function makeDeps(over = {}) {
     send: async (to, msg) => { calls.sent.push({ to, msg }); },
     statusOf: async (ids) => new Map(ids.map((id) => [String(id), status[id] || 'sent'])),
     freshIds: async (ids) => new Set(ids.map(String).filter((id) => !(over.stale || []).includes(id))),
+    stillTrue: async (ids) => ({ ok: new Set(ids.map(String).filter((id) => !(over.wait || {})[id])),
+      reasons: new Map(Object.entries(over.wait || {})) }),
   };
   return { deps, calls };
 }
@@ -130,7 +132,7 @@ async function main() {
   const full = AS.noteFor({ name: 'Ann Agent' }, batches['as-ann'].map((x) => ({ ...x, to: x.to.kind === 'person' ? x.to.name : null })), 0);
   ok('the note: count in the subject', /sent 3 pitches/.test(full.subject), full.subject);
   ok('the note: grouped by athlete, each business named', /Jay Runner:\n {2}- Smoothie Hut, to Dana Lee\n {2}- Tire Barn\n/.test(full.text), full.text);
-  ok('the note: starts with the first name, says how to stop', note && /^Hi Ann,/.test(note.text) && /turn it off in Settings/.test(note.text));
+  ok('the note: starts with the first name, says how to stop', note && /^Hi Ann,/.test(note.text) && /Turn automatic sending off here: http\S*\/auto-send\/off\?t=[a-f0-9]{48}/.test(note.text));
   ok('the note: html escapes what it prints', note && note.html.includes('Kim &lt;Swim&gt;') && note.html.includes('Pool &amp; Patio') && !note.html.includes('<Swim>'));
   const runs = (await P().query(`SELECT agent_id, approved, offered, note, emailed_at, sent, held FROM auto_send_runs WHERE run_date = $1 ORDER BY agent_id`, [TUE])).rows;
   const by = Object.fromEntries(runs.map((x) => [x.agent_id, x]));
