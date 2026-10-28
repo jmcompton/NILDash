@@ -198,6 +198,24 @@ async function createAthlete(user, body, opts) {
   // into the local lane or a stale "junior" into a pitch.
   const isPro = athleteType === 'pro';
 
+  // ── The plan's athlete count (PRICING_V2_ON, services/pricing) ────────────
+  // A v2 plan covers a number of athletes; the next one past it is refused
+  // with a 402 that names the plan to move to. Legacy subscribers (no
+  // plan_period, e.g. the founding $99 plan) are never limited here, nor is an
+  // admin, nor an account whose limit an admin set by hand (the seat rule
+  // below owns that). Agency has no ceiling: athletes over 50 are billed.
+  const Pricing = require('./pricing');
+  const tierLimit = Seats.readOverride(user && user.seat_override) === null ? Pricing.limitFor(user) : null;
+  if (tierLimit !== null) {
+    const n = await Pricing.athleteCount(store.pool, user.id);
+    if (n >= tierLimit) {
+      const up = Pricing.nextTier(user.plan_tier);
+      return { ok: false, status: 402, code: 'PLAN_LIMIT', error: Pricing.limitMessage(user.plan_tier),
+        plan: { tier: user.plan_tier, period: user.plan_period, athletes: tierLimit }, currentCount: n,
+        upgrade: up ? { tier: up.key, name: up.name, athletes: up.athletes, monthly: up.monthly, yearly: up.yearly } : null };
+    }
+  }
+
   // ── Seat limit check ─────────────────────────────────────────
   // The plan's limit, unless an admin set one for this account (services/seats).
   const seats = Seats.seatLimitFor(user);
@@ -311,6 +329,15 @@ async function createAthlete(user, body, opts) {
     createdAt: new Date().toISOString(),
   });
   store.markChecklistItem(user.id, 'add_athlete').catch(() => {}); // Getting Started checklist
+  // Agency past 50: the extra-athlete quantity on the subscription follows the
+  // roster. Best effort and in the background; it never fails the add.
+  if (Pricing.ON() && Pricing.isV2(user) && user.plan_tier === 'agency' && user.stripe_subscription_id) {
+    setImmediate(() => {
+      Pricing.athleteCount(store.pool, user.id)
+        .then((n) => (n > Pricing.AGENCY_INCLUDED ? Pricing.syncAgencyExtra(store.pool, user) : null))
+        .catch((e) => console.error('[pricing] agency extra sync for ' + user.id + ': ' + e.message));
+    });
+  }
   // ── A NEW ATHLETE IS FILLED NOW, NOT TONIGHT ────────────────────────────
   // Adding an athlete did not start anything: their first cards arrived with
   // the next nightly run, which could be twenty hours away. The on-demand fill

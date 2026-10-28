@@ -272,6 +272,33 @@ roster in without thinking about cost. Athletes are not charged.
 If asked what tier they are on and it is not in the data provided, say you cannot see
 their billing from here and point them at Settings. Do not guess.`;
 
+// With tiered pricing on (services/pricing, PRICING_V2_ON) the plans are read
+// from the same table checkout sells from, so this cannot drift from it. Off,
+// the founding $99 text above is what the assistant says.
+function pricingText() {
+  let P = null;
+  try { P = require('./pricing'); } catch (_) { P = null; }
+  if (!P || !P.ON()) return PRICING;
+  const money = (n) => '$' + Number(n).toLocaleString('en-US');
+  const lines = P.publicTiers().map((t) => `- ${t.name}: up to ${t.athletes} athletes, ${money(t.monthly)} a month or ${money(t.yearly)} a year`
+    + (t.extra ? `, plus ${money(t.extra.monthly)} a month (${money(t.extra.yearly)} a year) for each athlete over ${t.extra.over}` : '')
+    + (t.popular ? ' (the most popular)' : ''));
+  return `PRICING
+
+Four agent plans, priced by how many athletes the agent runs. Every plan includes every
+feature: daily pitches for every athlete, automatic sending, their own pitch script, the
+CRM and media kits. Only the athlete count differs. Yearly is two months free.
+${lines.join('\n')}
+Athletes are not charged. Agents who subscribed at the founding $99 a month keep that
+price and their plan; these four plans do not apply to them.
+
+An agent at their plan's athlete count is asked to move up a plan when adding the next
+athlete. They can change plans from the subscribe button or when that prompt appears.
+
+If asked what tier they are on and it is not in the data provided, say you cannot see
+their billing from here and point them at Settings. Do not guess.`;
+}
+
 function buildKnowledge() {
   return [
     PURPOSE,
@@ -288,7 +315,7 @@ engaged, which feeds future targeting. A bounce also stops the cadence and flags
 address as bad so nothing else is sent to it.`,
     '', 'THE COMPLIANCE GATE', complianceText(),
     '', SHIFT_REPORT,
-    '', PRICING,
+    '', pricingText(),
     '', LIMITS,
   ].join('\n');
 }
@@ -304,6 +331,6 @@ function hasKnowledge() {
 // KNOWLEDGE is kept as a getter so existing callers that read it as a value still
 // work, while the text is rebuilt from live module values on each read.
 module.exports = {
-  buildKnowledge, hasKnowledge, rolesText, lanesText, outreachText, complianceText,
+  buildKnowledge, hasKnowledge, rolesText, lanesText, outreachText, complianceText, pricingText,
   get KNOWLEDGE() { return buildKnowledge(); },
 };

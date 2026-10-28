@@ -816,8 +816,9 @@ async function morningSection(pool, { now } = {}) {
 // A signup that came through "Start 14-day trial" (?trial=14 on the signup
 // link, from /try or the homepage) gets a 14-day Stripe trial: card at
 // checkout, first charge on day 15. The plan is whatever the agent checkout
-// sells (STRIPE_AGENT_PRICE_ID): PRICING_V2_ON is not on main yet, and when
-// it lands in createAgentCheckoutSession this follows it.
+// sells: STRIPE_AGENT_PRICE_ID, or with tiered pricing on (services/pricing,
+// PRICING_V2_ON) the tier picked or the smallest that fits. The trial days
+// ride on either the same way (createAgentCheckoutSession).
 const TRIAL_DAYS = 14;
 function trialDaysFor(asked) { return TRIAL_ON() && String(asked == null ? '' : asked).trim() === String(TRIAL_DAYS) ? TRIAL_DAYS : 0; }
 async function recordTrial(pool, user, source) {
