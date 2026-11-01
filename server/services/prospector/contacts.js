@@ -66,6 +66,8 @@ async function verified(verify, email) {
   const status = v && v.ok ? (v.status || v.result || null) : null;
   return { verified: VERIFIED.has(String(status)), verifyStatus: status || (v && v.why) || 'unknown' };
 }
+// Hunter says this address bounces: never write to it, go down the ladder.
+const DEAD = new Set(['invalid']);
 
 async function findPerson(playbook, domain, deps = {}, biz = {}) {
   const find = deps.findDomainEmails || H.findDomainEmails;
@@ -79,11 +81,14 @@ async function findPerson(playbook, domain, deps = {}, biz = {}) {
   if (r && r.fault) tried.push(`Hunter: ${r.fault.reason || r.fault.outcome}`);
   const hp = !(r && r.fault) ? pick(playbook, r && r.emails) : null;
   if (hp) {
-    return { ok: true, kind: 'named', source: 'hunter',
-      person: { first: hp.firstName, last: hp.lastName || '', title: hp.position || '', email: hp.email, confidence: hp.confidence || 0, sourceUrl: hp.sourceUrl || null },
-      ...(await verified(verify, hp.email)) };
+    const v = await verified(verify, hp.email);
+    if (!DEAD.has(v.verifyStatus)) {
+      return { ok: true, kind: 'named', source: 'hunter',
+        person: { first: hp.firstName, last: hp.lastName || '', title: hp.position || '', email: hp.email, confidence: hp.confidence || 0, sourceUrl: hp.sourceUrl || null }, ...v };
+    }
+    tried.push(`${hp.email} is invalid`);
   }
-  if (!(r && r.fault)) tried.push(r && r.emails && r.emails.length ? 'Hunter: only shared or unranked addresses' : 'Hunter knows no one at this domain');
+  if (!(r && r.fault) && !hp) tried.push(r && r.emails && r.emails.length ? 'Hunter: only shared or unranked addresses' : 'Hunter knows no one at this domain');
 
   // 2. Their own website: who it names, and what it publishes.
   let s = null;
@@ -98,17 +103,24 @@ async function findPerson(playbook, domain, deps = {}, biz = {}) {
   if (sitePersonal) {
     const lp = sitePersonal.split('@')[0];
     const who = named.find((x) => lp.includes(x.n.first.toLowerCase()) || lp.includes(x.n.last.toLowerCase()));
-    return { ok: true, kind: who ? 'named' : 'address', source: 'website',
-      person: { first: who ? who.n.first : '', last: who ? who.n.last : '', title: who ? who.p.title : '', email: sitePersonal, sourceUrl: s.personalSourceUrl || null },
-      ...(await verified(verify, sitePersonal)) };
+    const v = await verified(verify, sitePersonal);
+    if (!DEAD.has(v.verifyStatus)) {
+      return { ok: true, kind: who ? 'named' : 'address', source: 'website',
+        person: { first: who ? who.n.first : '', last: who ? who.n.last : '', title: who ? who.p.title : '', email: sitePersonal, sourceUrl: s.personalSourceUrl || null }, ...v };
+    }
+    tried.push(`${sitePersonal} is invalid`);
   }
   for (const x of named.slice(0, 2)) {
     const f = await finder(x.n.first, x.n.last, domain);
     if (f && f.fault) { tried.push(`Hunter finder: ${f.fault.reason || f.fault.outcome}`); break; }
     if (f && f.email && String(f.email).toLowerCase().endsWith('@' + domain)) {
-      return { ok: true, kind: 'named', source: 'website+hunter',
-        person: { first: x.n.first, last: x.n.last, title: x.p.title || '', email: String(f.email).toLowerCase(), confidence: f.score || 0, sourceUrl: x.p.sourceUrl || null },
-        ...(await verified(verify, f.email)) };
+      const v = await verified(verify, f.email);
+      if (!DEAD.has(v.verifyStatus)) {
+        return { ok: true, kind: 'named', source: 'website+hunter',
+          person: { first: x.n.first, last: x.n.last, title: x.p.title || '', email: String(f.email).toLowerCase(), confidence: f.score || 0, sourceUrl: x.p.sourceUrl || null }, ...v };
+      }
+      tried.push(`${f.email} is invalid`);
+      continue;
     }
     tried.push(`Hunter has no address for ${x.n.first} ${x.n.last}`);
   }
@@ -116,13 +128,15 @@ async function findPerson(playbook, domain, deps = {}, biz = {}) {
   // 3. The office inbox.
   const generic = ((r && r.emails) || []).filter((e) => e.type === 'generic').map((e) => e.email);
   const siteRole = s && s.roleEmail && !s.corporate ? s.roleEmail : null;
-  const inbox = bestInbox([siteRole, ...generic]);
-  if (inbox) {
+  const inboxes = [...new Set([siteRole, ...generic].filter(Boolean).map((a) => String(a).toLowerCase()))]
+    .filter((a) => inboxRank(a) !== Infinity).sort((a, b) => inboxRank(a) - inboxRank(b)).slice(0, 2);
+  for (const inbox of inboxes) {
+    const v = await verified(verify, inbox);
+    if (DEAD.has(v.verifyStatus)) { tried.push(`${inbox} is invalid`); continue; }
     const owner = named[0];
     return { ok: true, kind: 'inbox', source: inbox === String(siteRole || '').toLowerCase() ? 'website' : 'hunter',
       person: { first: '', last: '', title: 'Office inbox', email: inbox, sourceUrl: (s && s.roleSourceUrl) || null,
-        owner: owner ? `${owner.n.first} ${owner.n.last}` + (owner.p.title ? `, ${owner.p.title}` : '') : null },
-      ...(await verified(verify, inbox)) };
+        owner: owner ? `${owner.n.first} ${owner.n.last}` + (owner.p.title ? `, ${owner.p.title}` : '') : null }, ...v };
   }
   if (s && s.formUrl) tried.push('website has a contact form only');
   return { ok: false, why: tried.join('; ') || 'no address found', formUrl: (s && s.formUrl) || null };
