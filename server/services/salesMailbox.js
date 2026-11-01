@@ -30,8 +30,10 @@ function fromAddress() { return lc(process.env.SALES_FROM_ADDRESS || 'john@compt
 // The email_accounts row for SALES_FROM_ADDRESS on Outlook, connected under
 // the admin login (ADMIN_EMAIL) or a founder. Anyone else's row with the same
 // address is never used.
-async function account(pool) {
-  const addr = fromAddress();
+// `address`: another sales mailbox under the same admin login (Prospector's
+// own, PROSPECTOR_FROM_ADDRESS). Same rule: the admin's or a founder's row.
+async function account(pool, address) {
+  const addr = address ? lc(address) : fromAddress();
   const admin = String(process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com').trim().toLowerCase();
   const founders = String(process.env.FOUNDER_EMAILS || '').split(',').map(lc).filter(Boolean);
   const rows = (await pool.query(
@@ -40,7 +42,7 @@ async function account(pool) {
       WHERE LOWER(ea.email_address) = $1 AND ea.provider IN ('outlook', 'microsoft365')`, [addr]).catch(() => ({ rows: [] }))).rows;
   const row = rows.find((r) => [admin, ...founders].includes(lc(r.owner)) && lc(r.status || 'active') !== 'disconnected');
   if (!row) {
-    return { ok: false, address: addr, why: `${addr} is not connected as an Outlook mailbox under the admin login. Connect it at /admin/sales/connect-mailbox.` };
+    return { ok: false, address: addr, why: `${addr} is not connected as an Outlook mailbox under the admin login. Connect it at ${address ? '/admin/prospector/connect-mailbox?address=' + encodeURIComponent(addr) : '/admin/sales/connect-mailbox'}.` };
   }
   const granted = Array.isArray(row.granted_scopes) ? row.granted_scopes : String(row.granted_scopes || '').split(/[\s,]+/).filter(Boolean);
   const has = (re) => granted.some((g) => re.test(String(g)));
@@ -55,6 +57,8 @@ async function account(pool) {
 }
 
 async function accessToken(mb) {
+  // A Prospector customer's mailbox (services/prospector/mailboxes) brings its own.
+  if (mb && typeof mb.getToken === 'function') return mb.getToken();
   const full = await require('./emailStore').getEmailAccountWithTokens(mb.accountId);
   if (!full || !full.accessToken) throw graphError(401, 'NoToken', `no access token for ${mb.address}; reconnect it at /admin/sales/connect-mailbox`);
   return full.accessToken;

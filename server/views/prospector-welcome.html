@@ -50,6 +50,9 @@ textarea { min-height:70px; resize:vertical; }
         <input id="sender" required maxlength="120">
         <label for="email">Best email for your leads and replies</label>
         <input id="email" type="email" required maxlength="200" value="${esc(c.email || '')}">
+        ${c.sends ? `<label for="addr">Business mailing address</label>
+        <input id="addr" required maxlength="300" placeholder="Street or PO box, city, state, ZIP">
+        <p style="font-size:13px;margin:6px 0 0">Anti-spam law requires it at the bottom of every email we send for you.</p>` : ''}
         <label for="about">One line about your company (optional)</label>
         <textarea id="about" maxlength="500" placeholder="12-person IT company in Hoover focused on medical and dental offices"></textarea>
         <button class="btn" id="go" type="submit">Finish</button>
@@ -59,7 +62,7 @@ textarea { min-height:70px; resize:vertical; }
       ev.preventDefault(); $('go').disabled = true;
       try {
         const r2 = await fetch('/api/prospector/onboard', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sid, company: $('company').value, senderName: $('sender').value, email: $('email').value, about: $('about').value }) });
+          body: JSON.stringify({ session_id: sid, company: $('company').value, senderName: $('sender').value, email: $('email').value, about: $('about').value, mailingAddress: $('addr') ? $('addr').value : '' }) });
         const out = await r2.json().catch(() => ({}));
         if (!r2.ok) throw new Error(out.error || 'Could not save. Try again.');
         done(out);
@@ -68,7 +71,10 @@ textarea { min-height:70px; resize:vertical; }
   }
   function done(c) {
     $('main').innerHTML = `<h1>All set.</h1><p class="ok">${esc(c.area || 'Your area')} is locked to ${esc(c.company || 'you')}.</p>
-      <p>Your first batch of leads arrives by email within 2 business days. Questions? Just reply to any email from us.</p>`;
+      <p>Your first batch of leads arrives within 2 business days. We email you when it's ready.</p>
+      ${c.portal ? `<p><a class="btn" style="text-decoration:none;text-align:center" href="${esc(c.portal)}">Open your leads page</a></p>
+      <p style="font-size:14px">Bookmark it. ${c.sends ? 'Connect your mailbox there so we can send for you.' : 'Every batch shows up there, with a CSV.'}</p>` : ''}
+      <p style="font-size:14px">Questions? Just reply to any email from us.</p>`;
   }
   load(0);
 })();

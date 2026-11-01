@@ -53,7 +53,10 @@ async function run(pool, input, deps = {}) {
   const sender = { name: String((input.sender && input.sender.name) || '').trim() || 'JohnMark Compton',
     company: String((input.sender && input.sender.company) || '').trim() || 'your IT team',
     about: String((input.sender && input.sender.about) || '').trim() };
-  const limit = Math.max(1, Math.min(25, parseInt(input.limit, 10) || 10));
+  // Up to 25 from the lab; a customer's weekly delivery may ask for more.
+  const limit = Math.max(1, Math.min(input.delivery ? 100 : 25, parseInt(input.limit, 10) || 10));
+  // Domains this customer already has: never delivered twice.
+  const exclude = new Set([...(input.exclude || [])].map((d) => String(d || '').toLowerCase()).filter(Boolean));
   const maxBusinesses = Math.max(10, Math.min(200, parseInt(input.maxBusinesses, 10) || 150));
 
   await ensureTables(pool);
@@ -82,12 +85,21 @@ async function run(pool, input, deps = {}) {
       if (f.level === 'high') summary.high++; else if (f.level === 'medium') summary.medium++;
       else if (f.level === 'none') summary.protected++; else if (f.level === 'skip') summary.noMail++; else summary.dnsErrors++;
     }
-    const gaps = checked.filter((x) => x.f.level === 'high' || x.f.level === 'medium')
+    const allGaps = checked.filter((x) => x.f.level === 'high' || x.f.level === 'medium');
+    summary.alreadyDelivered = allGaps.filter((x) => exclude.has(String(x.b.domain || '').toLowerCase())).length;
+    const gaps = allGaps.filter((x) => !exclude.has(String(x.b.domain || '').toLowerCase()))
       .sort((a, z) => ORDER[a.f.level] - ORDER[z.f.level] || (z.b.ratings || 0) - (a.b.ratings || 0));
     summary.withGap = gaps.length;
     await pool.query(`UPDATE prospector_runs SET gaps = $2 WHERE id = $1`, [runId, JSON.stringify(gaps.slice(0, 300).map(({ b, f }) => ({
       business: b.name, domain: b.domain, category: b.category, address: b.address, phone: b.phone, term: b.term,
       ratings: b.ratings || 0, level: f.level, mail: f.mail || null, problem: (f.problems || [])[0] || null })))]);
+
+    // Gaps only (our own sales list names three of them): no Hunter credits,
+    // no emails written.
+    if (input.gapsOnly) {
+      await pool.query(`UPDATE prospector_runs SET status = 'done', summary = $2, finished_at = NOW() WHERE id = $1`, [runId, JSON.stringify(summary)]);
+      return { runId, playbook: playbook.key, area, sender, summary, leads: [], gaps: gaps.map(({ b, f }) => ({ b, f })) };
+    }
 
     // A mix of kinds of business: worst first within each kind, then one from
     // each kind in turn (the kinds that have the most high-risk gaps first).

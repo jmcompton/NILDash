@@ -72,7 +72,7 @@ footer { padding:30px 0 40px; color:var(--muted); font-size:13px; }
 
   function leadCard(l) {
     const p = l.person;
-    const who = p ? (p.first ? `<b>${esc(p.first)} ${esc(p.last)}</b>${p.title ? ', ' + esc(p.title) : ''}` : `<b>${esc(p.title || 'Office inbox')}</b>`) : '';
+    const who = p ? (p.first ? `<span><b>${esc(p.first)} ${esc(p.last)}</b>${p.title ? ', ' + esc(p.title) : ''}</span>` : `<b>${esc(p.title || 'Office inbox')}</b>`) : '';
     return `<div class="card lead">
       <div class="row"><span class="biz">${esc(l.business)}</span><span class="pill ${esc(l.level)}">${l.level === 'high' ? 'High risk' : 'Medium risk'}</span></div>
       <div class="muted">${esc(l.category || '')}${l.address ? ' · ' + esc(l.address) : ''}${l.phone ? ' · ' + esc(l.phone) : ''}</div>

@@ -46,7 +46,7 @@ async function create(pool, input, deps = {}) {
   await pool.query(`INSERT INTO prospector_samples (token, company, first_name, last_name, email, email_domain, area, about, source, ip)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
   [token, company, first || null, last || null, email || null, domainOfEmail(email), area, clip(input.about, 400) || null,
-    input.source === 'public' ? 'public' : 'admin', input.ip ? clip(input.ip, 64) : null]);
+    ['public', 'outreach'].includes(input.source) ? input.source : 'admin', input.ip ? clip(input.ip, 64) : null]);
   const sender = { name: [first, last].filter(Boolean).join(' ') || company, company, about: clip(input.about, 400) };
   const run = deps.run || R.run;
   const done = run(pool, { playbook: 'it-msp', area, limit: 10, sender,

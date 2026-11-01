@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Your leads</title>
+<style>
+:root { --bg:#ffffff; --soft:#f5f6f8; --ink:#0f172a; --muted:#5b6474; --line:#e3e6eb; --accent:#1e40af; --accent-ink:#ffffff; --good:#15803d; --good-bg:#e7f6ec; --high:#b91c1c; --high-bg:#fdecec; --med:#92400e; --med-bg:#fdf3e2; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0b0f17; --soft:#121826; --ink:#e7eaf0; --muted:#9aa3b2; --line:#232b3a; --accent:#7aa2ff; --accent-ink:#0b0f17; --good:#4ade80; --good-bg:#0f2a19; --high:#fca5a5; --high-bg:#3b1414; --med:#fcd34d; --med-bg:#3a2a0a; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--soft); color:var(--ink); font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif; }
+.wrap { max-width:980px; margin:0 auto; padding:0 16px 48px; }
+header.top { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:18px 0; }
+.brand { font-weight:800; font-size:18px; }
+h1 { font-size:clamp(24px, 3.4vw, 34px); line-height:1.15; letter-spacing:-.02em; margin:6px 0 8px; }
+.sub { color:var(--muted); margin:0 0 20px; }
+.btn { display:inline-block; text-decoration:none; font-weight:700; font-size:14px; background:var(--accent); color:var(--accent-ink); border-radius:9px; padding:9px 14px; }
+.card { background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:12px; }
+.week { font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:22px 0 8px; }
+.row { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; }
+.biz { font-weight:800; font-size:17px; }
+.muted { color:var(--muted); font-size:14px; }
+.pill { font-size:12px; font-weight:700; border-radius:999px; padding:2px 9px; }
+.high { color:var(--high); background:var(--high-bg); }
+.medium { color:var(--med); background:var(--med-bg); }
+.ver { color:var(--good); background:var(--good-bg); }
+.unver { color:var(--muted); border:1px solid var(--line); }
+.problem { margin:8px 0 10px; }
+.who { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; background:var(--soft); border-radius:10px; padding:10px 12px; word-break:break-word; }
+details { margin-top:10px; }
+summary { cursor:pointer; color:var(--accent); font-weight:700; font-size:14px; }
+pre { white-space:pre-wrap; font-family:inherit; font-size:15px; background:var(--soft); border-radius:10px; padding:14px; margin:10px 0 0; }
+.copy { margin-top:8px; font:inherit; font-size:13px; font-weight:700; color:var(--accent); background:transparent; border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
+footer { padding:28px 0; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top"><span class="brand" id="brand">Prospector</span><a class="btn" id="csv" href="#" hidden>Download CSV</a></header>
+  <main id="main"><div class="card"><b>Loading your leads...</b></div></main>
+  <footer>Compton Group LLC · Business information comes from public listings and public email records. Questions? Reply to any email from us.</footer>
+</div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const token = decodeURIComponent(location.pathname.split('/').pop() || '');
+  let leads = [];
+  function card(l, i) {
+    const p = l.person;
+    const name = p ? (p.first ? `<span><b>${esc(p.first)} ${esc(p.last)}</b>${p.title ? ', ' + esc(p.title) : ''}</span>` : `<b>${esc(p.title || 'Office inbox')}</b>`) : '';
+    return `<div class="card">
+      <div class="row"><span class="biz">${esc(l.business)}</span><span class="pill ${esc(l.level)}">${l.level === 'high' ? 'High risk' : 'Medium risk'}</span></div>
+      <div class="muted">${esc(l.category || '')}${l.domain ? ' · ' + esc(l.domain) : ''}${l.address ? ' · ' + esc(l.address) : ''}${l.phone ? ' · ' + esc(l.phone) : ''}</div>
+      <p class="problem">${esc(l.problem || '')}</p>
+      ${p ? `<div class="who">${name}<span>${esc(p.email)}</span><span class="pill ${l.verified ? 'ver' : 'unver'}">${l.verified ? 'Verified email' : 'Email found'}</span></div>` : '<div class="who muted">No email found for this one. Call the number above.</div>'}
+      ${l.email ? `<details><summary>The email, written for you</summary><pre>${esc(l.email.subject)}\n\n${esc(l.email.body)}</pre><button class="copy" type="button" data-i="${i}">Copy email</button></details>` : ''}
+    </div>`;
+  }
+  // Territory and Done For You: their mailbox, their address, and the count.
+  function sendingCard(d) {
+    const s = d.sending;
+    if (!s || !s.sends) return '';
+    const q = new URLSearchParams(location.search).get('mailbox');
+    const note = { connected: 'Your mailbox is connected.', nosend: 'Microsoft connected your mailbox without permission to send. Connect again and accept every permission.',
+      error: 'That did not connect. Try again.', cancelled: 'You cancelled the Microsoft sign-in. Nothing was connected.',
+      admin: 'Your Microsoft 365 admin has to approve this first. Ask them to allow the app, then connect again.' }[q] || '';
+    const mb = s.mailbox && s.mailbox.status === 'active'
+      ? `<div class="row"><span>Sending from <b>${esc(s.mailbox.address)}</b></span><button class="copy" type="button" id="disc">Disconnect</button></div>`
+      : `<p>Connect the Microsoft 365 mailbox these should come from. They go out in your name, and replies land in your inbox.</p><a class="btn" href="/api/prospector/portal/${encodeURIComponent(token)}/connect">Connect Microsoft 365</a>`;
+    const addr = s.hasAddress ? '' : `<form id="af" style="margin-top:14px"><label class="muted" for="addr">Your business mailing address (the law requires it at the bottom of each email)</label>
+      <div class="row" style="margin-top:6px"><input id="addr" required maxlength="300" placeholder="Street or PO box, city, state, ZIP" style="flex:1;min-width:220px;font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--soft);color:var(--ink)">
+      <button class="btn" type="submit" style="border:0;cursor:pointer">Save</button></div><div class="muted" id="aerr" role="status"></div></form>`;
+    const nums = s.emailsSent || s.queued ? `<p class="muted" style="margin:12px 0 0">${s.emailsSent} emails sent · ${s.inSequence} in follow-up · ${s.queued} waiting · ${s.replied} replied</p>` : '';
+    const block = s.blocker && s.mailbox && s.mailbox.status === 'active' && s.hasAddress ? `<p class="muted"><b>${esc(s.blocker)}</b></p>` : '';
+    return `<div class="card"><b>We send these for you</b>${note ? `<p>${esc(note)}</p>` : ''}${mb}${addr}${block}${nums}</div>`;
+  }
+  $('main').addEventListener('submit', async (ev) => {
+    if (ev.target.id !== 'af') return;
+    ev.preventDefault();
+    const r = await fetch('/api/prospector/portal/' + encodeURIComponent(token) + '/address', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mailingAddress: $('addr').value }) });
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok) { $('aerr').textContent = o.error || 'Could not save.'; return; }
+    load();
+  });
+  async function load() {
+    const r = await fetch('/api/prospector/portal/' + encodeURIComponent(token));
+    if (!r.ok) { $('main').innerHTML = '<div class="card"><b>This link has expired or is wrong.</b></div>'; return; }
+    const d = await r.json();
+    leads = d.leads || [];
+    document.title = `${d.company || 'Your'} leads`;
+    if (d.brand) $('brand').textContent = d.brand;
+    if (leads.length) { $('csv').hidden = false; $('csv').href = '/api/prospector/portal/' + encodeURIComponent(token) + '/leads.csv'; }
+    const head = `<h1>${esc(d.company || 'Your')} leads in ${esc(d.area || 'your area')}</h1>
+      <p class="sub">${d.plan ? esc(d.plan.name) + ' plan · ' : ''}${leads.length} delivered so far · about ${d.perWeek} new each week. ${d.status && !['active', 'trialing'].includes(d.status) ? '<b>Your subscription is ' + esc(d.status) + ', so new leads are paused.</b>' : ''}</p>`;
+    const sendCard = sendingCard(d);
+    if (!leads.length) { $('main').innerHTML = head + sendCard + '<div class="card"><b>Your first batch is being built.</b> <span class="muted">It arrives within 2 business days, and we email you when it does.</span></div>'; return; }
+    let html = head + sendCard, last = null;
+    leads.forEach((l, i) => {
+      if (l.batch !== last) { last = l.batch; html += `<div class="week">Delivered ${esc(new Date(l.batchAt).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }))}</div>`; }
+      html += card(l, i);
+    });
+    $('main').innerHTML = html;
+  }
+  $('main').addEventListener('click', async (ev) => {
+    if (ev.target.id === 'disc') {
+      if (!window.confirm('Stop sending from this mailbox?')) return;
+      await fetch('/api/prospector/portal/' + encodeURIComponent(token) + '/disconnect', { method: 'POST' });
+      return load();
+    }
+    const b = ev.target.closest('.copy'); if (!b || !b.dataset.i) return;
+    const l = leads[Number(b.dataset.i)]; if (!l || !l.email) return;
+    try { await navigator.clipboard.writeText(`${l.email.subject}\n\n${l.email.body}`); b.textContent = 'Copied'; } catch (_) { b.textContent = 'Select and copy above'; }
+  });
+  load().catch(() => { $('main').innerHTML = '<div class="card"><b>Could not load your leads. Refresh to try again.</b></div>'; });
+})();
+</script>
+</body>
+</html>
