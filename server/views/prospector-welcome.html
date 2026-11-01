@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Welcome</title>
+<style>
+:root { --bg:#ffffff; --soft:#f5f6f8; --ink:#0f172a; --muted:#5b6474; --line:#e3e6eb; --accent:#1e40af; --accent-ink:#ffffff; --good:#15803d; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0b0f17; --soft:#121826; --ink:#e7eaf0; --muted:#9aa3b2; --line:#232b3a; --accent:#7aa2ff; --accent-ink:#0b0f17; --good:#4ade80; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--soft); color:var(--ink); font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif; }
+.wrap { max-width:620px; margin:0 auto; padding:32px 20px 60px; }
+.card { background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:24px; }
+h1 { font-size:30px; letter-spacing:-.02em; line-height:1.15; margin:0 0 8px; }
+p { color:var(--muted); }
+label { display:block; font-size:13px; font-weight:600; color:var(--muted); margin:14px 0 6px; }
+input, textarea { width:100%; font:inherit; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:9px; padding:11px 12px; }
+textarea { min-height:70px; resize:vertical; }
+.btn { display:block; width:100%; border:0; cursor:pointer; font:inherit; font-weight:700; background:var(--accent); color:var(--accent-ink); border-radius:10px; padding:13px 18px; margin-top:18px; }
+.btn[disabled] { opacity:.55; cursor:wait; }
+.err { color:#b91c1c; font-size:14px; margin-top:10px; }
+.ok { color:var(--good); font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card" id="main"><b>Confirming your order...</b></div>
+</div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const sid = new URLSearchParams(location.search).get('session_id') || '';
+  async function load(tries) {
+    const r = await fetch('/api/prospector/welcome?session_id=' + encodeURIComponent(sid));
+    const c = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (tries < 6) return setTimeout(() => load(tries + 1), 2500);
+      $('main').innerHTML = '<b>We couldn’t find this order yet.</b><p>If you were charged, reply to our email and we’ll sort it out today.</p>';
+      return;
+    }
+    if (c.onboarded) { done(c); return; }
+    $('main').innerHTML = `<h1>You’re in. ${esc(c.area || 'Your area')} is yours.</h1>
+      <p>${esc(c.planName || '')} plan. Two quick details so the emails go out under your name.</p>
+      <form id="f">
+        <label for="company">Company name, as it should appear in emails</label>
+        <input id="company" required maxlength="200" value="${esc(c.company || '')}">
+        <label for="sender">Your name, as the sender</label>
+        <input id="sender" required maxlength="120">
+        <label for="email">Best email for your leads and replies</label>
+        <input id="email" type="email" required maxlength="200" value="${esc(c.email || '')}">
+        <label for="about">One line about your company (optional)</label>
+        <textarea id="about" maxlength="500" placeholder="12-person IT company in Hoover focused on medical and dental offices"></textarea>
+        <button class="btn" id="go" type="submit">Finish</button>
+        <div class="err" id="err" role="status"></div>
+      </form>`;
+    $('f').addEventListener('submit', async (ev) => {
+      ev.preventDefault(); $('go').disabled = true;
+      try {
+        const r2 = await fetch('/api/prospector/onboard', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sid, company: $('company').value, senderName: $('sender').value, email: $('email').value, about: $('about').value }) });
+        const out = await r2.json().catch(() => ({}));
+        if (!r2.ok) throw new Error(out.error || 'Could not save. Try again.');
+        done(out);
+      } catch (e) { $('err').textContent = e.message; $('go').disabled = false; }
+    });
+  }
+  function done(c) {
+    $('main').innerHTML = `<h1>All set.</h1><p class="ok">${esc(c.area || 'Your area')} is locked to ${esc(c.company || 'you')}.</p>
+      <p>Your first batch of leads arrives by email within 2 business days. Questions? Just reply to any email from us.</p>`;
+  }
+  load(0);
+})();
+</script>
+</body>
+</html>

@@ -217,7 +217,9 @@ async function main() {
   const IX = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   const routes = ["app.get('/lab/prospector'", "app.get('/api/lab/prospector/playbooks'", "app.get('/api/lab/prospector/runs'", "app.get('/api/lab/prospector/runs/:id'", "app.post('/api/lab/prospector/run'"];
   ok('page and API routes exist', routes.every((r) => IX.includes(r)));
-  const block = IX.slice(IX.indexOf("app.get('/lab/prospector'"), IX.indexOf("app.get('/admin/status'"));
+  // The admin block only: the public selling routes that follow it have their own suite (prospectorsell.js).
+  const _end = IX.indexOf('// ── PROSPECTOR, SOLD WITH NO CALL') > 0 ? IX.indexOf('// ── PROSPECTOR, SOLD WITH NO CALL') : IX.indexOf("app.get('/admin/status'");
+  const block = IX.slice(IX.indexOf("app.get('/lab/prospector'"), _end);
   ok('every prospector route checks admin first', (block.match(/_statusAdminOk\(req\)/g) || []).length === 7 && block.includes("app.post('/api/lab/prospector/people'") && block.includes("app.get('/api/lab/prospector/people/:id'"));
   const H = fs.readFileSync(REPO + 'server/views/prospector.html', 'utf8');
   ok('the page escapes everything it shows', /const esc = /.test(H) && !/innerHTML = l\./.test(H));
