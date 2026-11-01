@@ -102,6 +102,13 @@ async function main() {
   const s6 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => null, verifyEmail: vOk,
     findSiteEmail: async () => ({ outcomeKind: 'found', corporate: true, people: [], personalEmail: 'bob@d.com', roleEmail: 'info@d.com' }) });
   ok('a chain\'s corporate address is never used', s6.ok === false, s6);
+  const s7 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: hunterGeneric,
+    verifyEmail: async (e) => ({ ok: true, status: e === 'submissions@d.com' ? 'invalid' : 'valid' }),
+    findSiteEmail: async () => ({ outcomeKind: 'found', people: [], personalEmail: 'submissions@d.com', roleEmail: null }) });
+  ok('an address Hunter calls invalid is never used: down the ladder to the inbox', s7.ok && s7.person.email === 'info@d.com' && s7.kind === 'inbox', s7);
+  const s8 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => ({ found: true, emails: [...emails, { email: 'info@d.com', type: 'generic' }] }),
+    verifyEmail: async (e) => ({ ok: true, status: e === 'bo@d.com' ? 'invalid' : 'valid' }), findSiteEmail: emptySite });
+  ok('an invalid named person falls through too, and says so', s8.ok && s8.person.email === 'info@d.com', s8);
 
   OUT.push('-- not a fit --');
   ok('a hospital is skipped; an animal hospital is a vet and kept', PB.skipReason(it, { name: 'UAB St. Vincent’s', category: 'Hospital' }) && !PB.skipReason(it, { name: 'Avondale Animal Hospital', category: 'Veterinary Care' }));
