@@ -168,6 +168,15 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
     return res.status(400).send('Webhook signature verification failed');
   }
 
+  // PROSPECTOR (services/prospector/billing): its own checkouts and
+  // subscriptions, told apart by metadata.product. Before NILDash's handlers,
+  // which never match a Prospector session (no athlete_id, no user_id, no tier).
+  try {
+    const _PB = require('./services/prospector/billing');
+    if (event.type === 'checkout.session.completed') await _PB.onCheckoutCompleted(store.pool, event.data.object);
+    if (/^customer\.subscription\.(created|updated|deleted)$/.test(event.type)) await _PB.onSubscription(store.pool, event.data.object, event.type);
+  } catch (e) { console.error('[stripe-webhook] prospector:', e.message); }
+
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const athleteId = session.metadata && session.metadata.athlete_id;
@@ -13217,6 +13226,100 @@ app.post('/api/lab/prospector/run', async (req, res) => {
       console.error('[prospector] run failed:', e.message);
       if (!answered) res.status(e.status || 500).json({ error: e.message });
     });
+});
+
+// ── PROSPECTOR, SOLD WITH NO CALL (services/prospector/billing, samples) ────
+// Public: the sales page (/it), a sample page per IT company (/s/<token>), and
+// Stripe checkout for a plan in that area. The free sample spends Hunter
+// credits, so its public request is limited per IP here and per domain/day in
+// services/prospector/samples. Admin: build samples for our own outreach.
+const _prospectorPublicLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a few minutes.' },
+});
+const _prospectorBase = (req) => String(process.env.PROSPECTOR_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+app.get('/it', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'prospector-sales.html'));
+});
+app.get('/s/:token', (req, res) => {
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'prospector-sample.html'));
+});
+app.get('/prospector/welcome', (req, res) => {
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'prospector-welcome.html'));
+});
+app.get('/api/prospector/plans', (req, res) => {
+  const B = require('./services/prospector/billing');
+  res.json({ plans: B.publicPlans(), brand: B.BRAND() });
+});
+app.post('/api/prospector/sample-request', _prospectorPublicLimiter, async (req, res) => {
+  try {
+    const out = await require('./services/prospector/samples').requestPublic(store.pool, { ...(req.body || {}), ip: req.ip });
+    res.json({ token: out.token });
+  } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again in a minute.' }); }
+});
+app.get('/api/prospector/sample/:token', async (req, res) => {
+  try {
+    const v = await require('./services/prospector/samples').view(store.pool, req.params.token, { countView: true });
+    if (!v) return res.status(404).json({ error: 'Not found' });
+    res.set('Cache-Control', 'no-store').json(v);
+  } catch (e) { res.status(500).json({ error: 'Could not load this page.' }); }
+});
+app.post('/api/prospector/checkout', _prospectorPublicLimiter, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const S = require('./services/prospector/samples');
+    const v = await S.view(store.pool, body.token);
+    if (!v) return res.status(404).json({ error: 'This link has expired.' });
+    const r = await store.pool.query(`SELECT email FROM prospector_samples WHERE token = $1`, [v.token]);
+    const out = await require('./services/prospector/billing').createCheckout(store.pool, {
+      plan: body.plan, period: body.period, area: v.area, company: v.company, sampleToken: v.token,
+      email: r.rows[0] && r.rows[0].email, baseUrl: _prospectorBase(req) });
+    res.json({ url: out.url });
+  } catch (e) {
+    console.error('[prospector] checkout failed:', e.message);
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Checkout is not available right now. Reply to our email and we will send you a link.' });
+  }
+});
+app.get('/api/prospector/welcome', async (req, res) => {
+  try {
+    const B = require('./services/prospector/billing');
+    let c = await B.byCheckoutSession(store.pool, req.query.session_id);
+    if (!c && req.query.session_id) {
+      const s = B.stripe();
+      const session = await s.checkout.sessions.retrieve(String(req.query.session_id)).catch(() => null);
+      if (session && session.status === 'complete') c = await B.onCheckoutCompleted(store.pool, session);
+    }
+    if (!c) return res.status(404).json({ error: 'Not found yet' });
+    const p = B.plan(c.plan);
+    res.set('Cache-Control', 'no-store').json({ area: c.area, company: c.company, email: c.email, planName: p ? p.name : null, onboarded: !!c.onboarded_at, status: c.status });
+  } catch (e) { res.status(500).json({ error: 'Could not load your order.' }); }
+});
+app.post('/api/prospector/onboard', _prospectorPublicLimiter, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const c = await require('./services/prospector/billing').onboard(store.pool, body.session_id, body);
+    res.json({ area: c.area, company: c.company, onboarded: true });
+  } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Could not save. Try again.' }); }
+});
+app.post('/api/lab/prospector/samples', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 60) : [req.body || {}];
+  const S = require('./services/prospector/samples');
+  const out = [];
+  for (const row of rows) {
+    try { const r = await S.create(store.pool, { ...row, source: 'admin' }); out.push({ ref: row.ref || null, token: r.token, url: `${_prospectorBase(req)}/s/${r.token}` }); }
+    catch (e) { out.push({ ref: row.ref || null, error: e.message }); }
+  }
+  res.json({ samples: out });
+});
+app.get('/api/lab/prospector/samples', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    await require('./services/prospector/samples').ensureTables(store.pool);
+    const r = await store.pool.query(`SELECT token, company, first_name, email, area, source, status, run_id, views, last_viewed_at, created_at
+      FROM prospector_samples ORDER BY created_at DESC LIMIT 200`);
+    res.json({ samples: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/admin/status', async (req, res) => {

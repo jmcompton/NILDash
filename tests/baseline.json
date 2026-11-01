@@ -1616,6 +1616,11 @@
       "failed": 0,
       "total": 16,
       "fault": null
+    },
+    "prospectorsell.js": {
+      "failed": 0,
+      "total": 42,
+      "fault": null
     }
   }
 }

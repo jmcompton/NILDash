@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New clients for your IT company</title>
+<meta name="description" content="We find local businesses with email security gaps, find the owner, and email them for you. One IT company per area.">
+<style>
+:root { --bg:#ffffff; --soft:#f5f6f8; --ink:#0f172a; --muted:#5b6474; --line:#e3e6eb; --accent:#1e40af; --accent-ink:#ffffff; --good:#15803d; --warn:#b45309; --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06); }
+@media (prefers-color-scheme: dark) { :root { --bg:#0b0f17; --soft:#121826; --ink:#e7eaf0; --muted:#9aa3b2; --line:#232b3a; --accent:#7aa2ff; --accent-ink:#0b0f17; --good:#4ade80; --warn:#fbbf24; --shadow:none; } }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif; }
+.wrap { max-width:1080px; margin:0 auto; padding:0 20px; }
+header.top { display:flex; justify-content:space-between; align-items:center; padding:18px 0; }
+.brand { font-weight:800; letter-spacing:-.01em; font-size:18px; }
+.brand span { color:var(--accent); }
+nav a { color:var(--muted); text-decoration:none; margin-left:20px; font-size:14px; }
+.hero { display:grid; grid-template-columns:1.15fr .85fr; gap:40px; align-items:center; padding:40px 0 56px; }
+@media (max-width:860px) { .hero { grid-template-columns:1fr; padding-top:16px; } nav { display:none; } }
+h1 { font-size:clamp(32px, 4.6vw, 50px); line-height:1.08; letter-spacing:-.025em; margin:0 0 16px; }
+.lead { font-size:19px; color:var(--muted); margin:0 0 22px; max-width:560px; }
+.points { list-style:none; padding:0; margin:0 0 8px; }
+.points li { padding-left:26px; position:relative; margin:8px 0; }
+.points li::before { content:""; position:absolute; left:0; top:9px; width:12px; height:12px; border-radius:3px; background:var(--accent); opacity:.85; }
+.card { background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:24px; box-shadow:var(--shadow); }
+.card h2 { margin:0 0 4px; font-size:20px; }
+.card p.small { margin:0 0 16px; color:var(--muted); font-size:14px; }
+label { display:block; font-size:13px; font-weight:600; color:var(--muted); margin:12px 0 6px; }
+input { width:100%; font:inherit; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:9px; padding:11px 12px; }
+input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+.btn { display:inline-block; width:100%; text-align:center; border:0; cursor:pointer; font:inherit; font-weight:700; background:var(--accent); color:var(--accent-ink); border-radius:10px; padding:13px 18px; margin-top:16px; text-decoration:none; }
+.btn[disabled] { opacity:.55; cursor:wait; }
+.btn.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+.msg { margin-top:10px; font-size:14px; }
+.msg.err { color:#b91c1c; }
+section { padding:56px 0; border-top:1px solid var(--line); }
+section.soft { background:var(--soft); border-top:0; }
+h2.sec { font-size:30px; letter-spacing:-.02em; margin:0 0 8px; }
+p.sub { color:var(--muted); margin:0 0 28px; max-width:640px; }
+.steps { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+@media (max-width:760px) { .steps { grid-template-columns:1fr; } }
+.step b { display:block; font-size:13px; color:var(--accent); letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+.step h3 { margin:0 0 6px; font-size:18px; }
+.step p { margin:0; color:var(--muted); }
+.example { display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
+@media (max-width:760px) { .example { grid-template-columns:1fr; } }
+pre.mail { white-space:pre-wrap; font:15px/1.6 inherit; font-family:inherit; margin:0; }
+.mailhead { font-size:13px; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:12px; }
+.toggle { display:inline-flex; border:1px solid var(--line); border-radius:999px; padding:4px; margin-bottom:24px; background:var(--bg); }
+.toggle button { border:0; background:transparent; font:inherit; font-size:14px; font-weight:600; color:var(--muted); padding:8px 16px; border-radius:999px; cursor:pointer; }
+.toggle button.on { background:var(--accent); color:var(--accent-ink); }
+.toggle .save { color:var(--good); font-weight:700; }
+.toggle button.on .save { color:inherit; }
+.plans { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; align-items:stretch; }
+@media (max-width:860px) { .plans { grid-template-columns:1fr; } }
+.plan { position:relative; display:flex; flex-direction:column; }
+.plan.pop { border:2px solid var(--accent); }
+.tag { position:absolute; top:-12px; left:24px; background:var(--accent); color:var(--accent-ink); font-size:12px; font-weight:700; padding:3px 10px; border-radius:999px; }
+.price { font-size:40px; font-weight:800; letter-spacing:-.03em; margin:8px 0 0; }
+.price small { font-size:15px; font-weight:600; color:var(--muted); letter-spacing:0; }
+.per { color:var(--muted); font-size:14px; margin:2px 0 14px; min-height:21px; }
+.plan ul { padding-left:18px; margin:0 0 8px; flex:1; }
+.plan li { margin:6px 0; }
+.note { text-align:center; color:var(--muted); font-size:14px; margin-top:18px; }
+.why { display:grid; grid-template-columns:repeat(2,1fr); gap:20px; }
+@media (max-width:760px) { .why { grid-template-columns:1fr; } }
+.why h3 { margin:0 0 6px; font-size:18px; }
+.why p { margin:0; color:var(--muted); }
+details { border-bottom:1px solid var(--line); padding:14px 0; }
+summary { cursor:pointer; font-weight:700; }
+details p { color:var(--muted); margin:10px 0 0; }
+footer { padding:28px 0 40px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand" id="brand">Prospector</div>
+    <nav><a href="#how">How it works</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a></nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>New clients for your IT company, emailed for you.</h1>
+      <p class="lead">We find local businesses with email security gaps, find the owner, and email them from your mailbox. Replies land in your inbox.</p>
+      <ul class="points">
+        <li>Every lead has a real, checkable problem you can fix</li>
+        <li>The decision maker's verified email, not info@</li>
+        <li>One IT company per area. Yours is yours alone</li>
+      </ul>
+    </div>
+    <div class="card" id="get">
+      <h2>Get 10 free leads in your area</h2>
+      <p class="small">Real businesses near you, with the owner's email and a first email written for you. Ready in about 3 minutes.</p>
+      <form id="sampleForm">
+        <label for="company">Your IT company</label>
+        <input id="company" name="company" required maxlength="160" placeholder="Magic City IT">
+        <label for="name">Your name</label>
+        <input id="name" name="name" required maxlength="120" placeholder="Pat Smith">
+        <label for="email">Work email</label>
+        <input id="email" name="email" type="email" required maxlength="200" placeholder="pat@yourcompany.com">
+        <label for="area">Your city</label>
+        <input id="area" name="area" required maxlength="120" placeholder="Birmingham, AL">
+        <button class="btn" id="go" type="submit">Show me my 10 leads</button>
+        <div class="msg" id="msg" role="status"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<section id="how" class="soft">
+  <div class="wrap">
+    <h2 class="sec">How it works</h2>
+    <p class="sub">No software to learn. No list to work. You get replies from business owners who need what you sell.</p>
+    <div class="steps">
+      <div class="card step"><b>Step 1</b><h3>We find the gap</h3><p>We check every local business in your area for missing email protection, the kind that lets anyone send email pretending to be them.</p></div>
+      <div class="card step"><b>Step 2</b><h3>We find the owner</h3><p>We find the owner or office manager and verify their address, so your email reaches a person who can say yes.</p></div>
+      <div class="card step"><b>Step 3</b><h3>We email them for you</h3><p>A short, specific email goes out from your mailbox, with follow-ups. When they reply, it's in your inbox.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap example">
+    <div>
+      <h2 class="sec">Emails that get answered</h2>
+      <p class="sub">Each email names the one problem we found for that business, says why it matters for their kind of business, and asks for 10 minutes. It never claims they were hacked, never names a price, and never reads like a template.</p>
+    </div>
+    <div class="card">
+      <div class="mailhead">From: you · To: the owner of a dental office near you</div>
+      <pre class="mail">Hi Susan,
+
+I was looking at your office's public email records and noticed there's no DMARC record on your domain. That means anyone can send email pretending to be your practice, and most inboxes will accept it.
+
+For a dental office, that's how fake billing emails to patients start. The fix is quick.
+
+Would a 10 minute call this week be worth it?</pre>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" class="soft">
+  <div class="wrap">
+    <h2 class="sec">Pricing</h2>
+    <p class="sub">About $5 a lead on Territory. The average IT services lead costs $501. No setup fee, cancel anytime.</p>
+    <div class="toggle" role="group" aria-label="Billing period">
+      <button type="button" id="pMonthly" class="on">Monthly</button>
+      <button type="button" id="pYearly">Yearly <span class="save">2 months free</span></button>
+    </div>
+    <div class="plans" id="plans"></div>
+    <p class="note">Territory and Done For You: 3 replies in your first 30 days, or your next month is free.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 class="sec">Why IT companies pick us</h2>
+    <p class="sub">Other tools hand you a report or a list. You still have to do the outreach.</p>
+    <div class="why">
+      <div><h3>We do the sending</h3><p>No writing, no sending, no follow-up reminders. It runs every week whether you're busy or not.</p></div>
+      <div><h3>Your area is exclusive</h3><p>Other tools show the same map to every IT company in town. We take one IT company per area.</p></div>
+      <div><h3>Works with your tools</h3><p>We don't sell security products. Fix the gaps with whatever you already use.</p></div>
+      <div><h3>Real problems, not guesses</h3><p>Every lead has a gap anyone can confirm in public records, so your first conversation starts with something specific.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="soft">
+  <div class="wrap">
+    <h2 class="sec">Questions</h2>
+    <details><summary>Is this cold email legal?</summary><p>Yes. Business-to-business email is legal in the US when it's honest, identifies the sender, carries a business address, and honors unsubscribes. Every email we send does all four, and unsubscribes are handled automatically.</p></details>
+    <details><summary>Where does the information come from?</summary><p>Business listings, each business's public email records (DNS), and a verified email finder. We never claim to have scanned or tested anyone's systems.</p></details>
+    <details><summary>What is an email security gap?</summary><p>Most often a missing or monitor-only DMARC record, or a missing or broken SPF record. Either one lets a stranger send email that looks like it came from the business. It's a short fix for an IT company and a real risk for the business.</p></details>
+    <details><summary>Will it hurt my email reputation?</summary><p>We keep volumes low, send only to verified addresses, and spread sends through the day, the same way a careful salesperson would.</p></details>
+    <details><summary>What if my area is taken?</summary><p>Then another IT company already has it. Pick a nearby city, or we'll let you know if it opens up.</p></details>
+    <details><summary>Can I cancel?</summary><p>Anytime. Monthly plans stop at the end of the month. Your area is released when you cancel.</p></details>
+  </div>
+</section>
+
+<div class="wrap">
+  <footer>© <span id="yr"></span> Compton Group LLC. <span id="brand2">Prospector</span> finds and emails local businesses for IT companies.</footer>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = (n) => '$' + Number(n).toLocaleString('en-US');
+  $('yr').textContent = new Date().getFullYear();
+  let plans = [], period = 'monthly';
+
+  function features(p) {
+    const f = [`${p.perMonth} local businesses a month`, 'Owner’s verified email for each', 'A written first email for each'];
+    if (p.sends) f.push('Sent from your mailbox, with follow-ups'); else f.push('You send them yourself');
+    if (p.replies) f.push('We answer replies and book meetings');
+    f.push('Your area, exclusive to you');
+    if (p.guarantee) f.push('3 replies in 30 days or next month free');
+    return f;
+  }
+  function render() {
+    $('plans').innerHTML = plans.map((p) => {
+      const price = period === 'yearly' ? p.yearly : p.monthly;
+      const per = period === 'yearly' ? `${money(p.monthly * 12)} if paid monthly` : `About ${money(Math.round(p.perLead))} a lead`;
+      return `<div class="card plan ${p.popular ? 'pop' : ''}">${p.popular ? '<span class="tag">Most popular</span>' : ''}
+        <h3 style="margin:0">${esc(p.name)}</h3>
+        <div class="price">${money(price)}<small>/${period === 'yearly' ? 'year' : 'month'}</small></div>
+        <div class="per">${esc(per)}</div>
+        <ul>${features(p).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+        <a class="btn ${p.popular ? '' : 'ghost'}" href="#get">Start with 10 free leads</a></div>`;
+    }).join('');
+  }
+  function setPeriod(p) { period = p; $('pMonthly').classList.toggle('on', p === 'monthly'); $('pYearly').classList.toggle('on', p === 'yearly'); render(); }
+  $('pMonthly').onclick = () => setPeriod('monthly');
+  $('pYearly').onclick = () => setPeriod('yearly');
+
+  fetch('/api/prospector/plans').then((r) => r.json()).then((b) => {
+    plans = b.plans || []; render();
+    if (b.brand) { document.querySelectorAll('#brand, #brand2').forEach((el) => { el.textContent = b.brand; }); }
+  }).catch(() => {});
+
+  $('sampleForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const parts = String(fd.get('name') || '').trim().split(/\s+/);
+    $('go').disabled = true; $('msg').className = 'msg'; $('msg').textContent = 'Starting your search...';
+    try {
+      const r = await fetch('/api/prospector/sample-request', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company: fd.get('company'), first: parts[0] || '', last: parts.slice(1).join(' '), email: fd.get('email'), area: fd.get('area') }) });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok || !b.token) throw new Error(b.error || 'Something went wrong. Try again in a minute.');
+      location.href = '/s/' + encodeURIComponent(b.token);
+    } catch (e) { $('msg').className = 'msg err'; $('msg').textContent = e.message; $('go').disabled = false; }
+  });
+})();
+</script>
+</body>
+</html>

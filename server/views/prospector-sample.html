@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Your free leads</title>
+<style>
+:root { --bg:#ffffff; --soft:#f5f6f8; --ink:#0f172a; --muted:#5b6474; --line:#e3e6eb; --accent:#1e40af; --accent-ink:#ffffff; --good:#15803d; --good-bg:#e7f6ec; --high:#b91c1c; --high-bg:#fdecec; --med:#92400e; --med-bg:#fdf3e2; --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06); }
+@media (prefers-color-scheme: dark) { :root { --bg:#0b0f17; --soft:#121826; --ink:#e7eaf0; --muted:#9aa3b2; --line:#232b3a; --accent:#7aa2ff; --accent-ink:#0b0f17; --good:#4ade80; --good-bg:#0f2a19; --high:#fca5a5; --high-bg:#3b1414; --med:#fcd34d; --med-bg:#3a2a0a; --shadow:none; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--soft); color:var(--ink); font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif; }
+.wrap { max-width:980px; margin:0 auto; padding:0 20px; }
+header.top { padding:18px 0; font-weight:800; font-size:18px; }
+h1 { font-size:clamp(26px, 3.6vw, 38px); line-height:1.15; letter-spacing:-.02em; margin:8px 0 10px; }
+.sub { color:var(--muted); margin:0 0 22px; max-width:700px; }
+.stats { display:flex; flex-wrap:wrap; gap:12px; margin:0 0 26px; }
+.stat { background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:12px 16px; min-width:150px; }
+.stat b { display:block; font-size:24px; letter-spacing:-.02em; }
+.stat span { color:var(--muted); font-size:13px; }
+.card { background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:20px; box-shadow:var(--shadow); }
+.lead { margin-bottom:14px; }
+.row { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; }
+.biz { font-weight:800; font-size:17px; }
+.muted { color:var(--muted); font-size:14px; }
+.pill { font-size:12px; font-weight:700; border-radius:999px; padding:2px 9px; }
+.high { color:var(--high); background:var(--high-bg); }
+.medium { color:var(--med); background:var(--med-bg); }
+.ver { color:var(--good); background:var(--good-bg); }
+.unver { color:var(--muted); border:1px solid var(--line); }
+.problem { margin:8px 0 10px; }
+.who { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; background:var(--soft); border-radius:10px; padding:10px 12px; }
+details { margin-top:10px; }
+summary { cursor:pointer; color:var(--accent); font-weight:700; font-size:14px; }
+pre { white-space:pre-wrap; font:15px/1.6 inherit; font-family:inherit; background:var(--soft); border-radius:10px; padding:14px; margin:10px 0 0; }
+.building { text-align:center; padding:48px 20px; }
+.spinner { width:36px; height:36px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; margin:0 auto 16px; animation:spin 1s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+h2 { font-size:26px; letter-spacing:-.02em; margin:40px 0 6px; }
+.toggle { display:inline-flex; border:1px solid var(--line); border-radius:999px; padding:4px; margin:12px 0 20px; background:var(--bg); }
+.toggle button { border:0; background:transparent; font:inherit; font-size:14px; font-weight:600; color:var(--muted); padding:8px 16px; border-radius:999px; cursor:pointer; }
+.toggle button.on { background:var(--accent); color:var(--accent-ink); }
+.plans { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+@media (max-width:820px) { .plans { grid-template-columns:1fr; } }
+.plan { position:relative; display:flex; flex-direction:column; }
+.plan.pop { border:2px solid var(--accent); }
+.tag { position:absolute; top:-12px; left:20px; background:var(--accent); color:var(--accent-ink); font-size:12px; font-weight:700; padding:3px 10px; border-radius:999px; }
+.price { font-size:36px; font-weight:800; letter-spacing:-.03em; margin:6px 0 0; }
+.price small { font-size:14px; font-weight:600; color:var(--muted); letter-spacing:0; }
+.plan p { color:var(--muted); font-size:14px; flex:1; }
+.btn { display:block; width:100%; text-align:center; border:0; cursor:pointer; font:inherit; font-weight:700; background:var(--accent); color:var(--accent-ink); border-radius:10px; padding:12px 16px; margin-top:12px; }
+.btn.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+.btn[disabled] { opacity:.55; cursor:wait; }
+.err { color:#b91c1c; font-size:14px; margin-top:10px; }
+.note { color:var(--muted); font-size:14px; margin:16px 0 0; }
+footer { padding:30px 0 40px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top" id="brand">Prospector</header>
+  <main id="main"><div class="card building"><div class="spinner"></div><b>Loading your leads...</b></div></main>
+  <footer>Compton Group LLC · Business information comes from public listings and public email records.</footer>
+</div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = (n) => '$' + Number(n).toLocaleString('en-US');
+  const token = decodeURIComponent(location.pathname.split('/').pop() || '');
+  let data = null, period = 'monthly', timer = null, polls = 0;
+
+  function leadCard(l) {
+    const p = l.person;
+    const who = p ? (p.first ? `<b>${esc(p.first)} ${esc(p.last)}</b>${p.title ? ', ' + esc(p.title) : ''}` : `<b>${esc(p.title || 'Office inbox')}</b>`) : '';
+    return `<div class="card lead">
+      <div class="row"><span class="biz">${esc(l.business)}</span><span class="pill ${esc(l.level)}">${l.level === 'high' ? 'High risk' : 'Medium risk'}</span></div>
+      <div class="muted">${esc(l.category || '')}${l.address ? ' · ' + esc(l.address) : ''}${l.phone ? ' · ' + esc(l.phone) : ''}</div>
+      <p class="problem">${esc(l.problem || '')}</p>
+      ${p ? `<div class="who">${who}<span>${esc(p.email)}</span><span class="pill ${l.verified ? 'ver' : 'unver'}">${l.verified ? 'Verified email' : 'Email found'}</span></div>` : '<div class="who muted">Owner email not found for this one. Call the number above.</div>'}
+      ${l.email ? `<details><summary>The email, written for you</summary><pre><b>${esc(l.email.subject)}</b>\n\n${esc(l.email.body)}</pre></details>` : ''}
+    </div>`;
+  }
+
+  function plansHtml() {
+    if (data.areaTaken) return `<div class="card"><b>${esc(data.area)} is taken.</b> Another IT company has this area now. Reply to our email and we'll find you a nearby city.</div>`;
+    return `<div class="toggle" role="group" aria-label="Billing period"><button type="button" data-p="monthly" class="${period === 'monthly' ? 'on' : ''}">Monthly</button><button type="button" data-p="yearly" class="${period === 'yearly' ? 'on' : ''}">Yearly · 2 months free</button></div>
+      <div class="plans">${data.plans.map((p) => {
+        const price = period === 'yearly' ? p.yearly : p.monthly;
+        return `<div class="card plan ${p.popular ? 'pop' : ''}">${p.popular ? '<span class="tag">Most popular</span>' : ''}
+          <h3 style="margin:0">${esc(p.name)}</h3>
+          <div class="price">${money(price)}<small>/${period === 'yearly' ? 'year' : 'month'}</small></div>
+          <p>${esc(p.blurb)}${p.guarantee ? ' 3 replies in 30 days or next month free.' : ''}</p>
+          <button class="btn ${p.popular ? '' : 'ghost'}" data-plan="${esc(p.key)}">Lock ${esc(data.area)} on ${esc(p.name)}</button></div>`;
+      }).join('')}</div><div class="err" id="err" role="status"></div>
+      <p class="note">No setup fee. Cancel anytime. One IT company per area: when you lock ${esc(data.area)}, no one else can get it.</p>`;
+  }
+
+  function render() {
+    document.title = data.company ? `Free leads for ${data.company}` : 'Your free leads';
+    if (data.brand) $('brand').textContent = data.brand;
+    if (data.status === 'building') {
+      $('main').innerHTML = `<div class="card building"><div class="spinner"></div><b>Finding businesses in ${esc(data.area)} with an email gap...</b><p class="muted">This takes about 3 minutes. Keep this page open.</p></div>`;
+      return;
+    }
+    if (data.status === 'failed' && !data.leads.length) {
+      $('main').innerHTML = `<div class="card"><b>We couldn't finish this one.</b> <span class="muted">Reply to our email and we'll build it by hand.</span></div>`;
+      return;
+    }
+    const s = data.summary || {};
+    $('main').innerHTML = `
+      <h1>${data.first ? esc(data.first) + ', here' : 'Here'} are ${data.leads.length} businesses in ${esc(data.area)} that need what ${esc(data.company)} sells.</h1>
+      <p class="sub">Each one has an email security gap in its public records. We found the decision maker, checked the address, and wrote the first email for you, signed from ${esc(data.company)}.</p>
+      <div class="stats">
+        ${s.checked ? `<div class="stat"><b>${s.checked}</b><span>businesses checked</span></div>` : ''}
+        ${s.withGap ? `<div class="stat"><b>${s.withGap}</b><span>have a gap</span></div>` : ''}
+        <div class="stat"><b>${data.leads.filter((l) => l.verified).length}</b><span>verified emails below</span></div>
+      </div>
+      ${data.leads.map(leadCard).join('')}
+      <h2>Get leads like these every week</h2>
+      <p class="sub" style="margin-bottom:0">${s.withGap ? `There are ${s.withGap} businesses with a gap in ${esc(data.area)} right now. ` : ''}We'll work through them for you.</p>
+      ${plansHtml()}`;
+  }
+
+  async function load() {
+    try {
+      const r = await fetch('/api/prospector/sample/' + encodeURIComponent(token));
+      if (r.status === 404) { $('main').innerHTML = '<div class="card"><b>This link has expired or is wrong.</b></div>'; return; }
+      data = await r.json();
+      render();
+      if (data.status === 'building' && polls++ < 120) timer = setTimeout(load, 5000);
+    } catch (_) { timer = setTimeout(load, 8000); }
+  }
+
+  $('main').addEventListener('click', async (ev) => {
+    const t = ev.target.closest('[data-p]');
+    if (t) { period = t.dataset.p; render(); return; }
+    const b = ev.target.closest('[data-plan]');
+    if (!b) return;
+    b.disabled = true;
+    try {
+      const r = await fetch('/api/prospector/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, plan: b.dataset.plan, period }) });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || !out.url) throw new Error(out.error || 'Checkout is not available right now.');
+      location.href = out.url;
+    } catch (e) { const el = $('err'); if (el) el.textContent = e.message; b.disabled = false; }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>
