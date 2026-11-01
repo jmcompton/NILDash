@@ -1606,6 +1606,11 @@
       "failed": 0,
       "total": 76,
       "fault": null
+    },
+    "tokenrekey.js": {
+      "failed": 0,
+      "total": 16,
+      "fault": null
     }
   }
 }
