@@ -13192,6 +13192,20 @@ app.get('/api/lab/prospector/runs/:id', async (req, res) => {
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// Our own sales list: find and verify each IT company owner's address.
+app.post('/api/lab/prospector/people', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'rows: [{ company, domain, first, last, title }] is required' });
+  const job = require('./services/prospector/people').start(rows);
+  res.json({ jobId: job.id, total: job.total });
+});
+app.get('/api/lab/prospector/people/:id', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const j = require('./services/prospector/people').get(req.params.id);
+  if (!j) return res.status(404).json({ error: 'Not found (jobs are kept in memory until the next deploy)' });
+  res.json(j);
+});
 app.post('/api/lab/prospector/run', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
   const R = require('./services/prospector/run');
