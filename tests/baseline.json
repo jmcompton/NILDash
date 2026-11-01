@@ -1077,6 +1077,11 @@
       "total": 52,
       "fault": null
     },
+    "placesserper.js": {
+      "failed": 0,
+      "total": 32,
+      "fault": null
+    },
     "platformdomains.js": {
       "failed": 0,
       "total": 87,

@@ -9957,7 +9957,7 @@ app.get('/api/agent/places/autocomplete', requireAuth, requireAgentSubscription,
     if (!bias.lat) {
       try {
         const { geocodeSchool } = require('./services/placesMarket');
-        const geo = await geocodeSchool(school, (process.env.GOOGLE_PLACES_API_KEY || '').trim());
+        const geo = await geocodeSchool(school, (require('./services/placesProvider').apiKey() || '').trim());
         if (geo && geo.coords) { bias = { lat: geo.coords.lat, lng: geo.coords.lng, radiusM: 50000 }; biasSource = 'market'; }
       } catch (e) { console.warn('[addBusiness] market geocode failed:', e.message); }
     }

@@ -25,9 +25,10 @@ function domainOf(url) {
 }
 
 async function searchText(query, opts = {}) {
-  const apiKey = (opts.apiKey || process.env.GOOGLE_PLACES_API_KEY || '').trim();
-  if (!apiKey) return { ok: false, places: [], error: 'GOOGLE_PLACES_API_KEY is not set' };
-  const fetchImpl = opts.fetchImpl || fetch;
+  const apiKey = (opts.apiKey || require('../placesProvider').apiKey() || '').trim();
+  if (!apiKey) return { ok: false, places: [], error: 'neither SERPER_API_KEY nor GOOGLE_PLACES_API_KEY is set' };
+  // Serper first, Google under the monthly cap (services/placesProvider).
+  const fetchImpl = opts.fetchImpl || require('../placesProvider').placesFetch;
   try {
     const resp = await fetchImpl(SEARCH_TEXT_URL, {
       method: 'POST',

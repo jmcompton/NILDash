@@ -65,7 +65,7 @@ async function verifySchoolMap(opts = {}) {
   const byName = (a, b) => a.name.localeCompare(b.name);
   return {
     total: out.length, ...n,
-    keyPresent: !!(process.env.GOOGLE_PLACES_API_KEY || '').trim(),
+    keyPresent: !!(require('./placesProvider').apiKey() || '').trim(),
     mismatches: out.filter((v) => v.verdict === 'disagree').sort(byName),
     unverified: out.filter((v) => v.verdict === 'unverifiable').map((v) => v.name).sort(),
   };

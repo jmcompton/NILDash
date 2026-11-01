@@ -96,7 +96,8 @@ const _geoCache = new Map(); // school (lower) -> { lat, lng }; failures are nev
 //                                                       Google's own words
 // `opts.fetch` is injectable for tests; production uses the global fetch.
 async function _post(url, body, apiKey, fieldMask, opts = {}) {
-  const fetch = opts.fetch || globalThis.fetch;
+  // Serper first, Google under the monthly cap (services/placesProvider).
+  const fetch = opts.fetch || require('./placesProvider').placesFetch;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
   try {
@@ -287,14 +288,14 @@ function toCandidate(r, type) {
 //               to rectangles only)
 // Returns { ok, results (legacy shape), saturated (came back full), calls: 1, error }.
 async function nearbyCell({ center, radiusM, type }, opts = {}) {
-  const apiKey = (opts.apiKey || process.env.GOOGLE_PLACES_API_KEY || '').trim();
-  if (!apiKey) return { ok: false, results: [], calls: 0, error: 'no_api_key: GOOGLE_PLACES_API_KEY is not set' };
+  const apiKey = (opts.apiKey || require('./placesProvider').apiKey() || '').trim();
+  if (!apiKey) return { ok: false, results: [], calls: 0, error: 'no_api_key: neither SERPER_API_KEY nor GOOGLE_PLACES_API_KEY is set' };
   const r = await _nearby(center, radiusM, type, apiKey, opts);
   return { ok: r.ok, results: r.results, saturated: r.results.length >= MAX_PER_CALL, calls: 1, error: r.error || null };
 }
 async function textCell({ center, radiusM, term }, opts = {}) {
-  const apiKey = (opts.apiKey || process.env.GOOGLE_PLACES_API_KEY || '').trim();
-  if (!apiKey) return { ok: false, results: [], calls: 0, error: 'no_api_key: GOOGLE_PLACES_API_KEY is not set' };
+  const apiKey = (opts.apiKey || require('./placesProvider').apiKey() || '').trim();
+  if (!apiKey) return { ok: false, results: [], calls: 0, error: 'no_api_key: neither SERPER_API_KEY nor GOOGLE_PLACES_API_KEY is set' };
   const lo = _offset(center, -radiusM, -radiusM), hi = _offset(center, radiusM, radiusM);
   const r = await _post(SEARCH_TEXT_URL, { textQuery: term, pageSize: MAX_PER_CALL,
     locationRestriction: { rectangle: { low: { latitude: lo.lat, longitude: lo.lng }, high: { latitude: hi.lat, longitude: hi.lng } } } },
@@ -328,8 +329,8 @@ async function buildMarketPoolFromPlaces(school, opts = {}) {
     return res;
   };
 
-  const apiKey = (process.env.GOOGLE_PLACES_API_KEY || '').trim();
-  if (!apiKey) return done({ ok: false, candidates: [], placesCalls: 0, reason: 'no_api_key: GOOGLE_PLACES_API_KEY is not set' });
+  const apiKey = (require('./placesProvider').apiKey() || '').trim();
+  if (!apiKey) return done({ ok: false, candidates: [], placesCalls: 0, reason: 'no_api_key: neither SERPER_API_KEY nor GOOGLE_PLACES_API_KEY is set' });
 
   const geo = await geocodeSchool(school, apiKey, opts);
   let placesCalls = geo.calls;

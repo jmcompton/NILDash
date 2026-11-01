@@ -254,7 +254,7 @@ function centralDate(ms) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(ms == null ? Date.now() : ms));
 }
 function enabled() {
-  return process.env.MARKET_POOL_SCHEDULE !== 'off' && !!(process.env.GOOGLE_PLACES_API_KEY || '').trim();
+  return process.env.MARKET_POOL_SCHEDULE !== 'off' && !!(require('./placesProvider').apiKey() || '').trim();
 }
 async function tick(pool, opts = {}) {
   if (!enabled() && !opts.force) return { ran: false, why: 'off' };

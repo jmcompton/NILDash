@@ -78,7 +78,7 @@ function _mapPlace(p, fallbackName) {
 // This function decides caching for its own lane on the same rule: a live
 // "found=0" is cached (it is an answer), an HTTP error or a timeout is not.
 async function lookupPlaceResult(brand, locationHint = '') {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const apiKey = require('./placesProvider').apiKey();
   if (!apiKey) return { ok: false, place: null, reason: 'no-api-key' };
   if (!brand || !String(brand).trim()) return { ok: false, place: null, reason: 'no-query' };
 
@@ -98,7 +98,7 @@ async function lookupPlaceResult(brand, locationHint = '') {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    const resp = await fetch(PLACES_URL, {
+    const resp = await require('./placesProvider').placesFetch(PLACES_URL, {
       method: 'POST',
       signal: ctrl.signal,
       headers: {
@@ -155,7 +155,7 @@ async function lookupPlace(brand, locationHint = '') {
 // silently loses its bias. This is the New-API path so bias works off the same
 // enablement autocomplete itself needs. Cached 30 days.
 async function geocodePlace(query) {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const apiKey = require('./placesProvider').apiKey();
   const q = String(query || '').trim();
   if (!apiKey || !q) return null;
   const cacheKey = `geo:${q.toLowerCase()} | ${CACHE_V}`;
@@ -169,7 +169,7 @@ async function geocodePlace(query) {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    const resp = await fetch(PLACES_URL, {
+    const resp = await require('./placesProvider').placesFetch(PLACES_URL, {
       method: 'POST',
       signal: ctrl.signal,
       headers: {
@@ -213,7 +213,7 @@ async function _autocompleteCall(body, apiKey) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const resp = await fetch(AUTOCOMPLETE_URL, {
+    const resp = await require('./placesProvider').placesFetch(AUTOCOMPLETE_URL, {
       method: 'POST',
       signal: ctrl.signal,
       headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey },
@@ -238,7 +238,7 @@ async function _autocompleteCall(body, apiKey) {
 // a radius) we retry with the soft bias and flag those rows outOfMarket so they sort
 // last and are labeled, rather than silently interleaving.
 async function autocompletePlaces(input, bias = {}) {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const apiKey = require('./placesProvider').apiKey();
   const q = String(input || '').trim();
   if (!apiKey || q.length < 3) return [];
   const hasBias = bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lng);
@@ -268,7 +268,7 @@ async function autocompletePlaces(input, bias = {}) {
 // on the place_id, which is the stable identity, so repeat adds of the same
 // location are free.
 async function lookupPlaceById(placeId) {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const apiKey = require('./placesProvider').apiKey();
   const id = String(placeId || '').trim();
   if (!apiKey || !id) return null;
   const cacheKey = `place_id:${id} | ${CACHE_V}`;
@@ -283,7 +283,7 @@ async function lookupPlaceById(placeId) {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    const resp = await fetch(DETAILS_URL + encodeURIComponent(id), {
+    const resp = await require('./placesProvider').placesFetch(DETAILS_URL + encodeURIComponent(id), {
       method: 'GET',
       signal: ctrl.signal,
       headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': PLACE_FIELDS },

@@ -3741,7 +3741,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     let placesSchoolUsed = false;
     let _passAnswered = 0; const _passFailures = [];   // search passes that answered / failed (services/ourFault)
     const _placesEnabled = (process.env.DEAL_SCAN_DISCOVERY || 'places') !== 'websearch'
-      && !!(process.env.GOOGLE_PLACES_API_KEY || '').trim();
+      && !!(require('./services/placesProvider').apiKey() || '').trim();
     // A manual add never builds the market pool: the business is already chosen.
     // The Places pool is the small-business pool; a pro's pool comes from the
     // pro web-search passes below.

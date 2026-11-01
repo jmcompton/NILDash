@@ -8,8 +8,10 @@
 //
 //   model calls and web searches   ai_call_ledger.est_usd (every model call,
 //                                  priced from list prices)
-//   Google Places                  the Places calls the run recorded on its
-//                                  spend log, at Q.USD_PER_PLACES_REQUEST
+//   Places lookups                 places_usage: every call, Serper or Google,
+//                                  at its own price; for a night from before
+//                                  that table, the run's spend log at
+//                                  Q.USD_PER_PLACES_REQUEST
 //   Hunter                         credits, not dollars: on the Hunter line
 //
 // Per verified email: that total over the email cards with a verified address
@@ -36,15 +38,31 @@ async function forRunDate(pool, runDate) {
     }
   }
   const Q = require('./outreachQueue');
-  const placesUsd = Math.round(placesCalls * Q.USD_PER_PLACES_REQUEST * 1000) / 1000;
+  let placesUsd = Math.round(placesCalls * Q.USD_PER_PLACES_REQUEST * 1000) / 1000;
+  // EVERY PLACES CALL, NOT ONLY THE MARKET REFRESHES. The spend log above only
+  // carries market-refresh builds, so business lookups, geocodes and campus
+  // discovery were never counted and the line read $0.00 while Google billed
+  // $222 for October. places_usage (services/placesProvider) records every
+  // call, either provider, at its own price; it wins whenever it has the window.
+  let placesByProvider = null;
+  const usage = await require('./placesProvider').usageBetween(pool, w.from, w.to).catch(() => null);
+  if (usage) { placesCalls = usage.calls; placesUsd = usage.usd; placesByProvider = usage.byProvider; }
   const verified = (await pool.query(
     `SELECT COUNT(*)::int AS n FROM outreach_queue
       WHERE created_at >= $1 AND created_at < $2 AND channel = 'email' AND email_verified = TRUE`, [w.from, w.to])
     .catch(() => ({ rows: [{ n: 0 }] }))).rows[0].n;
   const usd = Math.round(((Number(ledger.usd) || 0) + placesUsd) * 1000) / 1000;
   return { runDate: String(runDate).slice(0, 10), from: w.from, to: w.to, usd, ledgerUsd: Math.round((Number(ledger.usd) || 0) * 1000) / 1000,
-    calls: ledger.calls || 0, unpriced: ledger.unpriced || 0, ledgerError: ledger.error || null, placesCalls, placesUsd,
+    calls: ledger.calls || 0, unpriced: ledger.unpriced || 0, ledgerError: ledger.error || null, placesCalls, placesUsd, placesByProvider,
     verified, perVerified: verified ? Math.round((usd / verified) * 1000) / 1000 : null };
+}
+
+// " (Serper 120, Google 3)" when the window has places_usage rows.
+function _split(by) {
+  if (!by) return '';
+  const names = { serper: 'Serper', google: 'Google' };
+  const parts = Object.keys(by).sort().map((k) => `${names[k] || k} ${by[k].calls}`);
+  return parts.length ? ` (${parts.join(', ')})` : '';
 }
 
 // Pure. -> lines for the email.
@@ -53,7 +71,7 @@ function render(c) {
   const $ = (n) => '$' + (Number(n) || 0).toFixed(2);
   const L = [];
   L.push(`Last night's cost: ${$(c.usd)} (model calls and web searches ${$(c.ledgerUsd)} across ${c.calls} call${c.calls === 1 ? '' : 's'}`
-    + `${c.unpriced ? `, ${c.unpriced} on a model with no price on file counted at $0` : ''}; Google Places ${$(c.placesUsd)} for ${c.placesCalls} call${c.placesCalls === 1 ? '' : 's'})`
+    + `${c.unpriced ? `, ${c.unpriced} on a model with no price on file counted at $0` : ''}; Places lookups ${$(c.placesUsd)} for ${c.placesCalls} call${c.placesCalls === 1 ? '' : 's'}${_split(c.placesByProvider)})`
     + (c.ledgerError ? ` -- the model-call ledger could not be read: ${c.ledgerError}` : ''));
   L.push(c.verified
     ? `Cost per verified email: ${$(c.perVerified)} (${c.verified} email card${c.verified === 1 ? '' : 's'} with a verified address for a named person placed)`
