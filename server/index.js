@@ -13168,6 +13168,43 @@ async function _statusAdminOk(req) {
   const user = req.session && req.session.userId ? await store.getUser(req.session.userId).catch(() => null) : null;
   return !!user && (user.email === ADMIN_EMAIL || isFounderEmail(user.email));
 }
+// ── PROSPECTOR (services/prospector): one engine, a playbook per market ────
+// Admin only while it is being proven. A run is started, answers with its id
+// at once, and keeps working; the page polls for the results.
+app.get('/lab/prospector', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
+  res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'views', 'prospector.html'));
+});
+app.get('/api/lab/prospector/playbooks', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  res.json({ playbooks: require('./services/prospector/playbooks').list() });
+});
+app.get('/api/lab/prospector/runs', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json({ runs: await require('./services/prospector/run').recent(store.pool, 15) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/lab/prospector/runs/:id', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const out = await require('./services/prospector/run').get(store.pool, parseInt(req.params.id, 10) || 0);
+    if (!out) return res.status(404).json({ error: 'Not found' });
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/lab/prospector/run', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const R = require('./services/prospector/run');
+  let answered = false;
+  const body = req.body || {};
+  R.run(store.pool, { playbook: body.playbook, area: body.area, limit: body.limit, sender: body.sender, userId: req.session.userId,
+    onStart: (runId) => { answered = true; res.json({ runId }); } })
+    .catch((e) => {
+      console.error('[prospector] run failed:', e.message);
+      if (!answered) res.status(e.status || 500).json({ error: e.message });
+    });
+});
+
 app.get('/admin/status', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
   const SP = require('./services/statusPage');
