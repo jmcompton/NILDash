@@ -26,6 +26,15 @@ const PLAYBOOKS = {
       'property management company', 'commercial real estate firm', 'private school', 'church office',
     ],
     signal: 'email-security',
+    // Not a small business an IT company can win: hospitals, health systems,
+    // universities, and chains (one website, many locations). "Animal
+    // hospital" is a vet and stays.
+    skip: {
+      types: ['hospital', 'university', 'college', 'government office', 'city government office', 'county government office'],
+      names: '\\b(hospital|medical center|health system|healthcare system|university|college|school district)\\b',
+      keepNames: '\\b(animal|pet|vet|veterinary|equine)\\b',
+      maxLocations: 3,
+    },
     reachTitles: [
       'owner', 'founder', 'president', 'ceo', 'managing partner', 'principal',
       'practice (manager|administrator)', 'office manager', 'operations manager', 'administrator',
@@ -60,6 +69,18 @@ const PLAYBOOKS = {
 };
 
 function get(key) { return PLAYBOOKS[String(key || '')] || null; }
+
+// Why a business is not a fit for this playbook, or null when it is.
+function skipReason(playbook, b) {
+  const s = playbook.skip;
+  if (!s) return null;
+  const keep = s.keepNames && new RegExp(s.keepNames, 'i').test(b.name || '');
+  const type = String(b.category || '').toLowerCase().trim();
+  if (!keep && (s.types || []).includes(type)) return `a ${type}`;
+  if (!keep && s.names && new RegExp(s.names, 'i').test(b.name || '')) return 'a large organization';
+  if (s.maxLocations && (b.locations || 1) > s.maxLocations) return `a chain (${b.locations} locations on one website)`;
+  return null;
+}
 function list() { return Object.values(PLAYBOOKS).map((p) => ({ key: p.key, label: p.label, ready: !p.draft })); }
 
 // Rank a person against the playbook: lower is better, Infinity = never.
@@ -71,4 +92,4 @@ function titleRank(playbook, title) {
   return i === -1 ? 40 : i;
 }
 
-module.exports = { PLAYBOOKS, get, list, titleRank };
+module.exports = { PLAYBOOKS, get, list, titleRank, skipReason };
