@@ -43,29 +43,41 @@ async function searchText(query, opts = {}) {
   }
 }
 
-// terms x area -> [{ name, domain, website, phone, address, category, placeId, term }]
+// terms x area -> [{ name, domain, website, phone, address, category, placeId, term, locations }]
+//
+// EVERY TERM IS SEARCHED, then the results are taken in turn, one from each
+// term, so a cap of 150 is a mix of dentists, law firms, CPAs... and not the
+// first five terms' worth of dentists (the first live run stopped at vets and
+// never reached a law firm). `locations` counts how many places share one
+// website: a chain's tell.
 async function find(terms, area, opts = {}) {
-  const seen = new Set();
-  const out = [];
+  const byDomain = new Map();
+  const perTerm = [];
   const errors = [];
   for (const term of terms) {
     const r = await searchText(`${term} in ${area}`, opts);
+    const mine = [];
+    perTerm.push(mine);
     if (!r.ok) { errors.push(r.error); continue; }
     for (const p of r.places) {
       if (p.businessStatus && p.businessStatus !== 'OPERATIONAL') continue;
       const domain = domainOf(p.websiteUri);
-      if (!domain || seen.has(domain)) continue;
-      seen.add(domain);
-      out.push({
+      if (!domain) continue;
+      const seen = byDomain.get(domain);
+      if (seen) { if (!seen.placeIds.has(p.id)) { seen.placeIds.add(p.id); seen.b.locations++; } continue; }
+      const b = {
         name: (p.displayName && p.displayName.text) || domain,
         domain, website: p.websiteUri || null, phone: p.nationalPhoneNumber || null,
         address: p.shortFormattedAddress || p.formattedAddress || null,
         category: (p.primaryTypeDisplayName && p.primaryTypeDisplayName.text) || term,
-        placeId: p.id || null, term, ratings: p.userRatingCount || 0,
-      });
+        placeId: p.id || null, term, ratings: p.userRatingCount || 0, locations: 1,
+      };
+      byDomain.set(domain, { b, placeIds: new Set([p.id]) });
+      mine.push(b);
     }
-    if (opts.max && out.length >= opts.max) break;
   }
+  const out = [];
+  for (let i = 0; perTerm.some((l) => i < l.length); i++) for (const l of perTerm) if (i < l.length) out.push(l[i]);
   return { businesses: opts.max ? out.slice(0, opts.max) : out, errors };
 }
 

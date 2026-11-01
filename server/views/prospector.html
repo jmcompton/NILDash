@@ -119,17 +119,18 @@ pre { white-space:pre-wrap; font:14px/1.55 inherit; font-family:inherit; backgro
       tile(s.checked, 'businesses checked'),
       tile(s.withGap, 'have an email security gap'),
       tile(s.high, 'high risk'),
-      tile(s.people, 'decision makers found'),
-      tile(s.verified, 'verified emails'),
+      tile(s.reachable != null ? s.reachable : s.people, 'have an address to write to'),
+      tile(s.people, 'named decision makers'),
+      tile(s.verified, 'verified addresses'),
       tile(s.written, 'emails written'),
-    ].join('') + (run.error ? `<p class="err">${esc(run.error)}</p>` : '') + ((s.placesErrors || []).length ? `<p class="err">${esc(s.placesErrors[0])}</p>` : '');
+    ].join('') + (s.skipped ? `<p class="muted">Skipped ${s.skipped} that are not a fit: ${esc(Object.entries(s.skippedWhy || {}).map(([k, n]) => n + ' ' + k).join(', '))}.</p>` : '') + (run.error ? `<p class="err">${esc(run.error)}</p>` : '') + ((s.placesErrors || []).length ? `<p class="err">${esc(s.placesErrors[0])}</p>` : '');
     $('leads').innerHTML = (data.leads || []).map((l) => {
       const f = l.finding || {}, p = l.person, e = l.email || {};
       return `<div class="lead">
         <div class="row"><span class="biz">${esc(l.business)}</span><span class="pill ${esc(l.level)}">${l.level === 'high' ? 'High risk' : 'Medium risk'}</span>
           <span class="muted">${esc(l.category)} · ${esc(l.domain)}${f.mail ? ' · ' + esc(f.mail) : ''}${l.phone ? ' · ' + esc(l.phone) : ''}</span></div>
         <p class="problem">${esc((f.problems || [])[0])}</p>
-        <div class="row" style="margin-top:6px">${p ? `<span><b>${esc(p.first)} ${esc(p.last)}</b>${p.title ? ', ' + esc(p.title) : ''}</span><span>${esc(p.email)}</span><span class="pill ${l.verified ? 'ver' : 'unver'}">${l.verified ? 'Verified' : esc(l.verify_status || 'not verified')}</span>` : `<span class="muted">No named person found (${esc(l.verify_status || '')})</span>`}</div>
+        <div class="row" style="margin-top:6px">${p ? `<span>${p.first ? `<b>${esc(p.first)} ${esc(p.last)}</b>${p.title ? ', ' + esc(p.title) : ''}` : `<b>${esc(p.title || 'Published address')}</b>${p.owner ? ' <span class="muted">(owner: ' + esc(p.owner) + ')</span>' : ''}`}${p.source ? ' <span class="muted">via ' + esc(p.source) + '</span>' : ''}</span><span>${esc(p.email)}</span><span class="pill ${l.verified ? 'ver' : 'unver'}">${l.verified ? 'Verified' : esc(l.verify_status || 'not verified')}</span>` : `<span class="muted">No named person found (${esc(l.verify_status || '')})</span>`}</div>
         <details><summary>The email${e.source === 'template' ? ' (template)' : ''}</summary><pre><b>${esc(e.subject)}</b>\n\n${esc(e.body)}</pre></details>
       </div>`;
     }).join('') || (run.status === 'running' ? '<p class="muted">Working: finding businesses and checking each one. This takes a minute or two.</p>' : '<p class="muted">No opportunities in this run.</p>');

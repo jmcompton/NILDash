@@ -73,10 +73,50 @@ async function main() {
   ok('valid address: verified', found.ok && found.verified === true && found.person.title === 'Owner', found);
   const catchall = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => ({ found: true, emails }), verifyEmail: async () => ({ ok: true, status: 'accept_all' }) });
   ok('catch-all: kept, never called verified', catchall.ok && catchall.verified === false && catchall.verifyStatus === 'accept_all');
-  const none = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => null, verifyEmail: async () => { throw new Error('should not verify'); } });
-  ok('nobody at the domain: a plain reason, no verify spent', none.ok === false && /knows no one/.test(none.why));
-  const fault = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => ({ found: false, emails: [], fault: { outcome: 'budget', reason: 'budget spent' } }) });
+  const emptySite = async () => ({ outcomeKind: 'fetched-empty', people: [], personalEmail: null, roleEmail: null, formUrl: null });
+  const none = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => null, findSiteEmail: emptySite, verifyEmail: async () => { throw new Error('should not verify'); } });
+  ok('nobody at the domain or on the site: a plain reason, no verify spent', none.ok === false && /knows no one/.test(none.why) && /website: fetched-empty/.test(none.why), none);
+  const fault = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => ({ found: false, emails: [], fault: { outcome: 'budget', reason: 'budget spent' } }), findSiteEmail: emptySite });
   ok('a Hunter fault is reported as ours', fault.ok === false && /Hunter: budget spent/.test(fault.why));
+
+  OUT.push('-- the ladder: website, then the office inbox --');
+  ok('names: "Dr. Jane A. Smith, DMD" is Jane Smith', JSON.stringify(Contacts.splitName('Dr. Jane A. Smith, DMD')) === JSON.stringify({ first: 'Jane', last: 'Smith' }) && Contacts.splitName('Smith') === null);
+  ok('inboxes: office@ beats info@; careers@ and billing@ never', Contacts.bestInbox(['info@d.com', 'office@d.com']) === 'office@d.com' && Contacts.bestInbox(['careers@d.com', 'billing@d.com']) === null);
+  const vOk = async () => ({ ok: true, status: 'valid' });
+  const hunterGeneric = async () => ({ found: true, emails: [{ email: 'info@d.com', type: 'generic', confidence: 90 }] });
+  const s1 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: hunterGeneric, verifyEmail: vOk,
+    findSiteEmail: async () => ({ outcomeKind: 'found', people: [{ name: 'Dr. Jane Smith', title: 'Owner' }], personalEmail: 'jane@d.com', roleEmail: 'office@d.com' }) }, { website: 'https://d.com' });
+  ok('the site publishes the owner\'s own address: named, from the website', s1.ok && s1.kind === 'named' && s1.source === 'website' && s1.person.first === 'Jane' && s1.person.title === 'Owner' && s1.verified, s1);
+  const finderCalls = [];
+  const s2 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: hunterGeneric, verifyEmail: async () => ({ ok: true, status: 'accept_all' }),
+    findEmail: async (f, l, d) => { finderCalls.push([f, l, d]); return { email: 'jsmith@d.com', score: 88 }; },
+    findSiteEmail: async () => ({ outcomeKind: 'found', people: [{ name: 'Jane Smith', title: 'Owner' }], personalEmail: null, roleEmail: 'office@d.com' }) });
+  ok('the site names the owner: Hunter\'s finder looks her up by name', s2.ok && s2.kind === 'named' && s2.source === 'website+hunter' && s2.person.email === 'jsmith@d.com' && JSON.stringify(finderCalls[0]) === '["Jane","Smith","d.com"]' && s2.verified === false, s2);
+  const s3 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: hunterGeneric, verifyEmail: vOk, findEmail: async () => ({ email: null }),
+    findSiteEmail: async () => ({ outcomeKind: 'found', people: [{ name: 'Jane Smith', title: 'Owner' }], personalEmail: null, roleEmail: 'office@d.com' }) });
+  ok('no address for the owner: the office inbox, greeting nobody, owner noted', s3.ok && s3.kind === 'inbox' && s3.person.email === 'office@d.com' && s3.person.first === '' && s3.person.owner === 'Jane Smith, Owner', s3);
+  const s4 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: hunterGeneric, verifyEmail: vOk, findSiteEmail: emptySite });
+  ok('nothing on the site: Hunter\'s generic address is the inbox', s4.ok && s4.kind === 'inbox' && s4.person.email === 'info@d.com' && s4.source === 'hunter');
+  const s5 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => null, findSiteEmail: async () => ({ outcomeKind: 'found', type: 'form', people: [], formUrl: 'https://d.com/contact' }) });
+  ok('a contact form only: not an address, said so', s5.ok === false && /contact form only/.test(s5.why) && s5.formUrl === 'https://d.com/contact');
+  const s6 = await Contacts.findPerson(it, 'd.com', { findDomainEmails: async () => null, verifyEmail: vOk,
+    findSiteEmail: async () => ({ outcomeKind: 'found', corporate: true, people: [], personalEmail: 'bob@d.com', roleEmail: 'info@d.com' }) });
+  ok('a chain\'s corporate address is never used', s6.ok === false, s6);
+
+  OUT.push('-- not a fit --');
+  ok('a hospital is skipped; an animal hospital is a vet and kept', PB.skipReason(it, { name: 'UAB St. Vincent’s', category: 'Hospital' }) && !PB.skipReason(it, { name: 'Avondale Animal Hospital', category: 'Veterinary Care' }));
+  ok('a medical center by name, and a chain of 5 locations, are skipped', /large/.test(PB.skipReason(it, { name: 'Grandview Medical Center', category: 'Medical clinic' })) && /chain/.test(PB.skipReason(it, { name: 'Smile Co', category: 'Dentist', locations: 5 })));
+  ok('a two-office dental practice is a fit', PB.skipReason(it, { name: 'Smile Co', category: 'Dentist', locations: 2 }) === null);
+  const fakePlaces = async (url, o) => {
+    const q = JSON.parse(o.body).textQuery;
+    const mk = (id, name, site) => ({ id, displayName: { text: name }, websiteUri: site, businessStatus: 'OPERATIONAL' });
+    const places = /dental/.test(q) ? [mk('1', 'D1', 'https://d1.com'), mk('2', 'D2', 'https://d2.com'), mk('3', 'Chain A', 'https://chain.com'), mk('4', 'Chain B', 'https://chain.com/loc2')]
+      : [mk('5', 'L1', 'https://l1.com'), mk('6', 'L2', 'https://l2.com')];
+    return { ok: true, json: async () => ({ places }) };
+  };
+  const pf = await Places.find(['dental office', 'law firm'], 'B', { apiKey: 'k', fetchImpl: fakePlaces });
+  ok('every term searched, results taken in turn (dentist, lawyer, dentist...)', pf.businesses.map((b) => b.name).join(',') === 'D1,L1,D2,L2,Chain A', pf.businesses.map((b) => b.name));
+  ok('two places on one website count as two locations', pf.businesses.find((b) => b.domain === 'chain.com').locations === 2);
 
   OUT.push('-- the email --');
   const ctx = { business: 'Smile Dental', domain: 'smile.com', category: 'Dentist', area: 'Birmingham, AL', finding: a1,
@@ -92,6 +132,14 @@ async function main() {
   ok('a model failure: the template, never nothing', thrown.source === 'template' && /Pat Smith/.test(thrown.body));
   ok('the writer uses the NILDash writer model', Writer.MODEL === 'claude-sonnet-4-6');
   ok('the template names the domain, the finding and the sender, no blanks', Writer.check(Writer.template(ctx), ctx).length === 0, Writer.check(Writer.template(ctx), ctx));
+
+  const inboxCtx = { ...ctx, person: { first: '', last: '', title: 'Office inbox', email: 'office@smile.com', owner: 'Bo Kim, Owner' } };
+  ok('to an office inbox the writer is told to greet nobody by name', /Hi there/.test(Writer.recipient(inboxCtx)) && /Bo Kim/.test(Writer.recipient(inboxCtx)));
+  ok('a shared inbox greeted by name is rejected; "Hi there" passes',
+    Writer.check({ subject: 's', body: goodBody }, inboxCtx).includes('greets a shared inbox by name')
+    && Writer.check({ subject: 's', body: goodBody.replace('Hi Bo,', 'Hi there,') }, inboxCtx).length === 0);
+  ok('the wrong first name is rejected', Writer.check({ subject: 's', body: goodBody.replace('Hi Bo,', 'Hi Sam,') }, ctx).includes('greets the wrong name'));
+  ok('the template to an inbox says "Hi there"', /^Hi there,/.test(Writer.template(inboxCtx).body));
 
   OUT.push('-- a run --');
   const biz = [
@@ -119,6 +167,18 @@ async function main() {
   ok('saved and reopened: done, 2 leads, verified first', saved.run.status === 'done' && saved.leads.length === 2 && saved.leads[0].domain === 'b.com' && saved.leads[0].verified === true, saved.leads.map((l) => [l.domain, l.verified]));
   ok('each lead keeps the finding, the person and the email', saved.leads.every((l) => l.finding && l.person && l.email && l.email.body));
   ok('recent runs list it', (await R.recent(P())).some((r) => r.id === out.runId));
+  const hunted2 = [];
+  const out2 = await R.run(P(), { playbook: 'it-msp', area: 'B', limit: 5 }, {
+    places: { find: async () => ({ businesses: [...biz, { name: 'Big Hospital', domain: 'h.com', category: 'Hospital', ratings: 5000 }], errors: [] }) },
+    emailSecurity: { check: async (d) => ({ domain: d, level: d === 'h.com' ? 'high' : levels[d], problems: ['No DMARC record. x'] }) },
+    contacts: { findDomainEmails: async (d) => { hunted2.push(d); return { found: true, emails: [{ email: 'info@' + d, type: 'generic' }] }; },
+      findSiteEmail: async () => ({ outcomeKind: 'fetched-empty', people: [] }), verifyEmail: async () => ({ ok: true, status: 'valid' }) },
+    writer: { oneShot: async () => 'not json' },
+  });
+  ok('a hospital is skipped before any check or credit', out2.summary.skipped === 1 && out2.summary.skippedWhy['a hospital'] === 1 && !hunted2.includes('h.com'), out2.summary);
+  ok('office inboxes count as reachable, not as named people', out2.summary.reachable === 3 && out2.summary.inboxes === 3 && out2.summary.people === 0, out2.summary);
+  const saved2 = await R.get(P(), out2.runId);
+  ok('the lead keeps how it was reached', saved2.leads.every((l) => l.person.kind === 'inbox' && l.person.source === 'hunter') && saved2.leads.every((l) => /^Hi there,/.test(l.email.body)));
   let refused = null;
   try { await R.run(P(), { playbook: 'nope', area: 'x' }); } catch (e) { refused = e; }
   ok('an unknown market is refused in plain words', refused && refused.status === 400);
