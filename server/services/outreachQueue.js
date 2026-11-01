@@ -1192,7 +1192,10 @@ const USD_PER_AI_CALL = 0.003;
 // market build (1 geocode + 8 types x up to 3 pages) was invisible money. It
 // is now a named rate on the meter, so it appears on the log line and is
 // booked against the discovery ceiling like the searches are.
-const USD_PER_PLACES_REQUEST = parseFloat(process.env.USD_PER_PLACES_REQUEST) || 0.032;
+// Serper's Maps search answers Places requests when its key is set (services/
+// placesProvider): 3 credits, about $0.003, a tenth of Google's price.
+const USD_PER_PLACES_REQUEST = parseFloat(process.env.USD_PER_PLACES_REQUEST)
+  || (require('./placesProvider').provider() === 'serper' ? require('./placesProvider').usdPerRequest() : 0.032);
 
 function priceOf(meter) {
   if (!meter) return 0;

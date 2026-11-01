@@ -36,7 +36,7 @@ async function ensureColumns(pool) {
 // call the campus pool makes). deps.geocode for tests.
 async function geocode(address, deps = {}) {
   if (deps.geocode) return deps.geocode(address);
-  const key = (process.env.GOOGLE_PLACES_API_KEY || '').trim();
+  const key = (require('./placesProvider').apiKey() || '').trim();
   if (!key) return { coords: null, calls: 0, error: 'GOOGLE_PLACES_API_KEY is not set' };
   return require('./placesMarket').geocodeSchool(address, key);
 }

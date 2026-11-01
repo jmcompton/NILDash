@@ -133,7 +133,7 @@ async function campusCenter(pool, uni, places) {
   const row = (await pool.query(`SELECT * FROM universities WHERE id = $1`, [uni.id])).rows[0] || {};
   if (row.lat != null && row.lng != null) return { center: { lat: Number(row.lat), lng: Number(row.lng) }, calls: 0 };
   const P = places || require('./placesMarket');
-  const apiKey = (process.env.GOOGLE_PLACES_API_KEY || '').trim();
+  const apiKey = (require('./placesProvider').apiKey() || '').trim();
   if (!P.geocodeSchool || (!apiKey && !places)) return { center: null, calls: 0, error: 'no campus centre and no Places key to find it' };
   const g = await P.geocodeSchool(uni.location, apiKey);
   if (!g.coords) return { center: null, calls: g.calls || 0, error: g.error || 'geocode failed' };

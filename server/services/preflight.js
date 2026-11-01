@@ -107,8 +107,12 @@ function checks(deps) {
     },
 
     'google-places': async () => {
-      const key = need('GOOGLE_PLACES_API_KEY', (process.env.GOOGLE_PLACES_API_KEY || '').trim());
-      const j = await httpJson(fetchImpl, 'https://places.googleapis.com/v1/places:searchText', {
+      // Asks whoever answers Places tonight: Serper first, Google under the
+      // monthly cap (services/placesProvider). Tests inject deps.fetch.
+      const PP = require('./placesProvider');
+      const key = need('SERPER_API_KEY or GOOGLE_PLACES_API_KEY', PP.apiKey());
+      const pf = deps.fetch || ((u, i) => PP.placesFetch(u, i));
+      const j = await httpJson(pf, 'https://places.googleapis.com/v1/places:searchText', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'places.id' },
         body: JSON.stringify({ textQuery: 'Cypress College, Cypress, CA', pageSize: 1 }),
