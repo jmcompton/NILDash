@@ -174,6 +174,29 @@ async function main() {
   ok('saved and reopened: done, 2 leads, verified first', saved.run.status === 'done' && saved.leads.length === 2 && saved.leads[0].domain === 'b.com' && saved.leads[0].verified === true, saved.leads.map((l) => [l.domain, l.verified]));
   ok('each lead keeps the finding, the person and the email', saved.leads.every((l) => l.finding && l.person && l.email && l.email.body));
   ok('recent runs list it', (await R.recent(P())).some((r) => r.id === out.runId));
+  ok('every business with a gap is saved, worst first, not only the leads', Array.isArray(saved.run.gaps) && saved.run.gaps.length === 3
+    && saved.run.gaps[0].domain === 'b.com' && saved.run.gaps[2].level === 'medium' && /No DMARC/.test(saved.run.gaps[0].problem), saved.run.gaps);
+  ok('the runs list stays small (no gap list in it)', (await R.recent(P())).every((r) => r.gaps === undefined));
+
+  OUT.push('-- our own sales list --');
+  const People = require(REPO + 'server/services/prospector/people.js');
+  ok('domains cleaned: "cmitsolutions.com (birmingham-al-1149)" is cmitsolutions.com', People.cleanDomain('cmitsolutions.com (birmingham-al-1149)') === 'cmitsolutions.com' && People.cleanDomain('https://www.acci.com/about') === 'acci.com');
+  const p1 = await People.one({ company: 'ACCi', domain: 'acci.com', first: 'Bobby', last: 'Welch', title: 'President' },
+    { findEmail: async () => ({ email: 'BWelch@acci.com', score: 91 }), verifyEmail: async () => ({ ok: true, status: 'valid' }) });
+  ok('a named owner: Hunter finder, verified', p1.ok && p1.email === 'bwelch@acci.com' && p1.verified && p1.kind === 'named' && p1.title === 'President', p1);
+  const p2 = await People.one({ company: 'C3', domain: 'c3.com' }, {
+    findEmail: async () => { throw new Error('no finder without a name'); },
+    findDomainEmails: async () => ({ found: true, emails: [{ email: 'tech@c3.com', type: 'personal', firstName: 'Tom', position: 'Help Desk Technician' }, { email: 'amy@c3.com', type: 'personal', firstName: 'Amy', lastName: 'Ng', position: 'CEO' }] }),
+    verifyEmail: async () => ({ ok: true, status: 'accept_all' }) });
+  ok('no name: the ladder, by an IT company\'s buying titles; never the help desk', p2.ok && p2.email === 'amy@c3.com' && p2.verified === false && p2.verifyStatus === 'accept_all', p2);
+  const p3 = await People.one({ company: 'X', domain: 'x.com', first: 'Al', last: 'Bo' }, {
+    findEmail: async () => ({ email: 'al@x.com' }), verifyEmail: async (e) => ({ ok: true, status: e === 'al@x.com' ? 'invalid' : 'valid' }),
+    findDomainEmails: async () => ({ found: true, emails: [{ email: 'info@x.com', type: 'generic' }] }), findSiteEmail: async () => ({ outcomeKind: 'fetched-empty', people: [] }) });
+  ok('an invalid finder address is never used; falls to the ladder and says why', p3.ok && p3.email === 'info@x.com' && /al@x.com is invalid/.test(p3.note), p3);
+  const job = People.start([{ domain: 'a.com', first: 'A', last: 'B' }, { domain: '' }], { findEmail: async () => ({ email: 'a@a.com' }), verifyEmail: async () => ({ ok: true, status: 'valid' }) });
+  await new Promise((r) => setTimeout(r, 50));
+  const jr = People.get(job.id);
+  ok('a job runs in the background and reports every row', jr.status === 'done' && jr.done === 2 && jr.results[0].ok && jr.results[1].why === 'no domain' && jr.promise === undefined, jr);
   const hunted2 = [];
   const out2 = await R.run(P(), { playbook: 'it-msp', area: 'B', limit: 5 }, {
     places: { find: async () => ({ businesses: [...biz, { name: 'Big Hospital', domain: 'h.com', category: 'Hospital', ratings: 5000 }], errors: [] }) },
@@ -195,7 +218,7 @@ async function main() {
   const routes = ["app.get('/lab/prospector'", "app.get('/api/lab/prospector/playbooks'", "app.get('/api/lab/prospector/runs'", "app.get('/api/lab/prospector/runs/:id'", "app.post('/api/lab/prospector/run'"];
   ok('page and API routes exist', routes.every((r) => IX.includes(r)));
   const block = IX.slice(IX.indexOf("app.get('/lab/prospector'"), IX.indexOf("app.get('/admin/status'"));
-  ok('every prospector route checks admin first', (block.match(/_statusAdminOk\(req\)/g) || []).length === 5);
+  ok('every prospector route checks admin first', (block.match(/_statusAdminOk\(req\)/g) || []).length === 7 && block.includes("app.post('/api/lab/prospector/people'") && block.includes("app.get('/api/lab/prospector/people/:id'"));
   const H = fs.readFileSync(REPO + 'server/views/prospector.html', 'utf8');
   ok('the page escapes everything it shows', /const esc = /.test(H) && !/innerHTML = l\./.test(H));
   ok('only ready markets can be picked', PB.list().find((p) => p.key === 'staffing').ready === false && PB.list().find((p) => p.key === 'it-msp').ready === true);

@@ -27,6 +27,10 @@ async function ensureTables(pool) {
     id SERIAL PRIMARY KEY, run_id INT NOT NULL REFERENCES prospector_runs(id) ON DELETE CASCADE,
     business TEXT, domain TEXT, category TEXT, address TEXT, phone TEXT, level TEXT, finding JSONB,
     person JSONB, verified BOOLEAN, verify_status TEXT, email JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  // Every business with a gap, not only the ones built into leads: the rest of
+  // the territory, and the free sample a sales email can name. Kept out of
+  // recent() so the runs list stays small.
+  await pool.query(`ALTER TABLE prospector_runs ADD COLUMN IF NOT EXISTS gaps JSONB`);
   _ensured = true;
 }
 
@@ -81,6 +85,9 @@ async function run(pool, input, deps = {}) {
     const gaps = checked.filter((x) => x.f.level === 'high' || x.f.level === 'medium')
       .sort((a, z) => ORDER[a.f.level] - ORDER[z.f.level] || (z.b.ratings || 0) - (a.b.ratings || 0));
     summary.withGap = gaps.length;
+    await pool.query(`UPDATE prospector_runs SET gaps = $2 WHERE id = $1`, [runId, JSON.stringify(gaps.slice(0, 300).map(({ b, f }) => ({
+      business: b.name, domain: b.domain, category: b.category, address: b.address, phone: b.phone, term: b.term,
+      ratings: b.ratings || 0, level: f.level, mail: f.mail || null, problem: (f.problems || [])[0] || null })))]);
 
     // A mix of kinds of business: worst first within each kind, then one from
     // each kind in turn (the kinds that have the most high-risk gaps first).
