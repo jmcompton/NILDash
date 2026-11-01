@@ -248,12 +248,21 @@ router.get('/oauth/outlook', async (req, res) => {
     }
     const state = encodeState({ userId: req.session.userId, provider: 'outlook', returnTo: returnTo || undefined, read: (read || calendar) || undefined, calendar: calendar || undefined, sales: sales || undefined });
     const url = await outlook.getAuthUrl(state, { read: read || calendar, calendar, sales,
-      loginHint: sales ? require('../services/salesMailbox').fromAddress() : calendar ? require('../services/mailboxProspects').mailboxAddress() : undefined });
+      loginHint: sales ? _salesHint(req.query.hint) : calendar ? require('../services/mailboxProspects').mailboxAddress() : undefined });
     res.redirect(url);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
+
+// The sign-in hint for a sales mailbox: SALES_FROM_ADDRESS, or one of
+// Prospector's own (PROSPECTOR_FROM_ADDRESS) when the admin asked for it.
+// A hint only: Microsoft still asks which account.
+function _salesHint(hint) {
+  const h = String(hint || '').trim().toLowerCase();
+  const ours = String(process.env.PROSPECTOR_FROM_ADDRESS || '').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return h && ours.includes(h) ? h : require('../services/salesMailbox').fromAddress();
+}
 
 /**
  * GET /api/email/oauth/outlook/callback
@@ -267,11 +276,26 @@ router.get('/oauth/outlook/callback', async (req, res) => {
       // THE TENANT WANTS ITS ADMIN. Not an error to show raw: the explanation
       // screen, with the link the agent sends to their IT admin.
       console.warn(`[outlook callback] ${error}: ${String(req.query.error_description || '').split('\r\n')[0]}`);
+      if (st.prospector) return res.redirect('/p/' + encodeURIComponent(String(st.prospector)) + '?mailbox=' + (outlook.isConsentError(error, req.query.error_description) ? 'admin' : 'cancelled'));
       if (outlook.isConsentError(error, req.query.error_description)) {
         return res.redirect('/microsoft-consent.html' + (st.read ? '?read=1' : ''));
       }
       const why = /access_denied/i.test(error) ? 'You cancelled the Microsoft sign-in. Nothing was connected.' : 'Microsoft did not finish connecting the mailbox. Please try again.';
       return res.redirect(back ? withMarker(back, 'emailError=' + encodeURIComponent(why)) : '/#settings?emailError=' + encodeURIComponent(why));
+    }
+
+    // A Prospector customer connecting their own mailbox from their leads
+    // page (services/prospector/mailboxes): no NILDash login involved.
+    if (st.prospector) {
+      const token = String(st.prospector);
+      const back2 = '/p/' + encodeURIComponent(token);
+      try {
+        const out = await require('../services/prospector/mailboxes').onCallback(require('../store').pool, st, code);
+        return res.redirect(back2 + (out.mailbox && out.mailbox.can_send ? '?mailbox=connected' : '?mailbox=nosend'));
+      } catch (e) {
+        console.error('[outlook callback] prospector:', e.message);
+        return res.redirect(back2 + '?mailbox=error');
+      }
     }
 
     const { userId } = st;

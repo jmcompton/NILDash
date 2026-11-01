@@ -64,6 +64,9 @@ async function ensureTables(pool) {
     area TEXT, area_key TEXT, plan TEXT, period TEXT, status TEXT NOT NULL DEFAULT 'pending',
     stripe_customer_id TEXT, stripe_subscription_id TEXT, checkout_session_id TEXT UNIQUE, sample_token TEXT,
     onboarded_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  // The business mailing address that goes at the bottom of every email we
+  // send for them (CAN-SPAM). Asked for at onboarding.
+  await pool.query(`ALTER TABLE prospector_customers ADD COLUMN IF NOT EXISTS mailing_address TEXT`);
   await pool.query(`CREATE TABLE IF NOT EXISTS prospector_territories (
     area_key TEXT PRIMARY KEY, area TEXT, customer_id INT REFERENCES prospector_customers(id) ON DELETE CASCADE,
     claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
@@ -193,8 +196,10 @@ async function onboard(pool, sessionId, body, deps = {}) {
   }
   const clip = (v, n) => String(v == null ? '' : v).trim().slice(0, n) || null;
   const r = await pool.query(`UPDATE prospector_customers SET company = COALESCE($2, company), sender_name = COALESCE($3, sender_name),
-      about = COALESCE($4, about), email = COALESCE($5, email), onboarded_at = COALESCE(onboarded_at, NOW()), updated_at = NOW()
-    WHERE id = $1 RETURNING *`, [c.id, clip(body.company, 200), clip(body.senderName, 120), clip(body.about, 500), clip(body.email, 200)]);
+      about = COALESCE($4, about), email = COALESCE($5, email), mailing_address = COALESCE($6, mailing_address),
+      onboarded_at = COALESCE(onboarded_at, NOW()), updated_at = NOW()
+    WHERE id = $1 RETURNING *`, [c.id, clip(body.company, 200), clip(body.senderName, 120), clip(body.about, 500), clip(body.email, 200),
+    clip(body.mailingAddress, 300)]);
   return r.rows[0];
 }
 

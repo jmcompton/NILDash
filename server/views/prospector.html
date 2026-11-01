@@ -44,6 +44,12 @@ pre { white-space:pre-wrap; font:14px/1.55 inherit; font-family:inherit; backgro
 .runs li { margin:4px 0; }
 .status { margin:8px 0 0; font-size:14px; color:var(--muted); }
 .err { color:var(--high); }
+.ob { background:transparent; color:var(--accent); border:1px solid var(--accent); padding:7px 14px; }
+.prob { color:var(--high); margin:4px 0; font-size:14px; }
+table.ol { width:100%; border-collapse:collapse; font-size:14px; }
+table.ol td, table.ol th { text-align:left; padding:7px 6px; border-top:1px solid var(--line); vertical-align:top; }
+table.ol th { color:var(--muted); font-weight:600; font-size:12px; }
+.olwrap { overflow-x:auto; }
 </style>
 </head>
 <body>
@@ -83,6 +89,29 @@ pre { white-space:pre-wrap; font:14px/1.55 inherit; font-family:inherit; backgro
     <div class="row"><h2 style="margin:0;font-size:18px" id="rtitle"></h2></div>
     <div class="tiles" id="tiles"></div>
     <div id="leads"></div>
+  </section>
+
+  <section class="card" id="outreach">
+    <div class="row"><h2 style="margin:0;font-size:18px">Our outreach to IT companies</h2><span class="muted" id="osw"></span></div>
+    <div id="oprob"></div>
+    <div class="tiles" id="otiles"></div>
+    <div id="oboxes" class="muted"></div>
+    <div class="row" style="margin:10px 0">
+      <button type="button" id="oapprove" hidden>Approve all drafts to send</button>
+      <button type="button" class="ob" id="opause">Pause</button>
+      <button type="button" class="ob" id="oscan">Check replies now</button>
+      <select id="ostate"><option value="">Everyone</option><option>draft</option><option>queued</option><option>active</option><option>replied</option><option>done</option><option>stopped</option></select>
+    </div>
+    <details style="margin:4px 0 10px"><summary>Find more IT companies</summary>
+      <form id="bf" style="margin-top:10px">
+        <label class="wide">Cities, one per line (empty = the 50 biggest metros)
+          <textarea id="bareas" rows="3" placeholder="Birmingham, AL&#10;Nashville, TN"></textarea></label>
+        <label>Per city<select id="bmax"><option>5</option><option>10</option><option selected>15</option><option>25</option></select></label>
+        <div class="wide row"><button type="submit">Build drafts</button><span class="hint">About 1 to 2 Hunter credits per IT company. Everything lands as a draft for your OK.</span></div>
+      </form>
+    </details>
+    <p class="status" id="ostatus"></p>
+    <div class="olwrap"><table class="ol"><thead><tr><th>Who</th><th>Area</th><th>Where it is</th><th>Their reply</th></tr></thead><tbody id="olist"></tbody></table></div>
   </section>
 
   <section class="card runs">
@@ -157,6 +186,45 @@ pre { white-space:pre-wrap; font:14px/1.55 inherit; font-family:inherit; backgro
     } catch (e) { $('status').innerHTML = `<span class="err">${esc(e.message)}</span>`; $('go').disabled = false; }
   });
   $('runs').addEventListener('click', (ev) => { const a = ev.target.closest('a[data-id]'); if (a) { ev.preventDefault(); location.hash = a.dataset.id; show(a.dataset.id); } });
+
+  // ── Our outreach ──
+  let oPaused = false;
+  async function loadOutreach() {
+    const b = await j('/api/lab/prospector/outreach' + ($('ostate').value ? '?state=' + encodeURIComponent($('ostate').value) : ''));
+    const s = b.status, c = s.counts, t = s.totals || {};
+    oPaused = s.paused;
+    $('osw').textContent = `Sending ${s.on ? 'on' : 'off'} · auto-answer ${s.autosend ? 'on' : 'off'}${s.paused ? ' · paused' : ''}`;
+    $('oprob').innerHTML = s.problems.map((p) => `<p class="prob">${esc(p)}</p>`).join('');
+    $('otiles').innerHTML = [tile(c.draft, 'drafts waiting for your OK'), tile(c.queued, 'approved, waiting to send'), tile(c.active, 'in sequence'),
+      tile(t.firsts, 'first emails sent'), tile(c.replied, 'replied'), tile((s.tags || {}).interested || 0, 'interested'), tile(t.bounces, 'bounced')].join('');
+    $('oboxes').innerHTML = s.mailboxes.map((m) => m.connected
+      ? `${esc(m.address)}: ${m.sentToday} of ${m.capToday} sent today (warm-up day ${m.warmupDay})${m.limitedToday ? ' · limited by Microsoft today' : ''}${m.canMove ? '' : ' · <a href="' + esc(m.connectUrl) + '">reconnect to file replies</a>'}`
+      : `${esc(m.address)}: <a href="${esc(m.connectUrl)}">connect this mailbox</a>`).join('<br>');
+    $('oapprove').hidden = !c.draft;
+    $('oapprove').textContent = `Approve all ${c.draft} draft${c.draft === 1 ? '' : 's'} to send`;
+    $('opause').textContent = s.paused ? 'Resume' : 'Pause';
+    const where = (p) => p.state === 'draft' ? 'Draft: waiting for your OK' : p.state === 'queued' ? 'Approved: sends next'
+      : p.state === 'active' ? `Email ${p.step} of 3 sent · next ${p.next_at ? new Date(p.next_at).toLocaleDateString() : ''}`
+        : p.state === 'done' ? 'All 3 sent, no reply' : p.state === 'replied' ? `Replied${p.answered_at ? ' · sample sent' : ''}` : `Stopped: ${esc(p.stop_reason || '')}`;
+    $('olist').innerHTML = b.prospects.map((p) => `<tr><td><b>${esc([p.first_name, p.last_name].filter(Boolean).join(' ') || p.email)}</b><br><span class="muted">${esc(p.company || '')} · ${esc(p.email)}</span>
+        <details><summary>The email</summary><pre><b>${esc(p.subject)}</b>\n\n${esc(p.body)}</pre></details></td>
+      <td>${esc(p.area || '')}</td><td>${where(p)}${p.last_error ? '<br><span class="err">' + esc(p.last_error) + '</span>' : ''}</td>
+      <td>${p.reply_tag ? `<span class="pill ${p.reply_tag === 'interested' ? 'ver' : 'unver'}">${esc(p.reply_tag)}</span> ${esc(p.reply_text || '')}${p.sample_token ? ` <a href="/s/${esc(p.sample_token)}" target="_blank" rel="noopener">their sample</a>` : ''}` : ''}</td></tr>`).join('')
+      || '<tr><td colspan="4" class="muted">No one on the list yet.</td></tr>';
+  }
+  const oAct = async (url, body, done) => {
+    $('ostatus').textContent = 'Working...';
+    try { const r = await j(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }); $('ostatus').textContent = done(r); await loadOutreach(); }
+    catch (e) { $('ostatus').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  };
+  $('oapprove').addEventListener('click', () => oAct('/api/lab/prospector/outreach/approve', { all: true }, (r) => `${r.approved} approved. They go out during weekday hours, a few minutes apart.`));
+  $('opause').addEventListener('click', () => oAct('/api/lab/prospector/outreach/' + (oPaused ? 'resume' : 'pause'), {}, () => oPaused ? 'Resumed.' : 'Paused. Nothing sends until you resume.'));
+  $('oscan').addEventListener('click', () => oAct('/api/lab/prospector/outreach/scan', {}, (r) => r.skipped ? r.skipped : `${r.replies} replies, ${r.bounces} bounces.`));
+  $('ostate').addEventListener('change', () => loadOutreach().catch(() => {}));
+  $('bf').addEventListener('submit', (ev) => { ev.preventDefault();
+    oAct('/api/lab/prospector/outreach/build', { areas: $('bareas').value, max: $('bmax').value },
+      (r) => `Building drafts for ${r.total} cities. You'll get an email when they're ready; refresh this page to see them come in.`); });
+  loadOutreach().catch((e) => { $('ostatus').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
 
   loadPlaybooks().catch((e) => { $('status').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
   loadRuns().catch(() => {});

@@ -13291,14 +13291,16 @@ app.get('/api/prospector/welcome', async (req, res) => {
     }
     if (!c) return res.status(404).json({ error: 'Not found yet' });
     const p = B.plan(c.plan);
-    res.set('Cache-Control', 'no-store').json({ area: c.area, company: c.company, email: c.email, planName: p ? p.name : null, onboarded: !!c.onboarded_at, status: c.status });
+    res.set('Cache-Control', 'no-store').json({ area: c.area, company: c.company, email: c.email, planName: p ? p.name : null, sends: !!(p && p.sends),
+      onboarded: !!c.onboarded_at, status: c.status, portal: c.onboarded_at ? '/p/' + c.token : null });
   } catch (e) { res.status(500).json({ error: 'Could not load your order.' }); }
 });
 app.post('/api/prospector/onboard', _prospectorPublicLimiter, async (req, res) => {
   try {
     const body = req.body || {};
     const c = await require('./services/prospector/billing').onboard(store.pool, body.session_id, body);
-    res.json({ area: c.area, company: c.company, onboarded: true });
+    const p = require('./services/prospector/billing').plan(c.plan);
+    res.json({ area: c.area, company: c.company, onboarded: true, sends: !!(p && p.sends), portal: '/p/' + c.token });
   } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Could not save. Try again.' }); }
 });
 app.post('/api/lab/prospector/samples', async (req, res) => {
@@ -13319,6 +13321,140 @@ app.get('/api/lab/prospector/samples', async (req, res) => {
     const r = await store.pool.query(`SELECT token, company, first_name, email, area, source, status, run_id, views, last_viewed_at, created_at
       FROM prospector_samples ORDER BY created_at DESC LIMIT 200`);
     res.json({ samples: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── PROSPECTOR OUTREACH (services/prospector/outreach): our own cold emails ──
+// to IT company owners, from PROSPECTOR_FROM_ADDRESS. Admin only. Importing
+// makes drafts; nothing is sent until approved here (or PROSPECTOR_AUTOSEND_ON)
+// and PROSPECTOR_OUTREACH_ON is on.
+const _PO = () => require('./services/prospector/outreach');
+app.get('/admin/prospector/connect-mailbox', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
+  const addr = String(req.query.address || '').trim().toLowerCase();
+  if (!_PO().mailboxes().includes(addr)) return res.status(400).type('text/plain').send('That address is not in PROSPECTOR_FROM_ADDRESS.');
+  res.redirect('/api/email/oauth/outlook?sales=1&hint=' + encodeURIComponent(addr) + '&returnTo=' + encodeURIComponent('/lab/prospector'));
+});
+app.get('/api/lab/prospector/outreach', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json({ status: await _PO().status(store.pool), prospects: await _PO().list(store.pool, { state: req.query.state, limit: req.query.limit }) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/lab/prospector/outreach/import', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const b = req.body || {};
+  if (!Array.isArray(b.rows) || !b.rows.length) return res.status(400).json({ error: 'rows: [{ email, first, last, company, area, subject, body }] is required' });
+  try { res.json(await _PO().importRows(store.pool, b.rows, { batch: b.batch, source: b.source, approve: b.approve === true })); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+app.post('/api/lab/prospector/outreach/approve', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json(await _PO().approve(store.pool, { ...(req.body || {}), by: 'admin ' + req.session.userId })); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+app.post('/api/lab/prospector/outreach/remove', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json(await _PO().remove(store.pool, (req.body || {}).ids)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/lab/prospector/outreach/pause', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { await _PO().pause(store.pool, String((req.body || {}).reason || 'paused by admin')); res.json({ paused: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/lab/prospector/outreach/resume', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { await _PO().resume(store.pool); res.json({ paused: false }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Build the list by city: IT companies, their owners, three gaps near each,
+// all as drafts. In the background; poll the job, or wait for the email.
+app.post('/api/lab/prospector/outreach/build', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const b = req.body || {};
+  const areas = Array.isArray(b.areas) ? b.areas : String(b.areas || '').split(/\n|;/).map((x) => x.trim()).filter(Boolean);
+  const job = require('./services/prospector/msplist').start(store.pool, { areas, max: Math.min(Math.max(parseInt(b.max, 10) || 15, 1), 40) });
+  res.json({ jobId: job.id, total: job.total, batch: job.batch });
+});
+app.get('/api/lab/prospector/outreach/build/:id', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const j = require('./services/prospector/msplist').get(req.params.id);
+  if (!j) return res.status(404).json({ error: 'Not found (jobs are kept in memory until the next deploy)' });
+  res.json(j);
+});
+// Run the inbox check now (it also runs every 5 minutes while on).
+app.post('/api/lab/prospector/outreach/scan', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json(await _PO().scanReplies(store.pool)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── PROSPECTOR DELIVERY (services/prospector/delivery): the weekly leads ────
+// for paying IT companies. /p/<token> is the customer's own page: the token is
+// the secret, like the sample page. Admin: the customer list and a manual run.
+const _PD = () => require('./services/prospector/delivery');
+app.get('/p/:token', (req, res) => {
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'prospector-portal.html'));
+});
+app.get('/api/prospector/portal/:token', async (req, res) => {
+  try {
+    const v = await _PD().portal(store.pool, req.params.token);
+    if (!v) return res.status(404).json({ error: 'Not found' });
+    res.set('Cache-Control', 'no-store').json(v);
+  } catch (e) { res.status(500).json({ error: 'Could not load this page.' }); }
+});
+app.get('/api/prospector/portal/:token/leads.csv', async (req, res) => {
+  try {
+    const v = await _PD().portal(store.pool, req.params.token);
+    if (!v) return res.status(404).type('text/plain').send('Not found');
+    const name = String(v.area || 'leads').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leads';
+    res.set('Cache-Control', 'no-store').set('Content-Disposition', `attachment; filename="leads-${name}.csv"`).type('text/csv').send(_PD().csv(v));
+  } catch (e) { res.status(500).type('text/plain').send('Could not build the file.'); }
+});
+// Their mailbox, for Territory and Done For You: Microsoft's sign-in, back to /p/<token>.
+app.get('/api/prospector/portal/:token/connect', async (req, res) => {
+  try {
+    const B = require('./services/prospector/billing');
+    const c = await B.byToken(store.pool, req.params.token);
+    if (!c) return res.status(404).type('text/plain').send('Not found');
+    const p = B.plan(c.plan);
+    if (!p || !p.sends) return res.redirect('/p/' + encodeURIComponent(c.token));
+    res.redirect(require('./services/prospector/mailboxes').connectUrl(c.token));
+  } catch (e) { res.status(500).type('text/plain').send('Microsoft sign-in is not available right now.'); }
+});
+app.post('/api/prospector/portal/:token/disconnect', _prospectorPublicLimiter, async (req, res) => {
+  try {
+    const c = await require('./services/prospector/billing').byToken(store.pool, req.params.token);
+    if (!c) return res.status(404).json({ error: 'Not found' });
+    await require('./services/prospector/mailboxes').disconnect(store.pool, c.id);
+    res.json({ disconnected: true });
+  } catch (e) { res.status(500).json({ error: 'Could not disconnect. Try again.' }); }
+});
+app.post('/api/prospector/portal/:token/address', _prospectorPublicLimiter, async (req, res) => {
+  try {
+    const c = await require('./services/prospector/billing').byToken(store.pool, req.params.token);
+    if (!c) return res.status(404).json({ error: 'Not found' });
+    const a = String((req.body || {}).mailingAddress || '').trim().replace(/\s+/g, ' ').slice(0, 300);
+    if (a.length < 10 || !/\d/.test(a)) return res.status(400).json({ error: 'Enter the full mailing address: street or PO box, city, state, ZIP.' });
+    await store.pool.query(`UPDATE prospector_customers SET mailing_address = $2, updated_at = NOW() WHERE id = $1`, [c.id, a]);
+    res.json({ saved: true });
+  } catch (e) { res.status(500).json({ error: 'Could not save. Try again.' }); }
+});
+app.get('/api/lab/prospector/customers', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json({ on: _PD().ON(), customers: await _PD().customers(store.pool), due: (await _PD().due(store.pool)).map((c) => c.id) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Build and send one customer's batch now (answers at once; the run keeps going).
+app.post('/api/lab/prospector/customers/:id/deliver', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    await _PD().ensureTables(store.pool);
+    const c = (await store.pool.query(`SELECT * FROM prospector_customers WHERE id = $1`, [parseInt(req.params.id, 10) || 0])).rows[0];
+    if (!c) return res.status(404).json({ error: 'Not found' });
+    if (!c.area) return res.status(400).json({ error: 'This customer has no area.' });
+    _PD().deliver(store.pool, c).catch((e) => console.error('[prospector-delivery] manual:', e.message));
+    res.json({ started: true, customer: c.id, wanted: _PD().weekly(c.plan) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -16238,6 +16374,12 @@ try {
   require('./services/coldAgent').start(store.pool);
   // The sales autopilot: idle unless SALES_AUTOPILOT_ON (services/salesAutopilot).
   require('./services/salesAutopilot').start(store.pool);
+  // Prospector's own outreach: idle unless PROSPECTOR_OUTREACH_ON (services/prospector/outreach).
+  require('./services/prospector/outreach').start(store.pool);
+  // Weekly leads for paying IT companies: idle unless PROSPECTOR_DELIVERY_ON (services/prospector/delivery).
+  require('./services/prospector/delivery').start(store.pool);
+  // Territory / Done For You: sending leads from the customer's own mailbox (PROSPECTOR_CUSTOMER_SEND_ON).
+  require('./services/prospector/customerSend').start(store.pool);
   // Done-for-you sending: idle unless AUTO_SEND_ON (services/autoSend).
   require('./services/autoSend').start(store.pool);
 } catch (e) {
