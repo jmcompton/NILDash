@@ -1606,6 +1606,11 @@
       "failed": 0,
       "total": 76,
       "fault": null
+    },
+    "prospector.js": {
+      "failed": 0,
+      "total": 35,
+      "fault": null
     }
   }
 }
