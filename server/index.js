@@ -1092,7 +1092,7 @@ app.get('/api/health', (req, res) => {
 
 // ── Auth routes ────────────────────────────────────────────────
 app.post('/api/auth/signup', async (req, res) => {
-  const { name, email, password, role, trial, tier, period } = req.body;
+  const { name, email, password, role, trial, tier, period, tryToken } = req.body;
   if (!name || !email || !password || !role)
     return res.status(400).json({ error: 'All fields required' });
   if (!['agent', 'university'].includes(role))
@@ -1132,6 +1132,12 @@ app.post('/api/auth/signup', async (req, res) => {
   req.session.userId = id;
   req.session.role   = role;
 
+  // From a free sample (/pitches): the athlete they typed joins their roster
+  // once they are in (services/nilTry claimFor, on the first roster load).
+  if (role === 'agent' && tryToken) {
+    await require('./services/nilTry').link(store.pool, tryToken, id).catch((e) => console.error('[signup] nil-try link:', e.message));
+  }
+
   if (role === 'agent') {
     // New agents no longer get a local "free for 7 days" flag (that never charged
     // anyone). They must enter a card and start a real Stripe trial subscription
@@ -1146,7 +1152,7 @@ app.post('/api/auth/signup', async (req, res) => {
         const SA = require('./services/salesAutopilot');
         const trialDays = SA.trialDaysFor(trial);
         const checkoutUrl = await createAgentCheckoutSession(user, { trialDays });
-        if (trialDays) SA.recordTrial(store.pool, user, 'signup').catch((e) => console.error('[signup] trial record:', e.message));
+        if (trialDays) SA.recordTrial(store.pool, user, tryToken ? 'pitches' : 'signup').catch((e) => console.error('[signup] trial record:', e.message));
         return res.json({ id: user.id, name: user.name, email: user.email, role: user.role, checkoutUrl });
       } catch (e) {
         console.error('[signup] agent checkout failed:', e.message);
@@ -1352,6 +1358,12 @@ app.get('/api/athletes', requireAuth, async (req, res) => {
   let athletes;
   if (user.role === 'agent' || user.role === 'admin') {
     athletes = await store.getAthletesByAgent(user.id);
+    // An empty roster with access, after a free sample: the athlete they typed
+    // on /pitches is added for them, once (services/nilTry claimFor).
+    if (!athletes.length && user.role === 'agent' && agentHasAccess(user)) {
+      const added = await require('./services/nilTry').claimFor(store.pool, user).catch((e) => { console.error('[athletes] nil-try claim:', e.message); return null; });
+      if (added) athletes = await store.getAthletesByAgent(user.id);
+    }
   } else {
     // FIXED: athlete users have athlete_id on their profile, not their own athletes roster
     const athleteId = user.athlete_id;
@@ -12621,6 +12633,40 @@ app.get('/sample/:token', async (req, res) => {
     res.set('X-Robots-Tag', 'noindex, nofollow').type('html').send(html);
   } catch (e) { console.error('[sample] ' + e.message); res.status(500).type('text/plain').send('Could not render the sample.'); }
 });
+// /pitches: "see NILDash work for your athlete" (services/nilTry). The agent
+// types in one athlete and gets a private page of local businesses, people
+// and pitches at /pitches/<token>. Public; the request is rate limited and
+// the builds are capped per day (NIL_TRY_PER_DAY).
+const _nilTryLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many requests. Try again later.' },
+});
+app.get('/pitches', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'nil-try.html'));
+});
+app.get('/pitches/:token', (req, res) => {
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'nil-try.html'));
+});
+app.post('/api/nil-try', _nilTryLimiter, async (req, res) => {
+  try { res.json(await require('./services/nilTry').request(store.pool, req.body || {}, { ip: req.ip })); }
+  catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.', field: e.field || null }); }
+});
+app.get('/api/nil-try/:token', async (req, res) => {
+  try {
+    const v = await require('./services/nilTry').view(store.pool, req.params.token, { countView: true });
+    if (!v) return res.status(404).json({ error: 'Not found' });
+    res.set('Cache-Control', 'no-store').json(v);
+  } catch (e) { res.status(500).json({ error: 'Could not load this page.' }); }
+});
+app.get('/api/admin/nil-tries', _coldAdmin, async (req, res) => {
+  try { res.json({ on: require('./services/nilTry').ON(), perDay: require('./services/nilTry').PER_DAY(), tries: await require('./services/nilTry').recent(store.pool) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Build the next waiting one now (it also runs every 2 minutes while on).
+app.post('/api/admin/nil-tries/tick', _coldAdmin, async (req, res) => {
+  try { res.json(await require('./services/nilTry').tick(store.pool, { deps: { force: true } })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 // The agency list the samples come from (services/salesSample). Admin only
 // (the /api/admin gate), JSON: { source, agencies: [{ slug, agency, clients, agents, players|notable, schools }] }.
 app.post('/api/admin/sales/pool', _coldAdmin, express.json({ limit: '2mb' }), async (req, res) => {
@@ -16374,6 +16420,8 @@ try {
   require('./services/coldAgent').start(store.pool);
   // The sales autopilot: idle unless SALES_AUTOPILOT_ON (services/salesAutopilot).
   require('./services/salesAutopilot').start(store.pool);
+  // Free samples from /pitches: idle unless NIL_TRY_ON (services/nilTry).
+  require('./services/nilTry').start(store.pool);
   // Prospector's own outreach: idle unless PROSPECTOR_OUTREACH_ON (services/prospector/outreach).
   require('./services/prospector/outreach').start(store.pool);
   // Weekly leads for paying IT companies: idle unless PROSPECTOR_DELIVERY_ON (services/prospector/delivery).

@@ -1641,6 +1641,11 @@
       "failed": 0,
       "total": 21,
       "fault": null
+    },
+    "niltry.js": {
+      "failed": 0,
+      "total": 46,
+      "fault": null
     }
   }
 }

@@ -5267,6 +5267,9 @@ function mktOpenAuth(role) {
   var go = function () {
     mktOpenAuth(role);
     if (role === 'agent' && qs.get('tab') === 'signup' && typeof switchTab === 'function') switchTab('signup');
+    // From a free sample (/pitches): their email is already known.
+    var em = qs.get('email'), box = document.getElementById('signupEmail');
+    if (em && box && !box.value && /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(em)) box.value = em;
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
 })();
@@ -5757,6 +5760,8 @@ async function doSignup() {
         role: selectedRole,
         // The "Start 14-day trial" link (?trial=14); the server decides.
         trial: (function () { try { return new URLSearchParams(window.location.search).get('trial') || undefined; } catch (e) { return undefined; } })(),
+        // From a free sample on /pitches (?try=<token>): that athlete joins the roster.
+        tryToken: (function () { try { return new URLSearchParams(window.location.search).get('try') || undefined; } catch (e) { return undefined; } })(),
         // The plan picked on the homepage plan cards (tiered pricing on only).
         tier: window.__mktPlan ? window.__mktPlan.tier : undefined,
         period: window.__mktPlan ? window.__mktPlan.period : undefined,

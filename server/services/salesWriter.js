@@ -106,6 +106,8 @@ function workloadLine(p) {
 // ── THE TEMPLATE: ALWAYS PASSES ──────────────────────────────────────────
 // ctx: { link, trialOn, senderName, senderPhone }
 function askLine(p, ctx) {
+  // NIL_TRY_ON: try it on one athlete at /pitches, free, instead of a call.
+  if (ctx.pitches) return `Want to see it on one of your athletes first? Put in a name and NILDash builds the pitches, free, no call: ${ctx.link}`;
   const what = p.lane === 'school' ? `for ${p.org || 'your department'}` : 'with your roster';
   return `Worth 15 minutes to see it ${what}? You can book a time${ctx.trialOn ? ' or start a 14-day trial' : ''} here: ${ctx.link}`;
 }
@@ -145,6 +147,12 @@ function followUp(p, step, ctx) {
   const first = firstName(p.person) || 'there';
   const sign = firstName(ctx.senderName) || ctx.senderName;
   const who = p.lane === 'school' ? 'each of your teams' : 'every athlete you represent';
+  if (ctx.pitches) {
+    const b = step === 2
+      ? [`Hi ${first},`, '', `Bumping this in case it got buried. Put in one of your athletes and NILDash builds their pitches, free: ${ctx.link}`, '', sign]
+      : [`Hi ${first},`, '', `Last note from me on this. If you want to see it on one of your athletes, it's free here: ${ctx.link}`, '', sign];
+    return { subject: null, body: b.join('\n') };
+  }
   const body = step === 2
     ? [`Hi ${first},`, '', `Bumping this in case it got buried. If 5 ready pitches each morning for ${who} would save you time, here are 15 minutes: ${ctx.link}`, '', sign]
     : [`Hi ${first},`, '', `Last note from me on this. If the timing is wrong, no reply needed. If you want to see it, you can book 15 minutes${ctx.trialOn ? ' or start a 14-day trial' : ''} here: ${ctx.link}`, '', sign];
@@ -175,8 +183,12 @@ function checkEmail({ subject, body }, p, ctx, step = 1) {
     if (!/\bmornings?\b/i.test(body)) problems.push('does not lead with the mornings bought back');
     if (!/already written/i.test(body)) problems.push('does not say the pitches are already written');
     if (!/\bverified\b/i.test(body)) problems.push('does not say they go to verified people');
-    if (!/\b15[- ]minute|\b15 minutes\b|\bfifteen minutes\b/i.test(body)) problems.push('does not ask for 15 minutes');
-    if (ctx.trialOn && !/14-day trial/i.test(body)) problems.push('does not offer the 14-day trial');
+    if (ctx.pitches) {
+      if (!/\bfree\b/i.test(body) || !/\bone of your athletes\b/i.test(body)) problems.push('does not offer to run it free on one of their athletes');
+    } else {
+      if (!/\b15[- ]minute|\b15 minutes\b|\bfifteen minutes\b/i.test(body)) problems.push('does not ask for 15 minutes');
+      if (ctx.trialOn && !/14-day trial/i.test(body)) problems.push('does not offer the 14-day trial');
+    }
     if (p.org && !lc(body).includes(lc(p.org)) && !(p.fact && lc(body).includes(lc(cleanFact(p.fact) || '').slice(0, 30)))) {
       problems.push('has no specific line about ' + p.org);
     }
@@ -203,7 +215,7 @@ async function write(p, ctx, deps = {}) {
       const facts = {
         to: { firstName: firstName(p.person), org: p.org, title: p.title || null, lane: p.lane, league: p.league || null, level: p.level || null, state: stateName(p.state) },
         specificLine: p.org ? workloadLine(p) : (cleanFact(p.fact) || fallbackFact(p)),
-        link: ctx.link, trialOn: !!ctx.trialOn, signOff: signOff(ctx),
+        link: ctx.link, trialOn: !!ctx.trialOn, pitches: !!ctx.pitches, signOff: signOff(ctx),
       };
       const team = p.lane === 'school';
       const prompt = `Write a short cold email from ${ctx.senderName}, founder of NILDash, to ${team ? 'a college athletic department NIL director' : 'a sports agent'}.
@@ -212,7 +224,7 @@ Shape, in this order:
 1. "Hi ${facts.to.firstName || 'there'}," on its own line.
 2. Lead with the time they get back: every morning ${team ? 'each of their teams and programs has 5 sponsorship pitches ready for local businesses' : 'each athlete they represent has 5 pitches ready for local and social brands'}, already written and going to verified people at those businesses; ${team ? 'their staff reviews and sends' : 'they review and send'}. Two or three plain sentences.
 3. The specific line, in your own words, keeping its facts: ${JSON.stringify(facts.specificLine)} (it must name them and say what the time is worth to them; never describe their company back to them)
-4. One ask, one sentence: 15 minutes to see it, with this link exactly once: ${ctx.link}${ctx.trialOn ? ' (the same link also starts a 14-day trial; say so)' : ''}.
+4. One ask, one sentence: ${ctx.pitches ? `see it on one of their athletes first: they put in a name and NILDash builds the pitches, free, no call (use the words "free" and "one of your athletes"), with this link exactly once: ${ctx.link}` : `15 minutes to see it, with this link exactly once: ${ctx.link}${ctx.trialOn ? ' (the same link also starts a 14-day trial; say so)' : ''}`}.
 5. The sign-off exactly: ${JSON.stringify(facts.signOff)}
 Rules: under 110 words including the sign-off. Plain text, no links but that one. No exclamation marks, no em dashes, no hype or marketing words, never the word AI. Never say NILDash closes, negotiates or signs deals.${team ? ' It is about teams and programs, never individual athletes.' : ''}
 Return ONLY JSON: {"subject":"under 8 words, plain","body":"the email with \\n line breaks"}`;
