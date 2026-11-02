@@ -274,8 +274,10 @@ async function verifyMany(pool, emails, opts = {}) {
     }
     const m = mapHunter(v.status, v.result);
     const st = v.status ? String(v.status).toLowerCase() : null;
+    // source stays 'hunter' (it means "the mailbox verifier answered", and
+    // callers branch on it); provider says which vendor it was.
     await record(pool, email, m.result, m.detail, 'hunter', st);
-    out.set(email, { ...m, source: 'hunter', status: st });
+    out.set(email, { ...m, source: 'hunter', status: st, provider: v.provider || 'hunter' });
   };
 
   let next = 0;
