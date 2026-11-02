@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NILDash compliance: Protect College Sports Act</title>
+<meta name="robots" content="noindex">
+<style>
+:root { --bg:#f5f7f4; --fg:#15201a; --muted:#4a574f; --line:#dde4dd; --card:#fff; --acc:#1b7a48; --acc-ink:#fff; --soft:#e5f2ea; --warn:#7a5200; --warn-bg:#fff4d6; --bad:#a23a2c; --bad-bg:#fbe7e3; }
+@media (prefers-color-scheme: dark) { :root { --bg:#101511; --fg:#e7ede8; --muted:#9aa99f; --line:#2a332d; --card:#18201b; --acc:#4cc283; --acc-ink:#0d1410; --soft:#1d3a29; --warn:#e2b04a; --warn-bg:#3a2f16; --bad:#ef8a7a; --bad-bg:#3d201b; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 18px; }
+a { color: var(--acc); }
+.brand { font-weight: 800; color: var(--fg); text-decoration: none; font-size: 20px; } .brand span { color: var(--acc); }
+h1 { margin: 4px 0 0; font-size: clamp(1.5rem, 3.6vw, 2rem); line-height: 1.15; }
+h2 { margin: 0; font-size: 1.15rem; }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 70ch; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 14px; }
+@media (max-width: 640px) { .grid, .grid3 { grid-template-columns: 1fr; } }
+label { display: flex; flex-direction: column; gap: 5px; font-size: .88rem; font-weight: 600; color: var(--muted); }
+label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); }
+input, select, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; min-height: 44px; }
+textarea { min-height: 70px; resize: vertical; }
+input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
+.btn { align-self: flex-start; border: 0; cursor: pointer; font: inherit; font-weight: 700; background: var(--acc); color: var(--acc-ink); border-radius: 9px; padding: 12px 18px; min-height: 44px; }
+.badge { display: inline-block; font-size: .85rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+.ok { background: var(--soft); color: var(--acc); } .warn { background: var(--warn-bg); color: var(--warn); } .flag { background: var(--bad-bg); color: var(--bad); } .unknown { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.status { font-size: .9rem; color: var(--muted); }
+.rules { margin: 0; padding-left: 18px; color: var(--fg); }
+.rules li { margin: 4px 0; }
+.finding { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.finding:last-child { border-bottom: 0; }
+.finding .badge { flex: 0 0 auto; min-width: 74px; text-align: center; }
+.fine { font-size: .82rem; color: var(--muted); margin: 0; }
+.err { color: var(--bad); font-size: .92rem; min-height: 1.2em; }
+</style>
+</head>
+<body>
+<main>
+  <div><a class="brand" href="/">NIL<span>DASH</span></a></div>
+  <div>
+    <h1>Protect College Sports Act compliance</h1>
+    <p class="lede">The federal rules for agents, transfers and NIL deals in S. 4668, built in ahead of time. <span id="status"></span></p>
+  </div>
+
+  <section class="card" aria-labelledby="r-h">
+    <h2 id="r-h">The rules NILDash checks</h2>
+    <ul class="rules" id="rules"><li>Loading...</li></ul>
+  </section>
+
+  <section class="card" aria-labelledby="p-h">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">
+      <h2 id="p-h">Your agent registration</h2>
+      <span class="badge unknown" id="pbadge">Checking...</span>
+    </div>
+    <p class="status" id="ptext"></p>
+    <form id="pform" class="grid" novalidate>
+      <label>State you're registered in<input name="registeredState" maxlength="2" placeholder="AL" autocomplete="off"></label>
+      <label>Registration number<input name="registrationNumber" maxlength="60"></label>
+      <label>Or players association (NFLPA, NBPA...)<input name="proAssociation" maxlength="80"></label>
+      <label class="check" style="align-self:end"><input type="checkbox" name="associationCertified"> I've certified my registration to the NCAA</label>
+      <div style="grid-column:1/-1;display:flex;flex-wrap:wrap;gap:12px;align-items:center"><button class="btn" type="submit">Save</button><span class="err" id="perr" role="status"></span></div>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="d-h">
+    <h2 id="d-h">Check a deal</h2>
+    <form id="dform" novalidate style="display:flex;flex-direction:column;gap:14px">
+      <div class="grid3">
+        <label>Deal value ($)<input name="value" inputmode="decimal" placeholder="25000"></label>
+        <label>Your fee (%)<input name="feePct" inputmode="decimal" placeholder="5"></label>
+        <label>Who pays
+          <select name="payerType">
+            <option value="business">A business or brand</option>
+            <option value="collective">A collective</option>
+            <option value="booster">A booster (gave over $50,000)</option>
+            <option value="conference">A conference</option>
+            <option value="school_employee">School or conference staff</option>
+            <option value="school">The school (rev-share)</option>
+          </select>
+        </label>
+      </div>
+      <label>Promotional work in the deal (one per line)<textarea name="deliverables" placeholder="3 Instagram posts&#10;1 store appearance"></textarea></label>
+      <div class="grid3">
+        <label>Signed on<input name="signedAt" type="date"></label>
+        <label>First paid on<input name="paidAt" type="date"></label>
+        <label>Contract ends<input name="endDate" type="date"></label>
+      </div>
+      <div class="grid3">
+        <label>Top pay for comparable players ($)<input name="comparableHigh" inputmode="decimal" placeholder="optional"></label>
+        <label>Other NIL in the last 12 months ($)<input name="priorTwelveMonths" inputmode="decimal" placeholder="0"></label>
+        <label class="check" style="align-self:end"><input type="checkbox" name="inWriting" checked> The agency contract is in writing</label>
+      </div>
+      <h2 style="font-size:1rem;margin-top:4px">The athlete</h2>
+      <div class="grid3">
+        <label>Birth date<input name="birthDate" type="date"></label>
+        <label>First full-time enrollment<input name="firstEnrollment" type="date"></label>
+        <label>Transfers so far
+          <select name="transfers"><option value="0">None</option><option value="1">1</option><option value="2">2 or more</option></select>
+        </label>
+      </div>
+      <label>If this is a second transfer, does an exception apply?
+        <select name="exception">
+          <option value="">No exception</option>
+          <option value="head_coach_departed">The head coach left</option>
+          <option value="sport_discontinued">The sport was cut</option>
+          <option value="graduate_study">Graduate study</option>
+          <option value="sexual_assault_or_harassment">Sexual assault or harassment</option>
+        </select>
+      </label>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center"><button class="btn" type="submit">Check it</button><span class="err" id="derr" role="status"></span></div>
+    </form>
+    <div id="result" hidden style="display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><h2 id="rsum" style="font-size:1.05rem"></h2></div>
+      <div id="rlist"></div>
+      <p class="fine" id="rdisc"></p>
+    </div>
+  </section>
+  <p class="fine">Educational information, not legal advice. Confirm with a qualified attorney before acting.</p>
+</main>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const LABEL = { ok: 'OK', warn: 'Check', flag: 'Fix', unknown: 'Unknown' };
+  const signIn = () => { $('perr').innerHTML = 'Sign in to save this. <a href="/?signin=agent">Sign in</a>'; };
+
+  fetch('/api/pcsa/rules').then((r) => r.json()).then((d) => {
+    $('status').textContent = d.status === 'law' ? 'These rules are now law.' : 'It passed the Senate on Sept 28, 2026 and is waiting on the House, so every result below is a warning, not a requirement, until it becomes law.';
+    $('rules').innerHTML = d.rules.map((x) => '<li>' + esc(x.text) + '</li>').join('');
+  }).catch(() => { $('rules').innerHTML = '<li>Could not load the rules. Reload the page.</li>'; });
+
+  function showProfile(p) {
+    const c = p.check || {};
+    $('pbadge').className = 'badge ' + (c.ready ? 'ok' : 'warn');
+    $('pbadge').textContent = c.ready ? 'PCSA-ready' : 'Not ready yet';
+    $('ptext').textContent = c.text || '';
+    const f = $('pform');
+    f.registeredState.value = p.registeredState || '';
+    f.registrationNumber.value = p.registrationNumber || '';
+    f.proAssociation.value = p.proAssociation || '';
+    f.associationCertified.checked = !!p.associationCertified;
+  }
+  fetch('/api/pcsa/profile', { credentials: 'same-origin' }).then((r) => {
+    if (r.status === 401) { $('pbadge').textContent = 'Sign in'; signIn(); return null; }
+    return r.json();
+  }).then((p) => { if (p) showProfile(p); }).catch(() => {});
+
+  $('pform').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); $('perr').textContent = '';
+    const f = ev.target;
+    const body = { registeredState: f.registeredState.value, registrationNumber: f.registrationNumber.value, proAssociation: f.proAssociation.value, associationCertified: f.associationCertified.checked };
+    try {
+      const r = await fetch('/api/pcsa/profile', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (r.status === 401) return signIn();
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not save.');
+      showProfile(d); $('perr').textContent = 'Saved.';
+    } catch (e) { $('perr').textContent = e.message; }
+  });
+
+  $('dform').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); $('derr').textContent = '';
+    const f = ev.target;
+    const n = parseInt(f.transfers.value, 10) || 0;
+    const transfers = n === 0 ? [] : n === 1 ? [{}] : [{}, { exception: f.exception.value || null }];
+    const body = {
+      deal: { value: f.value.value, feePct: f.feePct.value || null, payerType: f.payerType.value, deliverables: f.deliverables.value,
+        signedAt: f.signedAt.value || null, paidAt: f.paidAt.value || null, endDate: f.endDate.value || null,
+        comparableHigh: f.comparableHigh.value || null, priorTwelveMonths: f.priorTwelveMonths.value || 0, inWriting: f.inWriting.checked },
+      athlete: { birthDate: f.birthDate.value || null, firstEnrollment: f.firstEnrollment.value || null, transfers },
+    };
+    try {
+      const r = await fetch('/api/pcsa/check', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (r.status === 401) { $('derr').innerHTML = 'Sign in to check deals. <a href="/?signin=agent">Sign in</a>'; return; }
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not check it.');
+      const all = d.findings.concat(d.eligibility.findings);
+      $('rsum').textContent = d.summary;
+      $('rlist').innerHTML = all.map((x) => '<div class="finding"><span class="badge ' + esc(x.level) + '">' + esc(LABEL[x.level] || x.level) + '</span><span>' + esc(x.text) + '</span></div>').join('');
+      $('rdisc').textContent = d.disclaimer;
+      $('result').hidden = false;
+    } catch (e) { $('derr').textContent = e.message; }
+  });
+})();
+</script>
+</body>
+</html>
