@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>See NILDash work for your athlete</title>
+<meta name="description" content="Put in one athlete. NILDash finds local businesses that fit, the person who decides, and writes the pitch. Free.">
+<style>
+:root { --bg:#f5f7f4; --fg:#15201a; --muted:#5d6b62; --line:#dde4dd; --card:#fff; --acc:#1b7a48; --acc-ink:#fff; --err:#b42318; }
+@media (prefers-color-scheme: dark) { :root { --bg:#101511; --fg:#e7ede8; --muted:#9aa99f; --line:#2a332d; --card:#18201b; --acc:#4cc283; --acc-ink:#0d1410; --err:#fda29b; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+main { max-width:720px; margin:0 auto; padding:24px 16px 56px; display:flex; flex-direction:column; gap:16px; }
+.brand { font-weight:800; letter-spacing:.02em; color:var(--acc); text-decoration:none; }
+h1 { margin:6px 0 0; font-size:clamp(1.6rem, 4vw, 2.1rem); line-height:1.15; letter-spacing:-.01em; }
+.lede { color:var(--muted); margin:8px 0 0; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
+form { display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; }
+.wide { grid-column:1 / -1; }
+@media (max-width:560px) { form { grid-template-columns:1fr; } }
+label { display:flex; flex-direction:column; gap:5px; font-size:.88rem; font-weight:600; color:var(--muted); }
+input, select { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 11px; }
+.hp { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+.btn { display:inline-block; border:0; cursor:pointer; font:inherit; font-weight:700; text-decoration:none; text-align:center; background:var(--acc); color:var(--acc-ink); border-radius:9px; padding:12px 18px; }
+.btn[disabled] { opacity:.6; cursor:wait; }
+.err { color:var(--err); font-size:.92rem; min-height:1.2em; }
+.fine { color:var(--muted); font-size:.85rem; margin:0; }
+.how { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
+@media (max-width:560px) { .how { grid-template-columns:1fr; } }
+.how div { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; font-size:.92rem; }
+.how b { display:block; color:var(--acc); }
+.biz { display:flex; gap:14px; }
+.n { flex:0 0 32px; height:32px; border-radius:50%; background:var(--acc); color:var(--acc-ink); display:flex; align-items:center; justify-content:center; font-weight:700; }
+.body { min-width:0; flex:1; }
+h2 { margin:0; font-size:1.15rem; }
+.cat { margin:2px 0 0; color:var(--muted); font-size:.9rem; }
+.why { margin:8px 0 0; }
+.who { margin:8px 0 0; }
+.pill { display:inline-block; font-size:.75rem; padding:1px 8px; border-radius:999px; border:1px solid var(--line); color:var(--muted); margin-left:4px; }
+details { margin-top:10px; }
+summary { cursor:pointer; color:var(--acc); font-weight:600; }
+pre { white-space:pre-wrap; font:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px; margin:8px 0 0; }
+.spinner { width:34px; height:34px; border:3px solid var(--line); border-top-color:var(--acc); border-radius:50%; margin:0 auto 12px; animation:spin 1s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.center { text-align:center; }
+.cta { display:flex; flex-direction:column; gap:10px; }
+</style>
+</head>
+<body>
+<main id="main">
+  <div><a class="brand" href="/">NILDash</a></div>
+</main>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const main = $('main');
+  const head = '<div><a class="brand" href="/">NILDash</a></div>';
+  const parts = location.pathname.split('/').filter(Boolean);
+  const token = parts[0] === 'pitches' && parts[1] ? decodeURIComponent(parts[1]) : null;
+  const SPORTS = ['Football', 'Basketball', 'Baseball', 'Softball', 'Soccer', 'Volleyball', 'Track and Field', 'Wrestling', 'Golf', 'Tennis', 'Lacrosse', 'Swimming', 'Hockey', 'Gymnastics', 'Other'];
+  const LEVELS = [['d1', 'Division I (not Power 4)'], ['p4', 'Power 4'], ['d2', 'Division II'], ['d3', 'Division III'], ['naia', 'NAIA'], ['juco', 'JUCO'], ['hs', 'High school']];
+
+  function form() {
+    document.title = 'See NILDash work for your athlete';
+    main.innerHTML = head + `
+      <div><h1>Put in one athlete. See the deals NILDash finds.</h1>
+      <p class="lede">NILDash finds local businesses near your athlete's school that fit them, finds the person who decides, and writes the pitch in your name. Try it on one athlete, free. No card, no call.</p></div>
+      <div class="card"><form id="f" novalidate>
+        <label>Your name<input name="name" autocomplete="name" maxlength="80" required></label>
+        <label>Your email<input name="email" type="email" autocomplete="email" maxlength="200" required></label>
+        <label class="wide">Agency (optional)<input name="agency" autocomplete="organization" maxlength="120"></label>
+        <label>Athlete's full name<input name="athlete" maxlength="80" required placeholder="First and last name"></label>
+        <label>School<input name="school" maxlength="120" required placeholder="e.g. Samford University"></label>
+        <label>Sport<select name="sport" required><option value="">Pick one</option>${SPORTS.map((s) => `<option>${esc(s)}</option>`).join('')}</select></label>
+        <label>Level<select name="level">${LEVELS.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></label>
+        <label class="wide">Position (optional)<input name="position" maxlength="30" placeholder="e.g. WR"></label>
+        <div class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
+        <div class="wide"><button class="btn" id="go" type="submit">Find businesses for my athlete</button></div>
+        <div class="wide err" id="err" role="status"></div>
+        <p class="wide fine">We email you the link when it's ready, usually within a few minutes. One free sample per agent.</p>
+      </form></div>
+      <div class="how"><div><b>1. Local businesses</b>Real businesses near the school that fit the athlete and their sport.</div>
+        <div><b>2. The person who decides</b>The owner or manager, with a checked email.</div>
+        <div><b>3. The pitch, written</b>In your name, ready to review and send.</div></div>`;
+    $('f').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const fd = Object.fromEntries(new FormData(ev.target).entries());
+      $('go').disabled = true; $('err').textContent = '';
+      try {
+        const r = await fetch('/api/nil-try', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fd) });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok || !out.token) throw new Error(out.error || 'Something went wrong. Try again.');
+        location.href = '/pitches/' + encodeURIComponent(out.token);
+      } catch (e) { $('err').textContent = e.message; $('go').disabled = false; }
+    });
+  }
+
+  function card(c, i) {
+    return `<section class="card biz"><div class="n">${i + 1}</div><div class="body">
+      <h2>${esc(c.business)}</h2>${c.category ? `<p class="cat">${esc(c.category)}</p>` : ''}
+      ${c.why ? `<p class="why">${esc(c.why)}</p>` : ''}
+      ${c.contactName ? `<p class="who"><b>Contact:</b> ${esc(c.contactName)}${c.contactTitle ? ', ' + esc(c.contactTitle) : ''}<span class="pill">checked email on file</span></p>` : ''}
+      ${c.pitch ? `<details${i === 0 ? ' open' : ''}><summary>The pitch, already written${c.subject ? ': <i>' + esc(c.subject) + '</i>' : ''}</summary><pre>${esc(c.pitch)}</pre></details>` : ''}
+    </div></section>`;
+  }
+
+  let polls = 0;
+  async function result() {
+    let d;
+    try {
+      const r = await fetch('/api/nil-try/' + encodeURIComponent(token));
+      if (r.status === 404) { main.innerHTML = head + '<div class="card"><b>This link is wrong or expired.</b> <a href="/pitches">Start a new one</a>.</div>'; return; }
+      d = await r.json();
+    } catch (_) { setTimeout(result, 8000); return; }
+    document.title = `NILDash for ${d.athlete}`;
+    if (d.status === 'pending' || d.status === 'building') {
+      const wait = d.status === 'building' ? 'NILDash is working on it now. This usually takes 3 to 5 minutes.'
+        : d.building ? (d.ahead ? `You're next after ${d.ahead} other${d.ahead === 1 ? '' : 's'}. We'll email you the link too.` : 'Starting in a minute or two. We\'ll email you the link too.')
+          : "You're in line. We'll email you the link as soon as it's ready.";
+      main.innerHTML = head + `<div class="card center"><div class="spinner"></div><b>Finding businesses near ${esc(d.school)} for ${esc(d.athlete)}...</b><p class="fine">${esc(wait)} You can close this page.</p></div>`;
+      if (polls++ < 120) setTimeout(result, 10000);
+      return;
+    }
+    if (d.status === 'failed') {
+      main.innerHTML = head + `<div class="card"><b>NILDash couldn't find enough businesses near ${esc(d.school)} for ${esc(d.athlete)} this time.</b>
+        <p class="fine">That usually means the school's town is very small or the school name didn't match. Reply to the email we sent and we'll run it by hand.</p></div>`;
+      return;
+    }
+    const n = d.cards.length;
+    const cta = d.trialOn ? `Start your ${d.trialDays}-day trial` : 'Get this every morning';
+    main.innerHTML = head + `
+      <div><h1>${n} businesses ready to pitch for ${esc(d.athlete)}</h1>
+      <p class="lede">${esc(d.athlete)}${d.position ? ', ' + esc(d.position) : ''}, ${esc(d.sport)} at ${esc(d.school)}. Each one is a real business near campus, the person who decides, and a pitch written in ${d.agentFirst ? esc(d.agentFirst) + "'s" : 'your'} name.</p></div>
+      ${d.cards.map(card).join('')}
+      <section class="card cta"><h2>Get this every morning for every athlete you represent</h2>
+        <p class="fine">5 pitches per athlete every morning, already written, going to checked people. You review and send. NILDash finds and writes; you and your athletes decide every deal.</p>
+        <div><a class="btn" href="${esc(d.signupUrl)}">${esc(cta)}</a></div>
+        <p class="fine">${d.trialOn ? `Card at signup. The first charge is on day ${d.trialDays + 1}; cancel before then and you pay nothing. ` : ''}${esc(d.athlete)} will already be on your roster when you get in.</p>
+      </section>
+      <p class="fine">Built ${esc(String(d.builtAt || '').slice(0, 10))}. Contact emails are shown inside NILDash.</p>`;
+  }
+
+  if (token) result(); else form();
+})();
+</script>
+</body>
+</html>

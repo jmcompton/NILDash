@@ -340,10 +340,18 @@ async function main() {
 
   // ── 8. THE HARD STOPS ─────────────────────────────────────────────────
   OUT.push('', '-- the hard stops --');
-  const stop1 = alerts.find((a) => /^Sales autopilot stopped: bounces are 1 of \d+ sends in the last 7 days/.test(a.subject));
-  ok('bounces over 2% of the last 7 days\' sends: stopped, and JohnMark is told why', !!stop1 && (await SA.getState(P())).paused === true && /resume=1/.test(stop1.text), alerts.map((a) => a.subject));
+  ok('one bounce is bad luck, not a stop, even over 2%', !alerts.some((a) => /^Sales autopilot stopped: bounces/.test(a.subject)) && (await SA.getState(P())).paused === false);
+  await P().query(`INSERT INTO sales_events (prospect_id, kind, detail) VALUES ('x-b2','bounce','{}'), ('x-b3','bounce','{}')`);
+  await SA.bounceCheck(P(), deps);
+  const stop1 = alerts.find((a) => /^Sales autopilot stopped: bounces are 3 of \d+ sends in the last 7 days/.test(a.subject));
+  ok('3 bounces over 2% of the last 7 days\' sends: stopped, and JohnMark is told why', !!stop1 && (await SA.getState(P())).paused === true && /resume=1/.test(stop1.text), alerts.map((a) => a.subject));
   ok('  stopped means nothing is sent', /^stopped: bounces are/.test((await SA.sendTick(P(), { now: CT(DAY(7), 11), deps })).skipped || ''));
-  ok('  it stays stopped until resumed', (await SA.getState(P())).paused === true && (await SA.resume(P())).resumed && (await SA.getState(P())).paused === false);
+  await P().query(`DELETE FROM sales_events WHERE prospect_id IN ('x-b2','x-b3')`);
+  const lifted = await SA.sendTick(P(), { now: CT(DAY(7), 11), deps });
+  ok('  a bounce stop lifts itself once the rule no longer holds', (await SA.getState(P())).paused === false && !/^stopped/.test(lifted.skipped || ''), lifted);
+  await SA.pause(P(), 'a test stop', deps);
+  ok('  any other stop stays until resumed', /^stopped: a test stop/.test((await SA.sendTick(P(), { now: CT(DAY(7), 11), deps })).skipped || '')
+    && (await SA.resume(P())).resumed && (await SA.getState(P())).paused === false);
   // A spam complaint.
   g.inbox = [msg(8, active[6], 'RE: Pitches', 'How did you get my email? This is spam.')];
   await R.scan(P(), { deps });
@@ -363,7 +371,7 @@ async function main() {
   g.fail = null;
   ok('a send Microsoft refuses for a limit stops it, and the email waits', !!lim && (await SA.getState(P())).paused === true && /Microsoft limited sending/.test((await SA.getState(P())).paused_reason)
     && (await P().query(`SELECT COUNT(*)::int n FROM sales_emails WHERE state = 'draft' AND error LIKE 'Microsoft limited sending%'`)).rows[0].n === 1);
-  ok('every stop emailed JohnMark', alerts.filter((a) => /^Sales autopilot stopped: /.test(a.subject)).length === 4, alerts.map((a) => a.subject));
+  ok('every stop emailed JohnMark', alerts.filter((a) => /^Sales autopilot stopped: /.test(a.subject)).length === 5, alerts.map((a) => a.subject));
   await SA.resume(P());
 
   // ── 9. UNSUBSCRIBE LINK, BOOKING, TRIAL ───────────────────────────────

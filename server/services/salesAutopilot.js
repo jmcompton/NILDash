@@ -30,7 +30,7 @@
 //   - plain text, one link besides the unsubscribe, the CAN-SPAM footer;
 //   - follow-ups on day 3 and day 7, in the same thread, and none after a
 //     reply, a booking, a bounce, an unsubscribe or a trial;
-//   - a HARD STOP (paused, and JohnMark emailed why) when bounces pass 2% of
+//   - a HARD STOP (paused, and JohnMark emailed why) when bounces (3 or more) pass 2% of
 //     the last 7 days' sends, on any spam complaint, or on any sign that
 //     Microsoft limited the mailbox. It stays stopped until he resumes it:
 //     /api/admin/scripts/sales-autopilot?resume=1&text=1
@@ -59,6 +59,9 @@ const DOMAIN_PER_DAY = 2;
 const FOLLOW_UP_AFTER = { 2: 3, 3: 7 };   // step -> days after the first email
 const BOUNCE_LIMIT = 0.02;
 const BOUNCE_DAYS = 7;
+// One bounce in a small week is bad luck, not a list problem: it takes at
+// least this many before the 2% rule can stop sending.
+const BOUNCE_MIN = 3;
 const VERIFY_MAX_DAYS = 30;
 const RUN_AT = 4 * 60;          // Central, weekdays: find and draft
 const PLAN_AT = 7 * 60;         // Central, weekdays: today's send times
@@ -72,9 +75,18 @@ function senderName() { return String(process.env.SALES_SENDER_NAME || 'JohnMark
 function writerCtx() { return { link: link(), trialOn: TRIAL_ON(), senderName: senderName(), senderPhone: String(process.env.SALES_SENDER_PHONE || '').trim() }; }
 // The writer's context for one prospect: a ready sample's page is that
 // email's one link (services/salesSample); everyone else gets /try.
+// NIL_TRY_ON (services/nilTry): an agent's email asks them to put in one of
+// their athletes at /pitches and see the pitches, free, instead of asking for
+// 15 minutes. A school's email keeps the call.
+function pitchesFor(p) { return !!p && p.lane !== 'school' && require('./nilTry').ON(); }
+function followCtx(p) {
+  const base = writerCtx();
+  return pitchesFor(p) ? { ...base, link: appUrl() + '/pitches', pitches: true } : base;
+}
 function ctxFor(p) {
   const base = writerCtx();
-  return p && p.sample_status === 'ready' && p.sample_token ? { ...base, link: require('./salesSample').sampleUrl(p.sample_token) } : base;
+  if (p && p.sample_status === 'ready' && p.sample_token) return { ...base, link: require('./salesSample').sampleUrl(p.sample_token) };
+  return followCtx(p);
 }
 // A first email as it should read today: the sample version when there is a
 // ready sample, the template otherwise.
@@ -215,7 +227,7 @@ async function saveProspect(pool, cand, found, ctx) {
     state: cand.state ? String(cand.state).toUpperCase().slice(0, 2) : null, fact: cand.fact || null, source: cand.source || null,
   };
   p.tz = F.tzFor(p.state);
-  const mail = await W.write(p, writerCtx(), ctx.deps);
+  const mail = await W.write(p, ctxFor(p), ctx.deps);
   // A client on record and SALES_SAMPLE_ON: the sample is built after the
   // Hunter night (services/salesSample), and the email waits for it.
   const sample = cand.sample && cand.sample.athlete && require('./salesSample').ON() ? cand.sample : null;
@@ -509,7 +521,7 @@ async function planDay(pool, { now, save = true, deps = {}, date } = {}) {
     const firstDay = String(p.first_day).slice(0, 10);
     if (addDays(firstDay, FOLLOW_UP_AFTER[step]) > today) continue;
     if ((await pool.query(`SELECT 1 FROM sales_emails WHERE prospect_id = $1 AND (state IN ('sent','sending') AND (sent_at AT TIME ZONE '${CENTRAL}')::date = $2::date)`, [p.id, today])).rowCount) continue;
-    const fu = W.followUp(p, step, writerCtx());
+    const fu = W.followUp(p, step, followCtx(p));
     const cand = { prospectId: p.id, step, lane: p.lane, person: p.person, org: p.org, email: p.email, domain: p.domain, state: p.state, tz: p.tz,
       subject: 'Re: ' + String(p.first_subject || '').replace(/^re:\s*/i, ''), body: fu.body };
     if (await take(cand) && save) {
@@ -615,11 +627,15 @@ async function resume(pool) {
   const r = await pool.query(`UPDATE sales_state SET paused = FALSE, paused_reason = NULL, resumed_at = NOW(), updated_at = NOW() WHERE id = 1 RETURNING resumed_at`);
   return { resumed: r.rowCount > 0 };
 }
-// Bounces over 2% of the last 7 days' sends: stop.
-async function bounceCheck(pool, deps = {}) {
+// Bounces over 2% of the last 7 days' sends, and at least 3 of them: stop.
+async function bounceCounts(pool) {
   const s = (await pool.query(`SELECT COUNT(*)::int AS n FROM sales_emails WHERE sent_at > NOW() - INTERVAL '${BOUNCE_DAYS} days'`)).rows[0].n;
   const b = (await pool.query(`SELECT COUNT(*)::int AS n FROM sales_events WHERE kind = 'bounce' AND at > NOW() - INTERVAL '${BOUNCE_DAYS} days'`)).rows[0].n;
-  if (s > 0 && b / s > BOUNCE_LIMIT) {
+  return { s, b, over: s > 0 && b >= BOUNCE_MIN && b / s > BOUNCE_LIMIT };
+}
+async function bounceCheck(pool, deps = {}) {
+  const { s, b, over } = await bounceCounts(pool);
+  if (over) {
     return pause(pool, `bounces are ${b} of ${s} sends in the last ${BOUNCE_DAYS} days (${(100 * b / s).toFixed(1)}%), over 2%`, deps);
   }
   return { paused: false, sent: s, bounces: b };
@@ -648,7 +664,15 @@ async function alert(msg) {
 async function sendTick(pool, { now, deps = {} } = {}) {
   await ensureTables(pool);
   if (!SEND_ON() && !deps.force) return { skipped: 'SALES_AUTOSEND_ON is off' };
-  const st = await getState(pool);
+  let st = await getState(pool);
+  // A stop made by the bounce rule lifts itself once the rule no longer
+  // holds (an old stop from before the 3-bounce minimum, or bounces that
+  // have aged out of the 7 days). Every other stop waits for JohnMark.
+  if (st.paused && /^bounces are /.test(st.paused_reason || '') && !(await bounceCounts(pool)).over) {
+    console.log('[sales-autopilot] resumed: the bounce stop no longer holds (' + st.paused_reason + ')');
+    await resume(pool);
+    st = await getState(pool);
+  }
   if (st.paused) return { skipped: 'stopped: ' + st.paused_reason };
   const at = now ? new Date(now) : new Date();
   if (weekend(centralDay(at))) return { skipped: 'a weekend' };
@@ -712,11 +736,17 @@ async function sendOne(pool, e, { now, deps = {} } = {}) {
   // Written while SALES_TRIAL_ON said otherwise (a dry run before the trial
   // went on, or the trial turned off since): a first email that would
   // promise the wrong thing goes as today's template instead.
-  if (e.step === 1 && /14-day trial/i.test(body) !== TRIAL_ON()) {
+  // Likewise a link that is no longer the one to send (NIL_TRY_ON turned on
+  // or off since it was written): today's version goes instead.
+  const sendCtx = e.step === 1 ? ctxFor(p) : followCtx(p);
+  if (e.step === 1 && ((!sendCtx.pitches && /14-day trial/i.test(body) !== TRIAL_ON()) || !body.includes(sendCtx.link))) {
     body = firstEmailFor(p).body;
     await pool.query(`UPDATE sales_emails SET body_text = $2, written_by = $3 WHERE id = $1`, [e.id, body, p.sample_status === 'ready' ? 'sample' : 'template']);
+  } else if (e.step > 1 && !body.includes(sendCtx.link)) {
+    body = W.followUp(p, e.step, sendCtx).body;
+    await pool.query(`UPDATE sales_emails SET body_text = $2 WHERE id = $1`, [e.id, body]);
   }
-  const problems = W.checkEmail({ subject: e.step === 1 ? e.subject : 'x', body }, p, e.step === 1 ? ctxFor(p) : writerCtx(), e.step);
+  const problems = W.checkEmail({ subject: e.step === 1 ? e.subject : 'x', body }, p, sendCtx, e.step);
   if (problems.length) return cancel('the email fails its checks: ' + problems.join('; '));
   const text = require('./canSpam').appendText(body, p.email, { why: footerWhy(p.lane) });
   const mb = deps.mailbox || await MB.account(pool);
@@ -886,9 +916,9 @@ function start(pool) {
 
 module.exports = {
   ON, SEND_ON, TRIAL_ON, DAILY_NEW, DAILY_CAP, HUNTER_MAX, MAX_QUEUE, SYSTEM, WARMUP_START, WARMUP_STEP, WINDOW_FROM, WINDOW_TO,
-  MIN_GAP_MS, DOMAIN_PER_DAY, FOLLOW_UP_AFTER, BOUNCE_LIMIT, BOUNCE_DAYS, VERIFY_MAX_DAYS, RUN_AT, PLAN_AT, CENTRAL,
+  MIN_GAP_MS, DOMAIN_PER_DAY, FOLLOW_UP_AFTER, BOUNCE_LIMIT, BOUNCE_DAYS, BOUNCE_MIN, VERIFY_MAX_DAYS, RUN_AT, PLAN_AT, CENTRAL,
   ensureTables, getState, warmup, runOnce, planDay, sendTick, sendOne, stopProspect, event, onSuppressed, syncStops, pause, resume,
-  bounceCheck, alert, alertTo, numbers, morningSection, tick, start, link, appUrl, senderName, writerCtx, footerWhy, ctxFor, firstEmailFor,
+  bounceCheck, alert, alertTo, numbers, morningSection, tick, start, link, appUrl, senderName, writerCtx, footerWhy, ctxFor, followCtx, pitchesFor, firstEmailFor,
   trialDaysFor, recordTrial, tryPage, bookingUrl, TRIAL_DAYS,
   partsIn, centralDay, zonedTime, addDays, nextWeekday, fmtLocal, truthy,
 };
