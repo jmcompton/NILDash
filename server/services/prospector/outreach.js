@@ -43,6 +43,9 @@ const num = (k, d) => { const n = Number(process.env[k]); return Number.isFinite
 
 const ON = () => yes('PROSPECTOR_OUTREACH_ON');
 const AUTOSEND = () => yes('PROSPECTOR_AUTOSEND_ON');
+// Drafts approve themselves, one at a time as the queue empties, when they
+// pass every check below. Off by default.
+const AUTOAPPROVE = () => yes('PROSPECTOR_AUTOAPPROVE_ON');
 const WARMUP_START = () => num('PROSPECTOR_WARMUP_START', 10);
 const WARMUP_STEP = () => num('PROSPECTOR_WARMUP_STEP', 3);
 const DAILY_CAP = () => num('PROSPECTOR_DAILY_CAP', 30);
@@ -216,6 +219,49 @@ async function importRows(pool, rows, opts = {}) {
   }
   return out;
 }
+// ── AUTO-APPROVE ────────────────────────────────────────────────────────────
+// What a draft must pass before it goes out without JohnMark's click. Returns
+// the reason it fails, or null.
+const LEFTOVER = /\{\{|\}\}|\[(first|name|company|city|business)[^\]]*\]|\bundefined\b|\bnull\b|\bNaN\b|\bTODO\b|lorem ipsum/i;
+async function autoCheck(pool, p) {
+  const email = lc(p.email);
+  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(email)) return 'not an email address';
+  const subject = String(p.subject || '').trim(), body = String(p.body || '').trim();
+  if (!subject || subject.length > 120) return 'the subject is empty or too long';
+  if (body.length < 150 || body.length > 2500) return `the body is ${body.length} characters (150 to 2500 allowed)`;
+  if (!/^(Hi|Hello|Hey) [^\n,]{1,40},/.test(body)) return 'the email does not open with a greeting';
+  const bad = LEFTOVER.exec(subject + '\n' + body);
+  if (bad) return `leftover placeholder text: "${bad[0]}"`;
+  const sup = await suppression.isSuppressed(pool, email);
+  if (sup.suppressed) return sup.reason || 'on the suppression list';
+  try {
+    const c = await pool.query(`SELECT 1 FROM prospector_customers WHERE lower(split_part(email, '@', 2)) = $1 LIMIT 1`, [domainOf(email)]);
+    if (c.rows[0]) return 'already a customer';
+  } catch (_) { /* no customers table yet */ }
+  const other = await pool.query(`SELECT 1 FROM prospector_outreach WHERE domain = $1 AND id <> $2 AND state <> 'draft' LIMIT 1`, [domainOf(email), p.id]);
+  if (other.rows[0]) return 'someone at this company was already emailed';
+  return null;
+}
+// One draft at a time, oldest first, only when nothing is queued: approvals
+// keep pace with sending instead of piling up. A draft that fails a check is
+// marked (last_error 'auto-approve: why') and left for JohnMark.
+async function autoApprove(pool) {
+  for (let i = 0; i < 25; i++) {
+    const p = (await pool.query(`SELECT * FROM prospector_outreach WHERE state = 'draft'
+        AND (last_error IS NULL OR last_error NOT LIKE 'auto-approve:%') ORDER BY created_at, id LIMIT 1`)).rows[0];
+    if (!p) return null;
+    const why = await autoCheck(pool, p);
+    if (why) {
+      await pool.query(`UPDATE prospector_outreach SET last_error = $2, updated_at = NOW() WHERE id = $1`, [p.id, clip('auto-approve: ' + why, 300)]);
+      await event(pool, p.id, 'auto-skipped', { detail: why });
+      continue;
+    }
+    const r = await pool.query(`UPDATE prospector_outreach SET state = 'queued', approved_at = NOW(), updated_at = NOW() WHERE id = $1 AND state = 'draft' RETURNING id`, [p.id]);
+    if (r.rows[0]) { await event(pool, p.id, 'approved', { detail: 'PROSPECTOR_AUTOAPPROVE_ON: passed every check' }); return p.id; }
+  }
+  return null;
+}
+
 // JohnMark's OK: drafts to queued. { ids: [...] } or { batch } or { all: true }.
 async function approve(pool, sel = {}) {
   await ensureTables(pool);
@@ -324,6 +370,10 @@ async function sendTick(pool, { now = new Date(), deps = {} } = {}) {
     if (!free.size) break;
   }
   while (free.size) {
+    if (AUTOAPPROVE() || deps.autoApprove) {
+      const q = (await pool.query(`SELECT 1 FROM prospector_outreach WHERE state = 'queued' LIMIT 1`)).rows[0];
+      if (!q) await autoApprove(pool);
+    }
     const p = (await pool.query(`SELECT * FROM prospector_outreach WHERE state = 'queued'
         AND (sending_at IS NULL OR sending_at < $1::timestamptz - INTERVAL '10 minutes') ORDER BY approved_at NULLS LAST, id LIMIT 1`, [now])).rows[0];
     if (!p) break;
@@ -589,7 +639,7 @@ function start(pool) {
 function stopClock() { if (_timer) clearInterval(_timer); _timer = null; }
 
 module.exports = {
-  ON, AUTOSEND, mailboxes, ensureTables, getState, compose, followUp, answerText, footerWhy, importRows, approve, remove, pause, resume,
+  ON, AUTOSEND, AUTOAPPROVE, autoCheck, autoApprove, mailboxes, ensureTables, getState, compose, followUp, answerText, footerWhy, importRows, approve, remove, pause, resume,
   capFor, mailboxStatus, sendTick, sendOne, scanReplies, onMessage, bounceCheck, status, list, start, stopClock, inWindow, central,
   YES, FOLLOW_UP_DAYS, FOLDER, _reset() { _ensured = false; },
 };
