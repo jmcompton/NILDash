@@ -85,6 +85,8 @@ function guard() {
     // sendOne refuse anything else; tests/salesautopilot.js).
     'server/services/salesAutopilot.js': { n: 1, why: 'the sales autopilot\'s stop and interested-reply alerts, to the admin' },
     'server/services/providers/imap.js': { n: 1, why: 'the provider itself' },
+    'server/services/nilTry.js': { n: 1, why: 'the free sample link, to the agent who asked for it on /pitches' },
+    'server/services/prospector/delivery.js': { n: 1, why: "a paying Prospector customer's weekly leads, to that customer" },
   };
   const files = [];
   const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {

@@ -550,11 +550,59 @@ const VERIFY_URL = 'https://api.hunter.io/v2/email-verifier';
 // its email for our impatience.
 const VERIFY_TIMEOUT_MS = parseInt(process.env.HUNTER_VERIFY_TIMEOUT_MS, 10) || 22000;
 
+// ── MILLIONVERIFIER FIRST, WHEN ITS KEY IS SET ──────────────────────────────
+// A Hunter verification costs half a credit, and verifications were about
+// half of every night's Hunter spend: credits that could have FOUND an owner's
+// address went to double-checking one. MillionVerifier answers the same
+// question for a fraction of a cent and does not charge for catch-all or
+// unknown answers. With MILLIONVERIFIER_API_KEY set it is asked first and its
+// answer comes back in Hunter's shape, so every caller and the cache read it
+// unchanged, and Hunter's budget and tonight's allowance are not touched.
+// A failed call (no credits, HTTP error, timeout, "error" result) is not a
+// verdict: it falls through to Hunter exactly as before, and is recorded as a
+// fault so the morning alert says so.
+const MV_URL = 'https://api.millionverifier.com/api/v3/';
+const MV_TIMEOUT_MS = parseInt(process.env.MILLIONVERIFIER_TIMEOUT_MS, 10) || 25000;
+const MV_STATUS = { ok: 'valid', catch_all: 'accept_all', unknown: 'unknown', invalid: 'invalid', disposable: 'disposable' };
+const MV_ON = () => !!String(process.env.MILLIONVERIFIER_API_KEY || '').trim();
+async function verifyWithMillion(addr, opts = {}) {
+  const key = String(process.env.MILLIONVERIFIER_API_KEY || '').trim();
+  if (!key) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), MV_TIMEOUT_MS);
+  try {
+    const resp = await (opts.fetchImpl || fetch)(`${MV_URL}?api=${encodeURIComponent(key)}&email=${encodeURIComponent(addr)}&timeout=20`, { signal: ctrl.signal });
+    let j = null;
+    try { j = await resp.json(); } catch (_) { j = null; }
+    if (!resp.ok || !j) return { ok: false, why: `MillionVerifier returned HTTP ${resp.status}` };
+    if (j.error) return { ok: false, why: 'MillionVerifier: ' + String(j.error).slice(0, 160) };
+    const res = String(j.result || '').trim().toLowerCase();
+    const status = MV_STATUS[res];
+    if (!status) return { ok: false, why: `MillionVerifier could not check it (${res || 'no result'})` };
+    return { ok: true, status, provider: 'millionverifier', acceptAll: status === 'accept_all', score: null,
+      result: status === 'valid' ? 'deliverable' : (status === 'invalid' || status === 'disposable') ? 'undeliverable' : 'risky',
+      credits: typeof j.credits === 'number' ? j.credits : null };
+  } catch (e) {
+    return { ok: false, why: (e && e.name === 'AbortError') ? `MillionVerifier timed out after ${Math.round(MV_TIMEOUT_MS / 1000)}s` : `MillionVerifier call failed: ${e && e.message}` };
+  } finally { clearTimeout(timer); }
+}
+
 async function verifyEmail(email, opts = {}) {
-  const key = process.env.HUNTER_API_KEY;
-  if (!key) return { ok: false, why: 'no Hunter key configured' };
   const addr = String(email || '').trim().toLowerCase();
   if (!addr) return { ok: false, why: 'no address' };
+  if (MV_ON() && !opts.hunterOnly) {
+    const mv = await verifyWithMillion(addr, opts);
+    if (mv && mv.ok) {
+      console.log(`[verify] ${addr} -> ${mv.status} (MillionVerifier${mv.credits != null ? ', ' + mv.credits + ' credits left' : ''})`);
+      return mv;
+    }
+    if (mv) {
+      console.warn(`[verify] ${addr}: ${mv.why}; asking Hunter instead`);
+      try { require('./ourFault').providerError('millionverifier', { status: null, message: mv.why }, 'hunterLookup.verify'); } catch (_) { /* never blocks a check */ }
+    }
+  }
+  const key = process.env.HUNTER_API_KEY;
+  if (!key) return { ok: false, why: 'no Hunter key configured' };
 
   const b = await budgetStatus().catch(() => null);
   if (b && b.verifyRemaining <= 0) {
@@ -692,7 +740,7 @@ async function _recordFinder(key, outcome, evidence) {
 
 module.exports = {
   findDomainEmails, findEmail, FINDER_URL, FINDER_LANE, SEARCH_LANES, VERIFY_MONTHLY_BUDGET,
-  verifyEmail, VERIFY_URL, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
+  verifyEmail, verifyWithMillion, MV_URL, MV_ON, VERIFY_URL, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
   creditsThisMonth, verifyCreditsThisMonth, accountUsedThisMonth, budgetStatus, MONTHLY_BUDGET,
   _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
   _resetBreaker: () => { _breaker = null; }, BREAKER_MIN,

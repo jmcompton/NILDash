@@ -1651,6 +1651,11 @@
       "failed": 0,
       "total": 16,
       "fault": null
+    },
+    "millionverifier.js": {
+      "failed": 0,
+      "total": 16,
+      "fault": null
     }
   }
 }
