@@ -96,6 +96,15 @@ const _geoCache = new Map(); // school (lower) -> { lat, lng }; failures are nev
 //                                                       Google's own words
 // `opts.fetch` is injectable for tests; production uses the global fetch.
 async function _post(url, body, apiKey, fieldMask, opts = {}) {
+  // Serper first (services/serperPlaces): the same Maps search for a fraction
+  // of Google's price, answered in Google's shape. A failed call falls through
+  // to Google below, exactly as before.
+  const SP = require('./serperPlaces');
+  if (SP.ON() && !opts.googleOnly) {
+    const s = await SP.asGoogle(url, body, { fetch: opts.serperFetch });
+    if (s.ok) return s;
+    console.warn(`[placesMarket] Serper could not answer (${s.error}); asking Google`);
+  }
   const fetch = opts.fetch || globalThis.fetch;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);

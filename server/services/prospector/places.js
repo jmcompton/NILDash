@@ -25,6 +25,13 @@ function domainOf(url) {
 }
 
 async function searchText(query, opts = {}) {
+  // Serper first (services/serperPlaces); Google only when it could not answer.
+  const SP = require('../serperPlaces');
+  if (SP.ON() && !opts.googleOnly) {
+    const s = await SP.search({ query, max: opts.pageSize || 20 }, { fetch: opts.serperFetch });
+    if (s.ok) return { ok: true, places: s.places };
+    console.warn('[prospector-places] Serper could not answer (' + s.error + '); asking Google');
+  }
   const apiKey = (opts.apiKey || process.env.GOOGLE_PLACES_API_KEY || '').trim();
   if (!apiKey) return { ok: false, places: [], error: 'GOOGLE_PLACES_API_KEY is not set' };
   const fetchImpl = opts.fetchImpl || fetch;
