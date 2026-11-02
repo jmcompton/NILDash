@@ -134,7 +134,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('the old feature sections are not on this page', !/class="feat|id="features"|class="asstband"/.test(HTML));
 
   const pr = section('pricing');
-  ok('pricing: Agent $99/month to get your mornings back', /<span class="who">Agent<\/span>\s*<div class="price">\$99<span>\/month<\/span><\/div>\s*<p class="why">to get your mornings back<\/p>/.test(pr)
+  ok('pricing: Founding Agent $99/month to get your mornings back', /<span class="who">Founding Agent<\/span>\s*<div class="price">\$99<span>\/month<\/span><\/div>\s*<p class="why">to get your mornings back<\/p>/.test(pr)
     && /\$99 \/month to get your mornings back/.test(VISIBLE));
   ok('  Athletes: "Coming soon" with a waitlist email field', /<span class="who">Athletes<\/span>\s*<div class="soon">Coming soon<\/div>/.test(pr)
     && /<form class="wl" id="wl" action="\/api\/public\/waitlist" method="post"/.test(pr) && /type="email"/.test(pr));
