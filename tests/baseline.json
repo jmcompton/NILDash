@@ -1656,6 +1656,11 @@
       "failed": 0,
       "total": 16,
       "fault": null
+    },
+    "serperplaces.js": {
+      "failed": 0,
+      "total": 15,
+      "fault": null
     }
   }
 }

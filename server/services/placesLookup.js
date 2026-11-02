@@ -95,7 +95,14 @@ async function lookupPlaceResult(brand, locationHint = '') {
 
   const query = locationHint ? `${brand} ${locationHint}` : String(brand);
   let data = null;
-  try {
+  // Serper first (services/serperPlaces); Google only when it could not answer.
+  const SP = require('./serperPlaces');
+  if (SP.ON()) {
+    const s = await SP.search({ query, max: 1 });
+    if (s.ok) data = { places: s.places };
+    else console.warn('[places] Serper could not answer for brand=' + brand + ' (' + s.error + '); asking Google');
+  }
+  if (!data) try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     const resp = await fetch(PLACES_URL, {
