@@ -30,7 +30,7 @@
 //   - plain text, one link besides the unsubscribe, the CAN-SPAM footer;
 //   - follow-ups on day 3 and day 7, in the same thread, and none after a
 //     reply, a booking, a bounce, an unsubscribe or a trial;
-//   - a HARD STOP (paused, and JohnMark emailed why) when bounces pass 2% of
+//   - a HARD STOP (paused, and JohnMark emailed why) when bounces (3 or more) pass 2% of
 //     the last 7 days' sends, on any spam complaint, or on any sign that
 //     Microsoft limited the mailbox. It stays stopped until he resumes it:
 //     /api/admin/scripts/sales-autopilot?resume=1&text=1
@@ -59,6 +59,9 @@ const DOMAIN_PER_DAY = 2;
 const FOLLOW_UP_AFTER = { 2: 3, 3: 7 };   // step -> days after the first email
 const BOUNCE_LIMIT = 0.02;
 const BOUNCE_DAYS = 7;
+// One bounce in a small week is bad luck, not a list problem: it takes at
+// least this many before the 2% rule can stop sending.
+const BOUNCE_MIN = 3;
 const VERIFY_MAX_DAYS = 30;
 const RUN_AT = 4 * 60;          // Central, weekdays: find and draft
 const PLAN_AT = 7 * 60;         // Central, weekdays: today's send times
@@ -624,11 +627,15 @@ async function resume(pool) {
   const r = await pool.query(`UPDATE sales_state SET paused = FALSE, paused_reason = NULL, resumed_at = NOW(), updated_at = NOW() WHERE id = 1 RETURNING resumed_at`);
   return { resumed: r.rowCount > 0 };
 }
-// Bounces over 2% of the last 7 days' sends: stop.
-async function bounceCheck(pool, deps = {}) {
+// Bounces over 2% of the last 7 days' sends, and at least 3 of them: stop.
+async function bounceCounts(pool) {
   const s = (await pool.query(`SELECT COUNT(*)::int AS n FROM sales_emails WHERE sent_at > NOW() - INTERVAL '${BOUNCE_DAYS} days'`)).rows[0].n;
   const b = (await pool.query(`SELECT COUNT(*)::int AS n FROM sales_events WHERE kind = 'bounce' AND at > NOW() - INTERVAL '${BOUNCE_DAYS} days'`)).rows[0].n;
-  if (s > 0 && b / s > BOUNCE_LIMIT) {
+  return { s, b, over: s > 0 && b >= BOUNCE_MIN && b / s > BOUNCE_LIMIT };
+}
+async function bounceCheck(pool, deps = {}) {
+  const { s, b, over } = await bounceCounts(pool);
+  if (over) {
     return pause(pool, `bounces are ${b} of ${s} sends in the last ${BOUNCE_DAYS} days (${(100 * b / s).toFixed(1)}%), over 2%`, deps);
   }
   return { paused: false, sent: s, bounces: b };
@@ -657,7 +664,15 @@ async function alert(msg) {
 async function sendTick(pool, { now, deps = {} } = {}) {
   await ensureTables(pool);
   if (!SEND_ON() && !deps.force) return { skipped: 'SALES_AUTOSEND_ON is off' };
-  const st = await getState(pool);
+  let st = await getState(pool);
+  // A stop made by the bounce rule lifts itself once the rule no longer
+  // holds (an old stop from before the 3-bounce minimum, or bounces that
+  // have aged out of the 7 days). Every other stop waits for JohnMark.
+  if (st.paused && /^bounces are /.test(st.paused_reason || '') && !(await bounceCounts(pool)).over) {
+    console.log('[sales-autopilot] resumed: the bounce stop no longer holds (' + st.paused_reason + ')');
+    await resume(pool);
+    st = await getState(pool);
+  }
   if (st.paused) return { skipped: 'stopped: ' + st.paused_reason };
   const at = now ? new Date(now) : new Date();
   if (weekend(centralDay(at))) return { skipped: 'a weekend' };
@@ -901,7 +916,7 @@ function start(pool) {
 
 module.exports = {
   ON, SEND_ON, TRIAL_ON, DAILY_NEW, DAILY_CAP, HUNTER_MAX, MAX_QUEUE, SYSTEM, WARMUP_START, WARMUP_STEP, WINDOW_FROM, WINDOW_TO,
-  MIN_GAP_MS, DOMAIN_PER_DAY, FOLLOW_UP_AFTER, BOUNCE_LIMIT, BOUNCE_DAYS, VERIFY_MAX_DAYS, RUN_AT, PLAN_AT, CENTRAL,
+  MIN_GAP_MS, DOMAIN_PER_DAY, FOLLOW_UP_AFTER, BOUNCE_LIMIT, BOUNCE_DAYS, BOUNCE_MIN, VERIFY_MAX_DAYS, RUN_AT, PLAN_AT, CENTRAL,
   ensureTables, getState, warmup, runOnce, planDay, sendTick, sendOne, stopProspect, event, onSuppressed, syncStops, pause, resume,
   bounceCheck, alert, alertTo, numbers, morningSection, tick, start, link, appUrl, senderName, writerCtx, footerWhy, ctxFor, followCtx, pitchesFor, firstEmailFor,
   trialDaysFor, recordTrial, tryPage, bookingUrl, TRIAL_DAYS,
