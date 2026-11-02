@@ -860,6 +860,10 @@ function prepareDisclosureFiling(deal, athlete, stateRef) {
     submission: 'NILDash does not submit this. Your school files NIL disclosures through its own '
       + 'portal, which requires your athlete\'s login. Copy this into that portal.',
     stateReference: stateRef || null,
+    // The Protect College Sports Act's deadline (services/pcsa): within 5 days
+    // of signing or 30 days of payment, Division I. A warning until it is law.
+    pcsaDeadline: require('./pcsa').disclosure({ value, signedAt: (deal && (deal.signedAt || deal.closedAt)) || null,
+      paidAt: (deal && deal.paidAt) || null, priorTwelveMonths: (deal && deal.priorTwelveMonths) || 0 }),
     disclaimer: DISCLAIMER,
   };
 }

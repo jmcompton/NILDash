@@ -12637,6 +12637,28 @@ app.get('/sample/:token', async (req, res) => {
 // types in one athlete and gets a private page of local businesses, people
 // and pitches at /pitches/<token>. Public; the request is rate limited and
 // the builds are capped per day (NIL_TRY_PER_DAY).
+// ── PROTECT COLLEGE SPORTS ACT RULES (services/pcsa) ───────────────────────
+// The national rule set, built as if S. 4668 becomes law (PCSA_STATUS=pending
+// until it does: every finding is a warning). The agent's registration and
+// certification are kept; a deal is checked against every rule on request.
+app.get('/compliance', (req, res) => {
+  res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'views', 'pcsa.html'));
+});
+app.get('/api/pcsa/rules', (req, res) => { res.json(require('./services/pcsa').rules()); });
+app.get('/api/pcsa/profile', requireAuth, async (req, res) => {
+  try { res.json(await require('./services/pcsa').getProfile(store.pool, req.session.userId)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/pcsa/profile', requireAuth, async (req, res) => {
+  try { res.json(await require('./services/pcsa').saveProfile(store.pool, req.session.userId, req.body || {})); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+app.post('/api/pcsa/check', requireAuth, (req, res) => {
+  const b = req.body || {};
+  try { res.json(require('./services/pcsa').checkDeal(b.deal || {}, b.athlete || {})); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 const _nilTryLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Too many requests. Try again later.' },
