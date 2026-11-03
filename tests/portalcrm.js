@@ -135,6 +135,8 @@ async function main() {
   const ath = await store.getAthlete(AT);
   const live = await W.workspace(P, store, agent, ath, { now: NOW });
   ok('the live workspace loads from the database: his schools, scored on every FBS school', live.athlete.name === 'Jordan Hayes' && live.group === 'WR' && live.cards.length === 2 && live.cards.every((c) => c.fit != null) && live.coverage.total === Schools.all().length);
+  ok('with no wish list saved, his own school (from his profile) is not scored as a place to go', !live.cards.some((c) => c.school === 'Troy') && (await T.addTarget(P, AG, AT, { school: 'Troy' })) && (await W.workspace(P, store, agent, ath, { now: NOW })).cards.find((c) => c.school === 'Troy').fit === null);
+  await T.removeTarget(P, AG, AT, (await T.listTargets(P, AG, AT)).find((t) => t.school === 'Troy').id);
   ok('with no rosters read, need says unknown, never guessed', live.cards.every((c) => c.need.rating === 'unknown') && live.coverage.read === 0);
   ok('and it carries the offer board', Array.isArray(live.offers.offers) && typeof live.offers.family === 'string');
   ok('it says whether the Protect College Sports Act is law yet (pending by default)', live.pcsaStatus === 'pending');

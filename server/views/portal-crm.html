@@ -576,7 +576,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
     try {
       const prefs = S.prefs || (await api('GET', '/api/portal/wishlist/' + encodeURIComponent(S.aid))).prefs || {};
       S.prefs = prefs;
-      S.board = await api('POST', '/api/portal/board', { ...prefs, group: S.ws.group, position: S.ws.athlete.position || '', limit: 40 });
+      S.board = await api('POST', '/api/portal/board', { ...prefs, currentSchool: prefs.currentSchool || S.ws.athlete.school || null, group: S.ws.group, position: S.ws.athlete.position || '', limit: 40 });
       S.board._aid = S.aid;
       renderBoard();
     } catch (err) { $('boardBody').innerHTML = `<tr><td colspan="6" class="err">${esc(err.message)}</td></tr>`; }
@@ -693,7 +693,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
   function fillPrefs(p) {
     p = p || {};
     $('pGroup').value = p.group || S.ws.group || '';
-    $('pCur').value = p.currentSchool || ''; $('pCurLevel').value = p.currentLevel || ''; $('pLevel').value = p.level || 'any';
+    $('pCur').value = p.currentSchool || (S.meta && S.meta.schools.some((s) => s.name === S.ws.athlete.school) ? S.ws.athlete.school : '') || ''; $('pCurLevel').value = p.currentLevel || ''; $('pLevel').value = p.level || 'any';
     $('pHome').value = p.homeState || ''; $('pStates').value = (p.states || []).join(', '); $('pSchools').value = (p.schools || []).join(', ');
     for (const x of document.querySelectorAll('#pRegions input')) x.checked = (p.regions || []).includes(x.value);
     $('pClose').checked = !!p.closeToHome; $('pBirth').value = p.birthDate || ''; $('pEnroll').value = p.firstEnrollment || ''; $('pPrior').value = p.priorTransfers || 0;
