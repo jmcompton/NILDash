@@ -35,6 +35,8 @@ async function ensureTable(pool) {
     years INT DEFAULT 1, in_writing BOOLEAN DEFAULT FALSE, expires_on DATE,
     conditions TEXT, notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
+  // The day he committed: the PCSA report clock (5 days) starts here.
+  await pool.query(`ALTER TABLE portal_offers ADD COLUMN IF NOT EXISTS signed_on DATE`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_portal_offers_owner ON portal_offers (agent_id, athlete_id)`);
 }
 
@@ -79,6 +81,11 @@ function clean(b = {}, { partial = false } = {}) {
     out.expires_on = d;
   }
   if (out.status === 'in_writing') out.in_writing = true;
+  if (b.signedOn !== undefined) {
+    const d = b.signedOn ? String(b.signedOn) : null;
+    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw bad('Signing date must be a date.');
+    out.signed_on = d;
+  }
   if (!partial || b.conditions !== undefined) out.conditions = clip(b.conditions, 500);
   if (!partial || b.notes !== undefined) out.notes = clip(b.notes, 1000);
   return out;
@@ -91,6 +98,7 @@ function shape(r) {
     nilDeliverables: r.nil_deliverables, years: r.years || 1, inWriting: !!r.in_writing,
     expiresOn: r.expires_on ? (r.expires_on instanceof Date ? r.expires_on.toISOString().slice(0, 10) : String(r.expires_on).slice(0, 10)) : null,
     conditions: r.conditions, notes: r.notes, updatedAt: r.updated_at,
+    signedOn: r.signed_on ? (r.signed_on instanceof Date ? r.signed_on.toISOString().slice(0, 10) : String(r.signed_on).slice(0, 10)) : null,
   };
 }
 
@@ -106,9 +114,10 @@ async function create(pool, agentId, athleteId, body) {
   const n = await pool.query(`SELECT COUNT(*)::int n FROM portal_offers WHERE agent_id = $1 AND athlete_id = $2`, [agentId, athleteId]);
   if (n.rows[0].n >= 40) throw bad('That is a lot of offers. Remove some first.');
   const id = 'po_' + crypto.randomBytes(9).toString('hex');
-  await pool.query(`INSERT INTO portal_offers (id, agent_id, athlete_id, school, status, guaranteed_per_year, nil_per_year, nil_payer, nil_deliverables, years, in_writing, expires_on, conditions, notes)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-    [id, agentId, athleteId, c.school, c.status, c.guaranteed_per_year, c.nil_per_year, c.nil_payer, c.nil_deliverables, c.years, c.in_writing, c.expires_on, c.conditions, c.notes]);
+  if (c.status === 'committed' && !c.signed_on) c.signed_on = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+  await pool.query(`INSERT INTO portal_offers (id, agent_id, athlete_id, school, status, guaranteed_per_year, nil_per_year, nil_payer, nil_deliverables, years, in_writing, expires_on, conditions, notes, signed_on)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    [id, agentId, athleteId, c.school, c.status, c.guaranteed_per_year, c.nil_per_year, c.nil_payer, c.nil_deliverables, c.years, c.in_writing, c.expires_on, c.conditions, c.notes, c.signed_on || null]);
   return (await pool.query(`SELECT * FROM portal_offers WHERE id = $1`, [id])).rows.map(shape)[0];
 }
 
@@ -119,7 +128,9 @@ async function update(pool, agentId, athleteId, id, body) {
   const c = clean(body, { partial: true });
   const keys = Object.keys(c);
   if (!keys.length) throw bad('Nothing to change.');
-  const sets = keys.map((k, i) => `${k} = $${i + 4}`).join(', ');
+  let sets = keys.map((k, i) => `${k} = $${i + 4}`).join(', ');
+  // Committing starts the report clock, unless a signing date was given.
+  if (c.status === 'committed' && c.signed_on === undefined) sets += `, signed_on = COALESCE(signed_on, (NOW() AT TIME ZONE 'America/Chicago')::date)`;
   const r = await pool.query(`UPDATE portal_offers SET ${sets}, updated_at = NOW() WHERE id = $1 AND agent_id = $2 AND athlete_id = $3 RETURNING *`,
     [String(id), agentId, athleteId, ...keys.map((k) => c[k])]);
   if (!r.rows[0]) { const e = new Error('Offer not found'); e.status = 404; throw e; }
@@ -199,7 +210,34 @@ function compare(offers, { seasonsLeft = null, now = new Date(), windows = null,
       ? `${best.school} leads: ${usd(best.guaranteedTotal)}, all of it guaranteed by the school.`
       : `${best.school} leads: ${usd(best.guaranteedTotal)} guaranteed, ${usd(best.totalValue)} in all.`;
   }
-  return { offers: rows, declined: offers.filter((o) => o.status === 'declined'), deadlines: deadlines.filter((d) => d.days >= -1), headline };
+  const committed = rows.find((r) => r.status === 'committed') || null;
+  if (committed) headline = `He committed to ${committed.school}: ${usd(committed.guaranteedTotal)} guaranteed, ${usd(committed.totalValue)} in all.`;
+  return { offers: rows, declined: offers.filter((o) => o.status === 'declined'), deadlines: deadlines.filter((d) => d.days >= -1), headline, committed: committed ? committed.id : null };
+}
+
+// ── THE COMMIT PACKAGE ──────────────────────────────────────────────────────
+// Once he commits: what has to happen, in order, with the dates.
+function commitPackage(o, { others = [], seasonsLeft = null, now = new Date(), agentReady = null } = {}) {
+  if (!o) return null;
+  const pcsa = require('../pcsa');
+  const items = [];
+  items.push(o.inWriting
+    ? { level: 'ok', text: 'The deal is in writing.' }
+    : { level: 'flag', text: 'Get the final deal in writing before he signs anything else.' });
+  const nil = o.nilPerYear || 0;
+  if (nil > 0) {
+    const d = pcsa.disclosure({ value: nil, signedAt: o.signedOn, now });
+    if (d.required) items.push({ level: d.level, text: `Report the NIL deal: ${d.text} Under the Protect College Sports Act it is due within 5 days of signing; it also goes through NIL Go (deals over $600).`, dueBy: d.dueBy || null });
+    if (['collective', 'booster'].includes(o.nilPayer) && !o.nilDeliverables) items.push({ level: 'flag', text: 'The NIL contract has to name the work (posts, appearances). Add it before signing.' });
+    items.push({ level: 'ok', text: `Your fee on the NIL part: at most ${usd(nil * FEE_CAP)} a year (5%). Put it in the agency contract.` });
+  }
+  if (seasonsLeft != null && (o.years || 1) > seasonsLeft) items.push({ level: 'flag', text: `The deal runs ${o.years} years but he has ${seasonsLeft} season${seasonsLeft === 1 ? '' : 's'} left. Cut the term to his eligibility.` });
+  if (agentReady === false) items.push({ level: 'flag', text: 'Finish your agent registration on the Compliance page before you sign him to anything.' });
+  else if (agentReady === true) items.push({ level: 'ok', text: 'Your agent registration is on file.' });
+  const rest = [...new Set(others.filter((x) => x && x !== o.school))];
+  if (rest.length) items.push({ level: 'warn', text: `Let the other schools know he committed: ${rest.join(', ')}. It keeps the door open for later.` });
+  items.push({ level: 'warn', text: 'Send the family the final update (below).' });
+  return { school: o.school, signedOn: o.signedOn || null, items };
 }
 
 // The update for the family, as text the agent sends himself.
@@ -226,4 +264,4 @@ function familyUpdate({ athleteName, agentName, board, now = new Date() }) {
   return lines.join('\n').trim();
 }
 
-module.exports = { ensureTable, list, create, update, remove, compare, checks, familyUpdate, clean, STATUSES, PAYERS, FEE_CAP };
+module.exports = { commitPackage, ensureTable, list, create, update, remove, compare, checks, familyUpdate, clean, STATUSES, PAYERS, FEE_CAP };

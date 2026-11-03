@@ -316,10 +316,80 @@ async function main() {
   const ob = await PR.offerBoard(store.pool, { id: A1, name: 'Dana Price' }, { id: ATH, name: 'Jordan Hayes', position: 'Wide Receiver' }, { now: NOW });
   ok('the whole offer board: his seasons left from the saved details, the market, the family text', ob.seasonsLeft === 2 && ob.group === 'WR' && ob.offers.length === 2 && /Dana Price$/.test(ob.family) && ob.offers.some((o) => o.checks.some((c) => c.rule === 'market')), { s: ob.seasonsLeft, g: ob.group });
 
+  OUT.push('-- targets and the one-pager --');
+  const T = require(REPO + 'server/services/portalRoom/targets');
+  const AG = 'agent-t', AT = 'ath-t';
+  await store.pool.query(`INSERT INTO users (id, name, email, password, role) VALUES ('agent-t','Dana Price','dana@example.com','x','agent') ON CONFLICT DO NOTHING`);
+  await store.pool.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('ath-t','agent-t',$1) ON CONFLICT DO NOTHING`, [JSON.stringify({ name: 'Jordan Hayes', position: 'WR', school: 'Troy', hometown: 'Dallas, TX', phone: '555-999-0000', email: 'jordan@private.com' })]);
+  const t1 = await T.addTarget(store.pool, AG, AT, { school: 'baylor' });
+  const t1b = await T.addTarget(store.pool, AG, AT, { school: 'Baylor' });
+  ok('a school goes on his list once, by its real name', t1.school === 'Baylor' && t1b.id === t1.id && t1.stage === 'target');
+  let te = null; try { await T.addTarget(store.pool, AG, AT, { school: 'Samford' }); } catch (x) { te = x; }
+  ok('a school that is not FBS is refused', te && te.status === 400);
+  await T.addTarget(store.pool, AG, AT, { school: 'Houston' });
+  const moved = await T.updateTarget(store.pool, AG, AT, t1.id, { stage: 'interested', nextStep: 'Call the GM Thursday' });
+  ok('stage and next step saved, and the touch recorded', moved.stage === 'interested' && moved.nextStep === 'Call the GM Thursday' && moved.lastTouchAt);
+  const tl = await T.listTargets(store.pool, AG, AT);
+  ok('furthest along first', tl[0].school === 'Baylor' && tl[1].school === 'Houston');
+  te = null; try { await T.updateTarget(store.pool, 'someone-else', AT, t1.id, { stage: 'passed' }); } catch (x) { te = x; }
+  ok('another agent cannot move it', te && te.status === 404);
+  const prof = await T.saveProfile(store.pool, AG, AT, { heightWeight: '6-1, 195', statsLine: '58 catches, 912 yards, 7 TD', highlights: 'All-conference 2026\nTwo 100-yard games vs P4', filmUrl: 'https://hudl.com/x', statsUrl: 'javascript:alert(1)', agentPhone: '(555) 123-4567', agentEmail: 'not an email' });
+  ok('one-pager saved: highlights split, bad links and a bad email dropped', prof.data.highlights.length === 2 && prof.data.filmUrl === 'https://hudl.com/x' && prof.data.statsUrl === null && prof.data.agentEmail === null && /^[a-f0-9]{24}$/.test(prof.token));
+  const prof2 = await T.saveProfile(store.pool, AG, AT, { heightWeight: '6-1, 196', filmUrl: 'https://hudl.com/x', agentPhone: '(555) 123-4567' });
+  ok('editing keeps the same link', prof2.token === prof.token);
+  let pub = await T.publicProfile(store.pool, store, prof.token, { countView: true });
+  ok('the public page shows the player and his agent', pub.name === 'Jordan Hayes' && pub.school === 'Troy' && pub.heightWeight === '6-1, 196' && pub.agent.name === 'Dana Price' && pub.agent.phone === '(555) 123-4567');
+  ok('and never the player\'s own phone or email', !JSON.stringify(pub).includes('555-999-0000') && !JSON.stringify(pub).includes('jordan@private.com'));
+  ok('views are counted', (await T.getProfile(store.pool, AG, AT)).views === 1);
+  ok('a made-up token gets nothing', (await T.publicProfile(store.pool, store, 'f'.repeat(24))) === null && (await T.publicProfile(store.pool, store, '../x')) === null);
+  const rot = await T.rotateToken(store.pool, AG, AT);
+  ok('a new link kills the old one', rot.token !== prof.token && (await T.publicProfile(store.pool, store, prof.token)) === null && !!(await T.publicProfile(store.pool, store, rot.token)));
+  await T.saveProfile(store.pool, AG, AT, { live: false, heightWeight: '6-1, 196' });
+  ok('turned off: the page is gone', (await T.publicProfile(store.pool, store, rot.token)) === null);
+  await T.saveProfile(store.pool, AG, AT, { live: true, heightWeight: '6-1, 196', filmUrl: 'https://hudl.com/x', statsLine: '58 catches, 912 yards, 7 TD' });
+
+  OUT.push('-- the email to a school --');
+  const bookX = Contacts.build({ school: 'Baylor', group: 'WR', rows: [
+    { name: 'Gail Manager', title: 'General Manager', role: 'general_manager', is_key_contact: true, status: 'current', email: 'gail@baylor.edu' },
+    { name: 'Wes Receiver', title: 'Wide Receivers Coach', role: 'staff', status: 'current', email: 'wes@baylor.edu' },
+    { name: 'Rick Recruit', title: 'Director of Recruiting', role: 'recruiting', is_key_contact: true, status: 'current', email: 'rick@baylor.edu' },
+    { name: 'Hal Coach', title: 'Head Coach', role: 'head_coach', is_key_contact: true, status: 'current' },
+  ], contact: { office_phone: '254-710-1000' } });
+  pub = await T.publicProfile(store.pool, store, rot.token);
+  const em = T.emailFor({ school: 'Baylor', book: bookX, profile: pub, profileUrl: 'https://mynildash.com/portal-profile/' + rot.token, agentName: 'Dana Price', group: 'WR' });
+  ok('to the GM and his position coach, recruiting copied', em.to.map((x) => x.email).join() === 'gail@baylor.edu,wes@baylor.edu' && em.cc[0].email === 'rick@baylor.edu');
+  ok('short and specific: who, the numbers, film, the one-pager, the agent', /^Coach Manager,/.test(em.body) && /a WR at Troy \(6-1, 196\)/.test(em.body) && /58 catches/.test(em.body) && /Film: https:\/\/hudl\.com\/x/.test(em.body) && /One-pager: https:\/\/mynildash\.com\/portal-profile\//.test(em.body) && /Dana Price/.test(em.body), em.body);
+  ok('the subject says it in one line', em.subject === 'Jordan Hayes, WR, Troy: in the portal');
+  ok('a mailto with everything filled in', em.mailto.startsWith('mailto:gail%40baylor.edu,wes%40baylor.edu?subject=') && em.mailto.includes('&cc=rick%40baylor.edu'));
+  const em2 = T.emailFor({ school: 'X', book: Contacts.build({ school: 'X', group: 'WR', rows: [{ name: 'No Email', title: 'General Manager', role: 'general_manager', status: 'current', phone: '555-1' }] }), profile: pub, profileUrl: null, agentName: 'Dana', group: 'WR' });
+  ok('no published emails: no mailto, call these people instead', em2.mailto === null && em2.callInstead[0].name === 'No Email' && !/One-pager/.test(em2.body));
+  const draft = await PR.emailDraft(store.pool, store, { id: AG, name: 'Dana Price' }, { id: AT, name: 'Jordan Hayes', position: 'WR', school: 'Troy' }, t1.id);
+  ok('through the service: the target, the one-pager link', draft.target.school === 'Baylor' && draft.hasProfile && draft.body.includes('/portal-profile/'));
+
+  OUT.push('-- the commit package --');
+  const cO = await O.create(store.pool, AG, AT, { school: 'Baylor', guaranteedPerYear: 150000, nilPerYear: 60000, nilPayer: 'collective', years: 2, inWriting: false });
+  await O.create(store.pool, AG, AT, { school: 'Houston', guaranteedPerYear: 120000, years: 1, inWriting: true });
+  const comm = await O.update(store.pool, AG, AT, cO.id, { status: 'committed' });
+  ok('committing starts the report clock', /^\d{4}-\d{2}-\d{2}$/.test(comm.signedOn));
+  await PR.saveWishlist(store.pool, AG, AT, { group: 'WR', birthDate: '2005-01-05', firstEnrollment: '2023-08-20' });
+  const cb = await PR.offerBoard(store.pool, { id: AG, name: 'Dana Price' }, { id: AT, name: 'Jordan Hayes', position: 'WR' });
+  ok('the headline says he committed', /He committed to Baylor: \$300,000 guaranteed, \$420,000 in all/.test(cb.headline), cb.headline);
+  const items = cb.commit.items.map((x) => x.text).join(' | ');
+  ok('the checklist: writing, the 5-day report, the work named, the fee, the term', /Get the final deal in writing/.test(items) && /Report the NIL deal: Report due by/.test(items) && /name the work/.test(items) && /at most \$3,000 a year/.test(items) && /runs 2 years but he has 1 season left/.test(items), items);
+  ok('tell the other schools, not the one he picked', /Let the other schools know he committed: Houston\./.test(items) && !/committed: [^.]*Baylor/.test(items));
+  const pc = O.commitPackage({ school: 'X', inWriting: true, nilPerYear: 50000, nilPayer: 'business', nilDeliverables: '2 posts', years: 1, signedOn: '2026-10-20' }, { now: NOW, agentReady: false });
+  ok('a report already late is flagged; no registration on file is flagged', pc.items.some((x) => x.level === 'flag' && /late/.test(x.text)) && pc.items.some((x) => /agent registration/.test(x.text) && x.level === 'flag'));
+
+  const IX3 = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+  ok('target and one-pager routes check the athlete is his', /const _portalRoute = \(fn\) => async \(req, res\) => \{\s*try \{\s*const a = await _portalOwnAthlete\(req, req\.params\.athleteId\)/.test(IX3) && (IX3.match(/requireAuth, requireAgentSubscription, _portalRoute\(/g) || []).length === 7);
+  ok('the public profile is by token, rate limited, and not indexed', IX3.includes("app.get('/api/portal-profile/:token', _portalProfileLimiter") && /portal-profile\.html'\)\);/.test(IX3) && IX3.includes("'X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'portal-profile.html'))"));
+  const PP = fs.readFileSync(REPO + 'server/views/portal-profile.html', 'utf8');
+  ok('the public page escapes everything and only links http(s)', /const esc = /.test(PP) && /const safeUrl = /.test(PP) && /noindex/.test(PP));
+
   OUT.push('-- wiring --');
   const IX = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   ok('agent routes need a signed-in paying agent', ["app.post('/api/portal/board', requireAuth, requireAgentSubscription", "app.post('/api/portal/enter-check', requireAuth, requireAgentSubscription", "app.get('/api/portal/school/:school', requireAuth, requireAgentSubscription", "app.put('/api/portal/wishlist/:athleteId', requireAuth, requireAgentSubscription"].every((x) => IX.includes(x)));
-  ok('a wish list is only for the agent\'s own athlete', /_portalOwnAthlete = async[\s\S]{0,200}a\.agentId !== req\.session\.userId/.test(IX) && (IX.match(/await _portalOwnAthlete\(req, req\.params\.athleteId\)/g) || []).length === 6);
+  ok('a wish list is only for the agent\'s own athlete', /_portalOwnAthlete = async[\s\S]{0,200}a\.agentId !== req\.session\.userId/.test(IX) && (IX.match(/await _portalOwnAthlete\(req, req\.params\.athleteId\)/g) || []).length === 7);
   ok('sweep, coverage and coaching changes live under /api/admin (the admin gate); a second manual sweep gets 409', IX.includes('PR.Sweep.isRunning()) return res.status(409)') && IX.includes("app.post('/api/admin/portal/roster-sweep'") && IX.includes("app.get('/api/admin/portal/coverage'") && IX.includes("app.post('/api/admin/portal/coaching-change'"));
   ok('the nightly sweep is scheduled', /PRS\.tick\(store\.pool\)/.test(IX) && IX.includes("app.get('/portal-room'"));
   const PAGE = fs.readFileSync(REPO + 'server/views/portal-room.html', 'utf8');

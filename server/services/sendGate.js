@@ -150,8 +150,17 @@ function freshValid(row, now) {
 // ── THE VERIFIER, LIVE ──────────────────────────────────────────────────────
 // Hunter, with every credit logged to email_verify_credit_log as 'send-gate'
 // and refused once the month's verification pool is spent.
-function liveVerifier(pool, { agentId, athleteId, business } = {}) {
+function liveVerifier(pool, { agentId, athleteId, business, fetchImpl = null } = {}) {
   return async (email) => {
+    // MillionVerifier first, outside the Hunter pool (see emailFinder.liveDeps):
+    // an approved email is not held because Hunter's month is spent when a
+    // check that costs no Hunter credit can answer.
+    const HL = require('./hunterLookup');
+    const vopts = fetchImpl ? { fetchImpl } : {};
+    if (HL.MV_ON()) {
+      const mv = await HL.verifyWithMillion(String(email || '').trim().toLowerCase(), vopts);
+      if (mv && mv.ok) return mv;
+    }
     const VB = require('./verifyBudget');
     const acct = await VB.accountStatus(pool).catch(() => ({ remaining: 0, unknown: true }));
     if (acct.unknown) return { ok: false, why: 'the verification credit log could not be read' };
@@ -159,7 +168,7 @@ function liveVerifier(pool, { agentId, athleteId, business } = {}) {
     const day = new Date().toISOString().slice(0, 10);
     const wrote = await VB.record(pool, { agentId, athleteId, business, email, day, source: 'send-gate' });
     if (!wrote) return { ok: false, why: 'the verification credit log is not writable, so nothing is being spent' };
-    return require('./hunterLookup').verifyEmail(email);
+    return HL.verifyEmail(email, { ...vopts, hunterOnly: HL.MV_ON() });
   };
 }
 

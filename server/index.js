@@ -12726,6 +12726,41 @@ app.delete('/api/portal/offers/:athleteId/:offerId', requireAuth, requireAgentSu
     res.json(await require('./services/portalRoom/offers').remove(store.pool, req.session.userId, a.id, req.params.offerId));
   } catch (e) { if (!e.status) console.error('[portal/offers]', e.message); _portalErr(res, e); }
 });
+// Targets and the one-pager (services/portalRoom/targets). The public page is
+// by random token, shows only what the agent filled in plus the athlete's
+// name, position and school, and can be turned off or re-keyed.
+const _portalT = () => require('./services/portalRoom/targets');
+const _portalRoute = (fn) => async (req, res) => {
+  try {
+    const a = await _portalOwnAthlete(req, req.params.athleteId);
+    res.json(await fn(req, a));
+  } catch (e) { if (!e.status) console.error('[portal]', req.path, e.message); _portalErr(res, e); }
+};
+app.get('/api/portal/targets/:athleteId', requireAuth, requireAgentSubscription, _portalRoute(async (req, a) => ({
+  targets: await _portalT().listTargets(store.pool, req.session.userId, a.id),
+  stages: _portalT().STAGES.map((k) => ({ key: k, label: _portalT().STAGE_LABEL[k] })),
+  profile: await _portalT().getProfile(store.pool, req.session.userId, a.id),
+})));
+app.post('/api/portal/targets/:athleteId', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().addTarget(store.pool, req.session.userId, a.id, req.body || {})));
+app.put('/api/portal/targets/:athleteId/:targetId', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().updateTarget(store.pool, req.session.userId, a.id, req.params.targetId, req.body || {})));
+app.delete('/api/portal/targets/:athleteId/:targetId', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().removeTarget(store.pool, req.session.userId, a.id, req.params.targetId)));
+app.get('/api/portal/targets/:athleteId/:targetId/email', requireAuth, requireAgentSubscription, _portalRoute(async (req, a) => {
+  const agent = await store.getUser(req.session.userId);
+  return require('./services/portalRoom').emailDraft(store.pool, store, agent, a, req.params.targetId);
+}));
+app.put('/api/portal/one-pager/:athleteId', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().saveProfile(store.pool, req.session.userId, a.id, req.body || {})));
+app.post('/api/portal/one-pager/:athleteId/new-link', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().rotateToken(store.pool, req.session.userId, a.id)));
+const _portalProfileLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Try again later.' } });
+app.get('/portal-profile/:token', (req, res) => {
+  res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'portal-profile.html'));
+});
+app.get('/api/portal-profile/:token', _portalProfileLimiter, async (req, res) => {
+  try {
+    const v = await _portalT().publicProfile(store.pool, store, req.params.token, { countView: true });
+    if (!v) return res.status(404).json({ error: 'This page is not available.' });
+    res.set('Cache-Control', 'no-store').json(v);
+  } catch (e) { console.error('[portal-profile]', e.message); res.status(500).json({ error: 'Something went wrong.' }); }
+});
 app.get('/api/admin/portal/coverage', async (req, res) => {
   try { res.json(await require('./services/portalRoom/rosterSweep').coverage(store.pool)); }
   catch (e) { res.status(500).json({ error: e.message }); }

@@ -1369,10 +1369,31 @@
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
       "years": "INT DEFAULT 1"
     },
+    "portal_profiles": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "last_viewed_at": "TIMESTAMPTZ",
+      "live": "BOOLEAN DEFAULT TRUE",
+      "token": "TEXT",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "views": "INT DEFAULT 0"
+    },
     "portal_sweep_runs": {
       "run_date": "DATE",
       "started_at": "TIMESTAMPTZ DEFAULT NOW()",
       "summary": "JSONB"
+    },
+    "portal_targets": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "id": "TEXT",
+      "last_touch_at": "TIMESTAMPTZ",
+      "next_step": "TEXT",
+      "notes": "TEXT",
+      "school": "TEXT",
+      "stage": "TEXT DEFAULT 'target'",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
     "portal_wishlists": {
       "agent_id": "TEXT",

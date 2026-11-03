@@ -30,7 +30,7 @@ label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--f
 input, select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; min-height: 44px; width: 100%; }
 input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.btn { border: 0; cursor: pointer; font: inherit; font-weight: 700; background: var(--acc); color: var(--acc-ink); border-radius: 9px; padding: 12px 18px; min-height: 44px; }
+.btn { text-decoration: none; display: inline-flex; align-items: center; border: 0; cursor: pointer; font: inherit; font-weight: 700; background: var(--acc); color: var(--acc-ink); border-radius: 9px; padding: 12px 18px; min-height: 44px; }
 .btn.ghost { background: transparent; color: var(--acc); border: 1px solid var(--line); }
 .btn.small { padding: 8px 12px; min-height: 36px; font-size: .9rem; }
 .btn:disabled { opacity: .6; cursor: default; }
@@ -179,10 +179,47 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     <p class="fine">Need counts seniors, graduate students and fifth and sixth years as likely leaving; some seniors have a year left. Portal entries and NFL Draft declarations are added as they are announced. Contacts come from each school's own staff page, with the page linked. Pay figures: <a href="https://www.footballscoop.com/2026/10/30/college-sports-commission-nil-rev-share-cheat-sheet" target="_blank" rel="noopener">College Sports Commission data, Oct 30, 2026</a>. Not legal advice.</p>
   </section>
 
-  <!-- 5. THE OFFER BOARD -->
+  <!-- 5. GET HIM IN FRONT OF SCHOOLS -->
+  <section class="card" id="tgtCard" aria-labelledby="h5t">
+    <div class="sect-h">
+      <div class="head"><span class="step">5</span><h2 id="h5t">Get him in front of schools</h2></div>
+      <button class="btn small ghost hidden" type="button" id="opToggle">His one-pager</button>
+    </div>
+    <p class="status" id="tgtGate">Pick a client in step 1 to build his target list and one-pager.</p>
+    <form id="opForm" class="hidden sect" novalidate>
+      <p class="status">A clean public page you can send to schools. Only what you fill in here, plus his name, position and school. Never his own phone or email.</p>
+      <div class="grid">
+        <label>Height and weight <input id="opHw" placeholder="6-1, 195"></label>
+        <label>Class <input id="opClass" placeholder="Redshirt junior"></label>
+        <label>Film link <input id="opFilm" placeholder="https://hudl.com/..."></label>
+        <label>Stats link <input id="opStatsUrl" placeholder="https://..."></label>
+        <label>Your phone <input id="opPhone" placeholder="(555) 555-5555"></label>
+        <label>Your email <input id="opEmail" placeholder="you@agency.com"></label>
+      </div>
+      <label>The numbers, one line <input id="opStats" placeholder="2026: 58 catches, 912 yards, 7 TD in 9 games"></label>
+      <label>Highlights, one per line <textarea id="opHi" rows="3" style="font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px"></textarea></label>
+      <label>Anything else a coach should know <input id="opNote" placeholder="Graduates in May; wants to play close to home"></label>
+      <div class="row"><button class="btn" type="submit" id="opSave">Save one-pager</button><span class="status" id="opMsg"></span></div>
+    </form>
+    <div class="row hidden" id="opLinkRow">
+      <span class="status" id="opLinkText"></span>
+      <button class="btn small ghost" type="button" id="opCopy">Copy link</button>
+      <a class="btn small ghost" id="opOpen" target="_blank" rel="noopener">Open</a>
+      <button class="btn small ghost" type="button" id="opNew">New link</button>
+      <button class="btn small ghost" type="button" id="opOff">Turn off</button>
+    </div>
+    <div class="row hidden" id="tgtAddRow">
+      <input id="tgtIn" list="schoolList" autocomplete="off" placeholder="Add a school to his list" style="max-width:320px">
+      <button class="btn small" type="button" id="tgtAdd">Add</button>
+      <span class="status" id="tgtMsg"></span>
+    </div>
+    <div class="sect" id="tgtList"></div>
+  </section>
+
+  <!-- 6. THE OFFER BOARD -->
   <section class="card" id="offerCard" aria-labelledby="h5p">
     <div class="sect-h">
-      <div class="head"><span class="step">5</span><h2 id="h5p">Offers</h2></div>
+      <div class="head"><span class="step">6</span><h2 id="h5p">Offers</h2></div>
       <button class="btn small ghost hidden" type="button" id="offerToggle">Add an offer</button>
     </div>
     <p class="status" id="offerGate">Pick a client in step 1 to track his offers.</p>
@@ -206,6 +243,10 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
       <div class="row"><button class="btn" type="submit" id="oSave">Save offer</button><span class="status" id="oStatusMsg"></span></div>
     </form>
     <p class="verdict ok hidden" id="offerHead"></p>
+    <div class="sect hidden" id="commitSect">
+      <h3 id="commitH">Commit checklist</h3>
+      <ul class="points" id="commitList"></ul>
+    </div>
     <div class="sect" id="offerList"></div>
     <div class="sect hidden" id="deadSect"><h3>Deadlines</h3><ul class="points" id="deadList"></ul></div>
     <div class="sect hidden" id="famSect">
@@ -300,6 +341,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     const id = $('athlete').value;
     $('saveBtn').classList.toggle('hidden', !id);
     loadOffers();
+    loadTargets();
     if (!id) return;
     const a = state.athletes.find((x) => String(x.id) === id);
     if (a) {
@@ -345,7 +387,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
       <div class="meta">${esc(s.need.line)}</div>
       ${s.reasons.length ? `<ul>${s.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
       ${s.coachingChange && safeUrl(s.coachingChange.source) ? `<p class="fine"><a href="${esc(safeUrl(s.coachingChange.source))}" target="_blank" rel="noopener">Coaching change source</a></p>` : ''}
-      <div class="row"><button class="btn small ghost" type="button" data-book="${esc(s.school)}">Who to call</button></div>
+      <div class="row"><button class="btn small ghost" type="button" data-book="${esc(s.school)}">Who to call</button><button class="btn small ghost${$('athlete').value ? '' : ' hidden'}" type="button" data-target="${esc(s.school)}">Add to his list</button></div>
       <div class="book hidden"></div>
     </div>`;
   }
@@ -474,6 +516,12 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
       </div></div>`;
     const declined = (b.declined || []).map((o) => `<div class="meta">${esc(o.school)}: declined <button class="btn small ghost" type="button" data-odel="${esc(o.id)}">Remove</button></div>`).join('');
     $('offerList').innerHTML = (b.offers.length ? b.offers.map(card).join('') : '<p class="status">No offers logged yet.</p>') + declined;
+    const lv2 = { ok: 'Good', warn: 'To do', flag: 'Must fix' };
+    if (b.commit) {
+      $('commitH').textContent = `Commit checklist: ${b.commit.school}` + (b.commit.signedOn ? ` (committed ${new Date(b.commit.signedOn + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })})` : '');
+      $('commitList').innerHTML = b.commit.items.map((c) => `<li><span class="badge ${esc(c.level)}">${esc(lv2[c.level] || c.level)}</span><span>${esc(c.text)}</span></li>`).join('');
+    }
+    $('commitSect').classList.toggle('hidden', !b.commit);
     $('deadList').innerHTML = (b.deadlines || []).map((d) => `<li><span class="badge ${d.days <= 3 ? 'warn' : 'low'}">${esc(new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }))}</span><span>${esc(d.text)}${d.days >= 0 ? ' (' + (d.days === 0 ? 'today' : 'in ' + esc(d.days) + ' day' + (d.days === 1 ? '' : 's')) + ')' : ''}</span></li>`).join('');
     $('deadSect').classList.toggle('hidden', !(b.deadlines || []).length);
     $('famText').value = b.family || '';
@@ -515,6 +563,110 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     try { await navigator.clipboard.writeText($('famText').value); $('famCopy').textContent = 'Copied'; } catch (_) { $('famText').select(); $('famCopy').textContent = 'Selected'; }
     setTimeout(() => { $('famCopy').textContent = 'Copy'; }, 1800);
   };
+
+  // TARGETS AND THE ONE-PAGER
+  const tState = { stages: [], profile: null, targets: [], drafts: {} };
+  async function loadTargets() {
+    const id = $('athlete').value;
+    ['opToggle', 'tgtAddRow'].forEach((x) => $(x).classList.toggle('hidden', !id));
+    $('tgtGate').classList.toggle('hidden', !!id);
+    document.querySelectorAll('[data-target]').forEach((b) => b.classList.toggle('hidden', !id));
+    if (!id) { $('tgtList').innerHTML = ''; $('opLinkRow').classList.add('hidden'); $('opForm').classList.add('hidden'); return; }
+    try {
+      const r = await api('GET', '/api/portal/targets/' + encodeURIComponent(id));
+      tState.stages = r.stages; tState.profile = r.profile; tState.targets = r.targets; tState.drafts = {};
+      fillProfile(r.profile); renderTargets();
+    } catch (e) { $('tgtList').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  }
+  function profileUrl(p) { return p && p.token ? location.origin + '/portal-profile/' + p.token : ''; }
+  function fillProfile(p) {
+    const d = (p && p.data) || {};
+    $('opHw').value = d.heightWeight || ''; $('opClass').value = d.classYear || ''; $('opFilm').value = d.filmUrl || '';
+    $('opStatsUrl').value = d.statsUrl || ''; $('opPhone').value = d.agentPhone || ''; $('opEmail').value = d.agentEmail || '';
+    $('opStats').value = d.statsLine || ''; $('opHi').value = (d.highlights || []).join('\n'); $('opNote').value = d.note || '';
+    const live = p && p.token && p.live;
+    $('opLinkRow').classList.toggle('hidden', !(p && p.token));
+    if (p && p.token) {
+      $('opLinkText').textContent = live ? `One-pager is live. Opened ${p.views || 0} time${p.views === 1 ? '' : 's'}.` : 'One-pager is off.';
+      $('opOpen').href = profileUrl(p); $('opOpen').classList.toggle('hidden', !live);
+      $('opCopy').classList.toggle('hidden', !live);
+      $('opOff').textContent = live ? 'Turn off' : 'Turn on';
+    }
+    $('opToggle').textContent = p && p.token ? 'Edit one-pager' : 'Make his one-pager';
+  }
+  function opBody(extra) {
+    return Object.assign({ heightWeight: $('opHw').value, classYear: $('opClass').value, filmUrl: $('opFilm').value, statsUrl: $('opStatsUrl').value,
+      agentPhone: $('opPhone').value, agentEmail: $('opEmail').value, statsLine: $('opStats').value, highlights: $('opHi').value, note: $('opNote').value,
+      live: tState.profile && tState.profile.token ? !!tState.profile.live : true }, extra || {});
+  }
+  $('opToggle').onclick = () => $('opForm').classList.toggle('hidden');
+  $('opForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); $('opMsg').textContent = 'Saving...';
+    try { tState.profile = { ...(tState.profile || {}), ...(await api('PUT', '/api/portal/one-pager/' + encodeURIComponent($('athlete').value), opBody())) }; fillProfile(tState.profile); $('opMsg').textContent = 'Saved.'; $('opForm').classList.add('hidden'); tState.drafts = {}; }
+    catch (err) { $('opMsg').textContent = err.message; }
+  });
+  $('opCopy').onclick = async () => { try { await navigator.clipboard.writeText(profileUrl(tState.profile)); $('opCopy').textContent = 'Copied'; } catch (_) { $('opCopy').textContent = 'Copy failed'; } setTimeout(() => { $('opCopy').textContent = 'Copy link'; }, 1800); };
+  $('opNew').onclick = async () => {
+    try { const r = await api('POST', '/api/portal/one-pager/' + encodeURIComponent($('athlete').value) + '/new-link'); tState.profile.token = r.token; fillProfile(tState.profile); tState.drafts = {}; }
+    catch (err) { $('opLinkText').textContent = err.message; }
+  };
+  $('opOff').onclick = async () => {
+    try { tState.profile = { ...tState.profile, ...(await api('PUT', '/api/portal/one-pager/' + encodeURIComponent($('athlete').value), opBody({ live: !tState.profile.live }))) }; fillProfile(tState.profile); tState.drafts = {}; }
+    catch (err) { $('opLinkText').textContent = err.message; }
+  };
+  function renderTargets() {
+    const opts = (cur) => tState.stages.map((s) => `<option value="${esc(s.key)}"${s.key === cur ? ' selected' : ''}>${esc(s.label)}</option>`).join('');
+    $('tgtList').innerHTML = tState.targets.length ? tState.targets.map((t) => `<div class="school" data-tid="${esc(t.id)}">
+      <div class="line1"><div class="name">${esc(t.school)}</div>
+        <div class="row"><select data-tstage="${esc(t.id)}" aria-label="Where it stands" style="width:auto">${opts(t.stage)}</select></div></div>
+      <input data-tnext="${esc(t.id)}" value="${esc(t.nextStep || '')}" placeholder="Next step, e.g. call the GM Thursday">
+      <div class="row"><button class="btn small ghost" type="button" data-temail="${esc(t.id)}">Write the email</button><button class="btn small ghost" type="button" data-tdel="${esc(t.id)}">Remove</button></div>
+      <div class="book hidden" data-tdraft="${esc(t.id)}"></div></div>`).join('') : '<p class="status">No schools on his list yet. Add them here or from the board above.</p>';
+  }
+  async function addTarget(school) {
+    const id = $('athlete').value; if (!id || !school) return;
+    $('tgtMsg').textContent = 'Adding...';
+    try { await api('POST', '/api/portal/targets/' + encodeURIComponent(id), { school }); $('tgtMsg').textContent = `${school} added.`; $('tgtIn').value = ''; await loadTargets(); }
+    catch (err) { $('tgtMsg').textContent = err.message; }
+  }
+  $('tgtAdd').onclick = () => addTarget($('tgtIn').value.trim());
+  $('tgtIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addTarget($('tgtIn').value.trim()); } });
+  document.addEventListener('click', async (e) => {
+    const add = e.target.closest('[data-target]');
+    if (add) { await addTarget(add.dataset.target); add.textContent = 'On his list'; add.disabled = true; return; }
+    const del = e.target.closest('[data-tdel]');
+    const em = e.target.closest('[data-temail]');
+    const aid = encodeURIComponent($('athlete').value);
+    if (del) { try { await api('DELETE', `/api/portal/targets/${aid}/${encodeURIComponent(del.dataset.tdel)}`); await loadTargets(); } catch (err) { $('tgtMsg').textContent = err.message; } return; }
+    if (em) {
+      const box = document.querySelector(`[data-tdraft="${CSS.escape(em.dataset.temail)}"]`);
+      if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+      box.classList.remove('hidden'); box.innerHTML = '<p class="status">Writing...</p>';
+      try {
+        const d = tState.drafts[em.dataset.temail] || (tState.drafts[em.dataset.temail] = await api('GET', `/api/portal/targets/${aid}/${encodeURIComponent(em.dataset.temail)}/email`));
+        const to = d.to.length ? d.to.map((p) => `${esc(p.name)} &lt;${esc(p.email)}&gt;`).join(', ') : '';
+        box.innerHTML = `${!d.hasProfile ? '<p class="status">Tip: make his one-pager first and the link goes in the email.</p>' : ''}
+          ${to ? `<div class="meta"><b>To:</b> ${to}</div>` : `<p class="status">This school publishes no direct emails for these people. Call instead: ${d.callInstead.map((c) => esc(c.label + ': ' + c.name + (c.phone ? ' ' + c.phone : ''))).join('; ') || 'see Who to call'}${d.office ? ' · Football office ' + esc(d.office) : ''}. The email below works as your follow-up after the call.</p>`}
+          <div class="meta"><b>Subject:</b> ${esc(d.subject)}</div>
+          <textarea readonly rows="14" style="font:inherit;font-size:.92rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%">${esc(d.body)}</textarea>
+          <div class="row">${d.mailto ? `<a class="btn small" href="${esc(d.mailto)}" data-tsent="${esc(em.dataset.temail)}">Open in my email</a>` : ''}<button class="btn small ghost" type="button" data-tcopy="${esc(em.dataset.temail)}">Copy</button></div>
+          <p class="fine">You send it from your own email. After you send it, set the school to Contacted.</p>`;
+      } catch (err) { box.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+      return;
+    }
+    const cp = e.target.closest('[data-tcopy]');
+    if (cp) { const d = tState.drafts[cp.dataset.tcopy]; try { await navigator.clipboard.writeText(`Subject: ${d.subject}\n\n${d.body}`); cp.textContent = 'Copied'; } catch (_) { cp.textContent = 'Copy failed'; } setTimeout(() => { cp.textContent = 'Copy'; }, 1800); }
+  });
+  document.addEventListener('change', async (e) => {
+    const st = e.target.closest('[data-tstage]'), nx = e.target.closest('[data-tnext]');
+    if (!st && !nx) return;
+    const aid = encodeURIComponent($('athlete').value);
+    try {
+      if (st) await api('PUT', `/api/portal/targets/${aid}/${encodeURIComponent(st.dataset.tstage)}`, { stage: st.value });
+      if (nx) await api('PUT', `/api/portal/targets/${aid}/${encodeURIComponent(nx.dataset.tnext)}`, { nextStep: nx.value });
+      if (st && st.value === 'offer') { $('offerForm').classList.remove('hidden'); $('oSchool').value = st.closest('.school').querySelector('.name').textContent; $('offerCard').scrollIntoView({ behavior: 'smooth' }); }
+    } catch (err) { $('tgtMsg').textContent = err.message; }
+  });
 
   // BOOT
   (async () => {

@@ -188,8 +188,34 @@ async function offerBoard(pool, agent, athlete, { now = new Date() } = {}) {
   }
   const group = P.GROUPS.includes(w.group) ? w.group : P.groupOf(athlete.position);
   const board = Offers.compare(offers, { seasonsLeft, now, windows: WINDOWS.football, group });
+  if (board.committed) {
+    const T = require('./targets');
+    const targets = await T.listTargets(pool, agent.id, athlete.id).catch(() => []);
+    const others = [...board.offers.map((o) => o.school), ...targets.filter((t) => t.stage !== 'passed').map((t) => t.school)];
+    let agentReady = null;
+    try { agentReady = (await require('../pcsa').getProfile(pool, agent.id)).check.ready; } catch (_) { /* no profile table */ }
+    board.commit = Offers.commitPackage(board.offers.find((o) => o.id === board.committed), { others, seasonsLeft, now, agentReady });
+  }
   const agentName = [agent.name || agent.full_name || '', agent.agency || agent.agency_name || ''].filter(Boolean).join(', ') || null;
   return { ...board, seasonsLeft, group, value: group ? Value.forGroup(group) : null, family: Offers.familyUpdate({ athleteName: athlete.name, agentName, board, now }) };
+}
+
+// The email to one target school: its contact book, the one-pager, the agent.
+async function emailDraft(pool, store, agent, athlete, targetId) {
+  const T = require('./targets');
+  const list = await T.listTargets(pool, agent.id, athlete.id);
+  const t = list.find((x) => x.id === String(targetId));
+  if (!t) { const e = new Error('Target not found'); e.status = 404; throw e; }
+  const w = (await getWishlist(pool, agent.id, athlete.id)).prefs || {};
+  const group = P.GROUPS.includes(w.group) ? w.group : P.groupOf(athlete.position);
+  const prof = await T.getProfile(pool, agent.id, athlete.id);
+  const base = (process.env.APP_URL || 'https://mynildash.com').replace(/\/$/, '');
+  const profileUrl = prof.token && prof.live ? `${base}/portal-profile/${prof.token}` : null;
+  const pub = prof.token && prof.live ? await T.publicProfile(pool, store, prof.token) : null;
+  const profile = pub || { name: athlete.name, position: athlete.position, group, school: athlete.school, heightWeight: null, statsLine: null, filmUrl: null, seasonsLeft: null, agent: {} };
+  const book = group ? await Contacts.forSchool(store, t.school, group) : null;
+  const out = T.emailFor({ school: t.school, book, profile, profileUrl, agentName: agent.name || null, group });
+  return { ...out, target: t, hasProfile: !!profileUrl };
 }
 
 function meta() {
@@ -201,4 +227,4 @@ function meta() {
   };
 }
 
-module.exports = { offerBoard, board, school, enterCheck, getWishlist, saveWishlist, cleanPrefs, meta, rosters, clearCache, WINDOWS, Sweep, Coaching };
+module.exports = { emailDraft, offerBoard, board, school, enterCheck, getWishlist, saveWishlist, cleanPrefs, meta, rosters, clearCache, WINDOWS, Sweep, Coaching };
