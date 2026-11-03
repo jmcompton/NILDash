@@ -155,7 +155,10 @@ function disclosure({ value, signedAt, paidAt, priorTwelveMonths = 0, division =
     return finding('disclosure', 'warn', `Over ${money(DISCLOSE_OVER)} in 12 months: report it within 5 days of signing or 30 days of being paid. Add the signing date to set the deadline.`, { required: true, dueBy: null });
   }
   const due = dues.reduce((a, b) => (a < b ? a : b));
-  const daysLeft = Math.ceil((due.getTime() - at.getTime()) / DAY);
+  // Calendar days in Chicago, not hours: due the 6th means due the 6th, all
+  // day, and late on the 7th.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(at);
+  const daysLeft = Math.round((Date.parse(iso(due) + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / DAY);
   const level = daysLeft < 0 ? 'flag' : daysLeft <= 2 ? 'warn' : 'ok';
   const text = daysLeft < 0 ? `Report was due ${iso(due)}: ${-daysLeft} day${daysLeft === -1 ? '' : 's'} late.`
     : `Report due by ${iso(due)} (${daysLeft} day${daysLeft === 1 ? '' : 's'} left).`;

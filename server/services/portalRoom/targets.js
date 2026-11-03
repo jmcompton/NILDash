@@ -98,6 +98,10 @@ function cleanProfile(b = {}) {
     highlights: (Array.isArray(b.highlights) ? b.highlights : String(b.highlights || '').split('\n')).map((x) => clip(x, 160)).filter(Boolean).slice(0, 6),
     filmUrl: httpUrl(b.filmUrl),
     statsUrl: httpUrl(b.statsUrl),
+    hometown: clip(b.hometown, 80),
+    // Seasons left is worked out from his private dates; shown only if the
+    // agent says so.
+    showSeasonsLeft: !!b.showSeasonsLeft,
     agentPhone: clip(b.agentPhone, 30),
     agentEmail: /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(String(b.agentEmail || '').trim()) ? String(b.agentEmail).trim().slice(0, 120) : null,
     note: clip(b.note, 400),
@@ -145,17 +149,18 @@ async function publicProfile(pool, store, token, { countView = false } = {}) {
   const w = await pool.query(`SELECT prefs FROM portal_wishlists WHERE agent_id = $1 AND athlete_id = $2`, [x.agent_id, x.athlete_id]).catch(() => ({ rows: [] }));
   const prefs = (w.rows[0] && w.rows[0].prefs) || {};
   const group = P.GROUPS.includes(prefs.group) ? prefs.group : P.groupOf(athlete.position);
-  let seasonsLeft = null;
-  if (prefs.birthDate || prefs.firstEnrollment) {
-    try { seasonsLeft = (await require('./index').enterCheck(pool, prefs)).seasonsAfter; } catch (_) { /* leave it off */ }
-  }
   const d = x.data || {};
+  let seasonsLeft = null;
+  if (d.showSeasonsLeft && (prefs.birthDate || prefs.firstEnrollment)) {
+    // No position on this call, so nothing is ranked: just the clock.
+    try { seasonsLeft = (await require('./index').enterCheck(pool, { ...prefs, group: null, position: '' })).seasonsAfter; } catch (_) { /* leave it off */ }
+  }
   return {
     name: athlete.name || null,
     position: athlete.position || (group ? P.LABEL[group] : null),
     group,
     school: athlete.school || null,
-    hometown: athlete.hometown || null,
+    hometown: d.hometown || null,
     heightWeight: d.heightWeight || null,
     classYear: d.classYear || null,
     seasonsLeft,
@@ -180,8 +185,14 @@ function emailFor({ school, book, profile, profileUrl, agentName, group }) {
   const pos = group || profile.group || '';
   const people = (book && book.contacts) || [];
   const rank = ['General manager / football ops', 'Player personnel', `Position coach (${pos})`];
-  const to = people.filter((p) => p.email && rank.includes(p.label));
-  const cc = people.filter((p) => p.email && !rank.includes(p.label) && p.label === 'Recruiting');
+  let to = people.filter((p) => p.email && rank.includes(p.label));
+  let cc = people.filter((p) => p.email && !rank.includes(p.label) && p.label === 'Recruiting');
+  // Nobody senior published: recruiting (or the program's recruiting inbox)
+  // is the one address there is, so it goes on the To line.
+  if (!to.length) {
+    to = cc.length ? cc : (book && book.recruitingEmail && book.recruitingEmail.email ? [{ name: 'Recruiting', email: book.recruitingEmail.email, label: 'Recruiting office' }] : []);
+    cc = [];
+  }
   const greetName = (to[0] && to[0].name) ? `Coach ${String(to[0].name).split(/\s+/).slice(-1)[0]}` : 'Coach';
   const subject = `${profile.name || 'Portal player'}, ${pos}${profile.school ? ', ' + profile.school : ''}: in the portal`;
   const lines = [`${greetName},`, ''];

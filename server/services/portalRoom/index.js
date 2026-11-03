@@ -98,6 +98,9 @@ async function enterCheck(pool, body = {}, { now = new Date() } = {}) {
   const pcsa = require('../pcsa');
   const { prefs } = cleanPrefs(body);
   const prior = Math.max(0, Math.min(5, parseInt(body.priorTransfers, 10) || 0));
+  const realDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d;
+  if (body.birthDate && !realDate(body.birthDate)) body = { ...body, birthDate: null };
+  if (body.firstEnrollment && !realDate(body.firstEnrollment)) body = { ...body, firstEnrollment: null };
   const coaching = await Coaching.load(pool, { now });
   const atCurrent = prefs.currentSchool ? coaching.get(prefs.currentSchool) || null : null;
   const EXC = ['head_coach_departed', 'sport_discontinued', 'sexual_assault_or_harassment', 'graduate_study'];
@@ -191,7 +194,10 @@ async function offerBoard(pool, agent, athlete, { now = new Date() } = {}) {
   if (board.committed) {
     const T = require('./targets');
     const targets = await T.listTargets(pool, agent.id, athlete.id).catch(() => []);
-    const others = [...board.offers.map((o) => o.school), ...targets.filter((t) => t.stage !== 'passed').map((t) => t.school)];
+    // Schools that know about him: open offers, and targets he actually
+    // talked to. Not the one he picked, not a school never contacted.
+    const others = [...board.offers.filter((o) => o.status !== 'committed').map((o) => o.school),
+      ...targets.filter((t) => !['target', 'passed'].includes(t.stage)).map((t) => t.school)];
     let agentReady = null;
     try { agentReady = (await require('../pcsa').getProfile(pool, agent.id)).check.ready; } catch (_) { /* no profile table */ }
     board.commit = Offers.commitPackage(board.offers.find((o) => o.id === board.committed), { others, seasonsLeft, now, agentReady });

@@ -47,6 +47,9 @@ const money = (v) => {
   if (!Number.isFinite(n) || n < 0 || n > 50_000_000) throw bad('Money must be a dollar amount.');
   return n;
 };
+// A real calendar date or null. "2026-02-30" passes a pattern and then
+// crashes Postgres, so it has to round-trip.
+const realDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d;
 const clip = (s, n) => (s == null || String(s).trim() === '' ? null : String(s).trim().slice(0, n));
 
 function clean(b = {}, { partial = false } = {}) {
@@ -77,13 +80,13 @@ function clean(b = {}, { partial = false } = {}) {
   if (!partial || b.inWriting !== undefined) out.in_writing = !!b.inWriting;
   if (!partial || b.expiresOn !== undefined) {
     const d = b.expiresOn ? String(b.expiresOn) : null;
-    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw bad('Expiry must be a date.');
+    if (d && !realDate(d)) throw bad('Expiry must be a real date.');
     out.expires_on = d;
   }
   if (out.status === 'in_writing') out.in_writing = true;
   if (b.signedOn !== undefined) {
     const d = b.signedOn ? String(b.signedOn) : null;
-    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw bad('Signing date must be a date.');
+    if (d && !realDate(d)) throw bad('Signing date must be a real date.');
     out.signed_on = d;
   }
   if (!partial || b.conditions !== undefined) out.conditions = clip(b.conditions, 500);
@@ -129,8 +132,13 @@ async function update(pool, agentId, athleteId, id, body) {
   const keys = Object.keys(c);
   if (!keys.length) throw bad('Nothing to change.');
   let sets = keys.map((k, i) => `${k} = $${i + 4}`).join(', ');
-  // Committing starts the report clock, unless a signing date was given.
-  if (c.status === 'committed' && c.signed_on === undefined) sets += `, signed_on = COALESCE(signed_on, (NOW() AT TIME ZONE 'America/Chicago')::date)`;
+  // Committing starts the report clock (today, on a real move into committed),
+  // unless a signing date was given; leaving committed clears it, so a mistake
+  // undone does not leave a stale date behind. The right-hand status is the
+  // row's value before this update.
+  const today = `(NOW() AT TIME ZONE 'America/Chicago')::date`;
+  if (c.status === 'committed' && c.signed_on === undefined) sets += `, signed_on = CASE WHEN status = 'committed' THEN COALESCE(signed_on, ${today}) ELSE ${today} END`;
+  else if (c.status && c.status !== 'committed' && c.signed_on === undefined) sets += ', signed_on = NULL';
   const r = await pool.query(`UPDATE portal_offers SET ${sets}, updated_at = NOW() WHERE id = $1 AND agent_id = $2 AND athlete_id = $3 RETURNING *`,
     [String(id), agentId, athleteId, ...keys.map((k) => c[k])]);
   if (!r.rows[0]) { const e = new Error('Offer not found'); e.status = 404; throw e; }
@@ -205,7 +213,7 @@ function compare(offers, { seasonsLeft = null, now = new Date(), windows = null,
   let headline = null;
   if (best && mostTotal && best.id !== mostTotal.id && mostTotal.totalValue > best.totalValue) {
     headline = `${best.school} guarantees the most (${usd(best.guaranteedTotal)}). ${mostTotal.school} is bigger on paper (${usd(mostTotal.totalValue)}), but ${100 - (mostTotal.guaranteedShare || 0)}% of it is NIL.`;
-  } else if (best) {
+  } else if (best && best.totalValue > 0) {
     headline = best.guaranteedTotal === best.totalValue
       ? `${best.school} leads: ${usd(best.guaranteedTotal)}, all of it guaranteed by the school.`
       : `${best.school} leads: ${usd(best.guaranteedTotal)} guaranteed, ${usd(best.totalValue)} in all.`;
@@ -226,8 +234,11 @@ function commitPackage(o, { others = [], seasonsLeft = null, now = new Date(), a
     : { level: 'flag', text: 'Get the final deal in writing before he signs anything else.' });
   const nil = o.nilPerYear || 0;
   if (nil > 0) {
+    // Two different reports. The PCSA one counts NIL in a 12-month window (a
+    // year of this deal); NIL Go takes any deal worth over $600 in all.
     const d = pcsa.disclosure({ value: nil, signedAt: o.signedOn, now });
-    if (d.required) items.push({ level: d.level, text: `Report the NIL deal: ${d.text} Under the Protect College Sports Act it is due within 5 days of signing; it also goes through NIL Go (deals over $600).`, dueBy: d.dueBy || null });
+    if (d.required) items.push({ level: d.level, text: `Protect College Sports Act report: ${d.text} Due within 5 days of signing.`, dueBy: d.dueBy || null });
+    if (nil * (o.years || 1) > 600) items.push({ level: 'warn', text: `Report the deal through NIL Go: it is worth ${usd(nil * (o.years || 1))} in all, over the $600 line.` });
     if (['collective', 'booster'].includes(o.nilPayer) && !o.nilDeliverables) items.push({ level: 'flag', text: 'The NIL contract has to name the work (posts, appearances). Add it before signing.' });
     items.push({ level: 'ok', text: `Your fee on the NIL part: at most ${usd(nil * FEE_CAP)} a year (5%). Put it in the agency contract.` });
   }

@@ -375,10 +375,61 @@ async function main() {
   const cb = await PR.offerBoard(store.pool, { id: AG, name: 'Dana Price' }, { id: AT, name: 'Jordan Hayes', position: 'WR' });
   ok('the headline says he committed', /He committed to Baylor: \$300,000 guaranteed, \$420,000 in all/.test(cb.headline), cb.headline);
   const items = cb.commit.items.map((x) => x.text).join(' | ');
-  ok('the checklist: writing, the 5-day report, the work named, the fee, the term', /Get the final deal in writing/.test(items) && /Report the NIL deal: Report due by/.test(items) && /name the work/.test(items) && /at most \$3,000 a year/.test(items) && /runs 2 years but he has 1 season left/.test(items), items);
+  ok('the checklist: writing, the 5-day report, the work named, the fee, the term', /Get the final deal in writing/.test(items) && /Protect College Sports Act report: Report due by/.test(items) && /name the work/.test(items) && /at most \$3,000 a year/.test(items) && /runs 2 years but he has 1 season left/.test(items), items);
   ok('tell the other schools, not the one he picked', /Let the other schools know he committed: Houston\./.test(items) && !/committed: [^.]*Baylor/.test(items));
   const pc = O.commitPackage({ school: 'X', inWriting: true, nilPerYear: 50000, nilPayer: 'business', nilDeliverables: '2 posts', years: 1, signedOn: '2026-10-20' }, { now: NOW, agentReady: false });
   ok('a report already late is flagged; no registration on file is flagged', pc.items.some((x) => x.level === 'flag' && /late/.test(x.text)) && pc.items.some((x) => /agent registration/.test(x.text) && x.level === 'flag'));
+
+  OUT.push('-- review fixes, round 2 --');
+  {
+    // 1. The one-pager shows only what the agent put on it.
+    const tok = (await T.getProfile(store.pool, AG, AT)).token;
+    await T.saveProfile(store.pool, AG, AT, { heightWeight: '6-1, 196', live: true });
+    let pp = await T.publicProfile(store.pool, store, tok);
+    ok('the athlete record\'s hometown and his private dates stay off the one-pager', pp.hometown === null && pp.seasonsLeft === null, { h: pp.hometown, s: pp.seasonsLeft });
+    await T.saveProfile(store.pool, AG, AT, { heightWeight: '6-1, 196', hometown: 'Dallas, TX', showSeasonsLeft: true, live: true });
+    pp = await T.publicProfile(store.pool, store, tok);
+    ok('until the agent puts them there', pp.hometown === 'Dallas, TX' && Number.isInteger(pp.seasonsLeft), { h: pp.hometown, s: pp.seasonsLeft });
+    // 3. The signing date follows the real commit.
+    const o3 = await O.create(store.pool, AG, 'ath-sign', { school: 'Texas', guaranteedPerYear: 100000, nilPerYear: 5000, years: 1, inWriting: true });
+    await O.update(store.pool, AG, 'ath-sign', o3.id, { status: 'committed', signedOn: '2026-10-01' });
+    let back = await O.update(store.pool, AG, 'ath-sign', o3.id, { status: 'offered' });
+    ok('un-committing clears the signing date', back.signedOn === null);
+    back = await O.update(store.pool, AG, 'ath-sign', o3.id, { status: 'committed' });
+    const todayC = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+    ok('committing again starts the clock today', back.signedOn === todayC, back.signedOn);
+    back = await O.update(store.pool, AG, 'ath-sign', o3.id, { inWriting: true, status: 'committed' });
+    ok('touching a committed offer does not reset its date', back.signedOn === todayC);
+    back = await O.update(store.pool, AG, 'ath-sign', o3.id, { signedOn: '2026-10-30' });
+    ok('the agent can set the real signing date', back.signedOn === '2026-10-30' && back.status === 'committed');
+    // 8. Impossible dates are a 400, not a crash.
+    let d8 = null; try { await O.update(store.pool, AG, 'ath-sign', o3.id, { signedOn: '2026-02-30' }); } catch (x) { d8 = x; }
+    ok('February 30 is refused plainly', d8 && d8.status === 400);
+    d8 = null; try { await O.create(store.pool, AG, 'ath-sign', { school: 'Iowa', expiresOn: '2026-13-01' }); } catch (x) { d8 = x; }
+    ok('so is month 13', d8 && d8.status === 400);
+    // 4. NIL Go on the deal's value; the PCSA report on a year of it.
+    const small = O.commitPackage({ school: 'X', inWriting: true, nilPerYear: 500, nilPayer: 'business', nilDeliverables: '1 post', years: 3, signedOn: '2026-11-01' }, { now: NOW });
+    const st = small.items.map((x) => x.text).join(' | ');
+    ok('$500 a year for 3 years: NIL Go yes ($1,500), PCSA 12-month report no', /NIL Go: it is worth \$1,500/.test(st) && !/Protect College Sports Act report/.test(st), st);
+    // 6. No money, no leader.
+    const nb = O.compare([{ id: 'a', school: 'Alabama', status: 'talking', years: 1 }, { id: 'b', school: 'Auburn', status: 'talking', years: 1 }], { now: NOW });
+    ok('no amounts entered: no "leads with $0" headline', nb.headline === null);
+    // 5. Recruiting is the only address: it goes on the To line.
+    const rb = Contacts.build({ school: 'R', group: 'WR', rows: [{ name: 'Rick Recruit', title: 'Director of Recruiting', role: 'recruiting', status: 'current', email: 'rick@x.edu' }, { name: 'Hal', title: 'Head Coach', role: 'head_coach', status: 'current', phone: '1' }] });
+    const re = T.emailFor({ school: 'R', book: rb, profile: { name: 'J H', school: 'Troy', agent: {} }, profileUrl: null, agentName: 'D', group: 'WR' });
+    ok('only recruiting published: it gets the email', re.to[0].email === 'rick@x.edu' && re.cc.length === 0 && re.mailto && re.mailto.startsWith('mailto:rick%40x.edu'));
+    const re2 = T.emailFor({ school: 'R', book: { contacts: [], recruitingEmail: { email: 'recruit@x.edu' } }, profile: { name: 'J H', agent: {} }, profileUrl: null, agentName: 'D', group: 'WR' });
+    ok('or the program\'s recruiting inbox', re2.to[0].email === 'recruit@x.edu' && !!re2.mailto);
+    // 7. Days left by the calendar, in Chicago.
+    const pc7 = require(REPO + 'server/services/pcsa.js');
+    ok('signed Nov 1: on the evening of Nov 6 it is due today, not late', pc7.disclosure({ value: 2000, signedAt: '2026-11-01', now: new Date('2026-11-07T03:00:00Z') }).daysLeft === 0);
+    ok('and on Nov 7 it is late', pc7.disclosure({ value: 2000, signedAt: '2026-11-01', now: new Date('2026-11-07T18:00:00Z') }).level === 'flag');
+    // 9. Tell only the schools that know about him.
+    await T.addTarget(store.pool, AG, AT, { school: 'Rice' });
+    const cb9 = await PR.offerBoard(store.pool, { id: AG, name: 'Dana Price' }, { id: AT, name: 'Jordan Hayes', position: 'WR' });
+    const tell = (cb9.commit.items.find((x) => /Let the other schools know/.test(x.text)) || {}).text || '';
+    ok('a school never contacted is not on the tell list', !/Rice/.test(tell) && /Houston/.test(tell), tell);
+  }
 
   const IX3 = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   ok('target and one-pager routes check the athlete is his', /const _portalRoute = \(fn\) => async \(req, res\) => \{\s*try \{\s*const a = await _portalOwnAthlete\(req, req\.params\.athleteId\)/.test(IX3) && (IX3.match(/requireAuth, requireAgentSubscription, _portalRoute\(/g) || []).length === 7);

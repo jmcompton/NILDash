@@ -193,12 +193,14 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
         <label>Class <input id="opClass" placeholder="Redshirt junior"></label>
         <label>Film link <input id="opFilm" placeholder="https://hudl.com/..."></label>
         <label>Stats link <input id="opStatsUrl" placeholder="https://..."></label>
+        <label>Hometown <input id="opHome" placeholder="Dallas, TX"></label>
         <label>Your phone <input id="opPhone" placeholder="(555) 555-5555"></label>
         <label>Your email <input id="opEmail" placeholder="you@agency.com"></label>
       </div>
       <label>The numbers, one line <input id="opStats" placeholder="2026: 58 catches, 912 yards, 7 TD in 9 games"></label>
       <label>Highlights, one per line <textarea id="opHi" rows="3" style="font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px"></textarea></label>
       <label>Anything else a coach should know <input id="opNote" placeholder="Graduates in May; wants to play close to home"></label>
+      <label class="check"><input type="checkbox" id="opSeasons"> Show his seasons left (worked out from his dates in step 2)</label>
       <div class="row"><button class="btn" type="submit" id="opSave">Save one-pager</button><span class="status" id="opMsg"></span></div>
     </form>
     <div class="row hidden" id="opLinkRow">
@@ -245,6 +247,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     <p class="verdict ok hidden" id="offerHead"></p>
     <div class="sect hidden" id="commitSect">
       <h3 id="commitH">Commit checklist</h3>
+      <div class="row"><label style="flex-direction:row;align-items:center;gap:8px">NIL contract signed on <input type="date" id="signedOn" style="width:auto"></label><button class="btn small ghost" type="button" id="signedSave">Save date</button><span class="status" id="signedMsg"></span></div>
       <ul class="points" id="commitList"></ul>
     </div>
     <div class="sect" id="offerList"></div>
@@ -511,7 +514,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
       <ul class="points">${o.checks.map((c) => `<li><span class="badge ${esc(c.level)}">${esc(lvl[c.level] || c.level)}</span><span>${esc(c.text)}</span></li>`).join('')}</ul>
       <div class="row">
         <select data-ostatus="${esc(o.id)}" aria-label="Where it stands" style="width:auto">${Object.keys(STATUS).map((k) => `<option value="${k}"${k === o.status ? ' selected' : ''}>${STATUS[k]}</option>`).join('')}</select>
-        ${o.inWriting ? '' : `<button class="btn small ghost" type="button" data-owrite="${esc(o.id)}">Got it in writing</button>`}
+        ${o.inWriting ? '' : `<button class="btn small ghost" type="button" data-owrite="${esc(o.id)}" data-ostat="${esc(o.status)}">Got it in writing</button>`}
         <button class="btn small ghost" type="button" data-odel="${esc(o.id)}">Remove</button>
       </div></div>`;
     const declined = (b.declined || []).map((o) => `<div class="meta">${esc(o.school)}: declined <button class="btn small ghost" type="button" data-odel="${esc(o.id)}">Remove</button></div>`).join('');
@@ -522,6 +525,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
       $('commitList').innerHTML = b.commit.items.map((c) => `<li><span class="badge ${esc(c.level)}">${esc(lv2[c.level] || c.level)}</span><span>${esc(c.text)}</span></li>`).join('');
     }
     $('commitSect').classList.toggle('hidden', !b.commit);
+    if (b.commit) { $('signedOn').value = b.commit.signedOn || ''; $('signedSave').dataset.oid = b.committed || ''; }
     $('deadList').innerHTML = (b.deadlines || []).map((d) => `<li><span class="badge ${d.days <= 3 ? 'warn' : 'low'}">${esc(new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }))}</span><span>${esc(d.text)}${d.days >= 0 ? ' (' + (d.days === 0 ? 'today' : 'in ' + esc(d.days) + ' day' + (d.days === 1 ? '' : 's')) + ')' : ''}</span></li>`).join('');
     $('deadSect').classList.toggle('hidden', !(b.deadlines || []).length);
     $('famText').value = b.family || '';
@@ -553,12 +557,18 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     if (!w && !d) return;
     const aid = encodeURIComponent($('athlete').value);
     try {
-      if (w) await api('PUT', `/api/portal/offers/${aid}/${encodeURIComponent(w.dataset.owrite)}`, { inWriting: true, status: 'in_writing' });
+      // Only an open offer moves to "In writing"; a committed one stays committed.
+      if (w) await api('PUT', `/api/portal/offers/${aid}/${encodeURIComponent(w.dataset.owrite)}`, ['talking', 'offered'].includes(w.dataset.ostat) ? { inWriting: true, status: 'in_writing' } : { inWriting: true });
       if (d) await api('DELETE', `/api/portal/offers/${aid}/${encodeURIComponent(d.dataset.odel)}`);
       await loadOffers();
     } catch (err) { alertLine(err.message); }
   });
   function alertLine(m) { $('offerList').insertAdjacentHTML('afterbegin', `<p class="err">${esc(m)}</p>`); }
+  $('signedSave').onclick = async () => {
+    const oid = $('signedSave').dataset.oid; if (!oid) return;
+    try { await api('PUT', `/api/portal/offers/${encodeURIComponent($('athlete').value)}/${encodeURIComponent(oid)}`, { signedOn: $('signedOn').value || null }); $('signedMsg').textContent = 'Saved.'; await loadOffers(); }
+    catch (err) { $('signedMsg').textContent = err.message; }
+  };
   $('famCopy').onclick = async () => {
     try { await navigator.clipboard.writeText($('famText').value); $('famCopy').textContent = 'Copied'; } catch (_) { $('famText').select(); $('famCopy').textContent = 'Selected'; }
     setTimeout(() => { $('famCopy').textContent = 'Copy'; }, 1800);
@@ -582,7 +592,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
   function fillProfile(p) {
     const d = (p && p.data) || {};
     $('opHw').value = d.heightWeight || ''; $('opClass').value = d.classYear || ''; $('opFilm').value = d.filmUrl || '';
-    $('opStatsUrl').value = d.statsUrl || ''; $('opPhone').value = d.agentPhone || ''; $('opEmail').value = d.agentEmail || '';
+    $('opStatsUrl').value = d.statsUrl || ''; $('opHome').value = d.hometown || ''; $('opSeasons').checked = !!d.showSeasonsLeft; $('opPhone').value = d.agentPhone || ''; $('opEmail').value = d.agentEmail || '';
     $('opStats').value = d.statsLine || ''; $('opHi').value = (d.highlights || []).join('\n'); $('opNote').value = d.note || '';
     const live = p && p.token && p.live;
     $('opLinkRow').classList.toggle('hidden', !(p && p.token));
@@ -596,6 +606,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
   }
   function opBody(extra) {
     return Object.assign({ heightWeight: $('opHw').value, classYear: $('opClass').value, filmUrl: $('opFilm').value, statsUrl: $('opStatsUrl').value,
+      hometown: $('opHome').value, showSeasonsLeft: $('opSeasons').checked,
       agentPhone: $('opPhone').value, agentEmail: $('opEmail').value, statsLine: $('opStats').value, highlights: $('opHi').value, note: $('opNote').value,
       live: tState.profile && tState.profile.token ? !!tState.profile.live : true }, extra || {});
   }
