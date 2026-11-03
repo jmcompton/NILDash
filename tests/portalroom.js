@@ -262,10 +262,64 @@ async function main() {
   slow(); await p1;
   ok('and it is free again after', !Sweep.isRunning());
 
+  OUT.push('-- the offer board --');
+  const O = require(REPO + 'server/services/portalRoom/offers');
+  const A1 = 'agent-off', ATH = 'ath-off';
+  const midwest = await O.create(store.pool, A1, ATH, { school: 'Iowa State', guaranteedPerYear: '$185,000', years: 2, inWriting: true });
+  const river = await O.create(store.pool, A1, ATH, { school: 'Houston', guaranteedPerYear: 160000, nilPerYear: 90000, nilPayer: 'collective', nilDeliverables: '4 posts, 2 appearances', years: 1, inWriting: true, expiresOn: '2026-11-04' });
+  const summit = await O.create(store.pool, A1, ATH, { school: 'utah', guaranteedPerYear: 120000, nilPerYear: 400000, nilPayer: 'collective', years: 1 });
+  ok('offers saved, school names cleaned, dollars read off "$185,000"', midwest.guaranteedPerYear === 185000 && summit.school === 'Utah' && midwest.years === 2);
+  let bad2 = null; try { await O.create(store.pool, A1, ATH, { school: 'Iowa', guaranteedPerYear: 'lots' }); } catch (x) { bad2 = x; }
+  ok('a bad dollar amount is refused', bad2 && bad2.status === 400);
+  let board = O.compare(await O.list(store.pool, A1, ATH), { seasonsLeft: 1, now: NOW, windows: PR.WINDOWS.football });
+  ok('guaranteed money first: the two-year school deal leads', board.offers[0].school === 'Iowa State' && board.offers[0].guaranteedTotal === 370000, board.offers.map((o) => o.school));
+  ok('the biggest number on paper is called out for being mostly NIL', /Iowa State guarantees the most \(\$370,000\)\. Utah is bigger on paper \(\$520,000\), but 77% of it is NIL/.test(board.headline), board.headline);
+  const ut = board.offers.find((o) => o.school === 'Utah'), hou = board.offers.find((o) => o.school === 'Houston'), isu = board.offers[0];
+  ok('collective NIL with no work named: flagged under the PCSA business purpose rule', ut.checks.some((c) => c.rule === 'nilPurpose' && c.level === 'flag'));
+  ok('not in writing: flagged', ut.checks.some((c) => c.rule === 'writing' && c.level === 'flag') && !hou.checks.some((c) => c.rule === 'writing'));
+  ok('two years offered with one season left: past his eligibility', isu.checks.some((c) => c.rule === 'term' && c.level === 'flag'));
+  ok('expiring in 2 days: watch', hou.checks.some((c) => c.rule === 'expires' && /2 days/.test(c.text)));
+  ok('the 5% fee cap in dollars on the NIL part', hou.checks.some((c) => c.rule === 'agentFee' && /\$4,500/.test(c.text)));
+  ok('deadlines: the offer, then the window', board.deadlines[0].text === 'Houston offer expires' && board.deadlines.some((d) => d.text === 'Portal window opens' && d.date === '2027-01-02'));
+  const upd = await O.update(store.pool, A1, ATH, summit.id, { status: 'in_writing' });
+  ok('marking it in writing sets the flag', upd.inWriting === true && upd.status === 'in_writing');
+  let nf = null; try { await O.update(store.pool, 'agent-other', ATH, summit.id, { status: 'declined' }); } catch (x) { nf = x; }
+  ok('another agent cannot touch it', nf && nf.status === 404);
+  nf = null; try { await O.remove(store.pool, 'agent-other', ATH, summit.id); } catch (x) { nf = x; }
+  ok('or remove it', nf && nf.status === 404 && (await O.list(store.pool, A1, ATH)).length === 3);
+  ok('and never sees it', (await O.list(store.pool, 'agent-other', ATH)).length === 0);
+  await O.update(store.pool, A1, ATH, summit.id, { status: 'declined' });
+  board = O.compare(await O.list(store.pool, A1, ATH), { now: NOW });
+  ok('a declined offer leaves the comparison but stays listed', board.offers.length === 2 && board.declined.length === 1);
+  const fam = O.familyUpdate({ athleteName: 'Jordan Hayes', agentName: 'Dana Price', board, now: NOW });
+  ok('the family update: guaranteed first, plain words, signed', /^Subject: Jordan's portal update/.test(fam) && /Iowa State: \$185,000 a year guaranteed by the school, 2 years\./.test(fam) && /Dana Price$/.test(fam), fam);
+  ok('nothing in it says NILDash sent it', !/NILDash/.test(fam));
+  await O.remove(store.pool, A1, ATH, summit.id);
+  ok('removed', (await O.list(store.pool, A1, ATH)).length === 2);
+  const IX2 = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+  ok('every offer route checks the athlete is his', (IX2.match(/app\.(get|post|put|delete)\('\/api\/portal\/offers\/:athleteId[^']*', requireAuth, requireAgentSubscription, async \(req, res\) => \{\s*try \{\s*const a = await _portalOwnAthlete/g) || []).length === 4);
+
+  OUT.push('-- what his position pays --');
+  const V = require(REPO + 'server/services/portalRoom/value');
+  ok('CSC numbers by position, with the source', V.forGroup('WR').p4.median === 141000 && V.forGroup('QB').p4.top10 === 2607000 && V.forGroup('DB').other.median === 17000 && /footballscoop/.test(V.SOURCE.url));
+  ok('the market line reads plainly', V.line('WR') === 'Power 4 median $141,000 a year, top 10% $702,000; elsewhere in Division I median $17,000, top 10% $105,000.', V.line('WR'));
+  ok('kickers: median only, said so', V.forGroup('K').p4.top10 === null && /about \$57,000/.test(V.line('K')));
+  ok('an offer placed in its market', V.place(250000, 'WR', 'P4').level === 'ok' && V.place(90000, 'WR', 'P4').level === 'warn' && V.place(800000, 'WR', 'P4').level === 'warn' && /top 10%/.test(V.place(800000, 'WR', 'P4').text) && /non-Power 4/.test(V.place(20000, 'WR', 'G5').text));
+  const bw = O.compare([{ id: 'x', school: 'Houston', status: 'offered', guaranteedPerYear: 160000, nilPerYear: 90000, years: 1, inWriting: true }], { group: 'WR', now: NOW });
+  ok('the offer board shows where each offer sits', bw.offers[0].checks.some((c) => c.rule === 'market' && /above the Power 4 median for a WR/.test(c.text)));
+  e = await PR.enterCheck(store.pool, { group: 'WR' }, { now: NOW });
+  ok('the enter check says what his position pays', e.points.some((p) => /What a WR is paid: Power 4 median \$141,000/.test(p.text)) && e.value.p4.median === 141000);
+  const bb = await PR.board(store.pool, { group: 'QB' }, { now: NOW });
+  ok('so does the board', /Power 4 median \$296,000/.test(bb.valueLine));
+
+  await PR.saveWishlist(store.pool, A1, ATH, { group: 'WR', birthDate: '2006-03-10', firstEnrollment: '2024-08-20' });
+  const ob = await PR.offerBoard(store.pool, { id: A1, name: 'Dana Price' }, { id: ATH, name: 'Jordan Hayes', position: 'Wide Receiver' }, { now: NOW });
+  ok('the whole offer board: his seasons left from the saved details, the market, the family text', ob.seasonsLeft === 2 && ob.group === 'WR' && ob.offers.length === 2 && /Dana Price$/.test(ob.family) && ob.offers.some((o) => o.checks.some((c) => c.rule === 'market')), { s: ob.seasonsLeft, g: ob.group });
+
   OUT.push('-- wiring --');
   const IX = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   ok('agent routes need a signed-in paying agent', ["app.post('/api/portal/board', requireAuth, requireAgentSubscription", "app.post('/api/portal/enter-check', requireAuth, requireAgentSubscription", "app.get('/api/portal/school/:school', requireAuth, requireAgentSubscription", "app.put('/api/portal/wishlist/:athleteId', requireAuth, requireAgentSubscription"].every((x) => IX.includes(x)));
-  ok('a wish list is only for the agent\'s own athlete', /_portalOwnAthlete = async[\s\S]{0,200}a\.agentId !== req\.session\.userId/.test(IX) && (IX.match(/await _portalOwnAthlete\(req, req\.params\.athleteId\)/g) || []).length === 2);
+  ok('a wish list is only for the agent\'s own athlete', /_portalOwnAthlete = async[\s\S]{0,200}a\.agentId !== req\.session\.userId/.test(IX) && (IX.match(/await _portalOwnAthlete\(req, req\.params\.athleteId\)/g) || []).length === 6);
   ok('sweep, coverage and coaching changes live under /api/admin (the admin gate); a second manual sweep gets 409', IX.includes('PR.Sweep.isRunning()) return res.status(409)') && IX.includes("app.post('/api/admin/portal/roster-sweep'") && IX.includes("app.get('/api/admin/portal/coverage'") && IX.includes("app.post('/api/admin/portal/coaching-change'"));
   ok('the nightly sweep is scheduled', /PRS\.tick\(store\.pool\)/.test(IX) && IX.includes("app.get('/portal-room'"));
   const PAGE = fs.readFileSync(REPO + 'server/views/portal-room.html', 'utf8');

@@ -176,7 +176,43 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     <p class="status" id="coverage"></p>
     <div class="sect hidden" id="dreamSect"><h3>His list</h3><div class="sect" id="dream"></div></div>
     <div class="sect"><h3 id="optH">Also worth a call</h3><div class="sect" id="options"></div></div>
-    <p class="fine">Need counts seniors, graduate students and fifth and sixth years as likely leaving; some seniors have a year left. Portal entries and NFL Draft declarations are added as they are announced. Contacts come from each school's own staff page, with the page linked. Not legal advice.</p>
+    <p class="fine">Need counts seniors, graduate students and fifth and sixth years as likely leaving; some seniors have a year left. Portal entries and NFL Draft declarations are added as they are announced. Contacts come from each school's own staff page, with the page linked. Pay figures: <a href="https://www.footballscoop.com/2026/10/30/college-sports-commission-nil-rev-share-cheat-sheet" target="_blank" rel="noopener">College Sports Commission data, Oct 30, 2026</a>. Not legal advice.</p>
+  </section>
+
+  <!-- 5. THE OFFER BOARD -->
+  <section class="card" id="offerCard" aria-labelledby="h5p">
+    <div class="sect-h">
+      <div class="head"><span class="step">5</span><h2 id="h5p">Offers</h2></div>
+      <button class="btn small ghost hidden" type="button" id="offerToggle">Add an offer</button>
+    </div>
+    <p class="status" id="offerGate">Pick a client in step 1 to track his offers.</p>
+    <form id="offerForm" class="hidden sect" novalidate>
+      <div class="grid">
+        <label>School <input id="oSchool" list="schoolList" autocomplete="off" required></label>
+        <label>Where it stands
+          <select id="oStatus"><option value="offered">Offered</option><option value="talking">Talking</option><option value="in_writing">In writing</option><option value="committed">Committed</option><option value="declined">Declined</option></select>
+        </label>
+        <label>Years <input id="oYears" type="number" min="1" max="6" value="1"></label>
+        <label>Guaranteed by the school, per year <input id="oG" inputmode="numeric" placeholder="$160,000"></label>
+        <label>NIL per year <input id="oNil" inputmode="numeric" placeholder="$90,000"></label>
+        <label>NIL paid by
+          <select id="oPayer"><option value="">Not sure</option><option value="collective">Collective</option><option value="business">Business</option><option value="booster">Booster</option><option value="school">School</option></select>
+        </label>
+        <label>NIL work named <input id="oWork" placeholder="e.g. 4 posts, 2 appearances"></label>
+        <label>Offer expires <input id="oExp" type="date"></label>
+        <label class="check" style="align-self:end"><input type="checkbox" id="oWriting"> In writing</label>
+      </div>
+      <label>Conditions or notes <input id="oNotes" placeholder="Buyout, roster spot, anything said on the call"></label>
+      <div class="row"><button class="btn" type="submit" id="oSave">Save offer</button><span class="status" id="oStatusMsg"></span></div>
+    </form>
+    <p class="verdict ok hidden" id="offerHead"></p>
+    <div class="sect" id="offerList"></div>
+    <div class="sect hidden" id="deadSect"><h3>Deadlines</h3><ul class="points" id="deadList"></ul></div>
+    <div class="sect hidden" id="famSect">
+      <div class="sect-h"><h3>Update for the family</h3><button class="btn small ghost" type="button" id="famCopy">Copy</button></div>
+      <textarea id="famText" readonly rows="10" style="font:inherit;font-size:.92rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%"></textarea>
+      <p class="fine">You send this yourself. Nothing goes out from NILDash.</p>
+    </div>
   </section>
 
   <datalist id="schoolList"></datalist>
@@ -263,6 +299,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
   $('athlete').addEventListener('change', async () => {
     const id = $('athlete').value;
     $('saveBtn').classList.toggle('hidden', !id);
+    loadOffers();
     if (!id) return;
     const a = state.athletes.find((x) => String(x.id) === id);
     if (a) {
@@ -334,6 +371,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
       $('coverage').textContent = r.rostersRead
         ? `Rosters read for ${r.rostersRead} of ${r.totalSchools} FBS programs. Median coming back at ${r.group}: ${r.median} (from ${r.medianFrom}).`
         : 'Rosters are still being read tonight. Need shows as "Not read yet" until then; contacts work now.';
+      if (r.valueLine) $('coverage').textContent += ` What a ${r.group} is paid: ${r.valueLine}`;
       $('dream').innerHTML = r.dream.map(schoolCard).join('');
       $('dreamSect').classList.toggle('hidden', !r.dream.length);
       $('options').innerHTML = r.options.map(schoolCard).join('');
@@ -407,6 +445,76 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     try { await navigator.clipboard.writeText(bookText(d)); b.textContent = 'Copied'; } catch (_) { b.textContent = 'Copy failed'; }
     setTimeout(() => { b.textContent = 'Copy contacts'; }, 1800);
   });
+
+  // THE OFFER BOARD
+  const usd = (n) => n == null ? '' : '$' + Math.round(n).toLocaleString('en-US');
+  const STATUS = { talking: 'Talking', offered: 'Offered', in_writing: 'In writing', committed: 'Committed', declined: 'Declined' };
+  async function loadOffers() {
+    const id = $('athlete').value;
+    $('offerToggle').classList.toggle('hidden', !id);
+    $('offerGate').classList.toggle('hidden', !!id);
+    if (!id) { $('offerForm').classList.add('hidden'); $('offerList').innerHTML = ''; $('offerHead').classList.add('hidden'); $('deadSect').classList.add('hidden'); $('famSect').classList.add('hidden'); return; }
+    try { renderOffers(await api('GET', '/api/portal/offers/' + encodeURIComponent(id))); }
+    catch (e) { $('offerList').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  }
+  function renderOffers(b) {
+    $('offerHead').textContent = b.headline || '';
+    $('offerHead').classList.toggle('hidden', !b.headline);
+    const lvl = { ok: 'Good', warn: 'Watch', flag: 'Problem' };
+    const card = (o) => `<div class="school" data-offer="${esc(o.id)}">
+      <div class="line1"><div><div class="name">${esc(o.school)}</div><div class="meta">${esc([o.level === 'P4' ? 'Power 4' + (o.conference ? ', ' + o.conference : '') : o.level === 'G5' ? 'Group of 5' : '', STATUS[o.status]].filter(Boolean).join(' · '))}</div></div>
+        <div class="score">${esc(usd(o.guaranteedTotal))} guaranteed</div></div>
+      <div class="meta">${esc(usd(o.guaranteedPerYear || 0))} a year from the school${o.nilPerYear ? ' + ' + esc(usd(o.nilPerYear)) + ' NIL' + (o.nilPayer ? ' (' + esc(o.nilPayer) + ')' : '') : ''}, ${esc(o.years)} year${o.years === 1 ? '' : 's'} · ${esc(usd(o.totalValue))} in all${o.guaranteedShare != null ? ' · ' + esc(o.guaranteedShare) + '% guaranteed' : ''}</div>
+      ${o.notes ? `<div class="meta">${esc(o.notes)}</div>` : ''}
+      <ul class="points">${o.checks.map((c) => `<li><span class="badge ${esc(c.level)}">${esc(lvl[c.level] || c.level)}</span><span>${esc(c.text)}</span></li>`).join('')}</ul>
+      <div class="row">
+        <select data-ostatus="${esc(o.id)}" aria-label="Where it stands" style="width:auto">${Object.keys(STATUS).map((k) => `<option value="${k}"${k === o.status ? ' selected' : ''}>${STATUS[k]}</option>`).join('')}</select>
+        ${o.inWriting ? '' : `<button class="btn small ghost" type="button" data-owrite="${esc(o.id)}">Got it in writing</button>`}
+        <button class="btn small ghost" type="button" data-odel="${esc(o.id)}">Remove</button>
+      </div></div>`;
+    const declined = (b.declined || []).map((o) => `<div class="meta">${esc(o.school)}: declined <button class="btn small ghost" type="button" data-odel="${esc(o.id)}">Remove</button></div>`).join('');
+    $('offerList').innerHTML = (b.offers.length ? b.offers.map(card).join('') : '<p class="status">No offers logged yet.</p>') + declined;
+    $('deadList').innerHTML = (b.deadlines || []).map((d) => `<li><span class="badge ${d.days <= 3 ? 'warn' : 'low'}">${esc(new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }))}</span><span>${esc(d.text)}${d.days >= 0 ? ' (' + (d.days === 0 ? 'today' : 'in ' + esc(d.days) + ' day' + (d.days === 1 ? '' : 's')) + ')' : ''}</span></li>`).join('');
+    $('deadSect').classList.toggle('hidden', !(b.deadlines || []).length);
+    $('famText').value = b.family || '';
+    $('famSect').classList.toggle('hidden', !b.family);
+  }
+  $('offerToggle').onclick = () => { $('offerForm').classList.toggle('hidden'); if (!$('offerForm').classList.contains('hidden')) $('oSchool').focus(); };
+  $('offerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = $('athlete').value; if (!id) return;
+    $('oStatusMsg').textContent = 'Saving...'; $('oSave').disabled = true;
+    try {
+      await api('POST', '/api/portal/offers/' + encodeURIComponent(id), {
+        school: $('oSchool').value, status: $('oStatus').value, years: $('oYears').value,
+        guaranteedPerYear: $('oG').value, nilPerYear: $('oNil').value, nilPayer: $('oPayer').value || null,
+        nilDeliverables: $('oWork').value, expiresOn: $('oExp').value || null, inWriting: $('oWriting').checked, notes: $('oNotes').value,
+      });
+      $('offerForm').reset(); $('oYears').value = '1'; $('offerForm').classList.add('hidden'); $('oStatusMsg').textContent = '';
+      await loadOffers();
+    } catch (err) { $('oStatusMsg').textContent = err.message; }
+    $('oSave').disabled = false;
+  });
+  document.addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-ostatus]'); if (!sel) return;
+    try { await api('PUT', '/api/portal/offers/' + encodeURIComponent($('athlete').value) + '/' + encodeURIComponent(sel.dataset.ostatus), { status: sel.value }); await loadOffers(); }
+    catch (err) { alertLine(err.message); }
+  });
+  document.addEventListener('click', async (e) => {
+    const w = e.target.closest('[data-owrite]'), d = e.target.closest('[data-odel]');
+    if (!w && !d) return;
+    const aid = encodeURIComponent($('athlete').value);
+    try {
+      if (w) await api('PUT', `/api/portal/offers/${aid}/${encodeURIComponent(w.dataset.owrite)}`, { inWriting: true, status: 'in_writing' });
+      if (d) await api('DELETE', `/api/portal/offers/${aid}/${encodeURIComponent(d.dataset.odel)}`);
+      await loadOffers();
+    } catch (err) { alertLine(err.message); }
+  });
+  function alertLine(m) { $('offerList').insertAdjacentHTML('afterbegin', `<p class="err">${esc(m)}</p>`); }
+  $('famCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText($('famText').value); $('famCopy').textContent = 'Copied'; } catch (_) { $('famText').select(); $('famCopy').textContent = 'Selected'; }
+    setTimeout(() => { $('famCopy').textContent = 'Copy'; }, 1800);
+  };
 
   // BOOT
   (async () => {

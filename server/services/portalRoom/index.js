@@ -21,6 +21,7 @@ const Board = require('./board');
 const Coaching = require('./coachingChanges');
 const Contacts = require('./contacts');
 const Sweep = require('./rosterSweep');
+const Value = require('./value');
 
 const CACHE_MS = 5 * 60 * 1000;
 const MAX_ROSTER_DAYS = 150;
@@ -68,7 +69,7 @@ async function board(pool, body = {}, { now = new Date() } = {}) {
   const [rows, coaching] = await Promise.all([rosters(pool), Coaching.load(pool, { now })]);
   const limit = Math.max(5, Math.min(60, parseInt(body.limit, 10) || 25));
   const out = Board.rank({ group: prefs.group, prefs, rosters: rows, coaching, limit });
-  return { ...out, prefs, unknownSchools: unknown };
+  return { ...out, prefs, unknownSchools: unknown, value: Value.forGroup(prefs.group), valueLine: Value.line(prefs.group) };
 }
 
 async function school(pool, store, name, groupRaw, { now = new Date() } = {}) {
@@ -136,6 +137,7 @@ async function enterCheck(pool, body = {}, { now = new Date() } = {}) {
   if (atCurrent) points.push({ level: 'ok', text: Coaching.describe(atCurrent) + ' ' + WINDOWS.football.coachingChange });
   // Demand only once enough rosters are read for the median to mean something.
   if (demand && demand.read < Board.MIN_FOR_MEDIAN) demand = { ...demand, tooFew: true };
+  if (prefs.group && Value.line(prefs.group)) points.push({ level: 'ok', text: `What a ${prefs.group} is paid: ${Value.line(prefs.group)}` });
   if (demand && !demand.tooFew) points.push({ level: demand.high >= 10 ? 'ok' : demand.high >= 4 ? 'warn' : 'flag', text: `${demand.high} FBS schools are thin at ${prefs.group} (${demand.highP4} of them Power 4), from ${demand.read} rosters read.` });
 
   let verdict;
@@ -146,7 +148,7 @@ async function enterCheck(pool, body = {}, { now = new Date() } = {}) {
   else if (known && demand.high < 4) verdict = { level: 'warn', text: `Few schools need a ${prefs.group} right now. Line up interest before he enters.` };
   else verdict = { level: 'ok', text: known ? `The market is open: ${demand.high} schools are thin at ${prefs.group}. Build the target list below.` : 'Nothing here stops him. Build the target list below.' };
 
-  return { verdict, points, eligibility: elig, seasonsAfter, costsYear, windows: WINDOWS.football, coachingAtCurrent: atCurrent, demand, exception, status: pcsa.rules().status };
+  return { verdict, points, eligibility: elig, seasonsAfter, costsYear, windows: WINDOWS.football, coachingAtCurrent: atCurrent, demand, exception, value: Value.forGroup(prefs.group), status: pcsa.rules().status };
 }
 
 async function ensureWishlists(pool) {
@@ -172,6 +174,24 @@ async function saveWishlist(pool, agentId, athleteId, body) {
   return { prefs: { ...prefs, ...extra }, unknownSchools: unknown };
 }
 
+// The offer board for one of the agent's athletes: the offers compared, with
+// his seasons left (from the saved player details, when there are any) and the
+// family update text.
+async function offerBoard(pool, agent, athlete, { now = new Date() } = {}) {
+  const Offers = require('./offers');
+  const offers = await Offers.list(pool, agent.id, athlete.id);
+  const w = (await getWishlist(pool, agent.id, athlete.id)).prefs || {};
+  let seasonsLeft = null;
+  if (w.birthDate || w.firstEnrollment) {
+    const e = await enterCheck(pool, w, { now }).catch(() => null);
+    if (e) seasonsLeft = e.seasonsAfter;
+  }
+  const group = P.GROUPS.includes(w.group) ? w.group : P.groupOf(athlete.position);
+  const board = Offers.compare(offers, { seasonsLeft, now, windows: WINDOWS.football, group });
+  const agentName = [agent.name || agent.full_name || '', agent.agency || agent.agency_name || ''].filter(Boolean).join(', ') || null;
+  return { ...board, seasonsLeft, group, value: group ? Value.forGroup(group) : null, family: Offers.familyUpdate({ athleteName: athlete.name, agentName, board, now }) };
+}
+
 function meta() {
   return {
     groups: P.GROUPS.map((g) => ({ key: g, label: P.LABEL[g] })),
@@ -181,4 +201,4 @@ function meta() {
   };
 }
 
-module.exports = { board, school, enterCheck, getWishlist, saveWishlist, cleanPrefs, meta, rosters, clearCache, WINDOWS, Sweep, Coaching };
+module.exports = { offerBoard, board, school, enterCheck, getWishlist, saveWishlist, cleanPrefs, meta, rosters, clearCache, WINDOWS, Sweep, Coaching };

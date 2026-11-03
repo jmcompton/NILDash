@@ -1351,6 +1351,24 @@
       "source": "TEXT",
       "sport": "TEXT DEFAULT 'football'"
     },
+    "portal_offers": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "conditions": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "expires_on": "DATE",
+      "guaranteed_per_year": "INT",
+      "id": "TEXT",
+      "in_writing": "BOOLEAN DEFAULT FALSE",
+      "nil_deliverables": "TEXT",
+      "nil_payer": "TEXT",
+      "nil_per_year": "INT",
+      "notes": "TEXT",
+      "school": "TEXT",
+      "status": "TEXT DEFAULT 'offered'",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "years": "INT DEFAULT 1"
+    },
     "portal_sweep_runs": {
       "run_date": "DATE",
       "started_at": "TIMESTAMPTZ DEFAULT NOW()",

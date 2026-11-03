@@ -12699,6 +12699,33 @@ app.put('/api/portal/wishlist/:athleteId', requireAuth, requireAgentSubscription
     res.json(await require('./services/portalRoom').saveWishlist(store.pool, req.session.userId, String(req.params.athleteId), req.body || {}));
   } catch (e) { _portalErr(res, e); }
 });
+// The offer board: offers on the agent's own athlete, scoped by both ids in
+// every query (services/portalRoom/offers).
+app.get('/api/portal/offers/:athleteId', requireAuth, requireAgentSubscription, async (req, res) => {
+  try {
+    const a = await _portalOwnAthlete(req, req.params.athleteId);
+    const agent = await store.getUser(req.session.userId);
+    res.json(await require('./services/portalRoom').offerBoard(store.pool, agent, a));
+  } catch (e) { if (!e.status) console.error('[portal/offers]', e.message); _portalErr(res, e); }
+});
+app.post('/api/portal/offers/:athleteId', requireAuth, requireAgentSubscription, async (req, res) => {
+  try {
+    const a = await _portalOwnAthlete(req, req.params.athleteId);
+    res.json(await require('./services/portalRoom/offers').create(store.pool, req.session.userId, a.id, req.body || {}));
+  } catch (e) { if (!e.status) console.error('[portal/offers]', e.message); _portalErr(res, e); }
+});
+app.put('/api/portal/offers/:athleteId/:offerId', requireAuth, requireAgentSubscription, async (req, res) => {
+  try {
+    const a = await _portalOwnAthlete(req, req.params.athleteId);
+    res.json(await require('./services/portalRoom/offers').update(store.pool, req.session.userId, a.id, req.params.offerId, req.body || {}));
+  } catch (e) { if (!e.status) console.error('[portal/offers]', e.message); _portalErr(res, e); }
+});
+app.delete('/api/portal/offers/:athleteId/:offerId', requireAuth, requireAgentSubscription, async (req, res) => {
+  try {
+    const a = await _portalOwnAthlete(req, req.params.athleteId);
+    res.json(await require('./services/portalRoom/offers').remove(store.pool, req.session.userId, a.id, req.params.offerId));
+  } catch (e) { if (!e.status) console.error('[portal/offers]', e.message); _portalErr(res, e); }
+});
 app.get('/api/admin/portal/coverage', async (req, res) => {
   try { res.json(await require('./services/portalRoom/rosterSweep').coverage(store.pool)); }
   catch (e) { res.status(500).json({ error: e.message }); }
