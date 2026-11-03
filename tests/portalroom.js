@@ -194,7 +194,7 @@ async function main() {
   e = await PR.enterCheck(store.pool, { birthDate: '2005-01-05', firstEnrollment: '2023-08-20', priorTransfers: 1 }, { now: NOW });
   ok('a second transfer that would cost his last season: flagged plainly', e.costsYear && e.seasonsAfter === 0 && e.verdict.level === 'flag' && /last season/.test(e.verdict.text), e.verdict);
   e = await PR.enterCheck(store.pool, { birthDate: '2006-03-10', firstEnrollment: '2024-08-20', priorTransfers: 1, currentSchool: 'Maryland' }, { now: NOW });
-  ok('his head coach was fired: the exception applies by itself, with the 30-day window', e.exception === 'head_coach_departed' && !e.costsYear && e.seasonsAfter === 2 && e.points.some((p) => /Locksley/.test(p.text) && /30-day/.test(p.text)), e.points);
+  ok('his head coach was fired: the exception applies by itself, with the 15-day window', e.exception === 'head_coach_departed' && !e.costsYear && e.seasonsAfter === 2 && e.points.some((p) => /Locksley/.test(p.text) && /15-day/.test(p.text)), e.points);
   e = await PR.enterCheck(store.pool, { priorTransfers: 0 }, { now: NOW });
   ok('no dates: asks for them, never assumes', e.seasonsAfter === null && e.points[0].level === 'unknown');
   ok('the window dates are there', e.windows.main.opens === '2027-01-02' && e.windows.main.closes === '2027-01-16');
@@ -432,7 +432,7 @@ async function main() {
   }
 
   const IX3 = fs.readFileSync(REPO + 'server/index.js', 'utf8');
-  ok('target and one-pager routes check the athlete is his', /const _portalRoute = \(fn\) => async \(req, res\) => \{\s*try \{\s*const a = await _portalOwnAthlete\(req, req\.params\.athleteId\)/.test(IX3) && (IX3.match(/requireAuth, requireAgentSubscription, _portalRoute\(/g) || []).length === 7);
+  ok('target and one-pager routes check the athlete is his', /const _portalRoute = \(fn\) => async \(req, res\) => \{\s*try \{\s*const a = await _portalOwnAthlete\(req, req\.params\.athleteId\)/.test(IX3) && (IX3.match(/requireAuth, requireAgentSubscription, _portalRoute\(/g) || []).length === 10);
   ok('the public profile is by token, rate limited, and not indexed', IX3.includes("app.get('/api/portal-profile/:token', _portalProfileLimiter") && /portal-profile\.html'\)\);/.test(IX3) && IX3.includes("'X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'portal-profile.html'))"));
   const PP = fs.readFileSync(REPO + 'server/views/portal-profile.html', 'utf8');
   ok('the public page escapes everything and only links http(s)', /const esc = /.test(PP) && /const safeUrl = /.test(PP) && /noindex/.test(PP));

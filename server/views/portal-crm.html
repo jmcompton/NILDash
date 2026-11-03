@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portal Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{--ground:#F4F5F2;--surface:#FFFFFF;--ink:#111613;--muted:#5B645E;--line:#E2E5E0;--line2:#DADFD8;--soft:#EEF0EC;--col:#EAECE7;--accent:#157347;--accent-ink:#0F5434;--accent-soft:#E6F2EB;--warn:#8A3F05;--warn-soft:#FBEFE3;--flag:#A3241B;--flag-soft:#FBE9E7;--side:#0F1A14;--side2:#18281F;--side-ink:#E8EFEA;--side-muted:#9FB0A5}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font:400 14px/1.45 Inter,system-ui,sans-serif}
+a{color:var(--accent)}a:hover{color:var(--accent-ink)}
+button,input,select,textarea{font:inherit;color:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.disp{font-family:'Barlow Semi Condensed',sans-serif;font-weight:700}
+.hidden{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.app{min-height:100vh;display:flex;flex-wrap:wrap}
+/* side */
+.side{flex:1 1 220px;max-width:100%;background:var(--side);color:var(--side-ink);padding:20px 14px;display:flex;flex-direction:column;gap:22px}
+.brand{padding:0 8px}.brand .disp{font-size:26px;letter-spacing:.3px;color:#fff}.brand small{display:block;font-size:12px;color:var(--side-muted)}
+.nav{display:flex;flex-direction:column;gap:4px}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:#C9D6CD;font-weight:500;cursor:pointer;text-align:left}
+.nav button[aria-current="page"]{background:rgba(255,255,255,.10);color:#fff}
+.nav .n{margin-left:auto;font-size:12px;color:var(--side-muted)}
+.side h2{margin:0;padding:0 8px;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--side-muted)}
+.clients{display:flex;flex-direction:column;gap:2px}
+.client{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border:0;border-radius:8px;background:transparent;color:var(--side-ink);cursor:pointer;text-align:left;min-height:48px}
+.client[aria-current="true"]{background:rgba(255,255,255,.08)}
+.client .av{width:32px;height:32px;border-radius:16px;background:#22352A;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none}
+.client b{display:block;color:#fff;font-weight:600}.client span span{display:block;font-size:12px;color:var(--side-muted)}
+.wincard{margin-top:auto;background:var(--side2);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:4px}
+.wincard .k{font-size:12px;color:var(--side-muted)}.wincard .v{font-size:30px;color:#fff;line-height:1.1}.wincard .s{font-size:12px;color:#C9D6CD}
+.bar{height:4px;background:#2A3D31;border-radius:2px;margin-top:6px}.bar i{display:block;height:4px;background:#4CC283;border-radius:2px}
+.back{font-size:12px;color:var(--side-muted);padding:0 8px}.back:hover{color:#fff}
+/* main */
+main{flex:999 1 560px;min-width:0;padding:24px 28px 48px;display:flex;flex-direction:column;gap:18px}
+.head{display:flex;flex-wrap:wrap;align-items:center;gap:14px}
+.who{display:flex;align-items:center;gap:14px;flex:1 1 340px;min-width:0}
+.bigav{width:52px;height:52px;border-radius:26px;background:var(--accent-soft);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none}
+.who h1{margin:0;font-size:30px;line-height:1}
+.chip{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;padding:3px 8px;border-radius:4px;background:var(--soft);color:#3E4741}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}.chip.ok{background:var(--accent-soft);color:var(--accent-ink)}.chip.flag{background:var(--flag-soft);color:var(--flag)}
+.sub{color:var(--muted)}
+.search{flex:0 1 260px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line2);border-radius:8px;padding:0 12px;min-height:44px}
+.search input{border:0;outline:none;flex:1;min-width:0;background:transparent}
+.btn{min-height:44px;padding:0 16px;border:1px solid #CDD3CB;border-radius:8px;background:var(--surface);font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn.primary:hover{background:var(--accent-ink);color:#fff}
+.btn.sm{min-height:36px;padding:0 12px;font-size:12px}
+.btn.icon{width:40px;min-height:40px;padding:0}
+.btn:disabled{opacity:.5;cursor:default}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.stat .k{font-size:12px;color:var(--muted)}.stat .v{font-size:30px;line-height:1.15}.stat .s{font-size:12px;color:var(--muted)}
+.note{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:12px 14px}
+.note.info{background:var(--accent-soft);color:var(--accent-ink)}
+.msg{font-size:13px;color:var(--muted);min-height:18px}
+.err{color:var(--flag)}
+h2.sec{margin:0;font-size:24px}
+.row{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px}
+.work{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+.work>.left{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px}
+.work>aside{flex:1 1 330px;min-width:0;display:flex;flex-direction:column;gap:12px}
+/* kanban */
+.kwrap{overflow-x:auto;padding-bottom:6px}
+.kan{display:grid;grid-template-columns:repeat(7,minmax(168px,1fr));gap:10px;min-width:1220px}
+.col{background:var(--col);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;min-height:360px}
+.col .ch{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 4px;font-weight:600}
+.col .ch span{font-size:12px;color:var(--muted);background:#fff;border-radius:10px;padding:1px 8px;font-weight:500}
+.card{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--line2);border-radius:10px;padding:12px;cursor:pointer;font-size:13px}
+.card[aria-pressed="true"]{border:2px solid var(--accent);padding:11px;box-shadow:0 2px 8px rgba(15,26,20,.08)}
+.card .t{display:flex;justify-content:space-between;gap:6px;align-items:baseline}.card .t b{font-size:15px}.card .t span{font-size:11px;color:var(--muted)}
+.meter{display:block;height:4px;background:var(--soft);border-radius:2px;margin-top:4px}.meter i{display:block;height:4px;background:var(--accent);border-radius:2px}
+.card .l{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:8px}.card .l b{color:var(--ink)}
+.card .nx{display:block;margin-top:8px;font-size:12px;color:#3E4741}
+.card .due{display:block;margin-top:4px;font-size:11px;font-weight:600;color:var(--muted)}.card .due.late{color:var(--warn)}
+.empty{font-size:12px;color:var(--muted);padding:6px 4px}
+/* panels */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px}
+.panel h3{margin:0;font-size:15px}
+.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.kv div{background:var(--ground);border-radius:8px;padding:10px}.kv small{display:block;font-size:12px;color:var(--muted)}.kv b{font-size:16px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:500}
+.inp{min-height:40px;border:1px solid var(--line2);border-radius:8px;padding:0 10px;background:#fff;font-size:14px;color:var(--ink)}
+textarea.inp{padding:8px 10px;min-height:80px;resize:vertical}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.person{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--soft)}
+.person .w{flex:1;min-width:0}.person b{display:block}.person small{display:block;font-size:12px;color:var(--muted)}
+.feed{display:flex;flex-direction:column;gap:10px}
+.feed div{display:flex;gap:10px}.feed i{width:8px;height:8px;border-radius:4px;background:#9FB0A5;margin-top:6px;flex:none}
+.feed small{display:block;font-size:12px;color:var(--muted)}
+/* tables */
+.tbox{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:10px}
+table{width:100%;min-width:760px;border-collapse:collapse}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:12px 14px;border-bottom:1px solid var(--line)}
+td{padding:12px 14px;border-bottom:1px solid var(--soft);vertical-align:top}
+.linkbtn{border:0;background:transparent;padding:0;font-weight:700;cursor:pointer;color:var(--ink);text-align:left;min-height:28px}
+/* offers */
+.ogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.offer{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px}
+.offer.best{border:2px solid var(--accent)}
+.offer .big{font-size:42px;line-height:1}
+.gbar{height:10px;background:var(--soft);border-radius:5px;overflow:hidden}.gbar i{display:block;height:10px;background:var(--accent)}
+.checks{list-style:none;margin:0;padding:12px 0 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.checks li{display:flex;gap:8px;align-items:flex-start}.checks svg{flex:none;margin-top:2px}
+.market{background:var(--side);color:var(--side-ink);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.market .k{font-size:12px;color:var(--side-muted)}.market .v{font-size:34px;color:#fff;line-height:1.1}
+.check{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);font-weight:400}
+.modal{position:fixed;inset:0;background:rgba(15,26,20,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+.modal .box{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:90vh;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
+pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding:12px;margin:0;font:400 13px/1.5 Inter,sans-serif}
+.foot{font-size:12px;color:var(--muted)}
+@media (max-width:900px){
+  .side{flex-basis:100%;padding:14px 16px;gap:12px}
+  .brand .disp{font-size:22px}
+  .nav{flex-direction:row;overflow-x:auto}.nav button{flex:none;width:auto}
+  .side h2{display:none}
+  .clients{flex-direction:row;overflow-x:auto}.client{flex:none;width:auto;padding:6px 10px 6px 6px}
+  .wincard{margin-top:0;flex-direction:row;align-items:baseline;gap:8px;padding:10px 12px}.wincard .v{font-size:20px}.wincard .bar{display:none}
+  .back{display:none}
+}
+@media (max-width:640px){main{padding:18px 16px 40px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="side" aria-label="Portal Room">
+    <div class="brand"><div class="disp">Portal Room</div><small>by NILDash</small></div>
+    <div class="nav" id="nav">
+      <button type="button" data-tab="pipeline">Pipeline<span class="n" id="nPipe"></span></button>
+      <button type="button" data-tab="schools">Schools</button>
+      <button type="button" data-tab="offers">Offers<span class="n" id="nOff"></span></button>
+      <button type="button" data-tab="player">Player</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <h2>Clients</h2>
+      <div class="clients" id="clients"><div class="empty" style="color:var(--side-muted)">Loading…</div></div>
+    </div>
+    <div class="wincard" id="wincard"></div>
+    <a class="back" href="/" id="backLink">Back to NILDash</a>
+  </nav>
+
+  <main id="main">
+    <div class="note hidden" id="demoBanner">This is a sample with made-up schools, people and numbers, set on Dec 28, 2026. Nothing is saved. <a href="/">Start your free trial</a> to run it on your own clients.</div>
+    <div class="note hidden" id="gate"></div>
+
+    <header class="head" id="head">
+      <div class="who">
+        <div class="bigav disp" id="av"></div>
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 class="disp" id="name">Portal Room</h1><span class="chip warn hidden" id="sampleChip">Sample data</span></div>
+          <div class="sub" id="line"></div>
+        </div>
+      </div>
+      <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5B645E" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg><span class="sr">Find a school</span><input type="search" id="q" placeholder="Find a school"></label>
+      <button type="button" class="btn primary" id="addBtn">Add school</button>
+    </header>
+
+    <form class="panel hidden" id="addForm" autocomplete="off">
+      <div class="row"><h3>Add a school to his list</h3><button type="button" class="btn sm" id="addCancel">Cancel</button></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <label class="f" style="flex:1 1 240px">FBS school<input class="inp" id="addIn" list="schoolList" required></label>
+        <button class="btn primary" type="submit">Add</button>
+      </div>
+      <div class="msg" id="addMsg"></div>
+    </form>
+    <datalist id="schoolList"></datalist>
+
+    <section class="stats" id="stats" aria-label="Summary"></section>
+    <div class="note hidden" id="noGroup">Add his position on the Player tab and every school gets a need and fit score.</div>
+
+    <!-- PIPELINE -->
+    <section id="tab-pipeline" class="work">
+      <div class="left">
+        <div class="row"><h2 class="sec disp">Pipeline</h2><span class="sub">Click a school to see who to call</span></div>
+        <div class="kwrap"><div class="kan" id="kan"></div></div>
+        <div class="sub" id="passedLine"></div>
+      </div>
+      <aside id="detail" aria-label="School detail"></aside>
+    </section>
+
+    <!-- SCHOOLS -->
+    <section id="tab-schools" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+      <div class="row"><h2 class="sec disp" id="schoolsTitle">Schools that need him</h2><span class="sub" id="schoolsSub"></span></div>
+      <div class="tbox"><table>
+        <thead><tr><th scope="col">School</th><th scope="col">Need at his position</th><th scope="col">Seniors or older</th><th scope="col">Coaching</th><th scope="col">Fit</th><th scope="col">His list</th></tr></thead>
+        <tbody id="boardBody"><tr><td colspan="6" class="sub">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="foot" id="boardFoot"></div>
+    </section>
+
+    <!-- OFFERS -->
+    <section id="tab-offers" class="hidden" style="display:flex;flex-direction:column;gap:16px">
+      <div class="row"><h2 class="sec disp">Offers, side by side</h2><button type="button" class="btn primary" id="offerAdd">Log an offer</button></div>
+      <div class="sub" id="headline"></div>
+      <div class="note pcsaNote hidden"></div>
+      <form class="panel hidden" id="offerForm" autocomplete="off">
+        <div class="row"><h3>Log an offer</h3><button type="button" class="btn sm" id="offerCancel">Cancel</button></div>
+        <div class="grid2">
+          <label class="f">School<input class="inp" id="oSchool" list="schoolList" required></label>
+          <label class="f">Where it stands<select class="inp" id="oStatus"><option value="talking">Talking</option><option value="offered" selected>Offered</option><option value="in_writing">In writing</option><option value="committed">He committed</option></select></label>
+          <label class="f">Guaranteed by the school, per year<input class="inp" id="oG" inputmode="numeric" placeholder="$"></label>
+          <label class="f">NIL, per year<input class="inp" id="oN" inputmode="numeric" placeholder="$"></label>
+          <label class="f">NIL paid by<select class="inp" id="oPayer"><option value="">Not set</option><option value="collective">Collective</option><option value="business">Business</option><option value="booster">Booster</option><option value="school">School</option></select></label>
+          <label class="f">Years<input class="inp" id="oY" type="number" min="1" max="6" value="1"></label>
+          <label class="f">Offer expires<input class="inp" id="oExp" type="date"></label>
+          <label class="f">NIL work named (posts, appearances)<input class="inp" id="oDel"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="oW"> It is in writing</label>
+        <div style="display:flex;gap:10px;align-items:center"><button class="btn primary" type="submit">Save offer</button><span class="msg" id="oMsg"></span></div>
+      </form>
+      <div class="ogrid" id="ogrid"></div>
+      <div class="work" style="gap:16px">
+        <div class="panel left" id="commitPanel" style="flex:1 1 320px"></div>
+        <div class="panel left" style="flex:1 1 320px">
+          <div class="row"><h3>Family update</h3><button type="button" class="btn sm" id="copyFam">Copy</button></div>
+          <pre class="mail" id="family"></pre>
+          <div class="foot">Text for you to send. Nothing is sent from here.</div>
+        </div>
+      </div>
+      <div class="foot">Checks follow the Protect College Sports Act (S. 4668) as written in NILDash, and NIL Go reporting. Not legal advice.</div>
+    </section>
+
+    <!-- PLAYER -->
+    <section id="tab-player" class="hidden" style="display:flex;flex-direction:column;gap:16px">
+      <h2 class="sec disp">Player</h2>
+      <div class="note pcsaNote hidden"></div>
+      <div class="work">
+        <div class="left">
+          <div class="panel" id="enterPanel"><h3>Should he enter?</h3><div class="sub">Loading…</div></div>
+          <form class="panel" id="prefsForm" autocomplete="off">
+            <h3>His details and wish list</h3>
+            <div class="grid2">
+              <label class="f">Position<select class="inp" id="pGroup"></select></label>
+              <label class="f">School now<input class="inp" id="pCur" list="schoolList"></label>
+              <label class="f">Level now<select class="inp" id="pCurLevel"><option value="">Not set</option><option>P4</option><option>G5</option><option>FCS</option><option>D2</option><option>JUCO</option></select></label>
+              <label class="f">Level he wants<select class="inp" id="pLevel"><option value="any">Any</option><option value="P4">Power 4</option><option value="G5">Group of 5</option></select></label>
+              <label class="f">Home state<input class="inp" id="pHome" maxlength="2" placeholder="TX"></label>
+              <label class="f">States he wants<input class="inp" id="pStates" placeholder="TX, OK"></label>
+              <label class="f">Birth date<input class="inp" id="pBirth" type="date"></label>
+              <label class="f">First enrolled<input class="inp" id="pEnroll" type="date"></label>
+              <label class="f">Transfers before this one<input class="inp" id="pPrior" type="number" min="0" max="5" value="0"></label>
+            </div>
+            <label class="f">Schools he wants (comma between)<input class="inp" id="pSchools"></label>
+            <div id="pRegions" style="display:flex;gap:14px;flex-wrap:wrap"></div>
+            <label class="check"><input type="checkbox" id="pClose"> Close to home matters</label>
+            <div style="display:flex;gap:10px;align-items:center"><button class="btn primary" type="submit">Save</button><span class="msg" id="pMsg"></span></div>
+          </form>
+        </div>
+        <aside>
+          <form class="panel" id="opForm" autocomplete="off">
+            <div class="row"><h3>His one-pager</h3><span class="chip" id="opState"></span></div>
+            <div class="sub" id="opLink"></div>
+            <label class="f">Height and weight<input class="inp" id="opHW" placeholder="6-1, 195"></label>
+            <label class="f">Class<input class="inp" id="opClass" placeholder="Redshirt junior"></label>
+            <label class="f">Stat line<input class="inp" id="opStats"></label>
+            <label class="f">Highlights (one per line)<textarea class="inp" id="opHigh"></textarea></label>
+            <label class="f">Film link<input class="inp" id="opFilm" placeholder="https://"></label>
+            <label class="f">Stats link<input class="inp" id="opStatsUrl" placeholder="https://"></label>
+            <label class="f">Hometown (shown on the page)<input class="inp" id="opHome"></label>
+            <label class="check"><input type="checkbox" id="opSeasons"> Show seasons left</label>
+            <label class="f">Your phone<input class="inp" id="opPhone"></label>
+            <label class="f">Your email<input class="inp" id="opEmail"></label>
+            <label class="f">Note to schools<textarea class="inp" id="opNote"></textarea></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="opLive">Turn off</button><button class="btn" type="button" id="opNew">New link</button></div>
+            <div class="msg" id="opMsg"></div>
+            <div class="foot">Schools see only what you fill in here, plus his name, position and school. Never his phone or email.</div>
+          </form>
+        </aside>
+      </div>
+      <div class="foot">Seasons left and transfer costs follow the Protect College Sports Act (S. 4668) as written in NILDash. Not legal advice.</div>
+    </section>
+  </main>
+</div>
+
+<div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+  <div class="box">
+    <div class="row"><h3 id="mTitle" style="margin:0">Email</h3><button type="button" class="btn sm" id="mClose">Close</button></div>
+    <div id="mBody"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const safeUrl = (u) => (/^https?:\/\/[^\s<>"']+$/i.test(String(u || '')) ? String(u) : null);
+  const telHref = (p) => 'tel:' + String(p || '').replace(/[^0-9+]/g, '');
+  const usd = (n) => (n == null ? '' : '$' + Math.round(n).toLocaleString('en-US'));
+  const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join('');
+  const day = (d) => (d ? new Date(String(d).length === 10 ? d + 'T12:00:00Z' : d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: String(d).length === 10 ? 'UTC' : 'America/Chicago' }) : '');
+  const dueText = (n) => (n == null ? '' : n === 0 ? 'Due today' : n < 0 ? `${-n} day${n === -1 ? '' : 's'} overdue` : n === 1 ? 'Due tomorrow' : `Due in ${n} days`);
+  const NEED = { high: 'Thin', medium: 'Below average', low: 'Deep', unknown: 'Roster not read yet' };
+  const ICON = {
+    ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157347" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L19 7"/></svg>',
+    warn: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8A3F05" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>',
+    flag: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A3241B" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    mail: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+    phone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>',
+  };
+  const S = { meta: null, clients: [], aid: null, ws: null, tab: 'pipeline', sel: null, books: {}, board: null, profile: null, activity: {}, prefs: null };
+
+  // ── THE DEMO (/portal-room/demo): sample data from public/portal-demo.js,
+  // built from the real code. Nothing is saved and nothing is real.
+  const DEMO = location.pathname.replace(/\/$/, '') === '/portal-room/demo';
+  function demoApi(method, url) {
+    const D = window.PORTAL_DEMO || {};
+    const u = new URL(url, location.origin);
+    const p = decodeURIComponent(u.pathname);
+    const ro = 'This is a sample, so nothing is saved. Start your free trial to use it with your own clients.';
+    let m0;
+    if (method !== 'GET' && !['/api/portal/enter-check', '/api/portal/board'].includes(p)) throw new Error(ro);
+    if (p === '/api/portal/meta') return D.meta;
+    if (p === '/api/portal/clients') return { clients: D.clients };
+    m0 = p.match(/^\/api\/portal\/workspace\/([^/]+)$/);
+    if (m0) { if (m0[1] === D.workspace.athlete.id) return D.workspace; throw new Error('In the sample, only ' + D.workspace.athlete.name + ' is filled in.'); }
+    if (p.startsWith('/api/portal/wishlist/')) return D.wishlist;
+    if (p === '/api/portal/enter-check') return D.enter;
+    if (p === '/api/portal/board') return D.board;
+    if (p.startsWith('/api/portal/school/')) { const n = p.slice('/api/portal/school/'.length); if (D.school[n]) return D.school[n]; throw new Error('In the sample, open one of the schools on his list.'); }
+    if (/^\/api\/portal\/activity\/[^/]+$/.test(p)) return { activity: (D.activity || {})[u.searchParams.get('target')] || [] };
+    let m = p.match(/^\/api\/portal\/targets\/[^/]+\/([^/]+)\/email$/);
+    if (m) { if (D.emails[m[1]]) return D.emails[m[1]]; throw new Error('In the sample, the email is written for the first few schools.'); }
+    if (/^\/api\/portal\/targets\/[^/]+$/.test(p)) return D.targets;
+    throw new Error(ro);
+  }
+  async function api(method, url, body) {
+    if (DEMO) return JSON.parse(JSON.stringify(demoApi(method, url, body)));
+    const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+    if (r.status === 401) { location.href = '/'; throw new Error('Sign in first.'); }
+    let j = {};
+    try { j = await r.json(); } catch (_) {}
+    if (r.status === 402 || j.error === 'subscription_required') throw new Error('The Portal Room comes with a NILDash agent plan. Start your free trial from your dashboard.');
+    if (!r.ok) throw new Error(j.error || 'Something went wrong. Try again.');
+    return j;
+  }
+  const say = (id, t, bad) => { const el = $(id); if (!el) return; el.textContent = t || ''; el.classList.toggle('err', !!bad); };
+
+  // ── LAYOUT ───────────────────────────────────────────────────────────────
+  function setTab(t) {
+    S.tab = t;
+    for (const b of document.querySelectorAll('#nav button')) b.setAttribute('aria-current', b.dataset.tab === t ? 'page' : 'false');
+    for (const k of ['pipeline', 'schools', 'offers', 'player']) $('tab-' + k).classList.toggle('hidden', k !== t);
+    if (t === 'schools') loadBoard();
+    if (t === 'player') loadPlayer();
+    if (t === 'offers') renderOffers();
+  }
+  $('nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
+
+  function renderClients() {
+    $('clients').innerHTML = S.clients.length ? S.clients.map((c) => `<button type="button" class="client" data-client="${esc(c.id)}" aria-current="${c.id === S.aid}"><span class="av">${esc(initials(c.name))}</span><span style="min-width:0"><b>${esc(c.name || 'Unnamed')}</b><span>${esc([c.position, c.committed ? 'Committed' : `${c.schools} school${c.schools === 1 ? '' : 's'}`].filter(Boolean).join(' · '))}</span></span></button>`).join('')
+      : '<div class="empty" style="color:var(--side-muted)">No football clients yet. Add one on your NILDash dashboard.</div>';
+  }
+  $('clients').addEventListener('click', (e) => { const b = e.target.closest('[data-client]'); if (b && b.dataset.client !== S.aid) openClient(b.dataset.client); });
+
+  function renderWindow() {
+    const w = S.ws && S.ws.window;
+    if (!w) { $('wincard').innerHTML = ''; return; }
+    const total = 75; // the bar runs from mid-October to the window
+    const pct = w.isOpen || w.closed ? 100 : Math.max(4, Math.min(100, Math.round((1 - w.daysToOpen / total) * 100)));
+    $('wincard').innerHTML = `<div class="k">Portal window</div><div class="v disp">${w.closed ? 'Closed' : w.isOpen ? `Open, ${w.daysToClose} day${w.daysToClose === 1 ? '' : 's'} left` : `${w.daysToOpen} day${w.daysToOpen === 1 ? '' : 's'}`}</div><div class="s">Opens ${esc(day(w.opens))}, closes ${esc(day(w.closes))}</div><div class="bar"><i style="width:${pct}%"></i></div>`;
+  }
+
+  function renderHead() {
+    const a = S.ws.athlete;
+    $('av').textContent = initials(a.name);
+    $('name').textContent = a.name || 'Unnamed';
+    $('line').textContent = [a.position || (S.ws.groupLabel || ''), a.school].filter(Boolean).join(' · ') || 'Add his position and school on the Player tab';
+    $('noGroup').classList.toggle('hidden', !!S.ws.group);
+    const st = S.ws.stats, cov = S.ws.coverage;
+    const tile = (k, v, s) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v disp">${esc(v)}</div><div class="s">${esc(s)}</div></div>`;
+    $('stats').innerHTML = [
+      tile('Schools on his list', st.onList, S.ws.group ? `Need from ${cov.read} of ${cov.total} FBS rosters read` : 'Add his position to score them'),
+      tile('Contacted', st.contacted, `${st.repliesThisWeek} repl${st.repliesThisWeek === 1 ? 'y' : 'ies'} logged this week`),
+      tile('Visits set', st.visits, st.visits ? S.ws.cards.filter((c) => c.stage === 'visit').map((c) => c.school).join(', ') : 'None yet'),
+      tile('Offers', st.offers, st.bestGuaranteed ? `Most guaranteed ${usd(st.bestGuaranteed.amount)}, ${st.bestGuaranteed.school}` : 'None logged yet'),
+      tile(st.committed ? 'Committed' : 'Steps due', st.committed ? '✓' : st.due, st.committed ? st.committed : 'Today or overdue'),
+    ].join('');
+    const pend = S.ws.pcsaStatus !== 'law';
+    for (const el of document.querySelectorAll('.pcsaNote')) {
+      el.classList.toggle('hidden', !pend);
+      el.textContent = 'The Protect College Sports Act passed the Senate and is waiting on the House. The checks built on it (seasons left, whether a transfer costs a year, the 5% fee cap, the 5-day report) show what it would require. Until it is law, treat them as warnings, not rules.';
+    }
+    $('nPipe').textContent = st.onList || '';
+    $('nOff').textContent = st.offers || '';
+  }
+
+  // ── PIPELINE ─────────────────────────────────────────────────────────────
+  const q = () => $('q').value.trim().toLowerCase();
+  function renderKanban() {
+    const f = q();
+    const cols = S.ws.stages.filter((s) => s.key !== 'passed');
+    $('kan').innerHTML = cols.map((col) => {
+      const cards = col.cards.filter((c) => !f || c.school.toLowerCase().includes(f));
+      return `<div class="col"><div class="ch">${esc(col.label)}<span>${cards.length}</span></div>${cards.map(card).join('') || '<div class="empty">None</div>'}</div>`;
+    }).join('');
+    const passed = (S.ws.stages.find((s) => s.key === 'passed') || { cards: [] }).cards;
+    $('passedLine').innerHTML = passed.length ? `Passed: ${passed.map((c) => `<button type="button" class="linkbtn" style="font-weight:500;text-decoration:underline" data-pick="${esc(c.id)}">${esc(c.school)}</button>`).join(', ')}` : '';
+  }
+  function card(c) {
+    const n = c.need;
+    return `<button type="button" class="card" data-pick="${esc(c.id)}" aria-pressed="${c.id === S.sel}">
+      <span class="t"><b>${esc(c.school)}</b><span>${esc(c.level || '')}</span></span>
+      ${c.fit != null ? `<span class="l"><span>Fit</span><b>${c.fit}</b></span><span class="meter"><i style="width:${Math.max(2, Math.min(100, c.fit))}%"></i></span>` : ''}
+      ${n ? `<span class="l"><span>${esc(NEED[n.rating] || '')}</span><b>${n.rating === 'unknown' ? '' : `${n.leaving} of ${n.on} seniors+`}</b></span>` : ''}
+      ${c.coachingChange ? '<span class="chip warn" style="margin-top:8px">New head coach</span>' : ''}
+      ${c.nextStep ? `<span class="nx">${esc(c.nextStep)}</span>` : ''}
+      ${c.dueIn != null && c.stage !== 'committed' && c.stage !== 'passed' ? `<span class="due${c.dueIn <= 0 ? ' late' : ''}">${esc(dueText(c.dueIn))}</span>` : ''}
+    </button>`;
+  }
+  document.addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (b) { pick(b.dataset.pick); } });
+  $('q').addEventListener('input', () => { renderKanban(); if (S.board) renderBoard(); });
+
+  function pick(id) {
+    S.sel = id;
+    if (S.tab !== 'pipeline') setTab('pipeline');
+    renderKanban();
+    showSel();
+    renderDetail();
+  }
+  // Bring the picked card into view inside the board (the board scrolls
+  // sideways; the page does not move).
+  function showSel() {
+    const el = document.querySelector(`.card[aria-pressed="true"]`), box = document.querySelector('.kwrap');
+    if (!el || !box) return;
+    const l = el.offsetLeft - box.offsetLeft, r = l + el.offsetWidth;
+    if (l < box.scrollLeft || r > box.scrollLeft + box.clientWidth) box.scrollLeft = Math.max(0, l - 24);
+  }
+  const selCard = () => S.ws && S.ws.cards.find((c) => c.id === S.sel);
+
+  async function renderDetail() {
+    const c = selCard();
+    if (!c) {
+      $('detail').innerHTML = `<div class="panel"><h3>${S.ws.cards.length ? 'Pick a school' : 'Start his list'}</h3><div class="sub">${S.ws.cards.length ? 'Click any school on the board to see who to call there and everything that has happened.' : 'Open Schools to see every FBS school ranked by need at his position, then add the ones to work.'}</div>${S.ws.cards.length ? '' : '<button type="button" class="btn primary" data-goto="schools">See the schools</button>'}</div>`;
+      return;
+    }
+    const n = c.need;
+    const stageOpts = S.ws.stages.map((s) => `<option value="${esc(s.key)}"${s.key === c.stage ? ' selected' : ''}>${esc(s.label)}</option>`).join('');
+    $('detail').innerHTML = `
+      <div class="panel">
+        <div class="row" style="align-items:flex-start">
+          <div><h2 class="disp" style="margin:0;font-size:26px">${esc(c.school)}</h2><div class="sub">${esc([c.conference, c.level, c.stageLabel].filter(Boolean).join(' · '))}</div></div>
+          ${c.fit != null ? `<div style="text-align:right"><div class="disp" style="font-size:28px;color:var(--accent)">${c.fit}</div><div style="font-size:11px;color:var(--muted)">fit score</div></div>` : ''}
+        </div>
+        ${n ? `<div class="kv"><div><small>Need at ${esc(S.ws.group)}</small><b>${esc(NEED[n.rating])}</b></div><div><small>Seniors or older / on roster</small><b>${n.rating === 'unknown' ? 'Not read' : `${n.leaving} of ${n.on}`}</b></div></div><div class="foot">${esc(n.line)}</div>` : ''}
+        ${c.coachingLine ? `<div class="note" style="font-size:13px">${esc(c.coachingLine)}</div>` : ''}
+        <form id="tForm" style="display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px">
+          <div class="grid2"><label class="f">Stage<select class="inp" id="tStage">${stageOpts}</select></label><label class="f">Due<input class="inp" type="date" id="tDue" value="${esc(c.dueOn || '')}"></label></div>
+          <label class="f">Next step<input class="inp" id="tNext" maxlength="200" value="${esc(c.nextStep || '')}" placeholder="Call the GM Thursday"></label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary sm" type="submit">Save</button><button class="btn sm" type="button" id="tEmail">${ICON.mail} Write the email</button><span class="msg" id="tMsg"></span></div>
+        </form>
+      </div>
+      <div class="panel" id="book"><h3>Who to call</h3><div class="sub">Loading…</div></div>
+      <form class="panel" id="logForm" autocomplete="off">
+        <h3>Log what happened</h3>
+        <div class="grid2"><label class="f">What<select class="inp" id="lKind"><option value="email">Email</option><option value="call">Call</option><option value="reply">They replied</option><option value="visit">Visit</option><option value="note">Note</option></select></label><label class="f">With<select class="inp" id="lWho"><option value="">Not one person</option></select></label></div>
+        <label class="f">Note<input class="inp" id="lText" maxlength="500" placeholder="Wants film by Friday"></label>
+        <div style="display:flex;gap:8px;align-items:center"><button class="btn primary sm" type="submit">Log it</button><span class="msg" id="lMsg"></span></div>
+      </form>
+      <div class="panel"><h3>Activity</h3><div class="feed" id="feed"><div class="sub">Loading…</div></div></div>
+      <button type="button" class="btn sm" id="tRemove" style="align-self:flex-start">Take ${esc(c.school)} off his list</button>`;
+    loadBook(c);
+    loadActivity(c);
+  }
+  document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) setTab(g.dataset.goto); });
+
+  async function loadBook(c) {
+    const box = $('book');
+    if (!S.ws.group) { box.innerHTML = '<h3>Who to call</h3><div class="sub">Add his position on the Player tab to match his position coach.</div>'; return; }
+    const key = c.school + '|' + S.ws.group;
+    try { if (!S.books[key]) S.books[key] = await api('GET', '/api/portal/school/' + encodeURIComponent(c.school) + '?position=' + encodeURIComponent(S.ws.group)); }
+    catch (err) { if (selCard() === c) box.innerHTML = `<h3>Who to call</h3><div class="sub err">${esc(err.message)}</div>`; return; }
+    if (selCard() !== c) return;
+    const b = S.books[key].contacts || { contacts: [] };
+    const touch = c.contactTouch || {};
+    const people = b.contacts.map((p) => {
+      const t = touch[p.label] || touch[p.name];
+      const last = t ? `${t.kind === 'reply' ? 'Replied' : t.kind === 'call' ? 'Called' : t.kind === 'visit' ? 'Visit' : 'Emailed'} ${day(t.at)}` : 'Not reached yet';
+      const mail = p.email ? `<a class="btn icon" href="mailto:${esc(encodeURIComponent(p.email))}" aria-label="Email ${esc(p.name)}">${ICON.mail}</a>` : '';
+      const ph = p.phone || (b.office && b.office.phone);
+      const call = ph ? `<a class="btn icon" href="${esc(telHref(ph))}" aria-label="Call ${esc(p.phone ? p.name : 'the football office')}">${ICON.phone}</a>` : '';
+      return `<div class="person"><div class="w"><b>${esc(p.name)}</b><small>${esc(p.label)}${p.title ? ' · ' + esc(p.title) : ''}</small><small>${esc(last)}</small></div>${mail}${call}</div>`;
+    }).join('');
+    const src = safeUrl(b.staffUrl);
+    box.innerHTML = `<h3>Who to call</h3>${people || `<div class="sub">${esc(b.note || 'No staff listed yet.')}</div>`}
+      ${b.office ? `<div class="foot">Football office: <a href="${esc(telHref(b.office.phone))}">${esc(b.office.phone)}</a></div>` : ''}
+      ${b.collective ? `<div class="foot">Collective: ${esc(b.collective.name || '')}${b.collective.email ? ' · ' + esc(b.collective.email) : ''}</div>` : ''}
+      <div class="foot">From the school's published staff page${src ? `: <a href="${esc(src)}" target="_blank" rel="noopener noreferrer">open it</a>` : ''}. Emails only where the school printed them.</div>`;
+    $('lWho').innerHTML = '<option value="">Not one person</option>' + b.contacts.map((p) => `<option value="${esc(p.label)}">${esc(p.label)}: ${esc(p.name)}</option>`).join('');
+  }
+
+  async function loadActivity(c) {
+    try {
+      const r = await api('GET', '/api/portal/activity/' + encodeURIComponent(S.aid) + '?target=' + encodeURIComponent(c.id));
+      if (selCard() !== c) return;
+      $('feed').innerHTML = r.activity.length ? r.activity.map((a) => `<div><i></i><span><span>${esc(a.kindLabel)}${a.contact ? ' · ' + esc(a.contact) : ''}${a.text ? ': ' + esc(a.text) : ''}</span><small>${esc(day(a.at))}</small></span></div>`).join('') : '<div class="sub">Nothing yet.</div>';
+    } catch (err) { if (selCard() === c) $('feed').innerHTML = `<div class="sub err">${esc(err.message)}</div>`; }
+  }
+
+  document.addEventListener('submit', async (e) => {
+    if (e.target.id === 'tForm') {
+      e.preventDefault();
+      const c = selCard(); if (!c) return;
+      try {
+        await api('PUT', `/api/portal/targets/${encodeURIComponent(S.aid)}/${encodeURIComponent(c.id)}`, { stage: $('tStage').value, nextStep: $('tNext').value, dueOn: $('tDue').value || null });
+        await reload(); say('tMsg', 'Saved.');
+        if ($('tStage') && $('tStage').value === 'offer' && !S.ws.offers.offers.some((o) => o.school === c.school)) { setTab('offers'); openOfferForm(c.school); }
+      } catch (err) { say('tMsg', err.message, true); }
+    }
+    if (e.target.id === 'logForm') {
+      e.preventDefault();
+      const c = selCard(); if (!c) return;
+      try {
+        await api('POST', '/api/portal/activity/' + encodeURIComponent(S.aid), { targetId: c.id, kind: $('lKind').value, contact: $('lWho').value || null, text: $('lText').value });
+        await reload(); say('lMsg', 'Logged.');
+      } catch (err) { say('lMsg', err.message, true); }
+    }
+  });
+  document.addEventListener('click', async (e) => {
+    if (e.target.closest('#tRemove')) {
+      const c = selCard(); if (!c) return;
+      try { await api('DELETE', `/api/portal/targets/${encodeURIComponent(S.aid)}/${encodeURIComponent(c.id)}`); S.sel = null; await reload(); }
+      catch (err) { say('tMsg', err.message, true); }
+    }
+    if (e.target.closest('#tEmail')) {
+      const c = selCard(); if (!c) return;
+      try { showEmail(await api('GET', `/api/portal/targets/${encodeURIComponent(S.aid)}/${encodeURIComponent(c.id)}/email`)); }
+      catch (err) { say('tMsg', err.message, true); }
+    }
+  });
+
+  function showEmail(d) {
+    $('mTitle').textContent = `Email to ${d.school}`;
+    const who = (l) => l.map((p) => `${esc(p.name)} (${esc(p.label)})`).join(', ');
+    $('mBody').innerHTML = `
+      ${d.to.length ? `<div><b>To:</b> ${who(d.to)}</div>` : `<div class="note">${esc(d.school)} prints no email for these people. Call instead${d.office ? `: football office <a href="${esc(telHref(d.office))}">${esc(d.office)}</a>` : ''}.${(d.callInstead || []).length ? ` Ask for ${d.callInstead.map((p) => `${esc(p.name)} (${esc(p.label)})`).join(', ')}.` : ''}</div>`}
+      ${d.cc.length ? `<div><b>Cc:</b> ${who(d.cc)}</div>` : ''}
+      <div><b>Subject:</b> ${esc(d.subject)}</div>
+      <pre class="mail">${esc(d.body)}</pre>
+      ${d.hasProfile ? '' : '<div class="foot">Make his one-pager on the Player tab and the email links to it.</div>'}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${d.mailto ? `<a class="btn primary" href="${esc(d.mailto)}">Open in my email</a>` : ''}<button type="button" class="btn" id="mCopy">Copy</button></div>
+      <div class="foot">You send it from your own email. When you do, log it on the school so the board stays current.</div>`;
+    $('mCopy').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(`Subject: ${d.subject}\n\n${d.body}`); $('mCopy').textContent = 'Copied'; };
+    $('modal').classList.remove('hidden');
+    $('mClose').focus();
+  }
+  $('mClose').addEventListener('click', () => $('modal').classList.add('hidden'));
+  $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') $('modal').classList.add('hidden'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('modal').classList.contains('hidden')) $('modal').classList.add('hidden'); });
+
+  // ── ADD A SCHOOL ─────────────────────────────────────────────────────────
+  $('addBtn').addEventListener('click', () => { $('addForm').classList.remove('hidden'); $('addIn').focus(); });
+  $('addCancel').addEventListener('click', () => $('addForm').classList.add('hidden'));
+  $('addForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await addSchool($('addIn').value, 'addMsg');
+  });
+  async function addSchool(school, msgId) {
+    try {
+      const t = await api('POST', '/api/portal/targets/' + encodeURIComponent(S.aid), { school });
+      if (msgId) { say(msgId, `${t.school} added.`); $('addIn').value = ''; }
+      S.sel = t.id; await reload();
+      return t;
+    } catch (err) { if (msgId) say(msgId, err.message, true); else alertLine(err.message); return null; }
+  }
+  const alertLine = (t) => { $('gate').textContent = t; $('gate').classList.remove('hidden'); setTimeout(() => $('gate').classList.add('hidden'), 6000); };
+
+  // ── SCHOOLS ──────────────────────────────────────────────────────────────
+  async function loadBoard(force) {
+    if (!S.ws) return;
+    if (!S.ws.group) { $('boardBody').innerHTML = '<tr><td colspan="6" class="sub">Add his position on the Player tab first.</td></tr>'; return; }
+    if (S.board && !force && S.board._aid === S.aid) { renderBoard(); return; }
+    $('boardBody').innerHTML = '<tr><td colspan="6" class="sub">Ranking every FBS school…</td></tr>';
+    try {
+      const prefs = S.prefs || (await api('GET', '/api/portal/wishlist/' + encodeURIComponent(S.aid))).prefs || {};
+      S.prefs = prefs;
+      S.board = await api('POST', '/api/portal/board', { ...prefs, group: S.ws.group, position: S.ws.athlete.position || '', limit: 40 });
+      S.board._aid = S.aid;
+      renderBoard();
+    } catch (err) { $('boardBody').innerHTML = `<tr><td colspan="6" class="err">${esc(err.message)}</td></tr>`; }
+  }
+  function renderBoard() {
+    const b = S.board; if (!b) return;
+    const f = q();
+    const onList = new Map(S.ws.cards.map((c) => [c.school, c]));
+    const rows = [...b.dream, ...b.options].filter((r) => !f || r.school.toLowerCase().includes(f));
+    $('schoolsTitle').textContent = `Schools that need a ${b.group}`;
+    $('schoolsSub').textContent = 'Ranked on need at his position, level, money and his wish list';
+    $('boardBody').innerHTML = rows.map((r) => {
+      const t = onList.get(r.school);
+      const n = r.need;
+      return `<tr>
+        <td><b>${esc(r.school)}</b>${r.named ? ' <span class="chip ok">His pick</span>' : ''}<div class="foot">${esc([r.conference, r.level].filter(Boolean).join(' · '))}</div></td>
+        <td><b>${esc(NEED[n.rating])}</b><div class="foot">${n.rating === 'unknown' ? '' : `${n.back} coming back, median ${n.median}`}</div></td>
+        <td>${n.rating === 'unknown' ? '' : `${n.leaving} of ${n.on}`}</td>
+        <td class="sub">${r.coachingChange ? 'New head coach coming' : 'No change on file'}</td>
+        <td><b>${r.score}</b></td>
+        <td>${t ? `<button type="button" class="btn sm" data-pick="${esc(t.id)}">${esc(t.stageLabel)}</button>` : `<button type="button" class="btn sm primary" data-add="${esc(r.school)}">Add</button>`}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="6" class="sub">No school matches.</td></tr>';
+    $('boardFoot').textContent = `Need comes from ${b.rostersRead} of ${b.totalSchools} FBS rosters read so far, against ${b.medianFrom}. Seniors or older are the players likely to leave, by class year on the school's roster. A school whose roster is not read yet says "Roster not read yet" and counts as middle-of-the-road need in its fit until it is read. Rosters are re-read on a rolling nightly sweep. Money means Power 4 or not.${b.valueLine ? ' What a ' + b.group + ' is paid: ' + b.valueLine : ''}`;
+  }
+  $('boardBody').addEventListener('click', async (e) => { const a = e.target.closest('[data-add]'); if (a) { a.disabled = true; const t = await addSchool(a.dataset.add); if (t) { renderBoard(); } else a.disabled = false; } });
+
+  // ── OFFERS ───────────────────────────────────────────────────────────────
+  function renderOffers() {
+    if (!S.ws) return;
+    const ob = S.ws.offers;
+    $('headline').textContent = ob.headline || 'No offers yet. Log each one as it comes in and they line up here, guaranteed money first.';
+    const STAT = { talking: 'Talking', offered: 'Offered', in_writing: 'In writing', committed: 'He committed', declined: 'Declined' };
+    const cards = ob.offers.map((o, i) => {
+      const g = o.guaranteedShare;
+      const statusSel = Object.keys(STAT).map((k) => `<option value="${k}"${k === o.status ? ' selected' : ''}>${STAT[k]}</option>`).join('');
+      const best = i === 0 && ob.offers.length > 1 && o.guaranteedTotal > 0 && o.guaranteedTotal > (ob.offers[1].guaranteedTotal || 0);
+      return `<article class="offer${best ? ' best' : ''}">
+        <div class="row" style="align-items:center"><h3 class="disp" style="margin:0;font-size:24px">${esc(o.school)}</h3>${o.status === 'committed' ? '<span class="chip ok">Committed</span>' : best ? '<span class="chip ok">Most guaranteed</span>' : ''}</div>
+        <div><div class="foot">Guaranteed by the school, ${o.years} year${o.years === 1 ? '' : 's'}</div><div class="big disp">${esc(usd(o.guaranteedTotal))}</div><div class="sub">${esc(usd(o.totalValue))} in all${o.nilPerYear ? `, ${usd(o.nilPerYear)} a year of it NIL` : ''}</div></div>
+        ${g != null ? `<div><div class="gbar"><i style="width:${g}%"></i></div><div class="foot" style="margin-top:6px">${g}% guaranteed</div></div>` : ''}
+        <div class="kv"><div><small>Per year</small><b>${esc(usd(o.perYear))}</b></div><div><small>In writing</small><b>${o.inWriting ? 'Yes' : 'Not yet'}</b></div>${o.nilPerYear ? `<div><small>NIL paid by</small><b>${esc(o.nilPayer || 'Not set')}</b></div>` : ''}${o.expiresOn ? `<div><small>Expires</small><b>${esc(day(o.expiresOn))}</b></div>` : ''}</div>
+        <ul class="checks">${o.checks.map((c) => `<li>${ICON[c.level] || ICON.warn}<span>${esc(c.text)}</span></li>`).join('')}</ul>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <label class="sr" for="os-${esc(o.id)}">Where it stands</label><select class="inp" id="os-${esc(o.id)}" data-ostatus="${esc(o.id)}">${statusSel}</select>
+          ${o.inWriting ? '' : `<button type="button" class="btn sm" data-owrite="${esc(o.id)}" data-ostat="${esc(o.status)}">Got it in writing</button>`}
+          <button type="button" class="btn sm" data-odel="${esc(o.id)}">Remove</button>
+        </div>
+      </article>`;
+    });
+    const v = ob.value;
+    if (v) cards.push(`<aside class="market"><div class="k" style="text-transform:uppercase;letter-spacing:1px;font-weight:600">What a ${esc(v.group)} is paid</div>
+      <div><div class="k">Power 4 median</div><div class="v disp">${esc(usd(v.p4.median))}</div></div>
+      ${v.p4.top10 ? `<div><div class="k">Power 4 top 10%</div><div class="v disp">${esc(usd(v.p4.top10))}</div></div>` : ''}
+      <div><div class="k">Elsewhere in Division I, median</div><div class="v disp" style="font-size:26px">${esc(usd(v.other.median))}</div></div>
+      <div class="k" style="margin-top:auto">${esc(v.source.text)}</div></aside>`);
+    $('ogrid').innerHTML = cards.join('') + ((ob.declined || []).length ? `<div class="panel" style="grid-column:1/-1"><h3>Declined</h3>${ob.declined.map((o) => `<div class="person"><div class="w"><b>${esc(o.school)}</b><small>${esc(usd((o.guaranteedPerYear || 0) + (o.nilPerYear || 0)))} a year</small></div><button type="button" class="btn sm" data-orestore="${esc(o.id)}">Put it back</button></div>`).join('')}</div>` : '');
+    const dl = (ob.deadlines || []).filter((d) => d.days >= 0).slice(0, 6);
+    const cp = ob.commit;
+    $('commitPanel').innerHTML = cp
+      ? `<h3>He committed to ${esc(cp.school)}: what has to happen</h3><ul class="checks" style="border:0;padding:0">${cp.items.map((c) => `<li>${ICON[c.level] || ICON.warn}<span>${esc(c.text)}${c.dueBy ? ` <b>Due ${esc(day(c.dueBy))}</b>` : ''}</span></li>`).join('')}</ul>
+         <form id="signForm" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap"><label class="f">Signed on<input class="inp" type="date" id="signedOn" value="${esc(cp.signedOn || '')}"></label><button class="btn sm primary" type="submit">Save</button><span class="msg" id="signMsg"></span></form>`
+      : `<h3>Coming up</h3>${dl.length ? `<ul class="checks" style="border:0;padding:0">${dl.map((d) => `<li>${ICON.warn}<span><b>${esc(day(d.date))}</b> ${esc(d.text)}${d.days === 0 ? ' (today)' : ` (in ${d.days} day${d.days === 1 ? '' : 's'})`}</span></li>`).join('')}</ul>` : '<div class="sub">No deadlines yet.</div>'}`;
+    $('family').textContent = ob.family || '';
+  }
+  $('copyFam').addEventListener('click', () => { navigator.clipboard && navigator.clipboard.writeText($('family').textContent); $('copyFam').textContent = 'Copied'; setTimeout(() => { $('copyFam').textContent = 'Copy'; }, 1500); });
+  function openOfferForm(school) { $('offerForm').classList.remove('hidden'); if (school) $('oSchool').value = school; $('oG').focus(); }
+  $('offerAdd').addEventListener('click', () => openOfferForm());
+  $('offerCancel').addEventListener('click', () => $('offerForm').classList.add('hidden'));
+  $('offerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api('POST', '/api/portal/offers/' + encodeURIComponent(S.aid), {
+        school: $('oSchool').value, status: $('oStatus').value, guaranteedPerYear: $('oG').value || null, nilPerYear: $('oN').value || null,
+        nilPayer: $('oPayer').value || null, nilDeliverables: $('oDel').value || null, years: $('oY').value || 1, inWriting: $('oW').checked, expiresOn: $('oExp').value || null,
+      });
+      $('offerForm').reset(); $('offerForm').classList.add('hidden'); say('oMsg', '');
+      await reload(); renderOffers();
+    } catch (err) { say('oMsg', err.message, true); }
+  });
+  $('ogrid').addEventListener('change', async (e) => {
+    const s = e.target.closest('[data-ostatus]'); if (!s) return;
+    try { await api('PUT', `/api/portal/offers/${encodeURIComponent(S.aid)}/${encodeURIComponent(s.dataset.ostatus)}`, { status: s.value }); await reload(); renderOffers(); }
+    catch (err) { alertLine(err.message); renderOffers(); }
+  });
+  $('ogrid').addEventListener('click', async (e) => {
+    const w = e.target.closest('[data-owrite]'), d = e.target.closest('[data-odel]'), rs = e.target.closest('[data-orestore]');
+    if (!w && !d && !rs) return;
+    try {
+      if (rs) await api('PUT', `/api/portal/offers/${encodeURIComponent(S.aid)}/${encodeURIComponent(rs.dataset.orestore)}`, { status: 'offered' });
+      if (w) await api('PUT', `/api/portal/offers/${encodeURIComponent(S.aid)}/${encodeURIComponent(w.dataset.owrite)}`, ['talking', 'offered'].includes(w.dataset.ostat) ? { inWriting: true, status: 'in_writing' } : { inWriting: true });
+      if (d) await api('DELETE', `/api/portal/offers/${encodeURIComponent(S.aid)}/${encodeURIComponent(d.dataset.odel)}`);
+      await reload(); renderOffers();
+    } catch (err) { alertLine(err.message); }
+  });
+  document.addEventListener('submit', async (e) => {
+    if (e.target.id !== 'signForm') return;
+    e.preventDefault();
+    const cp = S.ws.offers.committed;
+    try { await api('PUT', `/api/portal/offers/${encodeURIComponent(S.aid)}/${encodeURIComponent(cp)}`, { signedOn: $('signedOn').value || null }); await reload(); renderOffers(); }
+    catch (err) { say('signMsg', err.message, true); }
+  });
+
+  // ── PLAYER ───────────────────────────────────────────────────────────────
+  const list = (s) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean);
+  function prefsBody() {
+    return {
+      group: $('pGroup').value || null, position: S.ws.athlete.position || '', currentSchool: $('pCur').value || null, currentLevel: $('pCurLevel').value || null,
+      level: $('pLevel').value, homeState: $('pHome').value.trim().toUpperCase() || null, states: list($('pStates').value).map((x) => x.toUpperCase()),
+      schools: list($('pSchools').value), regions: [...document.querySelectorAll('#pRegions input:checked')].map((x) => x.value), closeToHome: $('pClose').checked,
+      birthDate: $('pBirth').value || null, firstEnrollment: $('pEnroll').value || null, priorTransfers: $('pPrior').value || 0,
+    };
+  }
+  function fillPrefs(p) {
+    p = p || {};
+    $('pGroup').value = p.group || S.ws.group || '';
+    $('pCur').value = p.currentSchool || ''; $('pCurLevel').value = p.currentLevel || ''; $('pLevel').value = p.level || 'any';
+    $('pHome').value = p.homeState || ''; $('pStates').value = (p.states || []).join(', '); $('pSchools').value = (p.schools || []).join(', ');
+    for (const x of document.querySelectorAll('#pRegions input')) x.checked = (p.regions || []).includes(x.value);
+    $('pClose').checked = !!p.closeToHome; $('pBirth').value = p.birthDate || ''; $('pEnroll').value = p.firstEnrollment || ''; $('pPrior').value = p.priorTransfers || 0;
+  }
+  async function loadPlayer() {
+    if (!S.ws) return;
+    try { S.prefs = (await api('GET', '/api/portal/wishlist/' + encodeURIComponent(S.aid))).prefs; } catch (_) {}
+    fillPrefs(S.prefs);
+    runEnter();
+    try { const t = await api('GET', '/api/portal/targets/' + encodeURIComponent(S.aid)); S.profile = t.profile; fillProfile(); } catch (err) { say('opMsg', err.message, true); }
+  }
+  async function runEnter() {
+    const box = $('enterPanel');
+    try {
+      const r = await api('POST', '/api/portal/enter-check', { ...(S.prefs || {}), ...prefsBody() });
+      box.innerHTML = `<h3>Should he enter?</h3><div class="note ${r.verdict.level === 'ok' ? 'info' : ''}" style="font-weight:600">${esc(String(r.verdict.text).replace('Build the target list below.', 'Build his list from the Schools tab.'))}</div>
+        <ul class="checks" style="border:0;padding:0">${r.points.map((p) => `<li>${ICON[p.level] || ICON.warn}<span>${esc(p.text)}</span></li>`).join('')}</ul>
+        <div class="foot">${esc(r.windows.main.text)} ${esc(r.windows.postseason)} ${esc(r.windows.coachingChange)}</div>`;
+    } catch (err) { box.innerHTML = `<h3>Should he enter?</h3><div class="sub err">${esc(err.message)}</div>`; }
+  }
+  $('prefsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api('PUT', '/api/portal/wishlist/' + encodeURIComponent(S.aid), prefsBody());
+      S.prefs = r.prefs; S.board = null;
+      say('pMsg', r.unknownSchools && r.unknownSchools.length ? `Saved. Not FBS schools, left off: ${r.unknownSchools.join(', ')}` : 'Saved.');
+      await reload(); runEnter();
+    } catch (err) { say('pMsg', err.message, true); }
+  });
+  function fillProfile() {
+    const p = S.profile || { data: {} }, d = p.data || {};
+    $('opHW').value = d.heightWeight || ''; $('opClass').value = d.classYear || ''; $('opStats').value = d.statsLine || '';
+    $('opHigh').value = (d.highlights || []).join('\n'); $('opFilm').value = d.filmUrl || ''; $('opStatsUrl').value = d.statsUrl || '';
+    $('opHome').value = d.hometown || ''; $('opSeasons').checked = !!d.showSeasonsLeft; $('opPhone').value = d.agentPhone || ''; $('opEmail').value = d.agentEmail || ''; $('opNote').value = d.note || '';
+    const url = p.token ? `${location.origin}/portal-profile/${p.token}` : null;
+    $('opState').textContent = !p.token ? 'Not made yet' : p.live ? 'Live' : 'Off';
+    $('opState').className = 'chip ' + (p.token && p.live ? 'ok' : '');
+    $('opLink').innerHTML = url && p.live ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a> · ${p.views || 0} view${p.views === 1 ? '' : 's'}` : (p.token ? 'Turned off: the link shows nothing.' : 'Fill it in and save to get a link to send schools.');
+    $('opLive').textContent = p.live ? 'Turn off' : 'Turn on';
+    $('opLive').disabled = !p.token; $('opNew').disabled = !p.token;
+  }
+  const opBody = (extra) => ({ heightWeight: $('opHW').value, classYear: $('opClass').value, statsLine: $('opStats').value, highlights: $('opHigh').value, filmUrl: $('opFilm').value, statsUrl: $('opStatsUrl').value, hometown: $('opHome').value, showSeasonsLeft: $('opSeasons').checked, agentPhone: $('opPhone').value, agentEmail: $('opEmail').value, note: $('opNote').value, live: S.profile && S.profile.token ? S.profile.live : true, ...(extra || {}) });
+  $('opForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try { S.profile = { ...(S.profile || {}), ...(await api('PUT', '/api/portal/one-pager/' + encodeURIComponent(S.aid), opBody())) }; fillProfile(); say('opMsg', 'Saved.'); }
+    catch (err) { say('opMsg', err.message, true); }
+  });
+  $('opLive').addEventListener('click', async () => {
+    try { S.profile = { ...S.profile, ...(await api('PUT', '/api/portal/one-pager/' + encodeURIComponent(S.aid), opBody({ live: !S.profile.live }))) }; fillProfile(); }
+    catch (err) { say('opMsg', err.message, true); }
+  });
+  $('opNew').addEventListener('click', async () => {
+    try { const r = await api('POST', '/api/portal/one-pager/' + encodeURIComponent(S.aid) + '/new-link'); S.profile.token = r.token; fillProfile(); say('opMsg', 'New link made. The old one no longer works.'); }
+    catch (err) { say('opMsg', err.message, true); }
+  });
+
+  // ── LOADING ──────────────────────────────────────────────────────────────
+  async function reload() {
+    S.ws = await api('GET', '/api/portal/workspace/' + encodeURIComponent(S.aid));
+    if (S.sel && !S.ws.cards.some((c) => c.id === S.sel)) S.sel = null;
+    const me = S.clients.find((c) => c.id === S.aid);
+    if (me) { me.schools = S.ws.stats.onList; me.committed = !!S.ws.stats.committed; renderClients(); }
+    renderHead(); renderWindow(); renderKanban(); renderDetail();
+    if (S.tab === 'schools' && S.board) renderBoard();
+    if (S.tab === 'offers') renderOffers();
+  }
+  async function openClient(id) {
+    const prev = { aid: S.aid, sel: S.sel, board: S.board, prefs: S.prefs, profile: S.profile };
+    S.aid = id; S.sel = null; S.board = null; S.prefs = null; S.profile = null;
+    renderClients();
+    try {
+      await reload();
+      if (!DEMO) { try { history.replaceState(null, '', '/portal-room?a=' + encodeURIComponent(id)); } catch (_) {} }
+      if (!S.sel) { const first = S.ws.cards.find((c) => c.due) || S.ws.cards.find((c) => c.stage !== 'passed'); if (first && window.innerWidth > 900) { S.sel = first.id; renderKanban(); showSel(); renderDetail(); } }
+      setTab(S.tab);
+    } catch (err) {
+      if (prev.aid && S.ws) { Object.assign(S, prev); renderClients(); alertLine(err.message); }
+      else { $('gate').textContent = err.message; $('gate').classList.remove('hidden'); }
+    }
+  }
+
+  (async () => {
+    if (DEMO) {
+      $('demoBanner').classList.remove('hidden'); $('sampleChip').classList.remove('hidden');
+      await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = '/portal-demo.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); })
+        .catch(() => { $('gate').textContent = 'The sample did not load. Refresh to try again.'; $('gate').classList.remove('hidden'); });
+    }
+    try {
+      S.meta = await api('GET', '/api/portal/meta');
+      $('schoolList').innerHTML = S.meta.schools.map((s) => `<option value="${esc(s.name)}"></option>`).join('');
+      $('pGroup').innerHTML = '<option value="">Pick one</option>' + S.meta.groups.map((g) => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join('');
+      $('pRegions').innerHTML = S.meta.regions.map((r) => `<label class="check"><input type="checkbox" value="${esc(r)}"> ${esc(r)}</label>`).join('');
+      S.clients = (await api('GET', '/api/portal/clients')).clients || [];
+    } catch (err) { $('gate').textContent = err.message; $('gate').classList.remove('hidden'); $('head').classList.add('hidden'); return; }
+    renderClients();
+    if (!S.clients.length) {
+      $('gate').innerHTML = 'Add a football client on your <a href="/">NILDash dashboard</a> and he shows up here.'; $('gate').classList.remove('hidden');
+      for (const id of ['head', 'stats', 'tab-pipeline']) $(id).classList.add('hidden');
+      return;
+    }
+    const want = new URLSearchParams(location.search).get('a');
+    const first = (want && S.clients.find((c) => c.id === want)) || S.clients[0];
+    setTab('pipeline');
+    await openClient(first.id);
+  })();
+})();
+</script>
+</body>
+</html>

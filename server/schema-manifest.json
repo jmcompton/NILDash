@@ -1340,6 +1340,17 @@
       "saturated_types": "INT DEFAULT 0",
       "source": "TEXT"
     },
+    "portal_activity": {
+      "agent_id": "TEXT",
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "athlete_id": "TEXT",
+      "contact": "TEXT",
+      "id": "TEXT",
+      "kind": "TEXT",
+      "school": "TEXT",
+      "target_id": "TEXT",
+      "text": "TEXT"
+    },
     "portal_coaching_changes": {
       "change_date": "DATE",
       "coach": "TEXT",

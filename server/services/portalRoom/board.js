@@ -11,8 +11,9 @@
 //            Low: at or above it. A new head coach is shown and adds to it.
 //   LEVEL    Power 4 or Group of 5, against where he plays now or the level
 //            the agent asked for.
-//   MONEY    Power 4 pays more (CSC data: a Power 4 receiver's revenue-share
-//            median is $112,500; outside it, $15,000).
+//   MONEY    Power 4 pays more (services/portalRoom/value has the College
+//            Sports Commission numbers by position). Level only, not a school's
+//            own budget.
 //   WANTS    the agent's wish list: named schools, states or regions, close to
 //            home.
 //
@@ -113,7 +114,10 @@ function needLine(group, n) {
 }
 
 // The whole board. rosters: [{ school, players, fetched_at, status }]
-function rank({ group, prefs = {}, rosters = [], coaching = new Map(), limit = 25 }) {
+// keepAll: score every school even when a level is asked for (the workspace
+// scores his own list with the same weights the board uses, so a school shows
+// one fit score everywhere).
+function rank({ group, prefs = {}, rosters = [], coaching = new Map(), limit = 25, keepAll = false }) {
   if (!P.GROUPS.includes(group)) { const e = new Error('unknown position group'); e.status = 400; throw e; }
   const byRooms = {};
   const fetched = {};
@@ -123,7 +127,7 @@ function rank({ group, prefs = {}, rosters = [], coaching = new Map(), limit = 2
   const rows = [];
   for (const s of Schools.all()) {
     if (exclude.has(s.name)) continue;
-    if (prefs.level && prefs.level !== 'any' && s.level !== prefs.level && !(prefs.schools || []).includes(s.name)) continue;
+    if (!keepAll && prefs.level && prefs.level !== 'any' && s.level !== prefs.level && !(prefs.schools || []).includes(s.name)) continue;
     const ch = coaching.get(s.name) || null;
     const n = needFor(byRooms[s.name] ? byRooms[s.name][group] : null, med.by[group], ch);
     const lv = levelFit(s.level, { current: prefs.currentLevel, want: prefs.level });

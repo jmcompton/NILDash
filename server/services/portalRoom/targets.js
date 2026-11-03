@@ -10,10 +10,18 @@
 //               is random and the agent can turn the page off at any time.
 //               No contact details for the player himself, ever.
 //   TARGETS     the schools the agent is working, each with where it stands
-//               (target, contacted, replied, interested, visit, offer, passed),
-//               the next step, and an email draft to that school's people with
-//               the one-pager link. NILDash writes the email; the agent sends
-//               it from his own mailbox. Nothing is sent from here.
+//               (target, contacted, replied, interested, visit, offer,
+//               committed, passed), the next step and the day it is due, and
+//               an email draft to that school's people with the one-pager
+//               link. NILDash writes the email; the agent sends it from his
+//               own mailbox. Nothing is sent from here.
+//   ACTIVITY    what happened with each school, newest first: added, moved,
+//               an email, a call, a reply, a note. Moves log themselves; the
+//               agent logs the rest. Logging an email or call to a school still
+//               at "target" moves it to contacted; logging a reply moves it to
+//               replied. Each entry can name who it was with (the contact
+//               book's label), so the page shows when each person was last
+//               reached.
 //
 // Agent data, scoped to the agent and his own athlete in every query.
 
@@ -21,8 +29,13 @@ const crypto = require('crypto');
 const Schools = require('./schools');
 const P = require('./positions');
 
-const STAGES = ['target', 'contacted', 'replied', 'interested', 'visit', 'offer', 'passed'];
-const STAGE_LABEL = { target: 'Target', contacted: 'Contacted', replied: 'Replied', interested: 'Interested', visit: 'Visit set', offer: 'Offer in', passed: 'Passed' };
+const STAGES = ['target', 'contacted', 'replied', 'interested', 'visit', 'offer', 'committed', 'passed'];
+const STAGE_LABEL = { target: 'Target', contacted: 'Contacted', replied: 'Replied', interested: 'Interested', visit: 'Visit set', offer: 'Offer in', committed: 'Committed', passed: 'Passed' };
+const KINDS = ['note', 'email', 'call', 'reply', 'visit', 'stage', 'added'];
+const KIND_LABEL = { note: 'Note', email: 'Email', call: 'Call', reply: 'Reply', visit: 'Visit', stage: 'Moved', added: 'Added' };
+// A real calendar date (the pattern alone lets Feb 30 through to Postgres).
+const realDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) && !isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d;
+const ymd = (d) => (d == null ? null : d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
 
 function bad(msg, status = 400) { const e = new Error(msg); e.status = status; return e; }
 const clip = (s, n) => (s == null || String(s).trim() === '' ? null : String(s).trim().slice(0, n));
@@ -34,6 +47,11 @@ async function ensureTables(pool) {
     stage TEXT NOT NULL DEFAULT 'target', next_step TEXT, notes TEXT, last_touch_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (agent_id, athlete_id, school))`);
+  await pool.query(`ALTER TABLE portal_targets ADD COLUMN IF NOT EXISTS due_on DATE`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS portal_activity (
+    id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, athlete_id TEXT NOT NULL, target_id TEXT, school TEXT,
+    kind TEXT NOT NULL, contact TEXT, text TEXT, at TIMESTAMPTZ DEFAULT NOW())`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_portal_activity_owner ON portal_activity (agent_id, athlete_id, at DESC)`);
   await pool.query(`CREATE TABLE IF NOT EXISTS portal_profiles (
     agent_id TEXT NOT NULL, athlete_id TEXT NOT NULL, token TEXT UNIQUE, live BOOLEAN DEFAULT TRUE,
     data JSONB NOT NULL DEFAULT '{}'::jsonb, views INT DEFAULT 0, last_viewed_at TIMESTAMPTZ,
@@ -42,13 +60,71 @@ async function ensureTables(pool) {
 
 // ── TARGETS ─────────────────────────────────────────────────────────────────
 function shapeT(r) {
-  return { id: r.id, school: r.school, stage: r.stage, stageLabel: STAGE_LABEL[r.stage] || r.stage, nextStep: r.next_step, notes: r.notes, lastTouchAt: r.last_touch_at, updatedAt: r.updated_at };
+  return { id: r.id, school: r.school, stage: r.stage, stageLabel: STAGE_LABEL[r.stage] || r.stage, nextStep: r.next_step, dueOn: ymd(r.due_on), notes: r.notes, lastTouchAt: r.last_touch_at, updatedAt: r.updated_at };
+}
+
+// ── ACTIVITY ────────────────────────────────────────────────────────────────
+function shapeA(r) {
+  return { id: r.id, targetId: r.target_id, school: r.school, kind: r.kind, kindLabel: KIND_LABEL[r.kind] || r.kind, contact: r.contact, text: r.text, at: r.at };
+}
+async function _log(pool, agentId, athleteId, { targetId = null, school = null, kind, contact = null, text = null }) {
+  const id = 'pa_' + crypto.randomBytes(9).toString('hex');
+  const r = await pool.query(`INSERT INTO portal_activity (id, agent_id, athlete_id, target_id, school, kind, contact, text) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [id, agentId, athleteId, targetId, school, kind, contact, text]);
+  return shapeA(r.rows[0]);
+}
+// What the agent logs. Contact is the contact book's label ("Player
+// personnel") or a name; text is his note. An email or call to a school still
+// at target moves it to contacted; a reply moves target/contacted to replied.
+async function logActivity(pool, agentId, athleteId, b = {}) {
+  await ensureTables(pool);
+  const kind = ['note', 'email', 'call', 'reply', 'visit'].includes(b.kind) ? b.kind : null;
+  if (!kind) throw bad('Pick what happened: email, call, reply, visit or note.');
+  const t = (await pool.query(`SELECT * FROM portal_targets WHERE id = $1 AND agent_id = $2 AND athlete_id = $3`, [String(b.targetId || ''), agentId, athleteId])).rows[0];
+  if (!t) throw bad('Target not found', 404);
+  const text = clip(b.text, 500), contact = clip(b.contact, 120);
+  if (kind === 'note' && !text) throw bad('Write the note.');
+  const entry = await _log(pool, agentId, athleteId, { targetId: t.id, school: t.school, kind, contact, text });
+  let stage = t.stage;
+  if ((kind === 'email' || kind === 'call') && t.stage === 'target') stage = 'contacted';
+  if (kind === 'reply' && ['target', 'contacted'].includes(t.stage)) stage = 'replied';
+  const touch = kind !== 'note';
+  if (stage !== t.stage || touch) {
+    await pool.query(`UPDATE portal_targets SET stage = $4${touch ? ', last_touch_at = NOW()' : ''}, updated_at = NOW() WHERE id = $1 AND agent_id = $2 AND athlete_id = $3`, [t.id, agentId, athleteId, stage]);
+    if (stage !== t.stage) await _log(pool, agentId, athleteId, { targetId: t.id, school: t.school, kind: 'stage', text: `Moved to ${STAGE_LABEL[stage]}` });
+  }
+  return { entry, stage, stageLabel: STAGE_LABEL[stage] };
+}
+async function listActivity(pool, agentId, athleteId, { targetId = null, limit = 200 } = {}) {
+  await ensureTables(pool);
+  const vals = [agentId, athleteId];
+  let where = 'agent_id = $1 AND athlete_id = $2';
+  if (targetId) { vals.push(String(targetId)); where += ` AND target_id = $${vals.length}`; }
+  vals.push(Math.max(1, Math.min(500, limit)));
+  const r = await pool.query(`SELECT * FROM portal_activity WHERE ${where} ORDER BY at DESC, id DESC LIMIT $${vals.length}`, vals);
+  return r.rows.map(shapeA);
+}
+// He committed (services/portalRoom/offers): that school's card goes to
+// Committed, added to the list if it was not on it.
+async function markCommitted(pool, agentId, athleteId, school) {
+  await ensureTables(pool);
+  const s = Schools.canonical(school) || clip(school, 80);
+  if (!s) return null;
+  const cur = (await pool.query(`SELECT * FROM portal_targets WHERE agent_id = $1 AND athlete_id = $2 AND school = $3`, [agentId, athleteId, s])).rows[0];
+  if (cur && cur.stage === 'committed') return shapeT(cur);
+  let row;
+  if (cur) row = (await pool.query(`UPDATE portal_targets SET stage = 'committed', last_touch_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`, [cur.id])).rows[0];
+  else row = (await pool.query(`INSERT INTO portal_targets (id, agent_id, athlete_id, school, stage, last_touch_at) VALUES ($1,$2,$3,$4,'committed',NOW()) RETURNING *`,
+    ['pt_' + crypto.randomBytes(9).toString('hex'), agentId, athleteId, s])).rows[0];
+  await _log(pool, agentId, athleteId, { targetId: row.id, school: s, kind: 'stage', text: 'He committed. Moved to Committed' });
+  return shapeT(row);
 }
 
 async function listTargets(pool, agentId, athleteId) {
   await ensureTables(pool);
   const r = await pool.query(`SELECT * FROM portal_targets WHERE agent_id = $1 AND athlete_id = $2`, [agentId, athleteId]);
   const order = (s) => (s === 'passed' ? 99 : STAGES.length - STAGES.indexOf(s));
+  // (committed sorts first: it is furthest along)
   return r.rows.map(shapeT).sort((a, b) => order(a.stage) - order(b.stage) || a.school.localeCompare(b.school));
 }
 
@@ -60,13 +136,16 @@ async function addTarget(pool, agentId, athleteId, { school } = {}) {
   if (n.rows[0].n >= 60) throw bad('60 schools is the most one list holds.');
   const id = 'pt_' + crypto.randomBytes(9).toString('hex');
   const r = await pool.query(`INSERT INTO portal_targets (id, agent_id, athlete_id, school) VALUES ($1,$2,$3,$4)
-    ON CONFLICT (agent_id, athlete_id, school) DO UPDATE SET updated_at = portal_targets.updated_at RETURNING *`, [id, agentId, athleteId, s]);
+    ON CONFLICT (agent_id, athlete_id, school) DO UPDATE SET updated_at = portal_targets.updated_at RETURNING *, (xmax = 0) AS inserted`, [id, agentId, athleteId, s]);
+  if (r.rows[0].inserted) await _log(pool, agentId, athleteId, { targetId: r.rows[0].id, school: s, kind: 'added', text: 'Added to his list' });
   return shapeT(r.rows[0]);
 }
 
 async function updateTarget(pool, agentId, athleteId, id, b = {}) {
   await ensureTables(pool);
   const sets = [], vals = [String(id), agentId, athleteId];
+  const before = (await pool.query(`SELECT stage FROM portal_targets WHERE id = $1 AND agent_id = $2 AND athlete_id = $3`, vals)).rows[0];
+  if (!before) throw bad('Target not found', 404);
   if (b.stage !== undefined) {
     if (!STAGES.includes(b.stage)) throw bad('Unknown stage.');
     vals.push(b.stage); sets.push(`stage = $${vals.length}`);
@@ -75,9 +154,14 @@ async function updateTarget(pool, agentId, athleteId, id, b = {}) {
   }
   if (b.nextStep !== undefined) { vals.push(clip(b.nextStep, 200)); sets.push(`next_step = $${vals.length}`); }
   if (b.notes !== undefined) { vals.push(clip(b.notes, 1000)); sets.push(`notes = $${vals.length}`); }
+  if (b.dueOn !== undefined) {
+    if (b.dueOn !== null && b.dueOn !== '' && !realDate(b.dueOn)) throw bad('Pick a real date.');
+    vals.push(b.dueOn || null); sets.push(`due_on = $${vals.length}`);
+  }
   if (!sets.length) throw bad('Nothing to change.');
   const r = await pool.query(`UPDATE portal_targets SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $1 AND agent_id = $2 AND athlete_id = $3 RETURNING *`, vals);
   if (!r.rows[0]) throw bad('Target not found', 404);
+  if (b.stage !== undefined && b.stage !== before.stage) await _log(pool, agentId, athleteId, { targetId: r.rows[0].id, school: r.rows[0].school, kind: 'stage', text: `Moved to ${STAGE_LABEL[b.stage]}` });
   return shapeT(r.rows[0]);
 }
 
@@ -85,6 +169,7 @@ async function removeTarget(pool, agentId, athleteId, id) {
   await ensureTables(pool);
   const r = await pool.query(`DELETE FROM portal_targets WHERE id = $1 AND agent_id = $2 AND athlete_id = $3`, [String(id), agentId, athleteId]);
   if (!r.rowCount) throw bad('Target not found', 404);
+  await pool.query(`DELETE FROM portal_activity WHERE target_id = $1 AND agent_id = $2 AND athlete_id = $3`, [String(id), agentId, athleteId]);
   return { ok: true };
 }
 
@@ -215,4 +300,18 @@ function emailFor({ school, book, profile, profileUrl, agentName, group }) {
   };
 }
 
-module.exports = { ensureTables, listTargets, addTarget, updateTarget, removeTarget, cleanProfile, getProfile, saveProfile, rotateToken, publicProfile, emailFor, STAGES, STAGE_LABEL };
+// The commit was undone (the offer moved off committed): the card goes back
+// to Offer in, unless another offer from that school is still committed.
+async function unmarkCommitted(pool, agentId, athleteId, school) {
+  await ensureTables(pool);
+  const s = Schools.canonical(school) || clip(school, 80);
+  if (!s) return null;
+  const still = await pool.query(`SELECT 1 FROM portal_offers WHERE agent_id = $1 AND athlete_id = $2 AND school = $3 AND status = 'committed' LIMIT 1`, [agentId, athleteId, s]).catch(() => ({ rows: [] }));
+  if (still.rows.length) return null;
+  const r = await pool.query(`UPDATE portal_targets SET stage = 'offer', updated_at = NOW() WHERE agent_id = $1 AND athlete_id = $2 AND school = $3 AND stage = 'committed' RETURNING *`, [agentId, athleteId, s]);
+  if (!r.rows[0]) return null;
+  await _log(pool, agentId, athleteId, { targetId: r.rows[0].id, school: s, kind: 'stage', text: 'Commit undone. Moved back to Offer in' });
+  return shapeT(r.rows[0]);
+}
+
+module.exports = { unmarkCommitted, logActivity, listActivity, markCommitted, KINDS, KIND_LABEL, realDate, ensureTables, listTargets, addTarget, updateTarget, removeTarget, cleanProfile, getProfile, saveProfile, rotateToken, publicProfile, emailFor, STAGES, STAGE_LABEL };
