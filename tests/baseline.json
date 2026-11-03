@@ -1666,6 +1666,11 @@
       "failed": 0,
       "total": 41,
       "fault": null
+    },
+    "portalroom.js": {
+      "failed": 0,
+      "total": 78,
+      "fault": null
     }
   }
 }

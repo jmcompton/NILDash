@@ -12659,6 +12659,71 @@ app.post('/api/pcsa/check', requireAuth, (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ── THE PORTAL ROOM (services/portalRoom) ───────────────────────────────────
+// Should he enter, which schools need him, who to call there. Signed-in agents
+// with access; the shared roster and staff data are read-only here. The
+// sweep and coverage routes sit under /api/admin, so the admin gate covers them.
+app.get('/portal-room', (req, res) => {
+  res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'views', 'portal-room.html'));
+});
+const _portalErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' });
+const _portalOwnAthlete = async (req, athleteId) => {
+  const a = athleteId ? await store.getAthlete(String(athleteId)) : null;
+  if (!a || a.agentId !== req.session.userId) { const e = new Error('Athlete not found'); e.status = 404; throw e; }
+  return a;
+};
+app.get('/api/portal/meta', requireAuth, requireAgentSubscription, (req, res) => {
+  res.json(require('./services/portalRoom').meta());
+});
+app.post('/api/portal/board', requireAuth, requireAgentSubscription, async (req, res) => {
+  try { res.json(await require('./services/portalRoom').board(store.pool, req.body || {})); }
+  catch (e) { if (!e.status) console.error('[portal/board]', e.message); _portalErr(res, e); }
+});
+app.post('/api/portal/enter-check', requireAuth, requireAgentSubscription, async (req, res) => {
+  try { res.json(await require('./services/portalRoom').enterCheck(store.pool, req.body || {})); }
+  catch (e) { if (!e.status) console.error('[portal/enter-check]', e.message); _portalErr(res, e); }
+});
+app.get('/api/portal/school/:school', requireAuth, requireAgentSubscription, async (req, res) => {
+  try { res.json(await require('./services/portalRoom').school(store.pool, store, req.params.school, req.query.position)); }
+  catch (e) { if (!e.status) console.error('[portal/school]', e.message); _portalErr(res, e); }
+});
+app.get('/api/portal/wishlist/:athleteId', requireAuth, requireAgentSubscription, async (req, res) => {
+  try {
+    await _portalOwnAthlete(req, req.params.athleteId);
+    res.json(await require('./services/portalRoom').getWishlist(store.pool, req.session.userId, String(req.params.athleteId)));
+  } catch (e) { _portalErr(res, e); }
+});
+app.put('/api/portal/wishlist/:athleteId', requireAuth, requireAgentSubscription, async (req, res) => {
+  try {
+    await _portalOwnAthlete(req, req.params.athleteId);
+    res.json(await require('./services/portalRoom').saveWishlist(store.pool, req.session.userId, String(req.params.athleteId), req.body || {}));
+  } catch (e) { _portalErr(res, e); }
+});
+app.get('/api/admin/portal/coverage', async (req, res) => {
+  try { res.json(await require('./services/portalRoom/rosterSweep').coverage(store.pool)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Runs in the background (a full sweep takes several minutes); the result
+// lands in program_roster and the coverage route shows it.
+app.post('/api/admin/portal/roster-sweep', async (req, res) => {
+  const b = req.body || {};
+  const PR = require('./services/portalRoom');
+  const schools = Array.isArray(b.schools) ? b.schools.map((x) => require('./services/portalRoom/schools').canonical(x)).filter(Boolean) : null;
+  const limit = Math.max(1, Math.min(200, parseInt(b.limit, 10) || 45));
+  if (PR.Sweep.isRunning()) return res.status(409).json({ error: 'A roster sweep is already running.' });
+  PR.Sweep.sweep(store.pool, { schools, limit, force: !!b.force })
+    .then((sum) => { PR.clearCache(); console.log(`[portal] manual roster sweep: ${sum.ok} ok, ${sum.thin} thin, ${sum.failed} failed of ${sum.schools}`); })
+    .catch((e) => console.error('[portal] manual roster sweep:', e.message));
+  res.status(202).json({ started: true, schools: schools || 'stalest first', limit });
+});
+app.post('/api/admin/portal/coaching-change', async (req, res) => {
+  try {
+    const PR = require('./services/portalRoom');
+    const out = await PR.Coaching.add(store.pool, req.body || {});
+    res.json({ ok: true, ...out });
+  } catch (e) { _portalErr(res, e); }
+});
+
 const _nilTryLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Too many requests. Try again later.' },
@@ -16221,6 +16286,28 @@ try {
   }
 } catch (e) {
   console.warn('[queue] scheduler failed to start:', e.message);
+}
+
+// ── The Portal Room roster sweep (services/portalRoom/rosterSweep) ──────────
+// Every FBS football roster, a slice a night, 9 to 11pm Central, claimed by
+// date. Free except the model fallback on a page the parser cannot read. Off
+// with PORTAL_ROSTER_SWEEP=off.
+try {
+  const PRS = require('./services/portalRoom/rosterSweep');
+  if (!PRS.on()) {
+    console.log('[portal] roster sweep is OFF (PORTAL_ROSTER_SWEEP=off)');
+  } else {
+    const prTick = () => {
+      PRS.tick(store.pool)
+        .then((r) => { if (r && !r.skipped) require('./services/portalRoom').clearCache(); })
+        .catch((e) => console.error('[portal] roster sweep tick failed:', e.message));
+    };
+    setTimeout(prTick, 4 * 60 * 1000);
+    setInterval(prTick, 15 * 60 * 1000);
+    console.log(`[portal] roster sweep scheduled: 9-11pm Central, ${PRS.SLICE} schools a night`);
+  }
+} catch (e) {
+  console.warn('[portal] roster sweep failed to start:', e.message);
 }
 
 // ── The athlete market pools (services/marketPools) ─────────────────────────

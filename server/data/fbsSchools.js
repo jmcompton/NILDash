@@ -24,6 +24,7 @@ const FBS_SCHOOLS = {
   'Mississippi State': 'hailstate.com',
   'Oklahoma': 'soonersports.com',
   'Vanderbilt': 'vucommodores.com',
+  'Texas': 'texassports.com',
 
   // Big Ten
   'Illinois': 'fightingillini.com',

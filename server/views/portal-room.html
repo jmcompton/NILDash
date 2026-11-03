@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NILDash Portal Room</title>
+<meta name="robots" content="noindex">
+<style>
+:root { --bg:#f5f7f4; --fg:#15201a; --muted:#4a574f; --line:#dde4dd; --card:#fff; --acc:#1b7a48; --acc-ink:#fff; --soft:#e5f2ea; --warn:#7a5200; --warn-bg:#fff4d6; --bad:#a23a2c; --bad-bg:#fbe7e3; }
+@media (prefers-color-scheme: dark) { :root { --bg:#101511; --fg:#e7ede8; --muted:#9aa99f; --line:#2a332d; --card:#18201b; --acc:#4cc283; --acc-ink:#0d1410; --soft:#1d3a29; --warn:#e2b04a; --warn-bg:#3a2f16; --bad:#ef8a7a; --bad-bg:#3d201b; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; display: flex; flex-direction: column; gap: 18px; }
+a { color: var(--acc); }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.brand { font-weight: 800; color: var(--fg); text-decoration: none; font-size: 20px; } .brand span { color: var(--acc); }
+.toplinks { display: flex; gap: 14px; font-size: .92rem; }
+h1 { margin: 4px 0 0; font-size: clamp(1.6rem, 3.8vw, 2.1rem); line-height: 1.15; }
+h2 { margin: 0; font-size: 1.15rem; }
+h3 { margin: 0; font-size: 1rem; }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 70ch; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.step { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--soft); color: var(--acc); font-weight: 800; font-size: .9rem; margin-right: 8px; flex: 0 0 auto; }
+.head { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 14px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+@media (max-width: 720px) { .grid, .grid2 { grid-template-columns: 1fr; } }
+label { display: flex; flex-direction: column; gap: 5px; font-size: .88rem; font-weight: 600; color: var(--muted); }
+label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); font-weight: 500; }
+input, select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; min-height: 44px; width: 100%; }
+input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.btn { border: 0; cursor: pointer; font: inherit; font-weight: 700; background: var(--acc); color: var(--acc-ink); border-radius: 9px; padding: 12px 18px; min-height: 44px; }
+.btn.ghost { background: transparent; color: var(--acc); border: 1px solid var(--line); }
+.btn.small { padding: 8px 12px; min-height: 36px; font-size: .9rem; }
+.btn:disabled { opacity: .6; cursor: default; }
+.badge { display: inline-block; font-size: .8rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.ok, .high { background: var(--soft); color: var(--acc); }
+.warn, .medium { background: var(--warn-bg); color: var(--warn); }
+.flag { background: var(--bad-bg); color: var(--bad); }
+.low, .unknown { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.status { font-size: .9rem; color: var(--muted); margin: 0; }
+.err { color: var(--bad); font-size: .92rem; min-height: 1.2em; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--soft); color: var(--fg); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: .9rem; }
+.chip button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 2px 6px; min-height: 0; }
+.chipin { display: flex; gap: 8px; }
+.chipin input { flex: 1; }
+.points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.points li { display: flex; gap: 10px; align-items: flex-start; }
+.points .badge { min-width: 64px; text-align: center; margin-top: 2px; }
+.verdict { font-weight: 700; font-size: 1.05rem; padding: 12px 14px; border-radius: 10px; }
+.school { border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px; background: var(--card); }
+.school .line1 { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+.school .name { font-weight: 800; font-size: 1.05rem; }
+.school .meta { color: var(--muted); font-size: .88rem; }
+.school ul { margin: 0; padding-left: 18px; font-size: .93rem; }
+.score { font-weight: 800; color: var(--acc); font-size: .95rem; }
+.sect { display: flex; flex-direction: column; gap: 10px; }
+.sect-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.book { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.person { display: grid; grid-template-columns: 190px 1fr; gap: 4px 12px; font-size: .93rem; }
+@media (max-width: 640px) { .person { grid-template-columns: 1fr; } }
+.person .who { font-weight: 700; }
+.person .why { color: var(--muted); font-size: .85rem; }
+.leaving { font-size: .9rem; color: var(--fg); }
+.fine { font-size: .82rem; color: var(--muted); margin: 0; }
+.hidden { display: none !important; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tab { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 999px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: .88rem; min-height: 36px; }
+.tab[aria-pressed=true] { background: var(--acc); color: var(--acc-ink); border-color: var(--acc); }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <a class="brand" href="/">NIL<span>DASH</span></a>
+    <nav class="toplinks"><a href="/">Dashboard</a><a href="/compliance">Compliance</a></nav>
+  </div>
+  <div>
+    <h1>Portal Room</h1>
+    <p class="lede">Should he enter, which schools need him, and who to call there. Built from every FBS roster and staff page, with the Protect College Sports Act rules built in.</p>
+  </div>
+  <p class="err" id="gate"></p>
+
+  <!-- 1. THE PLAYER -->
+  <section class="card" aria-labelledby="h1p">
+    <div class="head"><span class="step">1</span><h2 id="h1p">The player</h2></div>
+    <div class="grid">
+      <label>Client
+        <select id="athlete"><option value="">Someone not on my roster</option></select>
+      </label>
+      <label>Position
+        <select id="group"><option value="">Pick one</option></select>
+      </label>
+      <label>Current school
+        <input id="currentSchool" list="schoolList" autocomplete="off" placeholder="e.g. Troy">
+      </label>
+      <label>Plays at
+        <select id="currentLevel">
+          <option value="">Not sure</option><option value="P4">Power 4</option><option value="G5">Group of 5</option>
+          <option value="FCS">FCS</option><option value="D2">Division II</option><option value="JUCO">Junior college</option>
+        </select>
+      </label>
+      <label>Home state
+        <input id="homeState" maxlength="2" placeholder="TX" autocomplete="off">
+      </label>
+    </div>
+  </section>
+
+  <!-- 2. SHOULD HE ENTER -->
+  <section class="card" aria-labelledby="h2p">
+    <div class="head"><span class="step">2</span><h2 id="h2p">Should he enter?</h2></div>
+    <div class="grid">
+      <label>Birth date <input id="birthDate" type="date"></label>
+      <label>First college enrollment <input id="firstEnrollment" type="date"></label>
+      <label>Transfers already used
+        <select id="priorTransfers"><option value="0">None</option><option value="1">One</option><option value="2">Two</option><option value="3">Three or more</option></select>
+      </label>
+      <label>Exception that applies
+        <select id="exception">
+          <option value="">None / not sure</option>
+          <option value="head_coach_departed">His head coach left</option>
+          <option value="sport_discontinued">His sport was cut</option>
+          <option value="graduate_study">Graduate study</option>
+          <option value="sexual_assault_or_harassment">Sexual assault or harassment</option>
+        </select>
+      </label>
+    </div>
+    <div class="row"><button class="btn" id="checkBtn" type="button">Check</button><span class="status" id="checkStatus"></span></div>
+    <div id="checkOut" class="hidden sect">
+      <div class="verdict" id="verdict"></div>
+      <ul class="points" id="points"></ul>
+      <p class="fine" id="windows"></p>
+    </div>
+  </section>
+
+  <!-- 3. WHERE HE WANTS TO GO -->
+  <section class="card" aria-labelledby="h3p">
+    <div class="head"><span class="step">3</span><h2 id="h3p">Where he wants to go</h2></div>
+    <div class="grid2">
+      <label>Schools on his list
+        <span class="chipin"><input id="schoolIn" list="schoolList" autocomplete="off" placeholder="Type a school, press Add"><button class="btn small ghost" type="button" id="schoolAdd">Add</button></span>
+      </label>
+      <label>States he likes
+        <span class="chipin"><input id="stateIn" maxlength="2" placeholder="GA" autocomplete="off"><button class="btn small ghost" type="button" id="stateAdd">Add</button></span>
+      </label>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="row" id="regions"></div>
+    <div class="grid2">
+      <label>Level
+        <select id="level"><option value="any">Any FBS</option><option value="P4">Power 4 only</option><option value="G5">Group of 5 only</option></select>
+      </label>
+      <label class="check" style="align-self:end"><input type="checkbox" id="closeToHome"> Close to home matters</label>
+    </div>
+    <div class="row">
+      <button class="btn" id="boardBtn" type="button">Build the board</button>
+      <button class="btn ghost hidden" id="saveBtn" type="button">Save for this client</button>
+      <span class="status" id="boardStatus"></span>
+    </div>
+    <p class="err" id="boardErr"></p>
+  </section>
+
+  <!-- 4. THE BOARD -->
+  <section class="card hidden" id="boardCard" aria-labelledby="h4p">
+    <div class="sect-h">
+      <div class="head"><span class="step">4</span><h2 id="h4p">Schools that need him</h2></div>
+      <div class="tabs" role="group" aria-label="Filter">
+        <button class="tab" data-f="all" aria-pressed="true">All</button>
+        <button class="tab" data-f="high" aria-pressed="false">Thin at his spot</button>
+        <button class="tab" data-f="P4" aria-pressed="false">Power 4</button>
+        <button class="tab" data-f="coach" aria-pressed="false">New coach</button>
+      </div>
+    </div>
+    <p class="status" id="coverage"></p>
+    <div class="sect hidden" id="dreamSect"><h3>His list</h3><div class="sect" id="dream"></div></div>
+    <div class="sect"><h3 id="optH">Also worth a call</h3><div class="sect" id="options"></div></div>
+    <p class="fine">Need counts seniors, graduate students and fifth and sixth years as likely leaving; some seniors have a year left. Portal entries and NFL Draft declarations are added as they are announced. Contacts come from each school's own staff page, with the page linked. Not legal advice.</p>
+  </section>
+
+  <datalist id="schoolList"></datalist>
+</main>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const safeUrl = (u) => /^https?:\/\//i.test(String(u || '')) ? String(u) : null;
+  const telHref = (p) => 'tel:' + String(p || '').replace(/[^0-9+]/g, '');
+  const state = { schools: [], states: [], regions: [], athletes: [], board: null, filter: 'all', books: {} };
+
+  async function api(method, url, body) {
+    const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+    if (r.status === 401) { location.href = '/'; throw new Error('Sign in first.'); }
+    let j = {};
+    try { j = await r.json(); } catch (_) {}
+    if (r.status === 402 || r.status === 403) throw new Error(j.message || (j.error && j.error !== 'subscription_required' ? j.error : '') || 'The Portal Room is part of the paid plan.');
+    if (!r.ok) throw new Error(j.error || 'Something went wrong. Try again.');
+    return j;
+  }
+
+  function renderChips() {
+    const chips = [
+      ...state.schools.map((s) => ({ kind: 'schools', v: s, t: s })),
+      ...state.states.map((s) => ({ kind: 'states', v: s, t: s })),
+    ];
+    $('chips').innerHTML = chips.map((c, i) => `<span class="chip">${esc(c.t)}<button type="button" aria-label="Remove ${esc(c.t)}" data-k="${c.kind}" data-v="${esc(c.v)}">&times;</button></span>`).join('');
+  }
+  $('chips').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    state[b.dataset.k] = state[b.dataset.k].filter((x) => x !== b.dataset.v); renderChips();
+  });
+  function addSchool() {
+    const v = $('schoolIn').value.trim(); if (!v) return;
+    if (!state.schools.includes(v) && state.schools.length < 15) state.schools.push(v);
+    $('schoolIn').value = ''; renderChips();
+  }
+  function addState() {
+    const v = $('stateIn').value.trim().toUpperCase(); if (!/^[A-Z]{2}$/.test(v)) return;
+    if (!state.states.includes(v)) state.states.push(v);
+    $('stateIn').value = ''; renderChips();
+  }
+  $('schoolAdd').onclick = addSchool; $('stateAdd').onclick = addState;
+  $('schoolIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addSchool(); } });
+  $('stateIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addState(); } });
+
+  function form() {
+    return {
+      group: $('group').value, currentSchool: $('currentSchool').value.trim(), currentLevel: $('currentLevel').value,
+      homeState: $('homeState').value.trim().toUpperCase(), birthDate: $('birthDate').value || null,
+      firstEnrollment: $('firstEnrollment').value || null, priorTransfers: Number($('priorTransfers').value || 0),
+      exception: $('exception').value || null, schools: state.schools, states: state.states,
+      regions: [...document.querySelectorAll('#regions input:checked')].map((x) => x.value),
+      level: $('level').value, closeToHome: $('closeToHome').checked,
+    };
+  }
+
+  function fill(p) {
+    if (!p) return;
+    if (p.group) $('group').value = p.group;
+    if (p.currentSchool) $('currentSchool').value = p.currentSchool;
+    if (p.currentLevel) $('currentLevel').value = p.currentLevel;
+    if (p.homeState) $('homeState').value = p.homeState;
+    if (p.birthDate) $('birthDate').value = p.birthDate;
+    if (p.firstEnrollment) $('firstEnrollment').value = p.firstEnrollment;
+    if (p.priorTransfers != null) $('priorTransfers').value = String(Math.min(3, p.priorTransfers));
+    state.schools = p.schools || []; state.states = p.states || [];
+    document.querySelectorAll('#regions input').forEach((x) => { x.checked = (p.regions || []).includes(x.value); });
+    if (p.level) $('level').value = p.level;
+    $('closeToHome').checked = !!p.closeToHome;
+    renderChips();
+  }
+
+  // THE PLAYER
+  // An FBS school on file tells us his level; anything else stays the agent's call.
+  function levelFromSchool() {
+    if ($('currentLevel').value || !state.meta) return;
+    const v = $('currentSchool').value.trim().toLowerCase();
+    const s = state.meta.schools.find((x) => x.name.toLowerCase() === v);
+    if (s) $('currentLevel').value = s.level;
+  }
+  $('currentSchool').addEventListener('change', levelFromSchool);
+  $('athlete').addEventListener('change', async () => {
+    const id = $('athlete').value;
+    $('saveBtn').classList.toggle('hidden', !id);
+    if (!id) return;
+    const a = state.athletes.find((x) => String(x.id) === id);
+    if (a) {
+      if (a.school) { $('currentSchool').value = a.school; $('currentLevel').value = ''; levelFromSchool(); }
+      if (a.dob && /^\d{4}-\d{2}-\d{2}/.test(a.dob)) $('birthDate').value = a.dob.slice(0, 10);
+      const g = groupOf(a.position); if (g) $('group').value = g;
+      const hs = String(a.hometown || '').match(/,\s*([A-Z]{2})\b/); if (hs) $('homeState').value = hs[1];
+    }
+    try { const w = await api('GET', '/api/portal/wishlist/' + encodeURIComponent(id)); if (w.prefs) fill(w.prefs); } catch (_) {}
+  });
+  function groupOf(pos) {
+    const p = String(pos || '').toUpperCase();
+    const map = [[/QUARTERBACK|^QB/, 'QB'], [/RUNNING|^RB|^TB|^FB/, 'RB'], [/RECEIVER|^WR/, 'WR'], [/TIGHT|^TE/, 'TE'], [/DEFENSIVE (LINE|TACKLE|END)|^DL|^DT|^DE|EDGE/, 'DL'], [/OFFENSIVE|^OL|^OT|^OG|^C$/, 'OL'], [/LINEBACK|^LB/, 'LB'], [/CORNER|SAFETY|DEFENSIVE BACK|^CB|^DB|^S$/, 'DB'], [/KICK|^K$/, 'K'], [/PUNT|^P$/, 'P'], [/SNAP|^LS/, 'LS']];
+    for (const [re, g] of map) if (re.test(p)) return g;
+    return '';
+  }
+
+  // SHOULD HE ENTER
+  $('checkBtn').onclick = async () => {
+    $('checkStatus').textContent = 'Checking...'; $('checkBtn').disabled = true;
+    try {
+      const r = await api('POST', '/api/portal/enter-check', form());
+      $('verdict').className = 'verdict ' + esc(r.verdict.level);
+      $('verdict').textContent = r.verdict.text;
+      $('points').innerHTML = r.points.map((p) => `<li><span class="badge ${esc(p.level)}">${p.level === 'ok' ? 'Good' : p.level === 'warn' ? 'Watch' : p.level === 'flag' ? 'Problem' : 'Missing'}</span><span>${esc(p.text)}</span></li>`).join('');
+      $('windows').textContent = [r.windows.main.text, r.windows.postseason, r.windows.coachingChange].join(' ') + (r.status === 'pending' ? ' The Protect College Sports Act has passed the Senate and is pending in the House; the transfer rule applies if it becomes law.' : '');
+      $('checkOut').classList.remove('hidden');
+      $('checkStatus').textContent = '';
+    } catch (e) { $('checkStatus').textContent = e.message; }
+    $('checkBtn').disabled = false;
+  };
+
+  // THE BOARD
+  function needBadge(n) {
+    const t = { high: 'Thin', medium: 'Some need', low: 'Deep', unknown: 'Not read yet' }[n.rating] || n.rating;
+    return `<span class="badge ${esc(n.rating)}">${esc(t)}</span>`;
+  }
+  function schoolCard(s) {
+    const meta = [s.level === 'P4' ? 'Power 4, ' + s.conference : 'Group of 5', s.state].filter(Boolean).join(' · ');
+    return `<div class="school" data-school="${esc(s.school)}" data-need="${esc(s.need.rating)}" data-level="${esc(s.level)}" data-coach="${s.coachingChange ? 1 : 0}">
+      <div class="line1"><div><div class="name">${esc(s.school)}</div><div class="meta">${esc(meta)}</div></div>
+        <div class="row">${needBadge(s.need)}<span class="score" title="Fit score">${esc(s.score)}</span></div></div>
+      <div class="meta">${esc(s.need.line)}</div>
+      ${s.reasons.length ? `<ul>${s.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${s.coachingChange && safeUrl(s.coachingChange.source) ? `<p class="fine"><a href="${esc(safeUrl(s.coachingChange.source))}" target="_blank" rel="noopener">Coaching change source</a></p>` : ''}
+      <div class="row"><button class="btn small ghost" type="button" data-book="${esc(s.school)}">Who to call</button></div>
+      <div class="book hidden"></div>
+    </div>`;
+  }
+  function applyFilter() {
+    const f = state.filter;
+    document.querySelectorAll('#boardCard .school').forEach((el) => {
+      const show = f === 'all' || (f === 'high' && el.dataset.need === 'high') || (f === 'P4' && el.dataset.level === 'P4') || (f === 'coach' && el.dataset.coach === '1');
+      el.classList.toggle('hidden', !show);
+    });
+  }
+  document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
+    state.filter = t.dataset.f;
+    document.querySelectorAll('.tab').forEach((x) => x.setAttribute('aria-pressed', String(x === t)));
+    applyFilter();
+  }));
+
+  $('boardBtn').onclick = async () => {
+    $('boardErr').textContent = ''; $('boardStatus').textContent = 'Building...'; $('boardBtn').disabled = true;
+    try {
+      const r = await api('POST', '/api/portal/board', { ...form(), limit: 30 });
+      state.board = r;
+      $('h4p').textContent = `Schools that need a ${r.groupLabel.replace(/s$/, '').toLowerCase()}`;
+      $('coverage').textContent = r.rostersRead
+        ? `Rosters read for ${r.rostersRead} of ${r.totalSchools} FBS programs. Median coming back at ${r.group}: ${r.median} (from ${r.medianFrom}).`
+        : 'Rosters are still being read tonight. Need shows as "Not read yet" until then; contacts work now.';
+      $('dream').innerHTML = r.dream.map(schoolCard).join('');
+      $('dreamSect').classList.toggle('hidden', !r.dream.length);
+      $('options').innerHTML = r.options.map(schoolCard).join('');
+      $('optH').textContent = r.dream.length ? 'Also worth a call' : 'Best fits';
+      if (r.unknownSchools && r.unknownSchools.length) $('boardErr').textContent = 'Not an FBS school we know: ' + r.unknownSchools.join(', ') + '.';
+      $('boardCard').classList.remove('hidden');
+      applyFilter();
+      $('boardStatus').textContent = '';
+      $('boardCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { $('boardStatus').textContent = ''; $('boardErr').textContent = e.message; }
+    $('boardBtn').disabled = false;
+  };
+
+  $('saveBtn').onclick = async () => {
+    const id = $('athlete').value; if (!id) return;
+    $('boardStatus').textContent = 'Saving...';
+    try { await api('PUT', '/api/portal/wishlist/' + encodeURIComponent(id), form()); $('boardStatus').textContent = 'Saved.'; }
+    catch (e) { $('boardStatus').textContent = e.message; }
+  };
+
+  // THE CONTACT BOOK
+  function personRow(p) {
+    const bits = [];
+    if (p.email) bits.push(`<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>`);
+    if (p.phone) bits.push(`<a href="${esc(telHref(p.phone))}">${esc(p.phone)}</a>`);
+    if (safeUrl(p.source)) bits.push(`<a href="${esc(safeUrl(p.source))}" target="_blank" rel="noopener">source</a>`);
+    return `<div class="person"><div><div class="who">${esc(p.label)}</div><div class="why">${esc(p.why)}</div></div>
+      <div><div><b>${esc(p.name)}</b>${p.title ? ', ' + esc(p.title) : ''}</div><div class="fine">${bits.join(' · ') || 'No direct line published: use the office line'}</div></div></div>`;
+  }
+  function bookText(d) {
+    const c = d.contacts;
+    const lines = [`${d.name}: who to call about a ${d.group}`];
+    for (const p of c.contacts) lines.push(`${p.label}: ${p.name}${p.title ? ', ' + p.title : ''}${p.email ? ', ' + p.email : ''}${p.phone ? ', ' + p.phone : ''}`);
+    if (c.office) lines.push(`Football office: ${c.office.phone}`);
+    if (c.collective) lines.push(`Collective: ${[c.collective.name, c.collective.email].filter(Boolean).join(', ')}`);
+    return lines.join('\n');
+  }
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-book]'); if (!b) return;
+    const card = b.closest('.school'); const box = card.querySelector('.book');
+    if (!box.classList.contains('hidden')) { box.classList.add('hidden'); b.textContent = 'Who to call'; return; }
+    box.classList.remove('hidden'); b.textContent = 'Hide contacts';
+    const school = b.dataset.book;
+    const key = school + '|' + $('group').value;
+    if (!state.books[key]) {
+      box.innerHTML = '<p class="status">Loading...</p>';
+      try { state.books[key] = await api('GET', '/api/portal/school/' + encodeURIComponent(school) + '?position=' + encodeURIComponent($('group').value)); }
+      catch (err) { box.innerHTML = `<p class="err">${esc(err.message)}</p>`; return; }
+    }
+    const d = state.books[key];
+    const c = d.contacts, room = d.room;
+    let html = '';
+    if (room && room.read && room.leavingPlayers.length) {
+      html += `<div class="leaving"><b>Likely leaving his room:</b> ${room.leavingPlayers.map((p) => esc(p.name) + (p.year ? ' (' + esc(p.year) + ')' : '')).join(', ')}${safeUrl(room.rosterUrl) ? ` · <a href="${esc(safeUrl(room.rosterUrl))}" target="_blank" rel="noopener">roster</a>` : ''}</div>`;
+    } else if (room && room.read) {
+      html += `<div class="leaving">No seniors or older in his room on the roster.</div>`;
+    }
+    html += c.contacts.length ? c.contacts.map(personRow).join('') : `<p class="status">${esc(c.note || 'No staff on file for this school yet.')}</p>`;
+    const extra = [];
+    if (c.office) extra.push(`Football office: <a href="${esc(telHref(c.office.phone))}">${esc(c.office.phone)}</a>`);
+    if (c.recruitingEmail) extra.push(`Recruiting email: <a href="mailto:${esc(c.recruitingEmail.email)}">${esc(c.recruitingEmail.email)}</a>`);
+    if (c.collective) extra.push(`Collective: ${esc(c.collective.name || '')}${c.collective.email ? ` <a href="mailto:${esc(c.collective.email)}">${esc(c.collective.email)}</a>` : ''}`);
+    if (safeUrl(c.staffUrl)) extra.push(`<a href="${esc(safeUrl(c.staffUrl))}" target="_blank" rel="noopener">Full staff page</a>`);
+    if (extra.length) html += `<p class="fine">${extra.join(' · ')}</p>`;
+    html += `<div class="row"><button class="btn small ghost" type="button" data-copy="${esc(key)}">Copy contacts</button></div>`;
+    box.innerHTML = html;
+  });
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-copy]'); if (!b) return;
+    const d = state.books[b.dataset.copy]; if (!d) return;
+    try { await navigator.clipboard.writeText(bookText(d)); b.textContent = 'Copied'; } catch (_) { b.textContent = 'Copy failed'; }
+    setTimeout(() => { b.textContent = 'Copy contacts'; }, 1800);
+  });
+
+  // BOOT
+  (async () => {
+    try {
+      const m = await api('GET', '/api/portal/meta');
+      $('group').innerHTML = '<option value="">Pick one</option>' + m.groups.map((g) => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join('');
+      state.meta = m;
+      $('schoolList').innerHTML = m.schools.map((s) => `<option value="${esc(s.name)}"></option>`).join('');
+      $('regions').innerHTML = m.regions.map((r) => `<label class="check"><input type="checkbox" value="${esc(r)}"> ${esc(r)}</label>`).join('');
+    } catch (e) { $('gate').textContent = e.message; return; }
+    try {
+      const list = await api('GET', '/api/athletes');
+      state.athletes = (Array.isArray(list) ? list : []).filter((a) => !a.sport || /football/i.test(a.sport));
+      $('athlete').innerHTML = '<option value="">Someone not on my roster</option>' + state.athletes.map((a) => `<option value="${esc(a.id)}">${esc(a.name || 'Unnamed')}${a.school ? ' · ' + esc(a.school) : ''}</option>`).join('');
+    } catch (_) { /* the page still works without the roster */ }
+  })();
+})();
+</script>
+</body>
+</html>

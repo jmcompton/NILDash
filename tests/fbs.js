@@ -29,7 +29,7 @@ function ok(label, cond, got) {
 
 console.log('-- the list itself --');
 const keys = Object.keys(FBS_SCHOOLS);
-ok('has 125 entries (135 with the 10 pilot)', keys.length === 125, keys.length);
+ok('has 126 entries (136 with the 10 pilot; Texas was missing until Nov 2026)', keys.length === 126, keys.length);
 ok('every domain is well formed',
   keys.every((k) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(FBS_SCHOOLS[k])), 
   keys.filter((k) => !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(FBS_SCHOOLS[k])));
@@ -54,7 +54,7 @@ ok('Alabama keeps its verified hand-set URL',
   pm.VERIFIED_STAFF_URLS['Alabama']);
 
 console.log('-- ALL_SCHOOLS --');
-ok('is 135 schools', pm.ALL_SCHOOLS.length === 135, pm.ALL_SCHOOLS.length);
+ok('is 136 schools', pm.ALL_SCHOOLS.length === 136, pm.ALL_SCHOOLS.length);
 ok('contains every pilot school', pm.PILOT_SCHOOLS.every((s) => pm.ALL_SCHOOLS.includes(s)), null);
 ok('contains every FBS school', keys.every((s) => pm.ALL_SCHOOLS.includes(s)), null);
 ok('is sorted', pm.ALL_SCHOOLS.join('|') === [...pm.ALL_SCHOOLS].sort().join('|'), null);
