@@ -203,9 +203,12 @@ async function main() {
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ($1,$2,$3::jsonb)`,
     [BARE.id, AG, JSON.stringify({ name: 'Bare Market', school: 'Auburn University' })]);
   // Queue every local business so the local lane is genuinely spent for them.
+  // Filed under another agent: under one agent, a business queued for one
+  // athlete is left alone for that agent's others (localCandidates, ROSTER_DAYS),
+  // which would spend ATH's local lane too and this section is not about that.
   for (let i = 0; i < 8; i++) {
     await P.query(`INSERT INTO outreach_queue (agent_id, athlete_id, slot, brand_key, brand_name, channel, state)
-                   VALUES ($1,$2,$3,$4,$5,'dm','sent')`, [AG, BARE.id, i + 1, 'bk' + i, 'Passed Over ' + i]);
+                   VALUES ($1,$2,$3,$4,$5,'dm','sent')`, ['sc-other-agent', BARE.id, i + 1, 'bk' + i, 'Passed Over ' + i]);
   }
   sl = await S.assembleSlate(P, { agentId: AG, athlete: BARE, store: fakeStore, limit: 5 });
   ok('WHEN LOCAL IS EXHAUSTED THE ATHLETE IS NOT EMPTY', sl.picks.length > 0, sl.emptyText);

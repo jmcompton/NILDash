@@ -133,6 +133,10 @@ async function main() {
   const Scout = require(REPO + 'server/services/scout');
   const a2data = { name: 'Sp sp-a2', school: 'Baylor University', sport: 'Football' };
   await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ('sp-a2',$1,$2::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [AG, JSON.stringify(a2data)]);
+  // The roster rule (a business queued for sp-a0 is left alone for this
+  // agent's other athletes) is tested in tests/rosterdedupe.js; this section
+  // is about order within one athlete's own slate.
+  process.env.ROSTER_DEDUPE = 'off';
   const plain2 = await Scout.assembleSlate(P, { agentId: AG, athlete: AR.resolveAthlete({ id: 'sp-a2', data: a2data }, { schoolLocation: SR.resolveSchool }),
     store, localOnly: true, limit: Q.SLOTS_PER_ATHLETE * Q.MAX_ATTEMPTS_PER_SLOT });
   const tacosPlain = (plain2.picks || []).map((c) => c.brand_name).filter((b) => /Taco/.test(b));
@@ -195,6 +199,7 @@ async function main() {
 
 main().catch((e) => { F++; OUT.push('FAIL threw: ' + (e && e.stack || e)); }).finally(async () => {
   const pass = OUT.filter((l) => l.startsWith('PASS')).length;
+  delete process.env.ROSTER_DEDUPE;
   console.log(OUT.join('\n'));
   console.log(`\n${pass}/${pass + F} passed`);
   try { await store.pool.end(); } catch (_) {}

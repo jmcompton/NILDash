@@ -697,6 +697,15 @@ async function complianceGate(pool, log, opts = {}) {
   const ageNow = compliance.ageFrom(log.dob || null, opts.now, { over18, pro: athleteType === 'pro' });
   if (ageNow.known) await compliance.autoClearAgeHolds(pool, log.id);
 
+  // 0b. A HOLD FILED BECAUSE WE COULD NOT LOOK DOES NOT OUTLIVE A LOOK.
+  //    No Places record for this business: look once (compliance.fillCategory),
+  //    and when the record found names this business, the "could not be
+  //    verified" hold is cleared and the gate below runs on the record.
+  if (!log.places_evidence || log.places_evidence.found === false) {
+    const filled = await compliance.fillCategory(pool, log).catch(() => null);
+    if (filled) log.places_evidence = filled;
+  }
+
   // 1. Anything already open on this outreach stops it, whatever it is.
   const open = await compliance.openHoldsFor(pool, log.id);
   if (open.length) {

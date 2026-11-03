@@ -443,6 +443,7 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
 // LOCAL BINDS TO THE SCHOOL CITY. Social and national do not: a brand that ships
 // product does not care where the athlete lives. That rule is enforced here by
 // which pools are consulted at all, not by filtering afterwards.
+const ROSTER_DAYS = 21;   // a business pitched for one athlete is left alone for the others this long
 async function localCandidates(pool, { agentId, athlete, limit, exclude, only }) {
   // ONLY: these businesses and no others (lowercased names). The nightly
   // fill's cache mode (services/hunterPace): with Hunter's credits spent for
@@ -462,6 +463,25 @@ async function localCandidates(pool, { agentId, athlete, limit, exclude, only })
     try { return (await pool.query(sql, params)).rows; }
     catch (e) { console.error('[scout/local] ' + label, e.message); faults.push({ service: 'database', reason: `scout ${label} pool query failed: ${e.message}` }); return []; }
   };
+  // ── ONE BUSINESS, ONE OF THE AGENT'S ATHLETES AT A TIME ──────────────────
+  // Two athletes at the same school share a market, so the same businesses
+  // ranked top for both: Belcher Sports Group approved Temple Health, PJ
+  // Fitzpatrick and Floyd's Barbershop for two athletes in the same week, one
+  // email went, and the other was held by the 4-day rule or stopped as a
+  // duplicate. From the agent's side, approved emails that never sent. A
+  // business already drafted, queued or sent for another of this agent's
+  // athletes in the last ROSTER_DAYS is left for that athlete, and this one
+  // gets the next business instead. Off with ROSTER_DEDUPE=off.
+  if (agentId && (!athlete.subjectKind || athlete.subjectKind === 'athlete') && String(process.env.ROSTER_DEDUPE || '').toLowerCase() !== 'off') {
+    const taken = await q('roster',
+      `SELECT LOWER(TRIM(brand_name)) AS b FROM outreach_queue
+        WHERE agent_id = $1 AND athlete_id <> $2 AND brand_name IS NOT NULL AND created_at > NOW() - INTERVAL '${ROSTER_DAYS} days'
+       UNION
+       SELECT LOWER(TRIM(brand_name)) AS b FROM outreach_logs
+        WHERE agent_id = $1 AND athlete_id <> $2 AND brand_name IS NOT NULL AND created_at > NOW() - INTERVAL '${ROSTER_DAYS} days'`,
+      [String(agentId), String(athlete.id)]);
+    for (const r of taken) if (r.b && !excl.includes(r.b)) excl.push(r.b);
+  }
 
   // a. Brands a scan already surfaced for this athlete and nobody has queued.
   // AN UNKNOWN LANE IS NOT A LOCAL LANE. This read

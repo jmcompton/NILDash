@@ -795,6 +795,59 @@ async function cancelHold(pool, holdId, { agentId, reason }) {
 // an adult is re-filed with the reason that is actually true. Nothing filed on
 // a known age is touched: an agent's decision is not undone by a checkbox.
 // Returns the ids cleared, so the caller and the tests can see it happen.
+// ── WE COULD NOT LOOK, SO LOOK ──────────────────────────────────────────────
+// A business found by a lane other than Places (a web pass, a social or
+// national lane) has no Places record, so its category could not be checked
+// and the email was held, forever, until someone confirmed it by hand: Cheer
+// Athletics Philadelphia and Van Wagner Sports & Entertainment sat approved and
+// unsent for days. So at release, one lookup (services/placesLookup: Serper
+// first, cached 30 days including "no such place") fills the record; a record
+// whose name is this business clears the "could not be verified" hold and the
+// gate runs again on it. A result that names some other business is ignored,
+// and the hold stays. Never more than once per business per FILL_RETRY_MS in
+// one process, so a lookup that cannot answer is not retried every tick.
+const FILL_RETRY_MS = 6 * 60 * 60 * 1000;
+const _fillTried = new Map();
+const _tokens = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9 ]+/g, ' ')
+  .split(/\s+/).filter((t) => t.length >= 3 && !['the', 'and', 'inc', 'llc', 'co', 'company', 'group', 'services'].includes(t));
+function placeMatches(brandName, place) {
+  if (!place || place.found === false || !place.name) return false;
+  const a = _tokens(brandName), b = new Set(_tokens(place.name));
+  if (!a.length || !b.size) return false;
+  // The business's first real word has to be in the place's name, and two
+  // thirds of its words: "Cheer Athletics Philadelphia" matches "Cheer
+  // Athletics - Philadelphia"; "Van Wagner Sports" does not match "Wagner
+  // Law", nor "Floyd's Barbershop" a "Pink Floyd" bar.
+  if (!b.has(a[0])) return false;
+  return a.filter((t) => b.has(t)).length >= Math.ceil((a.length * 2) / 3);
+}
+async function fillCategory(pool, log, deps = {}) {
+  const brand = String((log && log.brand_name) || '').trim();
+  if (!brand || (log && log.places_evidence && log.places_evidence.found !== false)) return null;
+  const k = brand.toLowerCase();
+  const now = deps.now || Date.now();
+  if (_fillTried.has(k) && now - _fillTried.get(k) < FILL_RETRY_MS) return null;
+  _fillTried.set(k, now);
+  const lookup = deps.lookup || require('./placesLookup').lookupPlaceResult;
+  const hint = String(log.city || '').trim();
+  let r = null;
+  try { r = await lookup(brand, hint); } catch (e) { return null; }
+  if (!r || !r.ok || !r.place) return null;
+  if (!placeMatches(brand, r.place)) return null;
+  if (!(Array.isArray(r.place.types) && r.place.types.length) && !r.place.primaryType) return null;
+  if (pool && log.id) {
+    const c = await pool.query(
+      `UPDATE compliance_holds
+          SET resolved_at = NOW(), resolved_by = 'system', resolution = 'auto-cleared',
+              resolution_reason = 'filed because no Places record was held; one was found and the gate re-ran'
+        WHERE outreach_log_id = $1 AND resolved_at IS NULL AND rule_key = 'category-unknown'
+        RETURNING id`, [log.id]).catch(() => ({ rowCount: 0 }));
+    if (c.rowCount) console.log(`[compliance] ${brand}: Places record found, cleared the could-not-verify hold on ${log.id}`);
+  }
+  return r.place;
+}
+function _resetFillForTests() { _fillTried.clear(); }
+
 async function autoClearAgeHolds(pool, outreachLogId) {
   if (!pool || !outreachLogId) return [];
   const r = await pool.query(
@@ -872,6 +925,7 @@ module.exports = {
   RULES_VERSION, UNCHECKED, CATEGORIES, CATEGORY_BY_KEY,
   classifyBusiness, ageFrom, severityFor, evaluate,
   recordFindings, overrideHold, cancelHold, openHoldsFor, overriddenRulesFor, autoClearAgeHolds,
+  fillCategory, placeMatches, _resetFillForTests,
   stateRuleFor, stateCodeForSchool, stateCodeFor,
   prepareDisclosureFiling,
 };
