@@ -2,7 +2,7 @@
 // ── HEAD COACHING CHANGES ───────────────────────────────────────────────────
 //
 // A new head coach is the biggest roster signal there is: the room gets
-// reshuffled, players leave, and the NCAA opens a 30-day transfer window for the
+// reshuffled, players leave, and the NCAA opens a 15-day transfer window for the
 // old coach's players once a new one is named. Under the Protect College Sports
 // Act a head coach leaving is also an exception that keeps a second transfer
 // from costing a year (services/pcsa).

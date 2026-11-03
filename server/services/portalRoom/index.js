@@ -84,15 +84,9 @@ async function school(pool, store, name, groupRaw, { now = new Date() } = {}) {
   return { ...Schools.info(sch), group, groupLabel: P.LABEL[group], room, contacts: book };
 }
 
-// THE WINDOWS, 2026-27 football. Kept here so the page and the morning report
-// say the same thing.
-const WINDOWS = {
-  football: {
-    main: { opens: '2027-01-02', closes: '2027-01-16', text: 'The football portal window is Jan 2 to 16, 2027.' },
-    postseason: 'A player whose team is still playing gets 5 days after his last game.',
-    coachingChange: 'When a school names a new head coach, its players get a 30-day window.',
-  },
-};
+// The window dates and rules (services/portalRoom/windows): one place, so the
+// page, the demo and the morning report say the same thing.
+const WINDOWS = require('./windows');
 
 async function enterCheck(pool, body = {}, { now = new Date() } = {}) {
   const pcsa = require('../pcsa');

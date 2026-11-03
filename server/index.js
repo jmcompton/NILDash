@@ -12663,13 +12663,19 @@ app.post('/api/pcsa/check', requireAuth, (req, res) => {
 // Should he enter, which schools need him, who to call there. Signed-in agents
 // with access; the shared roster and staff data are read-only here. The
 // sweep and coverage routes sit under /api/admin, so the admin gate covers them.
+// The Portal Room app (views/portal-crm.html): one client's pipeline, schools,
+// offers and player details on one screen. The first version of the page
+// stays at /portal-room/classic.
 app.get('/portal-room', (req, res) => {
+  res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'views', 'portal-crm.html'));
+});
+app.get('/portal-room/classic', (req, res) => {
   res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'views', 'portal-room.html'));
 });
 // The same page on sample data (public/portal-demo.js), public, for sales:
 // made-up schools, people and numbers, nothing saved.
 app.get('/portal-room/demo', (req, res) => {
-  res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'portal-room.html'));
+  res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'portal-crm.html'));
 });
 const _portalErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' });
 const _portalOwnAthlete = async (req, athleteId) => {
@@ -12716,13 +12722,19 @@ app.get('/api/portal/offers/:athleteId', requireAuth, requireAgentSubscription, 
 app.post('/api/portal/offers/:athleteId', requireAuth, requireAgentSubscription, async (req, res) => {
   try {
     const a = await _portalOwnAthlete(req, req.params.athleteId);
-    res.json(await require('./services/portalRoom/offers').create(store.pool, req.session.userId, a.id, req.body || {}));
+    const o = await require('./services/portalRoom/offers').create(store.pool, req.session.userId, a.id, req.body || {});
+    // He committed: that school's pipeline card moves to Committed.
+    if (o.status === 'committed') await require('./services/portalRoom/targets').markCommitted(store.pool, req.session.userId, a.id, o.school).catch((e) => console.error('[portal/offers] commit card:', e.message));
+    res.json(o);
   } catch (e) { if (!e.status) console.error('[portal/offers]', e.message); _portalErr(res, e); }
 });
 app.put('/api/portal/offers/:athleteId/:offerId', requireAuth, requireAgentSubscription, async (req, res) => {
   try {
     const a = await _portalOwnAthlete(req, req.params.athleteId);
-    res.json(await require('./services/portalRoom/offers').update(store.pool, req.session.userId, a.id, req.params.offerId, req.body || {}));
+    const o = await require('./services/portalRoom/offers').update(store.pool, req.session.userId, a.id, req.params.offerId, req.body || {});
+    if (o.status === 'committed') await require('./services/portalRoom/targets').markCommitted(store.pool, req.session.userId, a.id, o.school).catch((e) => console.error('[portal/offers] commit card:', e.message));
+    else await require('./services/portalRoom/targets').unmarkCommitted(store.pool, req.session.userId, a.id, o.school).catch((e) => console.error('[portal/offers] uncommit card:', e.message));
+    res.json(o);
   } catch (e) { if (!e.status) console.error('[portal/offers]', e.message); _portalErr(res, e); }
 });
 app.delete('/api/portal/offers/:athleteId/:offerId', requireAuth, requireAgentSubscription, async (req, res) => {
@@ -12753,6 +12765,20 @@ app.get('/api/portal/targets/:athleteId/:targetId/email', requireAuth, requireAg
   const agent = await store.getUser(req.session.userId);
   return require('./services/portalRoom').emailDraft(store.pool, store, agent, a, req.params.targetId);
 }));
+// The app's one-call view of a client (services/portalRoom/workspace), the
+// client list, and the activity log on each school.
+app.get('/api/portal/workspace/:athleteId', requireAuth, requireAgentSubscription, _portalRoute(async (req, a) => {
+  const agent = await store.getUser(req.session.userId);
+  return require('./services/portalRoom/workspace').workspace(store.pool, store, agent, a);
+}));
+app.get('/api/portal/clients', requireAuth, requireAgentSubscription, async (req, res) => {
+  try { res.json({ clients: await require('./services/portalRoom/workspace').clients(store.pool, req.session.userId, await store.getAthletesByAgent(req.session.userId)) }); }
+  catch (e) { if (!e.status) console.error('[portal/clients]', e.message); _portalErr(res, e); }
+});
+app.get('/api/portal/activity/:athleteId', requireAuth, requireAgentSubscription, _portalRoute(async (req, a) => ({
+  activity: await _portalT().listActivity(store.pool, req.session.userId, a.id, { targetId: req.query.target || null, limit: 200 }),
+})));
+app.post('/api/portal/activity/:athleteId', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().logActivity(store.pool, req.session.userId, a.id, req.body || {})));
 app.put('/api/portal/one-pager/:athleteId', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().saveProfile(store.pool, req.session.userId, a.id, req.body || {})));
 app.post('/api/portal/one-pager/:athleteId/new-link', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().rotateToken(store.pool, req.session.userId, a.id)));
 const _portalProfileLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Try again later.' } });
