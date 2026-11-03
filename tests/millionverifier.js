@@ -92,6 +92,38 @@ async function main() {
   ok('MillionVerifier is asked before Hunter\'s budget and tonight\'s allowance are touched',
     HL.indexOf('if (MV_ON() && !opts.hunterOnly)') > 0 && HL.indexOf('if (MV_ON() && !opts.hunterOnly)') < HL.indexOf("HP.take('verify')"));
 
+  OUT.push('-- the nightly finder and the send gate: MillionVerifier is outside Hunter\'s limits --');
+  {
+    process.env.MILLIONVERIFIER_API_KEY = 'mv-test-key';
+    const HP = require(REPO + 'server/services/hunterPace.js');
+    const VBm = require(REPO + 'server/services/verifyBudget.js');
+    const EF = require(REPO + 'server/services/emailFinder.js');
+    const SG = require(REPO + 'server/services/sendGate.js');
+    const realBlocked = HP.blocked, realAcct = VBm.accountStatus;
+    HP.blocked = () => "tonight's Hunter allowance is spent (50 credits)";
+    VBm.accountStatus = async () => ({ remaining: 0 });
+    const logCount = async () => (await store.pool.query(`SELECT COUNT(*)::int n FROM email_verify_credit_log`).catch(() => ({ rows: [{ n: 0 }] }))).rows[0].n;
+    const before = await logCount();
+    mvAnswer = { status: 200, body: { result: 'ok', credits: 9000 } };
+    calls = [];
+    const deps = EF.liveDeps(store.pool, { agentId: 'a1', athleteId: 'x1', business: 'Shop', fetchImpl: fakeFetch });
+    const got = await deps.verify('owner@pacedshop.com');
+    ok('Hunter spent for the night: MillionVerifier still checks the address', got && got.result === 'valid' && calls.join() === 'mv', { got, calls });
+    ok('and no Hunter credit is logged for it', (await logCount()) === before);
+    calls = [];
+    const sg = await SG.liveVerifier(store.pool, { agentId: 'a1', fetchImpl: fakeFetch })('owner@gate.test');
+    ok('Hunter\'s month spent: an approved email is checked by MillionVerifier, not held', sg && sg.ok && sg.status === 'valid' && calls.join() === 'mv', { sg, calls });
+    mvAnswer = { status: 402, body: { error: 'insufficient credits' } };
+    calls = [];
+    const held = await SG.liveVerifier(store.pool, { agentId: 'a1', fetchImpl: fakeFetch })('owner@gate2.test');
+    ok('MillionVerifier out too: the Hunter limit still applies, nothing sent unchecked', held && held.ok === false && /used up/.test(held.why) && !calls.includes('hunter'), { held, calls });
+    const g2 = await EF.liveDeps(store.pool, { fetchImpl: fakeFetch }).verify('owner@pacedshop2.com');
+    ok('same in the finder: Hunter paced, no Hunter call', !calls.includes('hunter') && (!g2 || g2.result !== 'valid'));
+    HP.blocked = realBlocked; VBm.accountStatus = realAcct;
+    delete process.env.MILLIONVERIFIER_API_KEY;
+    mvAnswer = { status: 200, body: { result: 'ok', credits: 9999 } };
+  }
+
   console.log(OUT.join('\n'));
   const total = OUT.filter((l) => /^(PASS|FAIL) /.test(l)).length;
   console.log(`\n${total - F}/${total} passed`);

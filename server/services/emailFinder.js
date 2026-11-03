@@ -699,19 +699,29 @@ function rowWith(ladder, email) {
 // the agent, the athlete, the business and `source` ('nightly', 'finder-dryrun'),
 // and checked against the month's verification pool -- never against the
 // per-athlete daily budget, which is Home's.
-function liveDeps(pool, { agentId = null, athleteId = null, business = null, source = 'nightly', day = null } = {}) {
+function liveDeps(pool, { agentId = null, athleteId = null, business = null, source = 'nightly', day = null, fetchImpl = null } = {}) {
   const EV = require('./emailVerify');
   const H = require('./hunterLookup');
   const VB = require('./verifyBudget');
   const today = day || new Date().toISOString().slice(0, 10);
+  const vopts = fetchImpl ? { fetchImpl } : {};
   const verifier = async (email) => {
+    // MILLIONVERIFIER FIRST, AND OUTSIDE HUNTER'S LIMITS. A check it answers
+    // costs no Hunter credit, so neither tonight's Hunter allowance nor the
+    // month's Hunter verification pool may stop it, and it is not logged as a
+    // Hunter credit. Before this, a spent Hunter allowance stopped every check
+    // even with the MillionVerifier key set, so the key changed nothing.
+    if (H.MV_ON()) {
+      const mv = await H.verifyWithMillion(String(email || '').trim().toLowerCase(), vopts);
+      if (mv && mv.ok) return mv;
+    }
     // Tonight's allowance spent (services/hunterPace): no credit log row for a
     // check that will not be made.
     const paced = require('./hunterPace').blocked('verify');
     if (paced) return { ok: false, why: paced, budget: true };
     const wrote = await VB.record(pool, { agentId, athleteId, business, email, day: today, source });
     if (!wrote) return { ok: false, why: 'the verification credit log is not writable, so nothing is being spent' };
-    return H.verifyEmail(email);
+    return H.verifyEmail(email, { ...vopts, hunterOnly: H.MV_ON() });
   };
   // A platform's address or domain is never checked or searched: no credit
   // is spent on it, whoever asks. Free and final (not a check that could not
@@ -723,7 +733,9 @@ function liveDeps(pool, { agentId = null, athleteId = null, business = null, sou
       // CACHE MODE (services/hunterPace): tonight's Hunter credits are spent,
       // and only a verdict from the last 30 days counts.
       const HP = require('./hunterPace');
-      const m = await EV.verifyMany(pool, [email], { verifier, concurrency: 1, maxAgeDays: HP.cacheOnly() ? HP.CACHE_DAYS : undefined });
+      // With MillionVerifier on, a fresh check does not need a Hunter credit,
+      // so cache mode does not hold verification back.
+      const m = await EV.verifyMany(pool, [email], { verifier, concurrency: 1, maxAgeDays: HP.cacheOnly() && !H.MV_ON() ? HP.CACHE_DAYS : undefined });
       return m.get(EV.norm(email)) || null;
     },
     peek: (emails) => EV.cached(pool, emails),
