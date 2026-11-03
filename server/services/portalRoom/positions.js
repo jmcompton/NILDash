@@ -52,6 +52,10 @@ function groupOf(pos) {
   if (ABBR[raw.toUpperCase()]) return ABBR[raw.toUpperCase()];
   for (const [re, g] of WORDS) if (re.test(first)) return g;
   for (const [re, g] of WORDS) if (re.test(raw)) return g;
+  // Sidearm prints the short and long forms side by side ("OLB OLB",
+  // "WR Wide Receiver"): the first word alone.
+  const tok = first.split(/\s+/)[0].toUpperCase().replace(/\./g, '');
+  if (tok !== key && ABBR[tok]) return ABBR[tok];
   return null;
 }
 
@@ -69,6 +73,12 @@ function classOf(year) {
   else if (/\bjr\b|jr\.|junior|^r?jr/.test(y)) cls = 'JR';
   else if (/\bso\b|so\.|soph|^r?so/.test(y)) cls = 'SO';
   else if (/\bfr\b|fr\.|fresh|^r?fr/.test(y)) cls = 'FR';
+  // Years in the program ("3rd", "4th year", Iowa and New Mexico): the 4th
+  // year counts with seniors, the same estimate a redshirt senior gets.
+  else if (/^4th\b|fourth/.test(y)) cls = 'SR';
+  else if (/^3rd\b|third/.test(y)) cls = 'JR';
+  else if (/^2nd\b|second/.test(y)) cls = 'SO';
+  else if (/^1st\b|first[ -]year/.test(y)) cls = 'FR';
   return { cls, redshirt };
 }
 

@@ -152,6 +152,38 @@ async function main() {
   const cl = await W.clients(P, AG, await store.getAthletesByAgent(AG));
   ok('his football clients, the ones with schools first, with counts', cl.length === 2 && cl[0].name === 'Jordan Hayes' && cl[0].schools === 2 && cl[1].name === 'Alex Bell' && cl[1].schools === 0, cl);
 
+  OUT.push('-- reading every FBS roster --');
+  {
+    const Sw = require(REPO + 'server/services/portalRoom/rosterSweep');
+    const Pos = require(REPO + 'server/services/portalRoom/positions');
+    const Board = require(REPO + 'server/services/portalRoom/board');
+    // A WMT/Nuxt page: the players live in __NUXT_DATA__ (devalue: every object holds indexes).
+    const arr = []; const push = (v) => { arr.push(v); return arr.length - 1; };
+    const root = push(null), wrap = push(null), list = push(null); const items = [];
+    for (let i = 0; i < 60; i++) {
+      const pos = push({ abbreviation: push(i % 3 ? 'WR' : 'QB'), name: push('x') });
+      const cls = push({ name: push(i % 2 ? 'Senior' : 'Sophomore') });
+      const pl = push({ first_name: push('First' + i), last_name: push('Last' + i), hometown: push('Town, ST') });
+      items.push(push({ player: pl, player_position: pos, class_level: cls, jersey_number: push(i) }));
+    }
+    arr[list] = items; arr[wrap] = ['ShallowReactive', list]; arr[root] = { data: wrap, other: push([push('noise')]) };
+    const html = '<html><body>no table here<script type="application/json" id="__NUXT_DATA__" data-ssr="true">' + JSON.stringify(arr) + '</script></body></html>';
+    const np = Sw.nuxtPlayers(html);
+    ok('a Nuxt site\'s roster is read out of its data block (Clemson, Auburn, Iowa, Arizona State, Northwestern, Georgia Tech, New Mexico)', np.length === 60 && np[1].name === 'First1 Last1' && np[1].position === 'WR' && np[1].year === 'Senior' && np[1].hometown === 'Town, ST', np[1]);
+    const r = await Sw.readRoster({ school: 'Clemson', domain: 'clemsontigers.com', now: NOW }, { fetchPage: async (url) => ({ ok: true, status: 200, url, html }), parseRoster: () => [], ai: null });
+    ok('and the sweep uses it when the page has no roster table', r.status === 'ok' && r.via === 'nuxt' && r.withPos === 60, { status: r.status, via: r.via, withPos: r.withPos });
+    ok('garbage in the data block reads as nothing, not a crash', Sw.nuxtPlayers('<script id="__NUXT_DATA__">{not json</script>').length === 0 && Sw.nuxtPlayers('<p>plain</p>').length === 0);
+    ok('the old-style sport path is tried when /sports/football is not there (Georgia Tech, Arkansas)', Sw.candidateUrls('ramblinwreck.com', null, NOW).includes('https://ramblinwreck.com/sports/m-footbl/roster') && Sw.candidateUrls('arkansasrazorbacks.com', null, NOW).includes('https://arkansasrazorbacks.com/sport/m-footbl/roster/') && Sw.candidateUrls('x.com', null, NOW)[0] === 'https://x.com/sports/football/roster');
+    ok('a position printed short and long side by side still counts ("OLB OLB", Navy)', Pos.groupOf('OLB OLB') === 'LB' && Pos.groupOf('WR Wide Receiver') === 'WR' && Pos.groupOf('ATH') === null);
+    ok('years in the program read as classes ("3rd year" junior, "4th" with the seniors)', Pos.classOf('3rd year').cls === 'JR' && Pos.classOf('4th').cls === 'SR' && Pos.isLeaving('4th year') && !Pos.isLeaving('2nd year') && Pos.classOf('5th year').cls === '5TH' && Pos.classOf('Sophomore').cls === 'SO');
+    const ros = (n, yrs) => Array.from({ length: n }, (_, i) => ({ name: 'P' + i, pos: 'WR', group: 'WR', year: yrs ? (i < 4 ? 'Sr.' : 'So.') : '' }));
+    const b2 = Board.rank({ group: 'WR', rosters: [{ school: 'Georgia Tech', status: 'ok', players: ros(10, false) }, { school: 'Baylor', status: 'ok', players: ros(10, true) }], limit: 200 });
+    const gt = [...b2.dream, ...b2.options].find((x) => x.school === 'Georgia Tech');
+    ok('a roster that prints no class years says need is unknown, never "deep", and stays out of the median', gt.need.rating === 'unknown' && gt.need.noYears && /no class years/.test(gt.need.line) && b2.rostersRead === 2 && b2.rostersWithYears === 1);
+    const PGx = fs.readFileSync(REPO + 'server/views/portal-crm.html', 'utf8');
+    ok('and the page says "No class years printed"', /No class years printed/.test(PGx));
+  }
+
   OUT.push('-- the rules on screen --');
   ok('the coaching-change window is the NCAA\'s current one: 15 days, starting 5 days after the new coach is named', /15-day window/.test(WINDOWS.football.coachingChange) && /5 days after/.test(WINDOWS.football.coachingChange) && !/30-day/.test(fs.readFileSync(REPO + 'server/services/portalRoom/windows.js', 'utf8').replace(/\/\/.*$/gm, '')));
   ok('one source for the windows', PR.WINDOWS === WINDOWS);
