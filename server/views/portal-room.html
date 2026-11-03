@@ -81,6 +81,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     <h1>Portal Room</h1>
     <p class="lede">Should he enter, which schools need him, and who to call there. Built from every FBS roster and staff page, with the Protect College Sports Act rules built in.</p>
   </div>
+  <p class="verdict warn hidden" id="demoBanner">This is a sample with made-up schools, people and numbers, so you can see how it works. <a href="/?signin=agent&amp;tab=signup">Start your free trial</a> to use it with your own clients.</p>
   <p class="err" id="gate"></p>
 
   <!-- 1. THE PLAYER -->
@@ -269,7 +270,30 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
   const telHref = (p) => 'tel:' + String(p || '').replace(/[^0-9+]/g, '');
   const state = { schools: [], states: [], regions: [], athletes: [], board: null, filter: 'all', books: {} };
 
+  // THE DEMO (/portal-room/demo): the same page on sample data from
+  // public/portal-demo.js. Nothing is saved and nothing is real.
+  const DEMO = location.pathname.replace(/\/$/, '') === '/portal-room/demo';
+  function demoApi(method, url) {
+    const D = window.PORTAL_DEMO || {};
+    const u = new URL(url, location.origin);
+    const p = decodeURIComponent(u.pathname);
+    const ro = 'This is a sample, so nothing is saved. Start your free trial to use it with your own clients.';
+    if (method !== 'GET' && !['/api/portal/enter-check', '/api/portal/board'].includes(p)) throw new Error(ro);
+    if (p === '/api/portal/meta') return D.meta;
+    if (p === '/api/athletes') return D.athletes;
+    if (p.startsWith('/api/portal/wishlist/')) return D.wishlist;
+    if (p === '/api/portal/enter-check') return D.enter;
+    if (p === '/api/portal/board') return D.board;
+    if (p.startsWith('/api/portal/school/')) { const n = p.slice('/api/portal/school/'.length); if (D.school[n]) return D.school[n]; throw new Error('In the sample, open one of the schools on the board.'); }
+    let m = p.match(/^\/api\/portal\/targets\/[^/]+\/([^/]+)\/email$/);
+    if (m) return D.emails[m[1]];
+    if (/^\/api\/portal\/targets\/[^/]+$/.test(p)) return D.targets;
+    if (/^\/api\/portal\/offers\/[^/]+$/.test(p)) return D.offerBoard;
+    throw new Error(ro);
+  }
+
   async function api(method, url, body) {
+    if (DEMO) return JSON.parse(JSON.stringify(demoApi(method, url, body)));
     const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
     if (r.status === 401) { location.href = '/'; throw new Error('Sign in first.'); }
     let j = {};
@@ -425,7 +449,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
       $('boardCard').classList.remove('hidden');
       applyFilter();
       $('boardStatus').textContent = '';
-      $('boardCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (!DEMO) $('boardCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) { $('boardStatus').textContent = ''; $('boardErr').textContent = e.message; }
     $('boardBtn').disabled = false;
   };
@@ -598,7 +622,7 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
     $('opLinkRow').classList.toggle('hidden', !(p && p.token));
     if (p && p.token) {
       $('opLinkText').textContent = live ? `One-pager is live. Opened ${p.views || 0} time${p.views === 1 ? '' : 's'}.` : 'One-pager is off.';
-      $('opOpen').href = profileUrl(p); $('opOpen').classList.toggle('hidden', !live);
+      $('opOpen').href = profileUrl(p); $('opOpen').classList.toggle('hidden', !live || DEMO);
       $('opCopy').classList.toggle('hidden', !live);
       $('opOff').textContent = live ? 'Turn off' : 'Turn on';
     }
@@ -681,6 +705,11 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
 
   // BOOT
   (async () => {
+    if (DEMO) {
+      $('demoBanner').classList.remove('hidden');
+      await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = '/portal-demo.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); })
+        .catch(() => { $('gate').textContent = 'The sample did not load. Refresh to try again.'; });
+    }
     try {
       const m = await api('GET', '/api/portal/meta');
       $('group').innerHTML = '<option value="">Pick one</option>' + m.groups.map((g) => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join('');
@@ -692,6 +721,11 @@ input[type=checkbox] { min-height: 0; width: 20px; height: 20px; }
       const list = await api('GET', '/api/athletes');
       state.athletes = (Array.isArray(list) ? list : []).filter((a) => !a.sport || /football/i.test(a.sport));
       $('athlete').innerHTML = '<option value="">Someone not on my roster</option>' + state.athletes.map((a) => `<option value="${esc(a.id)}">${esc(a.name || 'Unnamed')}${a.school ? ' · ' + esc(a.school) : ''}</option>`).join('');
+      if (DEMO && state.athletes[0]) {
+        $('athlete').value = state.athletes[0].id;
+        $('athlete').dispatchEvent(new Event('change'));
+        setTimeout(() => { $('checkBtn').click(); $('boardBtn').click(); }, 300);
+      }
     } catch (_) { /* the page still works without the roster */ }
   })();
 })();

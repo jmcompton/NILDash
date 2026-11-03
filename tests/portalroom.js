@@ -437,6 +437,23 @@ async function main() {
   const PP = fs.readFileSync(REPO + 'server/views/portal-profile.html', 'utf8');
   ok('the public page escapes everything and only links http(s)', /const esc = /.test(PP) && /const safeUrl = /.test(PP) && /noindex/.test(PP));
 
+  OUT.push('-- the public demo --');
+  {
+    const src = fs.readFileSync(REPO + 'public/portal-demo.js', 'utf8');
+    const win = {}; new Function('window', src)(win);
+    const D = win.PORTAL_DEMO;
+    const demoSchools = D.meta.schools.map((x) => x.name);
+    ok('the demo\'s schools are made up: none is a real FBS school', demoSchools.length >= 4 && demoSchools.every((n) => Schools.canonical(n) === null), demoSchools.filter((n) => Schools.canonical(n)));
+    ok('its people are labeled sample', Object.values(D.school).every((s) => s.contacts.contacts.every((c) => /^Sample /.test(c.name))));
+    ok('its offers came out of the real compare (guaranteed first, the checks, the family text)', D.offerBoard.offers[0].school === 'Midwest Tech' && D.offerBoard.offers.some((o) => o.checks.some((c) => c.rule === 'nilPurpose')) && /guaranteed money first/.test(D.offerBoard.family));
+    const PG = fs.readFileSync(REPO + 'server/views/portal-room.html', 'utf8');
+    ok('in the demo nothing is written: every save is refused on the page', /const DEMO = location\.pathname/.test(PG) && /if \(DEMO\) return JSON\.parse\(JSON\.stringify\(demoApi/.test(PG) && /if \(method !== 'GET' && !\['\/api\/portal\/enter-check', '\/api\/portal\/board'\]\.includes\(p\)\) throw new Error\(ro\)/.test(PG));
+    ok('it says it is a sample', /This is a sample with made-up schools, people and numbers/.test(PG));
+    const IX4 = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    ok('the demo page is public', IX4.includes("app.get('/portal-room/demo', (req, res) =>"));
+    ok('the homepage links to it', fs.readFileSync(REPO + 'server/views/home.html', 'utf8').includes('href="/portal-room/demo"'));
+  }
+
   OUT.push('-- wiring --');
   const IX = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   ok('agent routes need a signed-in paying agent', ["app.post('/api/portal/board', requireAuth, requireAgentSubscription", "app.post('/api/portal/enter-check', requireAuth, requireAgentSubscription", "app.get('/api/portal/school/:school', requireAuth, requireAgentSubscription", "app.put('/api/portal/wishlist/:athleteId', requireAuth, requireAgentSubscription"].every((x) => IX.includes(x)));

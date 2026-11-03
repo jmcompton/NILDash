@@ -12666,6 +12666,11 @@ app.post('/api/pcsa/check', requireAuth, (req, res) => {
 app.get('/portal-room', (req, res) => {
   res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'views', 'portal-room.html'));
 });
+// The same page on sample data (public/portal-demo.js), public, for sales:
+// made-up schools, people and numbers, nothing saved.
+app.get('/portal-room/demo', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'portal-room.html'));
+});
 const _portalErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' });
 const _portalOwnAthlete = async (req, athleteId) => {
   const a = athleteId ? await store.getAthlete(String(athleteId)) : null;
