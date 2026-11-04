@@ -439,7 +439,8 @@ async function main() {
     const w = await W.write(pA, ctx, { write: async () => ({ subject: 'Pitches for Ridge', body }) });
     ok(`a draft with ${what} is refused and the template goes instead`, w.by === 'template' && w.writerProblems && w.writerProblems.length > 0 && W.checkEmail(w, pA, ctx, 1).length === 0, w.writerProblems);
   }
-  const good = await W.write(pA, ctx, { write: async () => ({ subject: 'Mornings back for Ridge Sports', body: 'Hi Ann,\n\nNILDash gives agents their mornings back. Every morning, each athlete you represent has 5 pitches ready for local and social brands, already written and going to verified people. You review and send.\n\nRidge Sports represents 14 college football players, so that adds up fast.\n\nWorth 15 minutes to see it? Book a time or start a 14-day trial here: https://mynildash.com/try\n\nJohnMark Compton\nNILDash' }) });
+  // (outside portal season: the portal line has its own checks below)
+  const good = await W.write(pA, { ...ctx, now: new Date('2027-02-01T18:00:00Z') }, { write: async () => ({ subject: 'Mornings back for Ridge Sports', body: 'Hi Ann,\n\nNILDash gives agents their mornings back. Every morning, each athlete you represent has 5 pitches ready for local and social brands, already written and going to verified people. You review and send.\n\nRidge Sports represents 14 college football players, so that adds up fast.\n\nWorth 15 minutes to see it? Book a time or start a 14-day trial here: https://mynildash.com/try\n\nJohnMark Compton\nNILDash' }) });
   ok('a draft that keeps every rule goes as written', good.by === 'injected', good.writerProblems);
   ok('the pitch writer is untouched: still claude-sonnet-4-6', /const MODEL_BALANCED = 'claude-sonnet-4-6';/.test(src('server/ai.js')) && /const MODEL_GEN = MODEL_BALANCED;/.test(src('server/ai.js'))
     && !/MODEL_BALANCED|MODEL_GEN|generateDealPitch/.test(src('server/services/salesWriter.js').replace(/^\s*\/\/.*$/gm, '')));
@@ -469,6 +470,17 @@ async function main() {
   await reset();
   await P().query(`DELETE FROM users WHERE id IN ('sa-existing', 'sa-admin')`);
 
+  OUT.push('-- portal season --');
+  {
+    const ctxP = { link: 'https://mynildash.com/try', trialOn: true, senderName: 'JohnMark Compton', senderPhone: '470-306-3835', now: new Date('2026-11-04T16:00:00Z') };
+    const nil = { lane: 'agency', league: 'NIL', person: 'Pat Lee', org: 'Lee Sports Group', email: 'pat@lee.example' };
+    const nba = { ...nil, league: 'NBA' };
+    const eN = W.templateEmail(nil, ctxP), eB = W.templateEmail(nba, ctxP);
+    ok('a football or NIL agency hears about the portal help until the window closes, and the email still passes every check', /transfer portal/.test(eN.body) && W.checkEmail(eN, nil, ctxP, 1).length === 0 && W.words(eN.body) <= W.MAX_WORDS, W.checkEmail(eN, nil, ctxP, 1));
+    ok('an NBA agency and a school do not', !/portal/i.test(eB.body) && !W.portalOn({ lane: 'school', league: 'NIL' }, ctxP));
+    ok('after Jan 16, 2027 nobody does', !W.portalOn(nil, { ...ctxP, now: new Date('2027-01-17T18:00:00Z') }) && W.portalOn(nil, { ...ctxP, now: new Date('2027-01-16T18:00:00Z') }));
+    ok('a model draft that leaves the portal line out goes back to the template', W.checkEmail({ subject: eB.subject, body: eB.body }, nil, ctxP, 1).some((x) => /transfer portal/.test(x)));
+  }
   console.log(OUT.join('\n'));
   const passed = OUT.filter((l) => l.startsWith('PASS')).length;
   console.log(`\n${passed}/${OUT.filter((l) => /^(PASS|FAIL)/.test(l)).length} passed`);

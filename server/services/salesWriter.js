@@ -29,11 +29,25 @@
 // names them and says what the mornings are worth to them.
 //
 // THE SIGN-OFF: name, "Founder, NILDash", and SALES_SENDER_PHONE when set.
+//
+// THE PORTAL LINE (portal season, through Jan 16 2027): to football and NIL
+// agencies, one more sentence: the Portal Room shows which schools are thin
+// at a client's position and who to call there. Agents say the portal is why
+// they cannot think about deals right now, so it goes where they are.
 
 const lc = (s) => String(s || '').trim().toLowerCase();
 
 const MAX_WORDS = 119;          // "under 120"
 const MAX_SUBJECT_WORDS = 8;
+const PORTAL_UNTIL = '2027-01-16';   // the football portal window closes
+const PORTAL_LINE = 'New for the Jan 2 transfer portal: NILDash shows which schools are thin at your client\'s position and who to call there.';
+// Football and NIL agencies, until the window closes (Central date).
+function portalOn(p, ctx) {
+  if (!p || p.lane === 'school') return false;
+  if (!['NFL', 'NIL'].includes(String(p.league || '').toUpperCase())) return false;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format((ctx && ctx.now) || new Date());
+  return today <= PORTAL_UNTIL;
+}
 
 // Words a sales email may not use. Plain, direct, never "AI".
 const HYPE = [
@@ -117,7 +131,7 @@ function templateEmail(p, ctx) {
   const lead = p.lane === 'school'
     ? 'NILDash gives athletic departments their mornings back. Every morning, each of your teams and programs has 5 sponsorship pitches ready for local businesses, already written and going to verified people at those businesses. Your staff reviews and sends.'
     : 'NILDash gives agents their mornings back. Every morning, each athlete you represent has 5 pitches ready for local and social brands, already written and going to verified people at those businesses. You review and send.';
-  const body = [`Hi ${first},`, '', lead, '', fact, '', askLine(p, ctx), '', signOff(ctx)].join('\n');
+  const body = [`Hi ${first},`, '', lead, '', fact].concat(portalOn(p, ctx) ? ['', PORTAL_LINE] : []).concat(['', askLine(p, ctx), '', signOff(ctx)]).join('\n');
   const subject = p.lane === 'school' ? 'Sponsor pitches for your teams, ready daily' : 'Pitches for your athletes, ready each morning';
   return { subject, body };
 }
@@ -134,6 +148,7 @@ function sampleEmail(p, ctx, sample) {
     `Hi ${first},`, '',
     `I ran NILDash for one of ${possessive(p.org || 'your agency')} clients, ${a.name}${at}. It found ${what}, the right person to contact, and a pitch already written in your name: ${ctx.link}`, '',
     'Every athlete you represent would get that each morning: 5 pitches, already written, going to verified people. You review and send.', '',
+    ...(portalOn(p, ctx) ? [PORTAL_LINE, ''] : []),
     `Worth 15 minutes to see it with your whole roster?${ctx.trialOn ? ' The page also lets you start a 14-day trial.' : ''}`, '',
     signOff(ctx),
   ];
@@ -192,6 +207,7 @@ function checkEmail({ subject, body }, p, ctx, step = 1) {
     if (p.org && !lc(body).includes(lc(p.org)) && !(p.fact && lc(body).includes(lc(cleanFact(p.fact) || '').slice(0, 30)))) {
       problems.push('has no specific line about ' + p.org);
     }
+    if (portalOn(p, ctx) && !/\btransfer portal\b/i.test(body)) problems.push('does not mention the transfer portal help');
     if (p.lane === 'school') {
       if (!/\bteams?\b|\bprograms?\b/i.test(body)) problems.push('the school version must be about teams and programs');
       if (!/\bsponsor/i.test(body)) problems.push('the school version must say sponsorship');
@@ -223,7 +239,7 @@ FACTS (use only these): ${JSON.stringify(facts)}
 Shape, in this order:
 1. "Hi ${facts.to.firstName || 'there'}," on its own line.
 2. Lead with the time they get back: every morning ${team ? 'each of their teams and programs has 5 sponsorship pitches ready for local businesses' : 'each athlete they represent has 5 pitches ready for local and social brands'}, already written and going to verified people at those businesses; ${team ? 'their staff reviews and sends' : 'they review and send'}. Two or three plain sentences.
-3. The specific line, in your own words, keeping its facts: ${JSON.stringify(facts.specificLine)} (it must name them and say what the time is worth to them; never describe their company back to them)
+3. The specific line, in your own words, keeping its facts: ${JSON.stringify(facts.specificLine)} (it must name them and say what the time is worth to them; never describe their company back to them)${portalOn(p, ctx) ? `\n3b. Then this sentence, as written: ${JSON.stringify(PORTAL_LINE)}` : ''}
 4. One ask, one sentence: ${ctx.pitches ? `see it on one of their athletes first: they put in a name and NILDash builds the pitches, free, no call (use the words "free" and "one of your athletes"), with this link exactly once: ${ctx.link}` : `15 minutes to see it, with this link exactly once: ${ctx.link}${ctx.trialOn ? ' (the same link also starts a 14-day trial; say so)' : ''}`}.
 5. The sign-off exactly: ${JSON.stringify(facts.signOff)}
 Rules: under 110 words including the sign-off. Plain text, no links but that one. No exclamation marks, no em dashes, no hype or marketing words, never the word AI. Never say NILDash closes, negotiates or signs deals.${team ? ' It is about teams and programs, never individual athletes.' : ''}
@@ -245,6 +261,6 @@ Return ONLY JSON: {"subject":"under 8 words, plain","body":"the email with \\n l
   }
 }
 
-module.exports = { write, templateEmail, sampleEmail, followUp, checkEmail, cleanFact, fallbackFact, firstName, words, links, stateName,
+module.exports = { portalOn, PORTAL_LINE, write, templateEmail, sampleEmail, followUp, checkEmail, cleanFact, fallbackFact, firstName, words, links, stateName,
   signOff, workloadLine, possessive,
   HYPE, DEAL_CLAIM, MAX_WORDS, STATE_NAMES };
