@@ -622,6 +622,21 @@ function resolveSchool(raw, opts = {}) {
     if (ok(asIs)) return hit(asIs, input, 'exact', 1);
   }
 
+  // 2b. The Department of Education's directory of every US college, on the
+  //     FULL name only (services/usColleges). Looked up here, used below at
+  //     the two places a full name the lists did not carry went wrong:
+  //     "St. Joseph's University" (Philadelphia) tied the curated Brooklyn
+  //     and Long Island keys (step 4 null, then geocoded to San Jose), and
+  //     "Saint Joseph's University" was fuzzed to the University of Saint
+  //     Joseph in West Hartford (step 5). Every answer the curated steps
+  //     already give stands, town spelling and all, so no market key moves.
+  //     Not when the agent wrote a note in parentheses that is not a state
+  //     ("(Brooklyn)"): the directory cannot read it. Not for a caller passing
+  //     its own map (a test).
+  const dir = (!opts.map && !opts.lookup && !(/[([]/.test(String(raw || '')) && !stateHint))
+    ? require('./usColleges').find(input, stateHint) : null;
+  const dirHit = dir && ok(dir) ? hit({ city: dir.city, state: dir.state }, dir.name, 'directory', 1) : null;
+
   // 3. The shipped map's scan and the curated list, and which wins when both
   //    answer. The scan matches by substring in both directions, which is
   //    right for "Miami" (inside "University of Miami": Coral Gables) and
@@ -633,15 +648,28 @@ function resolveSchool(raw, opts = {}) {
   //    without that guard "State" resolves to Kennesaw with confidence 1,
   //    the confident wrong answer that sends outreach to the wrong town.
   const directRaw = fromExtra(input);
-  const direct = directRaw && ok(directRaw.loc) ? directRaw : null;
+  // A school the app LEARNED (services/schoolFind: a Places or web lookup)
+  // is a guess, and the directory is not: where they disagree on a full
+  // name, the learned entry is set aside (2b).
+  const learnedWrong = (loc) => !!(loc && loc.learned && dirHit
+    && (normalize(loc.city) + '|' + (stateCode(loc.state || '') || '')) !== (normalize(dirHit.city) + '|' + (stateCode(dirHit.state || '') || '')));
+  const direct = directRaw && ok(directRaw.loc) && !learnedWrong(directRaw.loc) ? directRaw : null;
   const asIsRaw = isIdentityLike(input) ? exact(input) : null;
   const asIs = ok(asIsRaw) ? asIsRaw : null;
+  // The shipped scan matches by substring, so a full name that merely
+  // CONTAINS a shipped key came back as that school: "Arkansas State
+  // University-Beebe" was Manhattan, Kansas, and "Central Alabama Community
+  // College" was Tuscaloosa. When the directory has the full name in another
+  // town, the directory is right (2b).
+  const town = (loc) => normalize(loc.city) + '|' + (stateCode(loc.state || '') || '');
+  const scanIsWrong = (loc) => !!(dirHit && loc && town(loc) !== town(dirHit));
   if (direct && asIs) {
     const keyInsideInput = shippedNames.some((k) => { const fk = foldKey(k); return fk !== n && fk.length < n.length && n.includes(fk); });
     if (keyInsideInput) return hit(direct.loc, direct.name, 'normalized', 1);
+    if (scanIsWrong(asIs)) return !scanIsWrong(direct.loc) ? hit(direct.loc, direct.name, 'normalized', 1) : dirHit;
     return hit(asIs, input, 'exact', 1);
   }
-  if (asIs) return hit(asIs, input, 'exact', 1);
+  if (asIs) return scanIsWrong(asIs) ? dirHit : hit(asIs, input, 'exact', 1);
   // The curated list on the identity form is also where the suffix problem
   // dies: "Eastern Kentucky University" and "Eastern Kentucky" share a core.
   if (direct) return hit(direct.loc, direct.name, 'normalized', 1);
@@ -649,7 +677,7 @@ function resolveSchool(raw, opts = {}) {
   // 4. Case and punctuation only, against the shipped map. "UNIVERSITY OF
   //    PITTSBURGH" resolves here.
   const cands = [];
-  for (const name of Object.keys(extra)) cands.push({ name, loc: extra[name] });
+  for (const name of Object.keys(extra)) { if (!learnedWrong(extra[name])) cands.push({ name, loc: extra[name] }); }
   for (const name of (opts.mapNames || SHIPPED_NAMES)) {
     const loc = exact(name);
     if (loc && loc.city) cands.push({ name, loc });
@@ -664,8 +692,12 @@ function resolveSchool(raw, opts = {}) {
     // as they all point at one city.
     const cities = new Set(exactCore.map((c) => (c.loc.city + '|' + (c.loc.state || ''))));
     if (cities.size === 1) return hit(exactCore[0].loc, exactCore[0].name, 'normalized', 1);
-    return null;
+    // Several towns on our lists, one school by that full name in the
+    // directory: the directory knows which (2b).
+    return dirHit;
   }
+  // A full name in the directory beats a fuzzy guess (2b).
+  if (dirHit) return dirHit;
 
   // 5. Fuzzy, with a floor and a margin. This is what catches "Virgina Tech".
   // With a state hint the pool is that state's schools only; an empty pool is

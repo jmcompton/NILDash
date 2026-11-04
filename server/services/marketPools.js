@@ -197,6 +197,30 @@ async function buildMarket(pool, m, opts = {}) {
     reached: usable >= TARGET };
 }
 
+// ── ONE NEW ATHLETE'S TOWN, NOW ─────────────────────────────────────────────
+// Called when an athlete is added (athleteCreate.runOnDemandFill, firstFill),
+// so his first cards do not wait for tonight's build. Builds only when the
+// town has fewer than FIRST_FLOOR usable businesses; a town that already has
+// a list costs nothing. Same build, same schedule row, as the nightly run.
+const FIRST_FLOOR = parseInt(process.env.MARKET_POOL_FIRST_FLOOR, 10) || 40;
+async function ensureForAthlete(pool, ath, opts = {}) {
+  if (!enabled() && !opts.force) return { built: false, why: 'Places is off' };
+  const resolve = opts.resolve || require('../jobs/outreachQueue').localContextFor;
+  let ctx;
+  try { ctx = await resolve(ath); } catch (e) { return { built: false, why: 'no market: ' + e.message }; }
+  const p = (ctx && ctx.profile) || {};
+  if (!p.marketKey) return { built: false, why: 'no market' };
+  const PL = require('./proLane');
+  if (PL.isPro(p) || PL.isPro((ath && ath.data) || {})) return { built: false, why: 'pro (built by the pro passes)' };
+  await ensureTables(pool);
+  const have = (await usableCounts(pool, [p.marketKey])).get(p.marketKey).usable;
+  if (have >= FIRST_FLOOR) return { built: false, usable: have, why: `already has ${have} usable` };
+  const school = (ath && ath.data && ath.data.school) || (ath && ath.school) || p.school || null;
+  const r = await buildMarket(pool, { key: p.marketKey, region: p.market, query: school || p.market, usable: have },
+    { build: opts.build, store: opts.store });
+  return { built: true, ...r };
+}
+
 // ── THE RUN ─────────────────────────────────────────────────────────────────
 // opts: { apply, maxMarkets, maxCalls, now, resolve, build, store, keys }
 async function run(pool, opts = {}) {
@@ -305,5 +329,6 @@ function formatReport(res) {
 
 module.exports = {
   run, tick, athleteMarkets, usableCounts, planOf, buildMarket, formatReport, ensureTables, enabled, centralHour, centralDate,
+  ensureForAthlete, FIRST_FLOOR,
   TARGET, REFRESH_DAYS, THIN_RETRY_DAYS, RADII, MAX_MARKETS, MAX_PLACES_CALLS, WINDOW_START_HOUR, WINDOW_END_HOUR,
 };

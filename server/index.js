@@ -11005,9 +11005,15 @@ app.post('/api/agent/outreach-queue/fill', requireAuth, async (req, res) => {
     // The same budget object the nightly job uses, so the button cannot spend
     // more per agent than the schedule would.
     const budget = OQsvc.newBudget(job.CAP_USD);
+    // The same row and sign-off the nightly and on-demand paths use. Without
+    // the agent's first name fillAthlete returns at once ("0 cards placed,
+    // $0.00 spent" and nothing else), which is what this button did (Nov 2026).
+    const qRow = (await job.loadAthletesForQueue(store.pool, ath.agent_id, ath.id))[0] || ath;
+    const agentFirstName = require('./services/agentName').pitchSignOffName({ name: qRow.agent_name, email: qRow.agent_email, sign_first_name: qRow.agent_sign_first_name });
     setImmediate(() => {
       job.fillAthlete(store.pool, {
         agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
+        agentFirstName, athleteRow: qRow.data || null, signature: require('./services/signature').signatureOf(qRow),
         // The athlete's MARKET, not their school's name. Sending "University of
         // Arkansas" as a location hint is why lookups resolved badly.
         budget, region: job.regionForAthlete(ath),
