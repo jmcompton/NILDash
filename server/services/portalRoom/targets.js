@@ -31,8 +31,8 @@ const P = require('./positions');
 
 const STAGES = ['target', 'contacted', 'replied', 'interested', 'visit', 'offer', 'committed', 'passed'];
 const STAGE_LABEL = { target: 'Target', contacted: 'Contacted', replied: 'Replied', interested: 'Interested', visit: 'Visit set', offer: 'Offer in', committed: 'Committed', passed: 'Passed' };
-const KINDS = ['note', 'email', 'call', 'reply', 'visit', 'stage', 'added'];
-const KIND_LABEL = { note: 'Note', email: 'Email', call: 'Call', reply: 'Reply', visit: 'Visit', stage: 'Moved', added: 'Added' };
+const KINDS = ['note', 'email', 'call', 'reply', 'visit', 'stage', 'added', 'opened'];
+const KIND_LABEL = { note: 'Note', email: 'Email', call: 'Call', reply: 'Reply', visit: 'Visit', stage: 'Moved', added: 'Added', opened: 'Opened' };
 // A real calendar date (the pattern alone lets Feb 30 through to Postgres).
 const realDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) && !isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d;
 const ymd = (d) => (d == null ? null : d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
@@ -104,6 +104,21 @@ async function listActivity(pool, agentId, athleteId, { targetId = null, limit =
   const r = await pool.query(`SELECT * FROM portal_activity WHERE ${where} ORDER BY at DESC, id DESC LIMIT $${vals.length}`, vals);
   return r.rows.map(shapeA);
 }
+// Someone at the school opened his one-pager (services/portalRoom/opens):
+// logged, and a school still at Target or Contacted moves to Interested.
+async function recordOpenActivity(pool, agentId, athleteId, targetId, school) {
+  await ensureTables(pool);
+  const t = (await pool.query(`SELECT * FROM portal_targets WHERE id = $1 AND agent_id = $2 AND athlete_id = $3`, [String(targetId), agentId, athleteId])).rows[0];
+  if (!t) return null;
+  await _log(pool, agentId, athleteId, { targetId: t.id, school: t.school, kind: 'opened', text: `Someone at ${t.school} opened his one-pager` });
+  if (['target', 'contacted'].includes(t.stage)) {
+    await pool.query(`UPDATE portal_targets SET stage = 'interested', updated_at = NOW() WHERE id = $1`, [t.id]);
+    await _log(pool, agentId, athleteId, { targetId: t.id, school: t.school, kind: 'stage', text: 'Opened his one-pager. Moved to Interested' });
+    return { stage: 'interested' };
+  }
+  return { stage: t.stage };
+}
+
 // He committed (services/portalRoom/offers): that school's card goes to
 // Committed, added to the list if it was not on it.
 async function markCommitted(pool, agentId, athleteId, school) {
@@ -170,6 +185,7 @@ async function removeTarget(pool, agentId, athleteId, id) {
   const r = await pool.query(`DELETE FROM portal_targets WHERE id = $1 AND agent_id = $2 AND athlete_id = $3`, [String(id), agentId, athleteId]);
   if (!r.rowCount) throw bad('Target not found', 404);
   await pool.query(`DELETE FROM portal_activity WHERE target_id = $1 AND agent_id = $2 AND athlete_id = $3`, [String(id), agentId, athleteId]);
+  await pool.query(`DELETE FROM portal_profile_links WHERE target_id = $1 AND agent_id = $2 AND athlete_id = $3`, [String(id), agentId, athleteId]).catch(() => {});
   return { ok: true };
 }
 
@@ -180,6 +196,12 @@ function cleanProfile(b = {}) {
     heightWeight: clip(b.heightWeight, 40),
     classYear: clip(b.classYear, 40),
     statsLine: clip(b.statsLine, 300),
+    // Agent-entered, shown as written: "40: 4.48 · Vert: 36 · Wingspan: 77"
+    measurables: clip(b.measurables, 160),
+    // What he wants in a school, in the agent's words (never from his
+    // private wish list on its own).
+    lookingFor: clip(b.lookingFor, 240),
+    academics: clip(b.academics, 160),
     highlights: (Array.isArray(b.highlights) ? b.highlights : String(b.highlights || '').split('\n')).map((x) => clip(x, 160)).filter(Boolean).slice(0, 6),
     filmUrl: httpUrl(b.filmUrl),
     statsUrl: httpUrl(b.statsUrl),
@@ -250,6 +272,9 @@ async function publicProfile(pool, store, token, { countView = false } = {}) {
     classYear: d.classYear || null,
     seasonsLeft,
     statsLine: d.statsLine || null,
+    measurables: d.measurables || null,
+    lookingFor: d.lookingFor || null,
+    academics: d.academics || null,
     highlights: d.highlights || [],
     filmUrl: d.filmUrl || null,
     statsUrl: d.statsUrl || null,
@@ -314,4 +339,4 @@ async function unmarkCommitted(pool, agentId, athleteId, school) {
   return shapeT(r.rows[0]);
 }
 
-module.exports = { unmarkCommitted, logActivity, listActivity, markCommitted, KINDS, KIND_LABEL, realDate, ensureTables, listTargets, addTarget, updateTarget, removeTarget, cleanProfile, getProfile, saveProfile, rotateToken, publicProfile, emailFor, STAGES, STAGE_LABEL };
+module.exports = { recordOpenActivity, unmarkCommitted, logActivity, listActivity, markCommitted, KINDS, KIND_LABEL, realDate, ensureTables, listTargets, addTarget, updateTarget, removeTarget, cleanProfile, getProfile, saveProfile, rotateToken, publicProfile, emailFor, STAGES, STAGE_LABEL };

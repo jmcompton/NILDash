@@ -55,15 +55,30 @@ h2 { margin: 0; font-size: 1rem; }
         ${p.school ? `<p class="sub">${esc(p.school)}</p>` : ''}
         ${facts.length ? `<div class="facts">${facts.map((f) => `<div class="fact"><div class="k">${esc(f[0])}</div><div class="v">${esc(f[1])}</div></div>`).join('')}</div>` : ''}
         ${p.statsLine ? `<p class="stats">${esc(p.statsLine)}</p>` : ''}
+        ${p.measurables ? `<div class="fact"><div class="k">Measurables</div><div class="v">${esc(p.measurables)}</div></div>` : ''}
         ${p.highlights && p.highlights.length ? `<ul>${p.highlights.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
+        ${p.lookingFor ? `<div><h2>What he is looking for</h2><p class="sub">${esc(p.lookingFor)}</p></div>` : ''}
+        ${p.academics ? `<div><h2>Academics</h2><p class="sub">${esc(p.academics)}</p></div>` : ''}
         ${p.note ? `<p class="sub">${esc(p.note)}</p>` : ''}
         ${film || stats ? `<div class="btns">${film ? `<a class="btn" href="${esc(film)}" target="_blank" rel="noopener">Watch film</a>` : ''}${stats ? `<a class="btn ghost" href="${esc(stats)}" target="_blank" rel="noopener">Full stats</a>` : ''}</div>` : ''}
       </section>
       <section class="card">
         <h2>Contact his agent</h2>
         <div class="agent"><b>${esc(p.agent.name || 'His agent')}</b>${contact ? `<span>${contact}</span>` : ''}</div>
+        ${p.agent.email ? `<div class="btns"><a class="btn" href="mailto:${esc(p.agent.email)}?subject=${encodeURIComponent('Interested in ' + (p.name || 'your client'))}">I'm interested</a></div>` : ''}
       </section>
       <p class="fine">Shared by his agent through NILDash.</p>`;
+    // Report the view once the page has been on screen a moment, so link
+    // checkers that fetch without showing it are not counted.
+    const s = new URLSearchParams(location.search).get('s');
+    let sent = false;
+    const report = () => {
+      if (sent || document.visibilityState !== 'visible') return;
+      sent = true;
+      fetch('/api/portal-profile/' + encodeURIComponent(token) + '/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s: s || null }), credentials: 'same-origin', keepalive: true }).catch(() => {});
+    };
+    setTimeout(report, 1500);
+    document.addEventListener('visibilitychange', () => setTimeout(report, 1500));
   }).catch(() => { document.getElementById('root').innerHTML = '<p class="err">This page is not available.</p>'; });
 })();
 </script>

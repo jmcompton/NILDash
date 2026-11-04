@@ -147,6 +147,48 @@ async function main() {
   ok('a school shows one fit score: his list and the Schools tab use the same wish list', live2.cards.find((c) => c.school === 'Baylor').fit === inBoard('Baylor').score, [live2.cards.find((c) => c.school === 'Baylor').fit, inBoard('Baylor') && inBoard('Baylor').score]);
   ok('and a school outside the level he wants still gets scored on his list', live2.cards.find((c) => c.school === 'Houston').fit != null);
 
+  OUT.push('-- who opened his one-pager --');
+  {
+    const O = require(REPO + 'server/services/portalRoom/opens');
+    const prof = await T.saveProfile(P, AG, AT, { heightWeight: '6-1, 190', measurables: '40: 4.48', lookingFor: 'A starting role', academics: '3.4 GPA', agentEmail: 'crm@example.com' });
+    const rice = await T.addTarget(P, AG, AT, { school: 'Rice' });
+    const lk = await O.linkFor(P, AG, AT, rice);
+    ok('each school on his list gets its own link, made once', /^[a-f0-9]{16}$/.test(lk) && (await O.linkFor(P, AG, AT, rice)) === lk);
+    const dr = await PR.emailDraft(P, store, agent, ath, rice.id);
+    ok('the email to that school carries its own link', dr.body.includes(`/portal-profile/${prof.token}?s=${lk}`), dr.body);
+    const pub = await T.publicProfile(P, store, prof.token);
+    ok('the one-pager shows measurables, what he is looking for and academics, as the agent wrote them', pub.measurables === '40: 4.48' && pub.lookingFor === 'A starting role' && pub.academics === '3.4 GPA');
+    const sent = [];
+    const deps = { sendAlert: async (m) => { sent.push(m); } };
+    const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+    const t0 = new Date('2026-11-04T15:00:00Z');
+    ok('a mail scanner or bot is not an open', !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: 'Mozilla/5.0 (compatible; Proofpoint URL Defense)', ip: '1.1.1.1', now: t0 }, deps)).counted
+      && !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: '', ip: '1.1.1.1', now: t0 }, deps)).counted);
+    ok('the agent looking at his own page is not an open', (await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, viewerUserId: AG, ua: UA, ip: '1.1.1.1', now: t0 }, deps)).reason === 'own view');
+    const o1 = await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '2.2.2.2', now: t0 }, deps);
+    ok('someone at Rice opening it counts, for Rice', o1.counted && o1.school === 'Rice' && o1.opens === 1);
+    ok('Rice moves from Target to Interested, and the activity says why', o1.moved === 'interested' && (await T.listActivity(P, AG, AT, { targetId: rice.id })).slice(0, 2).map((x) => x.text).join('|') === 'Opened his one-pager. Moved to Interested|Someone at Rice opened his one-pager');
+    ok('the agent gets one email: "Rice opened Jordan Hayes\'s one-pager", with a link to his board', sent.length === 1 && sent[0].to === 'crm@example.com' && sent[0].subject === "Rice opened Jordan Hayes's one-pager" && /portal-room\?a=crm-ath/.test(sent[0].text) && !/[—]/.test(sent[0].text));
+    ok('the same person again within 30 minutes is not another open', !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '2.2.2.2', now: new Date(t0.getTime() + 10 * 60000) }, deps)).counted);
+    const o2 = await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '3.3.3.3', now: new Date(t0.getTime() + 60 * 60000) }, deps);
+    ok('a second person the same day counts, without a second email or a second activity line', o2.counted && o2.opens === 2 && sent.length === 1 && (await T.listActivity(P, AG, AT, { targetId: rice.id })).filter((x) => x.kind === 'opened').length === 1);
+    const o3 = await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '2.2.2.2', now: new Date('2026-11-05T15:00:00Z') }, deps);
+    ok('the next day: counted, logged and emailed again, but never moved backward', o3.counted && o3.opens === 3 && sent.length === 2 && o3.moved === 'interested' && (await T.listActivity(P, AG, AT, { targetId: rice.id })).filter((x) => x.kind === 'opened').length === 2);
+    const live3 = await W.workspace(P, store, agent, ath, { now: new Date('2026-11-05T16:00:00Z') });
+    const rc = live3.cards.find((c) => c.school === 'Rice');
+    ok('his board shows it: Rice opened 3 times, and the stats count schools that opened', rc.opens && rc.opens.opens === 3 && rc.stage === 'interested' && live3.stats.opened === 1);
+    ok('without a school link it is a plain view: counted on the page, tied to no school', (await O.recordOpen(P, store, { profileToken: prof.token, linkToken: null, ua: UA, ip: '4.4.4.4', now: t0 }, deps)).counted && sent.length === 2);
+    ok('a made-up link token is just a plain view', !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: 'ffffffffffffffff', ua: UA, ip: '5.5.5.5', now: t0 }, deps)).school);
+    await T.saveProfile(P, AG, AT, { live: false });
+    ok('a one-pager that is turned off counts nothing', !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '6.6.6.6', now: t0 }, deps)).counted);
+    await T.removeTarget(P, AG, AT, rice.id);
+    ok('taking the school off his list removes its link', (await P.query(`SELECT 1 FROM portal_profile_links WHERE token = $1`, [lk])).rows.length === 0);
+    const IXo = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    const PGo = fs.readFileSync(REPO + 'server/views/portal-profile.html', 'utf8');
+    ok('loading the page counts nothing; the page reports a view after 1.5 seconds on screen, with the school link', /publicProfile\(store\.pool, store, req\.params\.token, \{ countView: false \}\)/.test(IXo) && /app\.post\('\/api\/portal-profile\/:token\/seen', _portalProfileLimiter/.test(IXo) && /setTimeout\(report, 1500\)/.test(PGo) && /document\.visibilityState !== 'visible'/.test(PGo) && /new URLSearchParams\(location\.search\)\.get\('s'\)/.test(PGo));
+    ok('the school sees an "I\'m interested" button that emails the agent', /I'm interested/.test(PGo));
+  }
+
   OUT.push('-- the client list --');
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('crm-ath2',$1,$2),('crm-ath3',$1,$3) ON CONFLICT DO NOTHING`, [AG, JSON.stringify({ name: 'Alex Bell', position: 'CB', sport: 'Football' }), JSON.stringify({ name: 'Sam Hoop', sport: 'Basketball' })]);
   const cl = await W.clients(P, AG, await store.getAthletesByAgent(AG));

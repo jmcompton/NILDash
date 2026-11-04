@@ -12787,10 +12787,24 @@ app.get('/portal-profile/:token', (req, res) => {
 });
 app.get('/api/portal-profile/:token', _portalProfileLimiter, async (req, res) => {
   try {
-    const v = await _portalT().publicProfile(store.pool, store, req.params.token, { countView: true });
+    // Loading the page counts nothing: the page reports a view once it has
+    // been on screen (POST .../seen), so link checkers are not opens.
+    const v = await _portalT().publicProfile(store.pool, store, req.params.token, { countView: false });
     if (!v) return res.status(404).json({ error: 'This page is not available.' });
     res.set('Cache-Control', 'no-store').json(v);
   } catch (e) { console.error('[portal-profile]', e.message); res.status(500).json({ error: 'Something went wrong.' }); }
+});
+// Someone looked at the one-pager (services/portalRoom/opens). ?s= is the
+// school's own link from the email; the agent's own views never count.
+app.post('/api/portal-profile/:token/seen', _portalProfileLimiter, async (req, res) => {
+  try {
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const r = await require('./services/portalRoom/opens').recordOpen(store.pool, store, {
+      profileToken: req.params.token, linkToken: (req.body && req.body.s) || req.query.s || null,
+      viewerUserId: (req.session && req.session.userId) || null, ua: String(req.headers['user-agent'] || ''), ip,
+    });
+    res.set('Cache-Control', 'no-store').json({ ok: true, counted: !!r.counted });
+  } catch (e) { console.error('[portal-profile/seen]', e.message); res.json({ ok: true, counted: false }); }
 });
 app.get('/api/admin/portal/coverage', async (req, res) => {
   try { res.json(await require('./services/portalRoom/rosterSweep').coverage(store.pool)); }

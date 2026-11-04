@@ -1380,6 +1380,24 @@
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
       "years": "INT DEFAULT 1"
     },
+    "portal_profile_links": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "first_open_at": "TIMESTAMPTZ",
+      "last_alert_on": "DATE",
+      "last_open_at": "TIMESTAMPTZ",
+      "opens": "INTEGER DEFAULT 0",
+      "school": "TEXT",
+      "target_id": "TEXT",
+      "token": "TEXT"
+    },
+    "portal_profile_opens": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "id": "BIGSERIAL",
+      "token": "TEXT",
+      "viewer": "TEXT"
+    },
     "portal_profiles": {
       "agent_id": "TEXT",
       "athlete_id": "TEXT",

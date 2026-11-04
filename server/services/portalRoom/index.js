@@ -210,7 +210,9 @@ async function emailDraft(pool, store, agent, athlete, targetId) {
   const group = P.GROUPS.includes(w.group) ? w.group : P.groupOf(athlete.position);
   const prof = await T.getProfile(pool, agent.id, athlete.id);
   const base = (process.env.APP_URL || 'https://mynildash.com').replace(/\/$/, '');
-  const profileUrl = prof.token && prof.live ? `${base}/portal-profile/${prof.token}` : null;
+  // This school's own link, so the agent sees when someone there opens it
+  // (services/portalRoom/opens).
+  const profileUrl = prof.token && prof.live ? `${base}/portal-profile/${prof.token}?s=${await require('./opens').linkFor(pool, agent.id, athlete.id, t)}` : null;
   const pub = prof.token && prof.live ? await T.publicProfile(pool, store, prof.token) : null;
   const profile = pub || { name: athlete.name, position: athlete.position, group, school: athlete.school, heightWeight: null, statsLine: null, filmUrl: null, seasonsLeft: null, agent: {} };
   const book = group ? await Contacts.forSchool(store, t.school, group) : null;

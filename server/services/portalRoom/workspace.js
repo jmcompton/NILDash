@@ -31,7 +31,7 @@ const chicagoDay = (now) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Americ
 const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY);
 const OPEN = (stage) => !['committed', 'passed'].includes(stage);
 
-function assemble({ targets = [], boardRows = [], rostersRead = 0, totalSchools = 0, activity = [], offerBoard = null, windows = null, now = new Date() }) {
+function assemble({ targets = [], boardRows = [], rostersRead = 0, totalSchools = 0, activity = [], offerBoard = null, windows = null, opens = {}, now = new Date() }) {
   const today = chicagoDay(now);
   const bySchool = new Map(boardRows.map((r) => [r.school, r]));
   const lastByTarget = new Map();
@@ -57,6 +57,7 @@ function assemble({ targets = [], boardRows = [], rostersRead = 0, totalSchools 
       dueIn, due: OPEN(t.stage) && dueIn != null && dueIn <= 0,
       lastActivity: lastByTarget.get(t.id) || null,
       contactTouch: touch[t.id] || {},
+      opens: opens[t.id] || null,
     };
   });
   const count = (k) => cards.filter((c) => c.stage === k).length;
@@ -71,6 +72,7 @@ function assemble({ targets = [], boardRows = [], rostersRead = 0, totalSchools 
     offers: offers.length,
     bestGuaranteed: best && best.guaranteedTotal ? { school: best.school, amount: best.guaranteedTotal } : null,
     due: cards.filter((c) => c.due).length,
+    opened: cards.filter((c) => c.opens && c.opens.opens > 0).length,
     committed: cards.find((c) => c.stage === 'committed') ? cards.find((c) => c.stage === 'committed').school : null,
   };
   const tasks = cards.filter((c) => OPEN(c.stage) && c.nextStep)
@@ -111,13 +113,14 @@ async function workspace(pool, store, agent, athlete, { now = new Date() } = {})
     rostersRead = b.rostersRead; totalSchools = b.totalSchools;
   }
   const offerBoard = await PR.offerBoard(pool, agent, athlete, { now });
+  const opens = await require('./opens').opensFor(pool, agent.id, athlete.id).catch(() => ({}));
   return {
     athlete: { id: athlete.id, name: athlete.name || null, position: athlete.position || null, school: athlete.school || null },
     group, groupLabel: group ? P.LABEL[group] : null, hasPlayerDetails: !!wl.prefs,
     // The Protect College Sports Act is a bill until the House passes it: the
     // page says so next to every check built on it.
     pcsaStatus: require('../pcsa').rules().status,
-    ...assemble({ targets, boardRows, rostersRead, totalSchools, activity, offerBoard, windows: PR.WINDOWS.football, now }),
+    ...assemble({ targets, boardRows, rostersRead, totalSchools, activity, offerBoard, windows: PR.WINDOWS.football, opens, now }),
     offers: offerBoard,
   };
 }

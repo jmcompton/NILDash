@@ -129,14 +129,16 @@ const activity = {
   t3: A('t3', 'Midwest Tech', [['reply', 'Player personnel', 'Offer in writing: $185k a year for 2 years', 2], ['email', 'General manager / football ops', 'Sent the one-pager', 7], ['added', null, 'Added to his list', 9]]),
   t1: A('t1', 'Summit University', [['reply', 'Recruiting', 'Interested, GM to call', 2], ['email', 'Recruiting', 'Sent the one-pager', 5], ['added', null, 'Added to his list', 9]]),
   t5: A('t5', 'Pine Valley University', [['visit', 'Position coach (WR)', 'Visit offered for the first week of the window', 1], ['email', 'Position coach (WR)', 'Sent film', 4], ['added', null, 'Added to his list', 8]]),
-  t6: A('t6', 'Northern Plains', [['reply', 'Position coach (WR)', 'Asked for full-game film', 0], ['email', 'Player personnel', 'Sent the one-pager', 3], ['added', null, 'Added to his list', 8]]),
+  t6: A('t6', 'Northern Plains', [['reply', 'Position coach (WR)', 'Asked for full-game film', 0], ['opened', null, 'Someone at Northern Plains opened his one-pager', 1], ['email', 'Player personnel', 'Sent the one-pager', 3], ['added', null, 'Added to his list', 8]]),
   t4: A('t4', 'Bayou State', [['reply', 'Player personnel', 'Offer: $70k guaranteed plus $40k NIL from a local business', 2], ['email', 'Player personnel', 'Sent the one-pager', 5], ['added', null, 'Added to his list', 8]]),
   t7: A('t7', 'Granite Tech', [['email', 'Recruiting', 'Sent the one-pager', 4], ['added', null, 'Added to his list', 6]]),
   t8: A('t8', 'Coastal A&M', [['email', 'Recruiting', 'Sent the one-pager', 1], ['added', null, 'Added to his list', 2]]),
   t9: A('t9', 'Harbor State', [['added', null, 'Added to his list', 2]]),
 };
 const allActivity = Object.values(activity).flat().sort((a, b) => b.at.localeCompare(a.at));
-const ws = W.assemble({ targets: targets.targets, boardRows: [...board.dream, ...board.options], rostersRead: board.rostersRead, totalSchools: board.totalSchools, activity: allActivity, offerBoard, windows: WINDOWS, now: NOW });
+// Sample opens of his one-pager (services/portalRoom/opens).
+const opens = { t2: { opens: 4, firstOpenAt: at(6), lastOpenAt: at(1) }, t6: { opens: 2, firstOpenAt: at(2), lastOpenAt: at(1) }, t7: { opens: 1, firstOpenAt: at(0), lastOpenAt: at(0) } };
+const ws = W.assemble({ targets: targets.targets, boardRows: [...board.dream, ...board.options], rostersRead: board.rostersRead, totalSchools: board.totalSchools, activity: allActivity, offerBoard, windows: WINDOWS, opens, now: NOW });
 for (const c of ws.cards) { const s = SCHOOLS.find((x) => x.name === c.school); c.level = s.level; c.conference = s.conference; c.state = s.state; }
 const workspace = { athlete: { id: 'demo-1', name: 'Jordan Hayes', position: 'WR', school: 'Lakeshore State' }, group: 'WR', groupLabel: P.LABEL.WR, hasPlayerDetails: true, pcsaStatus: require(path.join(__dirname, '..', 'server', 'services', 'pcsa')).rules().status, ...ws, offers: offerBoard };
 const clients = [
