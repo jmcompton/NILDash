@@ -1351,6 +1351,18 @@
       "target_id": "TEXT",
       "text": "TEXT"
     },
+    "portal_board_leads": {
+      "agency": "TEXT",
+      "boards": "INTEGER DEFAULT 1",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "current_school": "TEXT",
+      "email": "TEXT",
+      "grp": "TEXT",
+      "id": "BIGSERIAL",
+      "last_board_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "name": "TEXT",
+      "unsubscribed": "BOOLEAN DEFAULT FALSE"
+    },
     "portal_coaching_changes": {
       "change_date": "DATE",
       "coach": "TEXT",

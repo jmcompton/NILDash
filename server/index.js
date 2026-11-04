@@ -12782,6 +12782,24 @@ app.post('/api/portal/activity/:athleteId', requireAuth, requireAgentSubscriptio
 app.put('/api/portal/one-pager/:athleteId', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().saveProfile(store.pool, req.session.userId, a.id, req.body || {})));
 app.post('/api/portal/one-pager/:athleteId/new-link', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().rotateToken(store.pool, req.session.userId, a.id)));
 const _portalProfileLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Try again later.' } });
+// The free Portal Board (services/portalRoom/freeBoard): no account, the top
+// 10 schools for a position; the people to call come with the trial.
+const _portalFreeLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many boards from here. Try again in an hour.' } });
+const _portalLeadLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 8, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Try again later.' } });
+app.get('/portal-board', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'portal-board.html'));
+});
+app.get('/api/portal/free-board/meta', _portalFreeLimiter, (req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600').json(require('./services/portalRoom').meta());
+});
+app.post('/api/portal/free-board', _portalFreeLimiter, async (req, res) => {
+  try { res.set('Cache-Control', 'no-store').json(await require('./services/portalRoom/freeBoard').freeBoard(store.pool, req.body || {})); }
+  catch (e) { if (!e.status) console.error('[portal/free-board]', e.message); res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' }); }
+});
+app.post('/api/portal/free-board/email', _portalLeadLimiter, async (req, res) => {
+  try { res.json(await require('./services/portalRoom/freeBoard').emailBoard(store.pool, req.body || {})); }
+  catch (e) { if (!e.status) console.error('[portal/free-board/email]', e.message); res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' }); }
+});
 app.get('/portal-profile/:token', (req, res) => {
   res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'portal-profile.html'));
 });

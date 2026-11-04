@@ -189,6 +189,46 @@ async function main() {
     ok('the school sees an "I\'m interested" button that emails the agent', /I'm interested/.test(PGo));
   }
 
+  OUT.push('-- the free Portal Board --');
+  {
+    const FB = require(REPO + 'server/services/portalRoom/freeBoard');
+    await require(REPO + 'server/services/portalRoom/rosterSweep').ensureTables(P);
+    const room = (n, sr) => Array.from({ length: n }, (_, i) => ({ name: 'Player ' + i, pos: 'WR', group: 'WR', year: i < sr ? 'Sr.' : 'So.' }));
+    for (const [sch, n, sr] of [['Baylor', 9, 5], ['Houston', 12, 2], ['Troy', 8, 5], ['Tulane', 10, 4]]) {
+      await P.query(`INSERT INTO program_roster (school, sport, players, player_count, status, fetched_at) VALUES ($1,'football',$2,$3,'ok',NOW())
+        ON CONFLICT (school, sport) DO UPDATE SET players = EXCLUDED.players, player_count = EXCLUDED.player_count, status = 'ok', fetched_at = NOW()`, [sch, JSON.stringify(room(n, sr)), n]);
+    }
+    PR.clearCache && PR.clearCache();
+    ok('a position is required', (await err(() => FB.freeBoard(P, {}))).status === 400);
+    const fb = await FB.freeBoard(P, { group: 'WR', currentSchool: 'Troy' });
+    ok('the top 10 schools for his position, from the rosters read, his own school left off', fb.rows.length === 10 && !fb.rows.some((r) => r.school === 'Troy') && fb.rostersRead >= 4 && fb.group === 'WR', fb.rows.slice(0, 3));
+    ok('a thin room ranks high: Baylor (5 of 9 seniors or older) is in the top 3', fb.rows.slice(0, 3).some((r) => r.school === 'Baylor' && r.need.rating === 'high' && r.need.leaving === 5), fb.rows.slice(0, 3).map((r) => r.school));
+    ok('schools whose rosters were read come first; unread ones only fill in', fb.rows.slice(0, 3).every((r) => r.need.rating !== 'unknown') && fb.rows[3].need.rating === 'unknown', fb.rows.slice(0, 5).map((r) => r.school + ':' + r.need.rating));
+    ok('it gives no people, emails or phone numbers: those come with the trial', !JSON.stringify(fb).match(/"(contacts|email|phone|name)"/));
+    const sent = [];
+    const deps = { send: async (m) => { sent.push(m); } };
+    ok('a bad email is refused', (await err(() => FB.emailBoard(P, { group: 'WR', email: 'nope' }, deps))).status === 400);
+    const hp = await FB.emailBoard(P, { group: 'WR', email: 'bot@example.com', website: 'http://spam' }, deps);
+    ok('a bot that fills the hidden field gets ok and nothing is saved or sent', hp.ok && sent.length === 0 && (await P.query(`SELECT 1 FROM portal_board_leads WHERE email = 'bot@example.com'`).catch(() => ({ rows: [] }))).rows.length === 0);
+    const e1 = await FB.emailBoard(P, { group: 'WR', currentSchool: 'Troy', email: 'Agent@Example.com', name: 'Pat Agent', agency: 'Pat Sports' }, deps);
+    const lead = (await P.query(`SELECT * FROM portal_board_leads WHERE email = 'agent@example.com'`)).rows[0];
+    ok('asking for the board saves the lead and emails him the board he asked for', e1.emailed && lead && lead.name === 'Pat Agent' && lead.grp === 'WR' && sent[0].to === 'agent@example.com' && /Your Portal Board: WR/.test(sent[0].subject) && /1\. /.test(sent[0].text));
+    ok('the board email is honest and lawful: no people listed, the trial link, how to stop, the business address, no em dashes', !/@/.test(sent[0].text.split('\n').slice(2, 14).join(' ')) && /\/try/.test(sent[0].text) && /Reply "stop"/.test(sent[0].text) && /3796 Turnberry Court, Duluth, GA 30096/.test(sent[0].text) && !/[—–]/.test(sent[0].text));
+    ok('and JohnMark hears a lead came in', sent[1] && sent[1].to === 'john@comptongroupllc.com' && /Portal Board lead: Pat Agent, Pat Sports/.test(sent[1].subject));
+    await FB.emailBoard(P, { group: 'DB', email: 'agent@example.com' }, deps);
+    ok('a second board from the same address counts, keeps his name', (await P.query(`SELECT boards, name, grp FROM portal_board_leads WHERE email = 'agent@example.com'`)).rows[0].boards === 2);
+    await P.query(`UPDATE portal_board_leads SET unsubscribed = TRUE WHERE email = 'agent@example.com'`);
+    const n0 = sent.length;
+    const e3 = await FB.emailBoard(P, { group: 'WR', email: 'agent@example.com' }, deps);
+    ok('someone who said stop is never emailed again', !e3.emailed && sent.slice(n0).every((m) => m.to !== 'agent@example.com'));
+    const IXf = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    const PGf = fs.readFileSync(REPO + 'server/views/portal-board.html', 'utf8');
+    const HM = fs.readFileSync(REPO + 'server/views/home.html', 'utf8');
+    ok('public routes, rate limited, no account needed', /app\.post\('\/api\/portal\/free-board', _portalFreeLimiter, async/.test(IXf) && /app\.post\('\/api\/portal\/free-board\/email', _portalLeadLimiter, async/.test(IXf) && /app\.get\('\/api\/portal\/free-board\/meta', _portalFreeLimiter/.test(IXf) && /app\.get\('\/portal-board'/.test(IXf));
+    ok('the page only calls the free routes, escapes what it shows, and sends people to the trial for the rest', !/\/api\/portal\/(school|targets|workspace|meta')/.test(PGf) && /const esc = /.test(PGf) && /href="\/try\?from=portal-board"/.test(PGf) && /Not every player listed as a senior leaves/.test(PGf));
+    ok('the homepage links it', /href="\/portal-board">Get a free Portal Board</.test(HM));
+  }
+
   OUT.push('-- the client list --');
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('crm-ath2',$1,$2),('crm-ath3',$1,$3) ON CONFLICT DO NOTHING`, [AG, JSON.stringify({ name: 'Alex Bell', position: 'CB', sport: 'Football' }), JSON.stringify({ name: 'Sam Hoop', sport: 'Basketball' })]);
   const cl = await W.clients(P, AG, await store.getAthletesByAgent(AG));
