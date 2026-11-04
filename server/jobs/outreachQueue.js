@@ -3557,6 +3557,9 @@ async function runAgents(opts = {}) {
 // many times they come back. A crash after the claim costs that athlete one
 // day's on-demand fill, which is the right way round for money.
 const ONDEMAND_CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_ONDEMAND_USD) || Q.DEFAULT_ONDEMAND_USD;
+// A just-added athlete's first fill (opts.firstFill): what the agent sees the
+// day he signs up, so it gets a real budget and may widen like the night.
+const FIRST_FILL_USD = parseFloat(process.env.OUTREACH_QUEUE_FIRST_FILL_USD) || 1.0;
 
 async function fillOnDemand(pool, ath, opts = {}) {
   const runDate = opts.runDate || today();
@@ -3577,7 +3580,7 @@ async function fillOnDemand(pool, ath, opts = {}) {
 
   // opts.budget: a shared budget when several athletes are filled in one go
   // (resumeAgent), so a roster of forty cannot spend forty on-demand caps.
-  const budget = opts.budget || Q.newBudget(ONDEMAND_CAP_USD);
+  const budget = opts.budget || Q.newBudget(opts.firstFill ? Math.max(FIRST_FILL_USD, ONDEMAND_CAP_USD) : ONDEMAND_CAP_USD);
   const _t0 = Date.now();
   Q.markFilling(ath.id);
   let r;
@@ -3595,7 +3598,8 @@ async function fillOnDemand(pool, ath, opts = {}) {
       // ON-DEMAND NEVER WIDENS. This runs while the agent is watching, on a $0.15
       // cap; a deep search pass costs more than the whole on-demand budget and
       // would stall the page. Widening is the night's job.
-      noWiden: true,
+      // A just-added athlete's first fill may widen (opts.firstFill).
+      noWiden: !opts.firstFill,
       // The resume-on-login fill keeps the cards that waited through the break.
       keepStale: !!opts.keepStale,
       onProgress: (m) => console.log('[queue/ondemand] ' + m),
@@ -3678,7 +3682,7 @@ module.exports = {
   openSlotsFor, holdsUnderFive,
   DORMANT_EVERY_DAYS, dormantCadence, restartCardClock,
   loadAthletesForQueue, resumeAgent, localContextFor, athleteProfile,
-  ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
+  ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD, FIRST_FILL_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
 };
 

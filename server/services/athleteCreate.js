@@ -137,11 +137,26 @@ function _setFillNowForTests(v) { _fillNowOverride = (v === null || v === undefi
 
 // Fill the slots for one athlete on this agent's roster. Claimed per athlete
 // per day inside fillOnDemand, so calling it again is safe.
-async function runOnDemandFill(agentId, athleteId) {
+//
+// opts.firstFill: the athlete was just added. Nov 2026: three athletes added
+// at schools no one had used before (Morningside, CSU Bakersfield, Grand
+// Valley State) got NO cards that day, because their towns had no business
+// list yet (market_business_seen is built by the 10pm schedule) and the
+// on-demand fill runs on $0.15 and never widens. A new agent's first look was
+// an empty queue until the next morning. Now a new athlete's town is built
+// right here when it has fewer than marketPools.FIRST_FLOOR usable businesses,
+// and the first fill runs on the first-fill budget and may widen.
+async function runOnDemandFill(agentId, athleteId, opts = {}) {
   const job = require('../jobs/outreachQueue');
   const aths = await job.loadAthletesForQueue(store.pool, agentId, athleteId || null);
   for (const ath of aths) {
-    await job.fillOnDemand(store.pool, ath).catch((e) =>
+    if (opts.firstFill) {
+      try {
+        const b = await (opts.ensureMarket || require('./marketPools').ensureForAthlete)(store.pool, ath);
+        console.log(`[queue/first-fill] athlete=${ath.id} town: ${b.built ? `built, ${b.usable} usable` : b.why}`);
+      } catch (e) { console.error(`[queue/first-fill] athlete=${ath.id} town build failed: ${e.message}`); }
+    }
+    await job.fillOnDemand(store.pool, ath, opts.firstFill ? { firstFill: true } : {}).catch((e) =>
       console.error(`[queue/ondemand] athlete=${ath.id} failed: ${e.message}`));
   }
 }
@@ -347,7 +362,7 @@ async function createAthlete(user, body, opts) {
   // queue a minute later does not run it twice.
   if (fillOnDemandEnabled()) {
     try { require('./outreachQueue').markFilling(id); } catch (_) {}
-    setImmediate(() => { runOnDemandFill(user.id, id).catch((e) => console.error('[queue/ondemand] new athlete', e.message)); });
+    setImmediate(() => { runOnDemandFill(user.id, id, { firstFill: true }).catch((e) => console.error('[queue/ondemand] new athlete', e.message)); });
   }
   return { ok: true, athlete, created: true };
 }

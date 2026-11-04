@@ -139,7 +139,7 @@ async function main() {
   // quietly.
   const ac = require('fs').readFileSync(REPO + 'server/services/athleteCreate.js', 'utf8');
   ok('adding an athlete starts an on-demand fill for them',
-    /runOnDemandFill\(user\.id, id\)/.test(ac) && /markFilling\(id\)/.test(ac));
+    /runOnDemandFill\(user\.id, id(, \{ firstFill: true \})?\)/.test(ac) && /markFilling\(id\)/.test(ac));
   ok('  and so does an import, one athlete at a time',
     /runOnDemandFills\(user\.id, c\.id\)/.test(idx) && /markFilling\(c\.id\)/.test(idx));
   ok('the on-demand row records ms', /ALTER TABLE outreach_queue_ondemand ADD COLUMN IF NOT EXISTS ms INT/.test(require('fs').readFileSync(REPO + 'server/store.js', 'utf8')));
