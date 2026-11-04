@@ -12830,6 +12830,16 @@ app.post('/api/portal-profile/:token/seen', _portalProfileLimiter, async (req, r
     res.set('Cache-Control', 'no-store').json({ ok: true, counted: !!r.counted });
   } catch (e) { console.error('[portal-profile/seen]', e.message); res.json({ ok: true, counted: false }); }
 });
+// A wrong coaching change comes out (services/portalRoom/coachingWatch).
+app.delete('/api/admin/portal/coaching-change/:school', async (req, res) => {
+  try { res.json(await require('./services/portalRoom/coachingWatch').remove(store.pool, req.params.school)); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+// Run the news check now (it also runs 6 to 7am Central by itself).
+app.post('/api/admin/portal/coach-watch', async (req, res) => {
+  try { const r = await require('./services/portalRoom/coachingWatch').run(store.pool); res.json({ items: r.items, added: r.added, skipped: r.skipped.slice(0, 60) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/admin/portal/coverage', async (req, res) => {
   try { res.json(await require('./services/portalRoom/rosterSweep').coverage(store.pool)); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -16418,6 +16428,20 @@ try {
 } catch (e) {
   console.warn('[queue] scheduler failed to start:', e.message);
 }
+
+// ── Head coaching changes from the news (services/portalRoom/coachingWatch) ─
+// 6 to 7am Central, once a day, before the morning email. Off with
+// PORTAL_COACH_WATCH=off.
+try {
+  const PCW = require('./services/portalRoom/coachingWatch');
+  if (!PCW.on()) console.log('[portal] coaching-change watch is OFF (PORTAL_COACH_WATCH=off)');
+  else {
+    const cwTick = () => { PCW.tick(store.pool).then((r) => { if (r && r.added && r.added.length) console.log(`[portal] coaching changes added: ${r.added.map((a) => a.school).join(', ')}`); }).catch((e) => console.error('[portal] coaching-change watch failed:', e.message)); };
+    setTimeout(cwTick, 7 * 60 * 1000);
+    setInterval(cwTick, 15 * 60 * 1000);
+    console.log('[portal] coaching-change watch scheduled: 6-7am Central');
+  }
+} catch (e) { console.warn('[portal] coaching-change watch failed to start:', e.message); }
 
 // ── The Portal Room morning email (services/portalRoom/alerts) ──────────────
 // 7 to 9am Central, one per agent with a board, only when something is due.

@@ -1374,6 +1374,11 @@
       "name": "TEXT",
       "unsubscribed": "BOOLEAN DEFAULT FALSE"
     },
+    "portal_coach_watch_runs": {
+      "added": "INTEGER",
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "day": "DATE"
+    },
     "portal_coaching_changes": {
       "change_date": "DATE",
       "coach": "TEXT",

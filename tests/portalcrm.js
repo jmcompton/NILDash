@@ -264,6 +264,49 @@ async function main() {
     ok('it is scheduled, and the stop link has its page', /PRA\.tick\(store\.pool, store\)/.test(IXa) && /app\.get\('\/portal-alerts\/off'/.test(IXa));
   }
 
+  OUT.push('-- coaching changes from the news --');
+  {
+    const CW = require(REPO + 'server/services/portalRoom/coachingWatch');
+    const Co = require(REPO + 'server/services/portalRoom/coachingChanges');
+    const nowC = new Date('2026-11-04T12:30:00Z');
+    const news = [
+      { title: 'Tulane fires head coach Jon Sumrall after 4-5 start', snippet: 'Tulane has fired head football coach Jon Sumrall, the school announced Monday.', link: 'https://www.espn.com/college-football/story/1', date: '2 days ago' },
+      { title: 'Tennessee State fires head football coach', snippet: 'Tennessee State parted ways with its head football coach.', link: 'https://www.espn.com/college-football/story/2', date: '1 day ago' },
+      { title: 'Coaches on the hot seat: who could be fired next', snippet: 'Several head coaches could be fired soon.', link: 'https://www.cbssports.com/x', date: '1 day ago' },
+      { title: 'Houston fires defensive coordinator', snippet: 'Houston fired its defensive coordinator, not its head coach.', link: 'https://www.on3.com/y', date: '1 day ago' },
+      { title: 'Rice head coach resigns', snippet: 'Rice head football coach resigned Sunday.', link: 'https://randomblog.example.com/z', date: '1 day ago' },
+      { title: 'UCF parts ways with head football coach', snippet: 'UCF and its head football coach parted ways in 2025.', link: 'https://www.espn.com/college-football/story/old', date: '1 day ago' },
+      { title: 'Baylor fires head coach Dave Aranda', snippet: 'Baylor fired head football coach Dave Aranda.', link: 'https://www.espn.com/college-football/story/3', date: '9 days ago' },
+    ];
+    const reads = {
+      'https://www.espn.com/college-football/story/1': { departure: true, school: 'Tulane', coach: 'Jon Sumrall', how: 'fired', date: '2026-11-02', interim: null, newCoach: null },
+      'https://www.espn.com/college-football/story/2': { departure: true, school: 'Tennessee State', coach: 'Someone', how: 'fired', date: '2026-11-03' },
+      'https://www.on3.com/y': { departure: false },
+      'https://randomblog.example.com/z': { departure: true, school: 'Rice', coach: 'X', how: 'resigned', date: '2026-11-02' },
+      'https://www.espn.com/college-football/story/old': { departure: true, school: 'UCF', coach: 'Y', how: 'left', date: '2025-11-30' },
+      'https://www.espn.com/college-football/story/3': { departure: true, school: 'Baylor', coach: 'Dave Aranda', how: 'fired', date: '2026-10-30' },
+    };
+    const notes = [];
+    let asked = 0;
+    const depsC = { search: async () => news, extract: async (it) => { asked++; return reads[it.link] || { departure: false }; }, notify: async (m) => notes.push(m) };
+    const r = await CW.run(P, { now: nowC, deps: depsC });
+    const why = (t) => (r.skipped.find((x) => x.title.startsWith(t)) || {}).why || '';
+    ok('a real departure at an FBS school, from a known outlet, is added with its link', r.added.length === 1 && r.added[0].school === 'Tulane' && r.added[0].coach === 'Jon Sumrall' && r.added[0].source === 'https://www.espn.com/college-football/story/1', r.added);
+    ok('and every board shows it from then on', (await Co.load(P, { now: nowC })).get('Tulane').coach === 'Jon Sumrall');
+    ok('a namesake is refused (Tennessee State is not Tennessee)', /not FBS/.test(why('Tennessee State')));
+    ok('a hot-seat story never reaches the model', why('Coaches on the hot seat') === 'rumor');
+    ok('a coordinator is not a head coach', why('Houston fires defensive') === 'not a head coach leaving');
+    ok('an unknown website is not a source', /unknown outlet/.test(why('Rice head coach')));
+    ok('an old story is not news', /too old/.test(why('UCF parts ways')));
+    ok('a change already on file is not added twice', why('Baylor fires') === 'already on file');
+    ok('JohnMark gets the list with links, and how to take a wrong one out', notes.length === 1 && /Tulane: Jon Sumrall fired 2026-11-02\. https:\/\/www\.espn\.com/.test(notes[0].text) && /DELETE \/api\/admin\/portal\/coaching-change/.test(notes[0].text));
+    ok('the same story the next run adds nothing', (await CW.run(P, { now: nowC, deps: depsC })).added.length === 0);
+    ok('a wrong one comes out', (await CW.remove(P, 'Tulane')).removed === 1 && !(await Co.load(P, { now: nowC })).has('Tulane'));
+    ok('it runs once a day, 6 to 7am Central', (await CW.tick(P, { now: new Date('2026-11-04T18:00:00Z'), deps: depsC })).skipped === 'not the hour');
+    const IXc = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    ok('scheduled, with admin routes to run it and to take one out', /PCW\.tick\(store\.pool\)/.test(IXc) && /app\.delete\('\/api\/admin\/portal\/coaching-change\/:school'/.test(IXc) && /app\.post\('\/api\/admin\/portal\/coach-watch'/.test(IXc));
+  }
+
   OUT.push('-- the client list --');
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('crm-ath2',$1,$2),('crm-ath3',$1,$3) ON CONFLICT DO NOTHING`, [AG, JSON.stringify({ name: 'Alex Bell', position: 'CB', sport: 'Football' }), JSON.stringify({ name: 'Sam Hoop', sport: 'Basketball' })]);
   const cl = await W.clients(P, AG, await store.getAthletesByAgent(AG));
