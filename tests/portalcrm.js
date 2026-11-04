@@ -229,6 +229,41 @@ async function main() {
     ok('the homepage links it', /href="\/portal-board">Get a free Portal Board</.test(HM));
   }
 
+  OUT.push('-- the morning email --');
+  {
+    const AL = require(REPO + 'server/services/portalRoom/alerts');
+    const nowA = new Date('2026-11-04T13:30:00Z');       // 7:30am Central
+    const fakeWs = (over = {}) => ({
+      athlete: { id: AT, name: 'Jordan Hayes' }, today: '2026-11-04',
+      window: { opens: '2027-01-02', closes: '2027-01-16', daysToOpen: 59, daysToClose: 73, isOpen: false, closed: false },
+      cards: [
+        { id: 'a', school: 'Baylor', stage: 'contacted', nextStep: 'Call the GM', dueIn: 0, due: true, coachingChange: { date: '2026-11-03' }, coachingLine: 'New head coach coming: Dave Aranda was fired Nov 3.', opens: { opens: 2, lastOpenAt: '2026-11-04T01:00:00Z' } },
+        { id: 'b', school: 'Houston', stage: 'interested', nextStep: 'Send film', dueIn: 3, due: false, coachingChange: { date: '2026-10-01' }, opens: { opens: 1, lastOpenAt: '2026-11-01T01:00:00Z' } },
+        { id: 'c', school: 'Rice', stage: 'passed', nextStep: 'x', dueIn: -5, due: false, coachingChange: { date: '2026-11-04' } },
+      ],
+      offers: { deadlines: [{ date: '2026-11-05', text: 'Houston offer expires', days: 1 }, { date: '2026-11-20', text: 'Tulane offer expires', days: 16 }, { date: '2027-01-02', text: 'Portal window opens', days: 59 }], commit: null },
+      ...over,
+    });
+    const it = AL.itemsFor(fakeWs(), nowA);
+    ok('the morning holds: a step due, an offer expiring, a fresh coaching change at a target, and a school that opened his one-pager', it.map((x) => x.kind).sort().join(',') === 'coach,due,offer,opened', it);
+    ok('and not: an offer 16 days out, an old coaching change, a passed school, an old open', !it.some((x) => /Tulane|Rice/.test(x.text)) && it.filter((x) => x.kind === 'coach').length === 1 && it.filter((x) => x.kind === 'opened').length === 1);
+    ok('the window line only on its days: 14, 7, 1 and 0 before it opens; 3 and 1 before it closes', AL.windowLine(fakeWs()) === null && AL.windowLine(fakeWs({ window: { daysToOpen: 7 } })) === 'The portal window opens in 7 days.' && AL.windowLine(fakeWs({ window: { daysToOpen: 0 } })) === 'The portal window opens today.' && AL.windowLine(fakeWs({ window: { daysToOpen: -5, daysToClose: 1, isOpen: true } })) === 'The portal window closes in 1 day.');
+    const sentA = [];
+    const depsA = { workspace: async () => fakeWs(), send: async (m) => { sentA.push(m); } };
+    await P.query(`DELETE FROM portal_alert_sends`).catch(() => {});
+    const r1 = await AL.runAgent(P, store, AG, { now: nowA, deps: depsA });
+    ok('one email to the agent, with each client\'s items and a link to his board', r1.sent && sentA.length === 1 && sentA[0].to === 'crm@example.com' && /Jordan Hayes:/.test(sentA[0].text) && /Baylor: Call the GM \(due today\)/.test(sentA[0].text) && /portal-room\?a=crm-ath/.test(sentA[0].text) && /^Portal Room: 4 things for today$/.test(sentA[0].subject), sentA[0] && sentA[0].text);
+    ok('plain, no em dashes, and a working stop link', !/[—–]/.test(sentA[0].text) && /portal-alerts\/off\?a=crm-agent&s=[a-f0-9]{32}/.test(sentA[0].text));
+    ok('never twice in a day, restart or not', (await AL.runAgent(P, store, AG, { now: new Date(nowA.getTime() + 3600000), deps: depsA })).skipped === 'already today' && sentA.length === 1);
+    const quiet = await AL.runAgent(P, store, AG, { now: new Date('2026-11-05T13:30:00Z'), deps: { workspace: async () => fakeWs({ cards: [], offers: { deadlines: [] } }), send: depsA.send } });
+    ok('a morning with nothing to act on sends nothing', !quiet.sent && sentA.length === 1);
+    ok('a forged stop link does nothing; the real one turns it off', !(await AL.turnOff(P, AG, 'f'.repeat(32))) && (await AL.turnOff(P, AG, AL.stopUrl(AG).split('s=')[1])));
+    ok('and after that he gets none', (await AL.runAgent(P, store, AG, { now: new Date('2026-11-06T13:30:00Z'), deps: depsA })).skipped === 'turned off' && sentA.length === 1);
+    ok('the scheduler only runs 7 to 9am Central', (await AL.tick(P, store, { now: new Date('2026-11-04T18:00:00Z'), deps: depsA })).skipped === 'not the hour');
+    const IXa = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    ok('it is scheduled, and the stop link has its page', /PRA\.tick\(store\.pool, store\)/.test(IXa) && /app\.get\('\/portal-alerts\/off'/.test(IXa));
+  }
+
   OUT.push('-- the client list --');
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('crm-ath2',$1,$2),('crm-ath3',$1,$3) ON CONFLICT DO NOTHING`, [AG, JSON.stringify({ name: 'Alex Bell', position: 'CB', sport: 'Football' }), JSON.stringify({ name: 'Sam Hoop', sport: 'Basketball' })]);
   const cl = await W.clients(P, AG, await store.getAthletesByAgent(AG));

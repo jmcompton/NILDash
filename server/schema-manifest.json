@@ -1351,6 +1351,17 @@
       "target_id": "TEXT",
       "text": "TEXT"
     },
+    "portal_alert_optout": {
+      "agent_id": "TEXT",
+      "at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
+    "portal_alert_sends": {
+      "agent_id": "TEXT",
+      "day": "DATE",
+      "error": "TEXT",
+      "items": "INTEGER DEFAULT 0",
+      "sent_at": "TIMESTAMPTZ"
+    },
     "portal_board_leads": {
       "agency": "TEXT",
       "boards": "INTEGER DEFAULT 1",

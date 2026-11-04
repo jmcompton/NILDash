@@ -12786,6 +12786,12 @@ const _portalProfileLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 300, st
 // 10 schools for a position; the people to call come with the trial.
 const _portalFreeLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many boards from here. Try again in an hour.' } });
 const _portalLeadLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 8, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Try again later.' } });
+// The one-click stop link in the Portal Room morning email.
+app.get('/portal-alerts/off', async (req, res) => {
+  let ok = false;
+  try { ok = await require('./services/portalRoom/alerts').turnOff(store.pool, req.query.a, req.query.s); } catch (e) { console.error('[portal-alerts/off]', e.message); }
+  res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Portal Room emails</title><body style="font:16px/1.5 system-ui,sans-serif;max-width:560px;margin:60px auto;padding:0 16px"><p>${ok ? 'Done. You will not get the Portal Room morning email again.' : 'That link did not work. Reply to any Portal Room email and we will turn it off.'}</p><p><a href="/portal-room">Back to the Portal Room</a></p></body>`);
+});
 app.get('/portal-board', (req, res) => {
   res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'portal-board.html'));
 });
@@ -16412,6 +16418,20 @@ try {
 } catch (e) {
   console.warn('[queue] scheduler failed to start:', e.message);
 }
+
+// ── The Portal Room morning email (services/portalRoom/alerts) ──────────────
+// 7 to 9am Central, one per agent with a board, only when something is due.
+// Off with PORTAL_ALERTS=off.
+try {
+  const PRA = require('./services/portalRoom/alerts');
+  if (!PRA.on()) console.log('[portal] morning alerts are OFF (PORTAL_ALERTS=off)');
+  else {
+    const paTick = () => { PRA.tick(store.pool, store).then((r) => { if (r && r.sent) console.log(`[portal] morning alerts: ${r.sent} sent of ${r.agents}`); }).catch((e) => console.error('[portal] morning alerts tick failed:', e.message)); };
+    setTimeout(paTick, 6 * 60 * 1000);
+    setInterval(paTick, 15 * 60 * 1000);
+    console.log('[portal] morning alerts scheduled: 7-9am Central');
+  }
+} catch (e) { console.warn('[portal] morning alerts failed to start:', e.message); }
 
 // ── The Portal Room roster sweep (services/portalRoom/rosterSweep) ──────────
 // Every FBS football roster, a slice a night, 9 to 11pm Central, claimed by
