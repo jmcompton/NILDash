@@ -78,6 +78,35 @@ function candidateUrls(domain, staffUrl, now = new Date()) {
   return [...new Set(urls)];
 }
 
+// ── ROSTERS IN AN EMBEDDED "players" LIST ───────────────────────────────────
+// Sidearm's Vue roster (Utah State) draws the table in the browser from a
+// JSON object in the page: "players":[{first_name, last_name, position_short,
+// academic_year_short...}]. Cut out by matching brackets, never eval'd.
+function embeddedPlayers(html) {
+  const s = String(html || '');
+  const k = s.indexOf('"players":[');
+  if (k < 0) return [];
+  let i = k + 10, depth = 0, inS = false, esc = false;
+  for (; i < s.length; i++) {
+    const c = s[i];
+    if (inS) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inS = false; continue; }
+    if (c === '"') inS = true;
+    else if (c === '[') depth++;
+    else if (c === ']') { depth--; if (depth === 0) break; }
+  }
+  let arr;
+  try { arr = JSON.parse(s.slice(k + 10, i + 1)); } catch (_) { return []; }
+  if (!Array.isArray(arr)) return [];
+  const pick = (o, keys) => { for (const x of keys) if (o[x] != null && String(o[x]).trim()) return String(o[x]).trim(); return ''; };
+  return arr.filter((o) => o && typeof o === 'object').map((o) => ({
+    name: [pick(o, ['first_name']), pick(o, ['last_name'])].filter(Boolean).join(' ') || pick(o, ['name', 'full_name']),
+    position: pick(o, ['position_short', 'position_long', 'position']),
+    year: pick(o, ['academic_year_short', 'academic_year_long', 'academic_year', 'class_year']),
+    jersey: pick(o, ['jersey_number', 'jersey']),
+    hometown: pick(o, ['hometown']),
+  })).filter((p) => p.name);
+}
+
 // ── ROSTERS IN A NUXT DATA BLOCK ────────────────────────────────────────────
 // WMT Digital sites (Clemson, Auburn, Iowa, Arizona State, Northwestern, Navy,
 // Georgia Tech, New Mexico...) print no roster table: the players ride in the
@@ -217,6 +246,12 @@ async function readRoster({ school, domain, staffUrl, now = new Date() }, deps =
       const nx = nuxtPlayers(page.html).map(shape).filter((p) => p.name);
       const ns = score(nx);
       if (ns.withPos > sc.withPos) { players = nx; sc = ns; via = 'nuxt'; }
+    }
+    // Or a Vue page that draws the table from an embedded players list.
+    if (sc.withPos < MIN_OK) {
+      const em = embeddedPlayers(page.html).map(shape).filter((p) => p.name);
+      const es = score(em);
+      if (es.withPos > sc.withPos) { players = em; sc = es; via = 'embedded'; }
     }
     tried.push({ url: page.url, status: page.status, players: sc.count, withPos: sc.withPos, via });
     if (!best || sc.withPos > best.sc.withPos) best = { url: page.url, html: page.html, players, sc, via };
@@ -365,4 +400,4 @@ async function coverage(pool) {
   };
 }
 
-module.exports = { nuxtPlayers, isRunning, MODEL_PER_NIGHT, MODEL_RETRY_DAYS, ensureTables, candidateUrls, readRoster, save, due, sweep, tick, coverage, shape, seasonOf, inPortalSeason, staleDays, centralHour, MIN_OK, SLICE, on };
+module.exports = { embeddedPlayers, nuxtPlayers, isRunning, MODEL_PER_NIGHT, MODEL_RETRY_DAYS, ensureTables, candidateUrls, readRoster, save, due, sweep, tick, coverage, shape, seasonOf, inPortalSeason, staleDays, centralHour, MIN_OK, SLICE, on };

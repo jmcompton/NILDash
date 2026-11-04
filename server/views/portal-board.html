@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free Portal Board: which FBS schools need your client | NILDash</title>
+<meta name="description" content="Pick a position and see the 10 FBS schools thinnest there right now, counted from each school's own roster. Free, no account.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{--ground:#F4F5F2;--surface:#FFFFFF;--ink:#111613;--muted:#5B645E;--line:#E2E5E0;--line2:#DADFD8;--soft:#EEF0EC;--accent:#157347;--accent-ink:#0F5434;--accent-soft:#E6F2EB;--warn:#8A3F05;--warn-soft:#FBEFE3;--side:#0F1A14}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font:400 15px/1.5 Inter,system-ui,sans-serif}
+a{color:var(--accent)}a:hover{color:var(--accent-ink)}
+button,input,select{font:inherit;color:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.disp{font-family:'Barlow Semi Condensed',sans-serif;font-weight:700}
+header.top{background:var(--side);color:#E8EFEA}
+header.top .in{max-width:1080px;margin:0 auto;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+header.top .brand{font-size:24px;color:#fff;text-decoration:none}
+header.top .brand small{font-family:Inter,sans-serif;font-weight:500;font-size:12px;color:#9FB0A5;margin-left:6px}
+header.top a.lnk{color:#C9D6CD;font-size:14px}
+main{max-width:1080px;margin:0 auto;padding:28px 16px 64px;display:flex;flex-direction:column;gap:20px}
+h1{margin:0;font-size:clamp(30px,5vw,44px);line-height:1.05}
+.lede{margin:0;color:var(--muted);max-width:62ch;font-size:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:500}
+.inp{min-height:44px;border:1px solid var(--line2);border-radius:8px;padding:0 12px;background:#fff;font-size:15px;color:var(--ink)}
+.btn{min-height:44px;padding:0 18px;border:1px solid #CDD3CB;border-radius:8px;background:#fff;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn.primary:hover{background:var(--accent-ink);color:#fff}
+.msg{font-size:13px;color:var(--muted);min-height:18px}.err{color:#A3241B}
+.tbox{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:12px}
+table{width:100%;min-width:640px;border-collapse:collapse}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:12px 14px;border-bottom:1px solid var(--line)}
+td{padding:12px 14px;border-bottom:1px solid var(--soft);vertical-align:top}
+.foot{font-size:12px;color:var(--muted)}
+.chip{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:var(--warn-soft);color:var(--warn)}
+.meter{display:inline-block;width:70px;height:6px;background:var(--soft);border-radius:3px;vertical-align:middle;margin-right:8px}.meter i{display:block;height:6px;background:var(--accent);border-radius:3px}
+.locked{position:relative;overflow:hidden}
+.locked .rows{filter:blur(5px);user-select:none;pointer-events:none;display:flex;flex-direction:column;gap:8px}
+.locked .rows div{background:var(--ground);border-radius:8px;padding:10px 12px}
+.locked .over{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:16px;background:linear-gradient(rgba(255,255,255,.55),rgba(255,255,255,.92))}
+.two{display:flex;flex-wrap:wrap;gap:20px}.two>*{flex:1 1 320px;min-width:0}
+.hidden{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<header class="top"><div class="in"><a class="brand disp" href="/portal-room/demo">Portal Room<small>by NILDash</small></a><a class="lnk" href="/">mynildash.com</a></div></header>
+<main>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <h1 class="disp">Which FBS schools need your client?</h1>
+    <p class="lede">Pick his position. NILDash counts every FBS roster from the school's own site and shows the 10 schools thinnest there right now. Free, no account.</p>
+  </div>
+
+  <form class="panel" id="form" autocomplete="off">
+    <div class="grid">
+      <label class="f">His position<select class="inp" id="group" required><option value="">Pick one</option></select></label>
+      <label class="f">His school now (optional)<input class="inp" id="cur" list="schools" placeholder="Leave off his own school"></label>
+      <label class="f">Level he wants<select class="inp" id="level"><option value="any">Any FBS</option><option value="P4">Power 4</option><option value="G5">Group of 5</option></select></label>
+      <label class="f">His home state (optional)<input class="inp" id="home" maxlength="2" placeholder="TX"></label>
+      <button class="btn primary" type="submit">Show the board</button>
+    </div>
+    <datalist id="schools"></datalist>
+    <div class="msg" id="msg"></div>
+  </form>
+
+  <section id="out" class="hidden" style="display:flex;flex-direction:column;gap:14px">
+    <h2 class="disp" style="margin:0;font-size:26px" id="outTitle"></h2>
+    <div class="tbox"><table>
+      <thead><tr><th scope="col">#</th><th scope="col">School</th><th scope="col">Need at his position</th><th scope="col">Seniors or older</th><th scope="col">Fit</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <div class="foot" id="foot"></div>
+
+    <div class="two">
+      <div class="panel locked">
+        <h3 style="margin:0">Who to call at each school</h3>
+        <div class="rows" aria-hidden="true">
+          <div>General manager · name · published email</div>
+          <div>Director of player personnel · name · published email</div>
+          <div>Position staff · name · office line</div>
+          <div>Recruiting office · published email</div>
+        </div>
+        <div class="over">
+          <b>The people to call, their emails, and a one-pager that tells you which schools open it</b>
+          <a class="btn primary" href="/try?from=portal-board">Try the Portal Room free for 14 days</a>
+          <span class="foot">No contract. Cancel anytime.</span>
+        </div>
+      </div>
+      <form class="panel" id="lead" autocomplete="on">
+        <h3 style="margin:0">Email me this board</h3>
+        <label class="f">Your email<input class="inp" id="lEmail" type="email" required autocomplete="email"></label>
+        <label class="f">Your name<input class="inp" id="lName" autocomplete="name"></label>
+        <label class="f">Agency<input class="inp" id="lAgency" autocomplete="organization"></label>
+        <label class="sr" aria-hidden="true">Website<input id="lSite" tabindex="-1" autocomplete="off"></label>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn primary" type="submit">Email it to me</button><span class="msg" id="lMsg"></span></div>
+        <div class="foot">We send you this board. Reply "stop" anytime.</div>
+      </form>
+    </div>
+  </section>
+
+  <p class="foot">Need is estimated from each school's published roster: players listed as seniors or older are counted as likely leaving, compared with the FBS median at that position. A school whose roster could not be read says so. Not every player listed as a senior leaves.</p>
+</main>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const NEED = { high: 'Thin', medium: 'Below average', low: 'Deep', unknown: 'Roster not read yet' };
+  let last = null;
+  async function post(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let j = {}; try { j = await r.json(); } catch (_) {}
+    if (!r.ok) throw new Error(j.error || 'Something went wrong. Try again.');
+    return j;
+  }
+  const body = () => ({ group: $('group').value, currentSchool: $('cur').value || null, level: $('level').value, homeState: $('home').value.trim() || null });
+  fetch('/api/portal/free-board/meta').then((r) => r.json()).then((m) => {
+    $('group').innerHTML = '<option value="">Pick one</option>' + m.groups.map((g) => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join('');
+    $('schools').innerHTML = m.schools.map((s) => `<option value="${esc(s.name)}"></option>`).join('');
+    const want = new URLSearchParams(location.search).get('position');
+    if (want && m.groups.some((g) => g.key === want.toUpperCase())) { $('group').value = want.toUpperCase(); $('form').requestSubmit(); }
+  }).catch(() => {});
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('msg').textContent = 'Counting every FBS roster…'; $('msg').classList.remove('err');
+    try {
+      const b = await post('/api/portal/free-board', body());
+      last = b;
+      $('msg').textContent = '';
+      $('outTitle').textContent = `The 10 FBS schools thinnest at ${b.group} right now`;
+      $('rows').innerHTML = b.rows.map((r, i) => `<tr>
+        <td>${i + 1}</td>
+        <td><b>${esc(r.school)}</b>${r.coachingChange ? ' <span class="chip">New head coach</span>' : ''}<div class="foot">${esc([r.conference, r.level].filter(Boolean).join(' · '))}</div></td>
+        <td><b>${esc(r.need.noYears ? 'No class years printed' : NEED[r.need.rating])}</b><div class="foot">${r.need.rating === 'unknown' ? '' : `${r.need.back} coming back, FBS median ${r.need.median}`}</div></td>
+        <td>${r.need.rating === 'unknown' ? '' : `${r.need.leaving} of ${r.need.on}`}</td>
+        <td><span class="meter"><i style="width:${Math.max(2, Math.min(100, r.score))}%"></i></span><b>${r.score}</b></td>
+      </tr>`).join('');
+      $('foot').textContent = `From ${b.rostersRead} of ${b.totalSchools} FBS rosters read. Fit weighs need at his position, level${b.homeState ? ', distance from home' : ''} and his own school left off.${b.valueLine ? ' What the position is paid: ' + b.valueLine : ''}`;
+      $('out').classList.remove('hidden');
+      $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) { $('msg').textContent = err.message; $('msg').classList.add('err'); }
+  });
+  $('lead').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!last) return;
+    $('lMsg').textContent = 'Sending…'; $('lMsg').classList.remove('err');
+    try {
+      await post('/api/portal/free-board/email', { ...body(), email: $('lEmail').value, name: $('lName').value, agency: $('lAgency').value, website: $('lSite').value });
+      $('lMsg').textContent = 'Sent. Check your inbox.';
+    } catch (err) { $('lMsg').textContent = err.message; $('lMsg').classList.add('err'); }
+  });
+})();
+</script>
+</body>
+</html>

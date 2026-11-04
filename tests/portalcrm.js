@@ -147,6 +147,194 @@ async function main() {
   ok('a school shows one fit score: his list and the Schools tab use the same wish list', live2.cards.find((c) => c.school === 'Baylor').fit === inBoard('Baylor').score, [live2.cards.find((c) => c.school === 'Baylor').fit, inBoard('Baylor') && inBoard('Baylor').score]);
   ok('and a school outside the level he wants still gets scored on his list', live2.cards.find((c) => c.school === 'Houston').fit != null);
 
+  OUT.push('-- who opened his one-pager --');
+  {
+    const O = require(REPO + 'server/services/portalRoom/opens');
+    const prof = await T.saveProfile(P, AG, AT, { heightWeight: '6-1, 190', measurables: '40: 4.48', lookingFor: 'A starting role', academics: '3.4 GPA', agentEmail: 'crm@example.com' });
+    const rice = await T.addTarget(P, AG, AT, { school: 'Rice' });
+    const lk = await O.linkFor(P, AG, AT, rice);
+    ok('each school on his list gets its own link, made once', /^[a-f0-9]{16}$/.test(lk) && (await O.linkFor(P, AG, AT, rice)) === lk);
+    const dr = await PR.emailDraft(P, store, agent, ath, rice.id);
+    ok('the email to that school carries its own link', dr.body.includes(`/portal-profile/${prof.token}?s=${lk}`), dr.body);
+    const pub = await T.publicProfile(P, store, prof.token);
+    ok('the one-pager shows measurables, what he is looking for and academics, as the agent wrote them', pub.measurables === '40: 4.48' && pub.lookingFor === 'A starting role' && pub.academics === '3.4 GPA');
+    const sent = [];
+    const deps = { sendAlert: async (m) => { sent.push(m); } };
+    const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+    const t0 = new Date('2026-11-04T15:00:00Z');
+    ok('a mail scanner or bot is not an open', !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: 'Mozilla/5.0 (compatible; Proofpoint URL Defense)', ip: '1.1.1.1', now: t0 }, deps)).counted
+      && !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: '', ip: '1.1.1.1', now: t0 }, deps)).counted);
+    ok('the agent looking at his own page is not an open', (await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, viewerUserId: AG, ua: UA, ip: '1.1.1.1', now: t0 }, deps)).reason === 'own view');
+    const o1 = await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '2.2.2.2', now: t0 }, deps);
+    ok('someone at Rice opening it counts, for Rice', o1.counted && o1.school === 'Rice' && o1.opens === 1);
+    ok('Rice moves from Target to Interested, and the activity says why', o1.moved === 'interested' && (await T.listActivity(P, AG, AT, { targetId: rice.id })).slice(0, 2).map((x) => x.text).join('|') === 'Opened his one-pager. Moved to Interested|Someone at Rice opened his one-pager');
+    ok('the agent gets one email: "Rice opened Jordan Hayes\'s one-pager", with a link to his board', sent.length === 1 && sent[0].to === 'crm@example.com' && sent[0].subject === "Rice opened Jordan Hayes's one-pager" && /portal-room\?a=crm-ath/.test(sent[0].text) && !/[—]/.test(sent[0].text));
+    ok('the same person again within 30 minutes is not another open', !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '2.2.2.2', now: new Date(t0.getTime() + 10 * 60000) }, deps)).counted);
+    const o2 = await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '3.3.3.3', now: new Date(t0.getTime() + 60 * 60000) }, deps);
+    ok('a second person the same day counts, without a second email or a second activity line', o2.counted && o2.opens === 2 && sent.length === 1 && (await T.listActivity(P, AG, AT, { targetId: rice.id })).filter((x) => x.kind === 'opened').length === 1);
+    const o3 = await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '2.2.2.2', now: new Date('2026-11-05T15:00:00Z') }, deps);
+    ok('the next day: counted, logged and emailed again, but never moved backward', o3.counted && o3.opens === 3 && sent.length === 2 && o3.moved === 'interested' && (await T.listActivity(P, AG, AT, { targetId: rice.id })).filter((x) => x.kind === 'opened').length === 2);
+    const live3 = await W.workspace(P, store, agent, ath, { now: new Date('2026-11-05T16:00:00Z') });
+    const rc = live3.cards.find((c) => c.school === 'Rice');
+    ok('his board shows it: Rice opened 3 times, and the stats count schools that opened', rc.opens && rc.opens.opens === 3 && rc.stage === 'interested' && live3.stats.opened === 1);
+    ok('without a school link it is a plain view: counted on the page, tied to no school', (await O.recordOpen(P, store, { profileToken: prof.token, linkToken: null, ua: UA, ip: '4.4.4.4', now: t0 }, deps)).counted && sent.length === 2);
+    ok('a made-up link token is just a plain view', !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: 'ffffffffffffffff', ua: UA, ip: '5.5.5.5', now: t0 }, deps)).school);
+    await T.saveProfile(P, AG, AT, { live: false });
+    ok('a one-pager that is turned off counts nothing', !(await O.recordOpen(P, store, { profileToken: prof.token, linkToken: lk, ua: UA, ip: '6.6.6.6', now: t0 }, deps)).counted);
+    await T.removeTarget(P, AG, AT, rice.id);
+    ok('taking the school off his list removes its link', (await P.query(`SELECT 1 FROM portal_profile_links WHERE token = $1`, [lk])).rows.length === 0);
+    const IXo = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    const PGo = fs.readFileSync(REPO + 'server/views/portal-profile.html', 'utf8');
+    ok('loading the page counts nothing; the page reports a view after 1.5 seconds on screen, with the school link', /publicProfile\(store\.pool, store, req\.params\.token, \{ countView: false \}\)/.test(IXo) && /app\.post\('\/api\/portal-profile\/:token\/seen', _portalProfileLimiter/.test(IXo) && /setTimeout\(report, 1500\)/.test(PGo) && /document\.visibilityState !== 'visible'/.test(PGo) && /new URLSearchParams\(location\.search\)\.get\('s'\)/.test(PGo));
+    ok('the school sees an "I\'m interested" button that emails the agent', /I'm interested/.test(PGo));
+  }
+
+  OUT.push('-- the free Portal Board --');
+  {
+    const FB = require(REPO + 'server/services/portalRoom/freeBoard');
+    await require(REPO + 'server/services/portalRoom/rosterSweep').ensureTables(P);
+    const room = (n, sr) => Array.from({ length: n }, (_, i) => ({ name: 'Player ' + i, pos: 'WR', group: 'WR', year: i < sr ? 'Sr.' : 'So.' }));
+    for (const [sch, n, sr] of [['Baylor', 9, 5], ['Houston', 12, 2], ['Troy', 8, 5], ['Tulane', 10, 4]]) {
+      await P.query(`INSERT INTO program_roster (school, sport, players, player_count, status, fetched_at) VALUES ($1,'football',$2,$3,'ok',NOW())
+        ON CONFLICT (school, sport) DO UPDATE SET players = EXCLUDED.players, player_count = EXCLUDED.player_count, status = 'ok', fetched_at = NOW()`, [sch, JSON.stringify(room(n, sr)), n]);
+    }
+    PR.clearCache && PR.clearCache();
+    ok('a position is required', (await err(() => FB.freeBoard(P, {}))).status === 400);
+    const fb = await FB.freeBoard(P, { group: 'WR', currentSchool: 'Troy' });
+    ok('the top 10 schools for his position, from the rosters read, his own school left off', fb.rows.length === 10 && !fb.rows.some((r) => r.school === 'Troy') && fb.rostersRead >= 4 && fb.group === 'WR', fb.rows.slice(0, 3));
+    ok('a thin room ranks high: Baylor (5 of 9 seniors or older) is in the top 3', fb.rows.slice(0, 3).some((r) => r.school === 'Baylor' && r.need.rating === 'high' && r.need.leaving === 5), fb.rows.slice(0, 3).map((r) => r.school));
+    ok('schools whose rosters were read come first; unread ones only fill in', fb.rows.slice(0, 3).every((r) => r.need.rating !== 'unknown') && fb.rows[3].need.rating === 'unknown', fb.rows.slice(0, 5).map((r) => r.school + ':' + r.need.rating));
+    ok('it gives no people, emails or phone numbers: those come with the trial', !JSON.stringify(fb).match(/"(contacts|email|phone|name)"/));
+    const sent = [];
+    const deps = { send: async (m) => { sent.push(m); } };
+    ok('a bad email is refused', (await err(() => FB.emailBoard(P, { group: 'WR', email: 'nope' }, deps))).status === 400);
+    const hp = await FB.emailBoard(P, { group: 'WR', email: 'bot@example.com', website: 'http://spam' }, deps);
+    ok('a bot that fills the hidden field gets ok and nothing is saved or sent', hp.ok && sent.length === 0 && (await P.query(`SELECT 1 FROM portal_board_leads WHERE email = 'bot@example.com'`).catch(() => ({ rows: [] }))).rows.length === 0);
+    const e1 = await FB.emailBoard(P, { group: 'WR', currentSchool: 'Troy', email: 'Agent@Example.com', name: 'Pat Agent', agency: 'Pat Sports' }, deps);
+    const lead = (await P.query(`SELECT * FROM portal_board_leads WHERE email = 'agent@example.com'`)).rows[0];
+    ok('asking for the board saves the lead and emails him the board he asked for', e1.emailed && lead && lead.name === 'Pat Agent' && lead.grp === 'WR' && sent[0].to === 'agent@example.com' && /Your Portal Board: WR/.test(sent[0].subject) && /1\. /.test(sent[0].text));
+    ok('the board email is honest and lawful: no people listed, the trial link, how to stop, the business address, no em dashes', !/@/.test(sent[0].text.split('\n').slice(2, 14).join(' ')) && /\/try/.test(sent[0].text) && /Reply "stop"/.test(sent[0].text) && /3796 Turnberry Court, Duluth, GA 30096/.test(sent[0].text) && !/[—–]/.test(sent[0].text));
+    ok('and JohnMark hears a lead came in', sent[1] && sent[1].to === 'john@comptongroupllc.com' && /Portal Board lead: Pat Agent, Pat Sports/.test(sent[1].subject));
+    await FB.emailBoard(P, { group: 'DB', email: 'agent@example.com' }, deps);
+    ok('a second board from the same address counts, keeps his name', (await P.query(`SELECT boards, name, grp FROM portal_board_leads WHERE email = 'agent@example.com'`)).rows[0].boards === 2);
+    await P.query(`UPDATE portal_board_leads SET unsubscribed = TRUE WHERE email = 'agent@example.com'`);
+    const n0 = sent.length;
+    const e3 = await FB.emailBoard(P, { group: 'WR', email: 'agent@example.com' }, deps);
+    ok('someone who said stop is never emailed again', !e3.emailed && sent.slice(n0).every((m) => m.to !== 'agent@example.com'));
+    const IXf = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    const PGf = fs.readFileSync(REPO + 'server/views/portal-board.html', 'utf8');
+    const HM = fs.readFileSync(REPO + 'server/views/home.html', 'utf8');
+    ok('public routes, rate limited, no account needed', /app\.post\('\/api\/portal\/free-board', _portalFreeLimiter, async/.test(IXf) && /app\.post\('\/api\/portal\/free-board\/email', _portalLeadLimiter, async/.test(IXf) && /app\.get\('\/api\/portal\/free-board\/meta', _portalFreeLimiter/.test(IXf) && /app\.get\('\/portal-board'/.test(IXf));
+    ok('the page only calls the free routes, escapes what it shows, and sends people to the trial for the rest', !/\/api\/portal\/(school|targets|workspace|meta')/.test(PGf) && /const esc = /.test(PGf) && /href="\/try\?from=portal-board"/.test(PGf) && /Not every player listed as a senior leaves/.test(PGf));
+    ok('the homepage links it', /href="\/portal-board">Get a free Portal Board</.test(HM));
+  }
+
+  OUT.push('-- the morning email --');
+  {
+    const AL = require(REPO + 'server/services/portalRoom/alerts');
+    const nowA = new Date('2026-11-04T13:30:00Z');       // 7:30am Central
+    const fakeWs = (over = {}) => ({
+      athlete: { id: AT, name: 'Jordan Hayes' }, today: '2026-11-04',
+      window: { opens: '2027-01-02', closes: '2027-01-16', daysToOpen: 59, daysToClose: 73, isOpen: false, closed: false },
+      cards: [
+        { id: 'a', school: 'Baylor', stage: 'contacted', nextStep: 'Call the GM', dueIn: 0, due: true, coachingChange: { date: '2026-11-03' }, coachingLine: 'New head coach coming: Dave Aranda was fired Nov 3.', opens: { opens: 2, lastOpenAt: '2026-11-04T01:00:00Z' } },
+        { id: 'b', school: 'Houston', stage: 'interested', nextStep: 'Send film', dueIn: 3, due: false, coachingChange: { date: '2026-10-01' }, opens: { opens: 1, lastOpenAt: '2026-11-01T01:00:00Z' } },
+        { id: 'c', school: 'Rice', stage: 'passed', nextStep: 'x', dueIn: -5, due: false, coachingChange: { date: '2026-11-04' } },
+      ],
+      offers: { deadlines: [{ date: '2026-11-05', text: 'Houston offer expires', days: 1 }, { date: '2026-11-20', text: 'Tulane offer expires', days: 16 }, { date: '2027-01-02', text: 'Portal window opens', days: 59 }], commit: null },
+      ...over,
+    });
+    const it = AL.itemsFor(fakeWs(), nowA);
+    ok('the morning holds: a step due, an offer expiring, a fresh coaching change at a target, and a school that opened his one-pager', it.map((x) => x.kind).sort().join(',') === 'coach,due,offer,opened', it);
+    ok('and not: an offer 16 days out, an old coaching change, a passed school, an old open', !it.some((x) => /Tulane|Rice/.test(x.text)) && it.filter((x) => x.kind === 'coach').length === 1 && it.filter((x) => x.kind === 'opened').length === 1);
+    ok('the window line only on its days: 14, 7, 1 and 0 before it opens; 3 and 1 before it closes', AL.windowLine(fakeWs()) === null && AL.windowLine(fakeWs({ window: { daysToOpen: 7 } })) === 'The portal window opens in 7 days.' && AL.windowLine(fakeWs({ window: { daysToOpen: 0 } })) === 'The portal window opens today.' && AL.windowLine(fakeWs({ window: { daysToOpen: -5, daysToClose: 1, isOpen: true } })) === 'The portal window closes in 1 day.');
+    const sentA = [];
+    const depsA = { workspace: async () => fakeWs(), send: async (m) => { sentA.push(m); } };
+    await P.query(`DELETE FROM portal_alert_sends`).catch(() => {});
+    const r1 = await AL.runAgent(P, store, AG, { now: nowA, deps: depsA });
+    ok('one email to the agent, with each client\'s items and a link to his board', r1.sent && sentA.length === 1 && sentA[0].to === 'crm@example.com' && /Jordan Hayes:/.test(sentA[0].text) && /Baylor: Call the GM \(due today\)/.test(sentA[0].text) && /portal-room\?a=crm-ath/.test(sentA[0].text) && /^Portal Room: 4 things for today$/.test(sentA[0].subject), sentA[0] && sentA[0].text);
+    ok('plain, no em dashes, and a working stop link', !/[—–]/.test(sentA[0].text) && /portal-alerts\/off\?a=crm-agent&s=[a-f0-9]{32}/.test(sentA[0].text));
+    ok('never twice in a day, restart or not', (await AL.runAgent(P, store, AG, { now: new Date(nowA.getTime() + 3600000), deps: depsA })).skipped === 'already today' && sentA.length === 1);
+    const quiet = await AL.runAgent(P, store, AG, { now: new Date('2026-11-05T13:30:00Z'), deps: { workspace: async () => fakeWs({ cards: [], offers: { deadlines: [] } }), send: depsA.send } });
+    ok('a morning with nothing to act on sends nothing', !quiet.sent && sentA.length === 1);
+    ok('a forged stop link does nothing; the real one turns it off', !(await AL.turnOff(P, AG, 'f'.repeat(32))) && (await AL.turnOff(P, AG, AL.stopUrl(AG).split('s=')[1])));
+    ok('and after that he gets none', (await AL.runAgent(P, store, AG, { now: new Date('2026-11-06T13:30:00Z'), deps: depsA })).skipped === 'turned off' && sentA.length === 1);
+    ok('the scheduler only runs 7 to 9am Central', (await AL.tick(P, store, { now: new Date('2026-11-04T18:00:00Z'), deps: depsA })).skipped === 'not the hour');
+    const IXa = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    ok('it is scheduled, and the stop link has its page', /PRA\.tick\(store\.pool, store\)/.test(IXa) && /app\.get\('\/portal-alerts\/off'/.test(IXa));
+  }
+
+  OUT.push('-- coaching changes from the news --');
+  {
+    const CW = require(REPO + 'server/services/portalRoom/coachingWatch');
+    const Co = require(REPO + 'server/services/portalRoom/coachingChanges');
+    const nowC = new Date('2026-11-04T12:30:00Z');
+    const news = [
+      { title: 'Tulane fires head coach Jon Sumrall after 4-5 start', snippet: 'Tulane has fired head football coach Jon Sumrall, the school announced Monday.', link: 'https://www.espn.com/college-football/story/1', date: '2 days ago' },
+      { title: 'Tennessee State fires head football coach', snippet: 'Tennessee State parted ways with its head football coach.', link: 'https://www.espn.com/college-football/story/2', date: '1 day ago' },
+      { title: 'Coaches on the hot seat: who could be fired next', snippet: 'Several head coaches could be fired soon.', link: 'https://www.cbssports.com/x', date: '1 day ago' },
+      { title: 'Houston fires defensive coordinator', snippet: 'Houston fired its defensive coordinator, not its head coach.', link: 'https://www.on3.com/y', date: '1 day ago' },
+      { title: 'Rice head coach resigns', snippet: 'Rice head football coach resigned Sunday.', link: 'https://randomblog.example.com/z', date: '1 day ago' },
+      { title: 'UCF parts ways with head football coach', snippet: 'UCF and its head football coach parted ways in 2025.', link: 'https://www.espn.com/college-football/story/old', date: '1 day ago' },
+      { title: 'Baylor fires head coach Dave Aranda', snippet: 'Baylor fired head football coach Dave Aranda.', link: 'https://www.espn.com/college-football/story/3', date: '9 days ago' },
+    ];
+    const reads = {
+      'https://www.espn.com/college-football/story/1': { departure: true, school: 'Tulane', coach: 'Jon Sumrall', how: 'fired', date: '2026-11-02', interim: null, newCoach: null },
+      'https://www.espn.com/college-football/story/2': { departure: true, school: 'Tennessee State', coach: 'Someone', how: 'fired', date: '2026-11-03' },
+      'https://www.on3.com/y': { departure: false },
+      'https://randomblog.example.com/z': { departure: true, school: 'Rice', coach: 'X', how: 'resigned', date: '2026-11-02' },
+      'https://www.espn.com/college-football/story/old': { departure: true, school: 'UCF', coach: 'Y', how: 'left', date: '2025-11-30' },
+      'https://www.espn.com/college-football/story/3': { departure: true, school: 'Baylor', coach: 'Dave Aranda', how: 'fired', date: '2026-10-30' },
+    };
+    const notes = [];
+    let asked = 0;
+    const depsC = { search: async () => news, extract: async (it) => { asked++; return reads[it.link] || { departure: false }; }, notify: async (m) => notes.push(m) };
+    const r = await CW.run(P, { now: nowC, deps: depsC });
+    const why = (t) => (r.skipped.find((x) => x.title.startsWith(t)) || {}).why || '';
+    ok('a real departure at an FBS school, from a known outlet, is added with its link', r.added.length === 1 && r.added[0].school === 'Tulane' && r.added[0].coach === 'Jon Sumrall' && r.added[0].source === 'https://www.espn.com/college-football/story/1', r.added);
+    ok('and every board shows it from then on', (await Co.load(P, { now: nowC })).get('Tulane').coach === 'Jon Sumrall');
+    ok('a namesake is refused (Tennessee State is not Tennessee)', /not FBS/.test(why('Tennessee State')));
+    ok('a hot-seat story never reaches the model', why('Coaches on the hot seat') === 'rumor');
+    ok('a coordinator is not a head coach', why('Houston fires defensive') === 'not a head coach leaving');
+    ok('an unknown website is not a source', /unknown outlet/.test(why('Rice head coach')));
+    ok('an old story is not news', /too old/.test(why('UCF parts ways')));
+    ok('a change already on file is not added twice', why('Baylor fires') === 'already on file');
+    ok('JohnMark gets the list with links, and how to take a wrong one out', notes.length === 1 && /Tulane: Jon Sumrall fired 2026-11-02\. https:\/\/www\.espn\.com/.test(notes[0].text) && /DELETE \/api\/admin\/portal\/coaching-change/.test(notes[0].text));
+    ok('the same story the next run adds nothing', (await CW.run(P, { now: nowC, deps: depsC })).added.length === 0);
+    ok('a wrong one comes out', (await CW.remove(P, 'Tulane')).removed === 1 && !(await Co.load(P, { now: nowC })).has('Tulane'));
+    ok('it runs once a day, 6 to 7am Central', (await CW.tick(P, { now: new Date('2026-11-04T18:00:00Z'), deps: depsC })).skipped === 'not the hour');
+    const IXc = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    ok('scheduled, with admin routes to run it and to take one out', /PCW\.tick\(store\.pool\)/.test(IXc) && /app\.delete\('\/api\/admin\/portal\/coaching-change\/:school'/.test(IXc) && /app\.post\('\/api\/admin\/portal\/coach-watch'/.test(IXc));
+  }
+
+  OUT.push('-- public position pages and the weekly report --');
+  {
+    const PP = require(REPO + 'server/services/portalRoom/positionPages');
+    PP.clearCache();
+    const html = await PP.page(P, 'wr', { now: NOW });
+    ok('/portal-room/needs/wr is a full page from the roster count: thinnest rooms first, read rosters only', /<h1>FBS schools that need a wide receiver for the 2027 transfer portal<\/h1>/.test(html) && /Baylor/.test(html) && html.indexOf('Baylor') < html.indexOf('Houston') && !/Roster not read yet<\/b>/.test(html));
+    ok('it says how it is counted and what it is not', /Not every senior leaves/.test(html) && /from \d+ of \d+ FBS rosters read/.test(html) && /rel="canonical" href="https:\/\/mynildash\.com\/portal-room\/needs\/wr"/.test(html));
+    ok('it ends with the free board for that position and the demo', /href="\/portal-board\?position=wr"/.test(html) && /href="\/portal-room\/demo"/.test(html));
+    ok('an unknown position is a 404, not a page', (await PP.page(P, 'xyz')) === null);
+    ok('names are escaped on the page', !/<script>/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')));
+    const WR = require(REPO + 'server/services/portalRoom/weeklyReport');
+    await P.query(`UPDATE portal_board_leads SET unsubscribed = FALSE WHERE email = 'agent@example.com'`);
+    await P.query(`INSERT INTO portal_board_leads (email, name, grp, unsubscribed) VALUES ('gone@example.com','Gone','WR',TRUE) ON CONFLICT DO NOTHING`);
+    const sentR = [];
+    const monday = new Date('2026-11-09T14:30:00Z');   // Mon 8:30am Central
+    const rr = await WR.run(P, { now: monday, deps: { send: async (m) => sentR.push(m) } });
+    const toAgent = sentR.find((m) => m.to === 'agent@example.com');
+    ok('Monday: every lead who has not said stop gets one Portal Report for his position', toAgent && !sentR.some((m) => m.to === 'gone@example.com') && rr.sent === sentR.length && /Portal Report: who needs a/.test(toAgent.subject));
+    ok('it has the top 5, the window countdown, the free board and the trial, a stop link and the address, no em dashes', /^1\. /m.test(toAgent.text) && /days until the portal window opens/.test(toAgent.text) && /\/portal-board\?position=/.test(toAgent.text) && /\/try/.test(toAgent.text) && /portal-report\/stop\?e=agent%40example\.com&s=[a-f0-9]{32}/.test(toAgent.text) && /3796 Turnberry Court/.test(toAgent.text) && !/[—–]/.test(toAgent.text));
+    ok('never twice in a week', (await WR.run(P, { now: new Date(monday.getTime() + 1800000), deps: { send: async (m) => sentR.push(m) } })).sent === 0);
+    ok('a forged stop link does nothing; the real one stops him for good', !(await WR.stop(P, 'agent@example.com', 'a'.repeat(32))) && (await WR.stop(P, 'agent@example.com', WR.stopUrl('agent@example.com').split('s=')[1])) && (await P.query(`SELECT unsubscribed FROM portal_board_leads WHERE email = 'agent@example.com'`)).rows[0].unsubscribed === true);
+    ok('it only runs Mondays 8 to 9am Central', (await WR.tick(P, { now: new Date('2026-11-10T14:30:00Z') })).skipped === 'not the hour');
+    const IXp = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    const SM = fs.readFileSync(REPO + 'public/sitemap.xml', 'utf8');
+    const RB = fs.readFileSync(REPO + 'public/robots.txt', 'utf8');
+    ok('routes, schedule, sitemap and robots: public pages listed, token links never crawled', /app\.get\('\/portal-room\/needs\/:pos'/.test(IXp) && /PWR\.tick\(store\.pool\)/.test(IXp) && /app\.get\('\/portal-report\/stop'/.test(IXp) && /portal-room\/needs\/wr<\/loc>/.test(SM) && /portal-board<\/loc>/.test(SM) && /Disallow: \/portal-profile\//.test(RB) && /Disallow: \/portal-report\//.test(RB));
+  }
+
   OUT.push('-- the client list --');
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('crm-ath2',$1,$2),('crm-ath3',$1,$3) ON CONFLICT DO NOTHING`, [AG, JSON.stringify({ name: 'Alex Bell', position: 'CB', sport: 'Football' }), JSON.stringify({ name: 'Sam Hoop', sport: 'Basketball' })]);
   const cl = await W.clients(P, AG, await store.getAthletesByAgent(AG));
@@ -172,6 +360,11 @@ async function main() {
     ok('a Nuxt site\'s roster is read out of its data block (Clemson, Auburn, Iowa, Arizona State, Northwestern, Georgia Tech, New Mexico)', np.length === 60 && np[1].name === 'First1 Last1' && np[1].position === 'WR' && np[1].year === 'Senior' && np[1].hometown === 'Town, ST', np[1]);
     const r = await Sw.readRoster({ school: 'Clemson', domain: 'clemsontigers.com', now: NOW }, { fetchPage: async (url) => ({ ok: true, status: 200, url, html }), parseRoster: () => [], ai: null });
     ok('and the sweep uses it when the page has no roster table', r.status === 'ok' && r.via === 'nuxt' && r.withPos === 60, { status: r.status, via: r.via, withPos: r.withPos });
+    const vue = '<table v-if="players.length"></table><script>var roster = {"title":"2026 Football","players":[' + Array.from({ length: 60 }, (_, i) => JSON.stringify({ first_name: 'Kian' + i + ' ', last_name: 'A"fro]k', position_short: i % 2 ? 'WR' : 'DB', academic_year_short: i < 10 ? 'Sr.' : 'So.', hometown: 'Logan, Utah' })).join(',') + '],"coaches":[]};</script>';
+    const ep = Sw.embeddedPlayers(vue);
+    ok('a Vue Sidearm page that draws its table from an embedded players list is read (Utah State), brackets and quotes inside names included', ep.length === 60 && ep[0].name === 'Kian0 A"fro]k' && ep[1].position === 'WR' && ep[0].year === 'Sr.', ep[0]);
+    const rv = await Sw.readRoster({ school: 'Utah State', domain: 'utahstateaggies.com', now: NOW }, { fetchPage: async (url) => ({ ok: true, status: 200, url, html: vue }), parseRoster: () => [], ai: null });
+    ok('and the sweep uses it', rv.status === 'ok' && rv.via === 'embedded' && rv.withPos === 60, { status: rv.status, via: rv.via });
     ok('garbage in the data block reads as nothing, not a crash', Sw.nuxtPlayers('<script id="__NUXT_DATA__">{not json</script>').length === 0 && Sw.nuxtPlayers('<p>plain</p>').length === 0);
     ok('the old-style sport path is tried when /sports/football is not there (Georgia Tech, Arkansas)', Sw.candidateUrls('ramblinwreck.com', null, NOW).includes('https://ramblinwreck.com/sports/m-footbl/roster') && Sw.candidateUrls('arkansasrazorbacks.com', null, NOW).includes('https://arkansasrazorbacks.com/sport/m-footbl/roster/') && Sw.candidateUrls('x.com', null, NOW)[0] === 'https://x.com/sports/football/roster');
     ok('a position printed short and long side by side still counts ("OLB OLB", Navy)', Pos.groupOf('OLB OLB') === 'LB' && Pos.groupOf('WR Wide Receiver') === 'WR' && Pos.groupOf('ATH') === null);

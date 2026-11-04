@@ -255,6 +255,9 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
             <label class="f">Height and weight<input class="inp" id="opHW" placeholder="6-1, 195"></label>
             <label class="f">Class<input class="inp" id="opClass" placeholder="Redshirt junior"></label>
             <label class="f">Stat line<input class="inp" id="opStats"></label>
+            <label class="f">Measurables<input class="inp" id="opMeas" placeholder="40: 4.48 · Vert: 36"></label>
+            <label class="f">What he's looking for<input class="inp" id="opLook" placeholder="A starting role in an up-tempo offense"></label>
+            <label class="f">Academics<input class="inp" id="opAcad" placeholder="3.4 GPA, business major"></label>
             <label class="f">Highlights (one per line)<textarea class="inp" id="opHigh"></textarea></label>
             <label class="f">Film link<input class="inp" id="opFilm" placeholder="https://"></label>
             <label class="f">Stats link<input class="inp" id="opStatsUrl" placeholder="https://"></label>
@@ -265,7 +268,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
             <label class="f">Note to schools<textarea class="inp" id="opNote"></textarea></label>
             <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="opLive">Turn off</button><button class="btn" type="button" id="opNew">New link</button></div>
             <div class="msg" id="opMsg"></div>
-            <div class="foot">Schools see only what you fill in here, plus his name, position and school. Never his phone or email.</div>
+            <div class="foot">Schools see only what you fill in here, plus his name, position and school. Never his phone or email. Each school gets its own link in the email NILDash writes, so you see which schools open it.</div>
           </form>
         </aside>
       </div>
@@ -374,7 +377,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
     const tile = (k, v, s) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v disp">${esc(v)}</div><div class="s">${esc(s)}</div></div>`;
     $('stats').innerHTML = [
       tile('Schools on his list', st.onList, S.ws.group ? `Need from ${cov.read} of ${cov.total} FBS rosters read` : 'Add his position to score them'),
-      tile('Contacted', st.contacted, `${st.repliesThisWeek} repl${st.repliesThisWeek === 1 ? 'y' : 'ies'} logged this week`),
+      tile('Contacted', st.contacted, `${st.repliesThisWeek} repl${st.repliesThisWeek === 1 ? 'y' : 'ies'} this week · ${st.opened || 0} opened his one-pager`),
       tile('Visits set', st.visits, st.visits ? S.ws.cards.filter((c) => c.stage === 'visit').map((c) => c.school).join(', ') : 'None yet'),
       tile('Offers', st.offers, st.bestGuaranteed ? `Most guaranteed ${usd(st.bestGuaranteed.amount)}, ${st.bestGuaranteed.school}` : 'None logged yet'),
       tile(st.committed ? 'Committed' : 'Steps due', st.committed ? '✓' : st.due, st.committed ? st.committed : 'Today or overdue'),
@@ -407,6 +410,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
       ${c.fit != null ? `<span class="l"><span>Fit</span><b>${c.fit}</b></span><span class="meter"><i style="width:${Math.max(2, Math.min(100, c.fit))}%"></i></span>` : ''}
       ${n ? `<span class="l"><span>${esc(needLabel(n))}</span><b>${n.rating === 'unknown' ? '' : `${n.leaving} of ${n.on} seniors+`}</b></span>` : ''}
       ${c.coachingChange ? '<span class="chip warn" style="margin-top:8px">New head coach</span>' : ''}
+      ${c.opens ? `<span class="chip ok" style="margin-top:8px">Opened ${c.opens.opens}x · ${esc(day(c.opens.lastOpenAt))}</span>` : ''}
       ${c.nextStep ? `<span class="nx">${esc(c.nextStep)}</span>` : ''}
       ${c.dueIn != null && c.stage !== 'committed' && c.stage !== 'passed' ? `<span class="due${c.dueIn <= 0 ? ' late' : ''}">${esc(dueText(c.dueIn))}</span>` : ''}
     </button>`;
@@ -447,6 +451,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
         </div>
         ${n ? `<div class="kv"><div><small>Need at ${esc(S.ws.group)}</small><b>${esc(needLabel(n))}</b></div><div><small>Seniors or older / on roster</small><b>${n.rating === 'unknown' ? 'Not read' : `${n.leaving} of ${n.on}`}</b></div></div><div class="foot">${esc(n.line)}</div>` : ''}
         ${c.coachingLine ? `<div class="note" style="font-size:13px">${esc(c.coachingLine)}</div>` : ''}
+        ${c.opens ? `<div class="note info" style="font-size:13px">Someone at ${esc(c.school)} opened his one-pager ${c.opens.opens} time${c.opens.opens === 1 ? '' : 's'}, last ${esc(new Date(c.opens.lastOpenAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }))} Central.</div>` : ''}
         <form id="tForm" style="display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px">
           <div class="grid2"><label class="f">Stage<select class="inp" id="tStage">${stageOpts}</select></label><label class="f">Due<input class="inp" type="date" id="tDue" value="${esc(c.dueOn || '')}"></label></div>
           <label class="f">Next step<input class="inp" id="tNext" maxlength="200" value="${esc(c.nextStep || '')}" placeholder="Call the GM Thursday"></label>
@@ -727,6 +732,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
   function fillProfile() {
     const p = S.profile || { data: {} }, d = p.data || {};
     $('opHW').value = d.heightWeight || ''; $('opClass').value = d.classYear || ''; $('opStats').value = d.statsLine || '';
+    $('opMeas').value = d.measurables || ''; $('opLook').value = d.lookingFor || ''; $('opAcad').value = d.academics || '';
     $('opHigh').value = (d.highlights || []).join('\n'); $('opFilm').value = d.filmUrl || ''; $('opStatsUrl').value = d.statsUrl || '';
     $('opHome').value = d.hometown || ''; $('opSeasons').checked = !!d.showSeasonsLeft; $('opPhone').value = d.agentPhone || ''; $('opEmail').value = d.agentEmail || ''; $('opNote').value = d.note || '';
     const url = p.token ? `${location.origin}/portal-profile/${p.token}` : null;
@@ -736,7 +742,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
     $('opLive').textContent = p.live ? 'Turn off' : 'Turn on';
     $('opLive').disabled = !p.token; $('opNew').disabled = !p.token;
   }
-  const opBody = (extra) => ({ heightWeight: $('opHW').value, classYear: $('opClass').value, statsLine: $('opStats').value, highlights: $('opHigh').value, filmUrl: $('opFilm').value, statsUrl: $('opStatsUrl').value, hometown: $('opHome').value, showSeasonsLeft: $('opSeasons').checked, agentPhone: $('opPhone').value, agentEmail: $('opEmail').value, note: $('opNote').value, live: S.profile && S.profile.token ? S.profile.live : true, ...(extra || {}) });
+  const opBody = (extra) => ({ heightWeight: $('opHW').value, classYear: $('opClass').value, statsLine: $('opStats').value, measurables: $('opMeas').value, lookingFor: $('opLook').value, academics: $('opAcad').value, highlights: $('opHigh').value, filmUrl: $('opFilm').value, statsUrl: $('opStatsUrl').value, hometown: $('opHome').value, showSeasonsLeft: $('opSeasons').checked, agentPhone: $('opPhone').value, agentEmail: $('opEmail').value, note: $('opNote').value, live: S.profile && S.profile.token ? S.profile.live : true, ...(extra || {}) });
   $('opForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try { S.profile = { ...(S.profile || {}), ...(await api('PUT', '/api/portal/one-pager/' + encodeURIComponent(S.aid), opBody())) }; fillProfile(); say('opMsg', 'Saved.'); }

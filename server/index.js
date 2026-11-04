@@ -12782,15 +12782,81 @@ app.post('/api/portal/activity/:athleteId', requireAuth, requireAgentSubscriptio
 app.put('/api/portal/one-pager/:athleteId', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().saveProfile(store.pool, req.session.userId, a.id, req.body || {})));
 app.post('/api/portal/one-pager/:athleteId/new-link', requireAuth, requireAgentSubscription, _portalRoute((req, a) => _portalT().rotateToken(store.pool, req.session.userId, a.id)));
 const _portalProfileLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Try again later.' } });
+// The free Portal Board (services/portalRoom/freeBoard): no account, the top
+// 10 schools for a position; the people to call come with the trial.
+const _portalFreeLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many boards from here. Try again in an hour.' } });
+const _portalLeadLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 8, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Try again later.' } });
+// The one-click stop link in the Portal Room morning email.
+app.get('/portal-alerts/off', async (req, res) => {
+  let ok = false;
+  try { ok = await require('./services/portalRoom/alerts').turnOff(store.pool, req.query.a, req.query.s); } catch (e) { console.error('[portal-alerts/off]', e.message); }
+  res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Portal Room emails</title><body style="font:16px/1.5 system-ui,sans-serif;max-width:560px;margin:60px auto;padding:0 16px"><p>${ok ? 'Done. You will not get the Portal Room morning email again.' : 'That link did not work. Reply to any Portal Room email and we will turn it off.'}</p><p><a href="/portal-room">Back to the Portal Room</a></p></body>`);
+});
+// Public pages: which FBS schools need each position (services/portalRoom/
+// positionPages), built on the server so search engines can read them.
+app.get('/portal-room/needs', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600').type('html').send(require('./services/portalRoom/positionPages').index());
+});
+app.get('/portal-room/needs/:pos', async (req, res, next) => {
+  try {
+    const html = await require('./services/portalRoom/positionPages').page(store.pool, req.params.pos);
+    if (!html) return next();
+    res.set('Cache-Control', 'public, max-age=1800').type('html').send(html);
+  } catch (e) { console.error('[portal-room/needs]', e.message); res.status(500).send('Something went wrong. Try again.'); }
+});
+// The stop link in the weekly Portal Report.
+app.get('/portal-report/stop', async (req, res) => {
+  let ok = false;
+  try { ok = await require('./services/portalRoom/weeklyReport').stop(store.pool, req.query.e, req.query.s); } catch (e) { console.error('[portal-report/stop]', e.message); }
+  res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Portal Report</title><body style="font:16px/1.5 system-ui,sans-serif;max-width:560px;margin:60px auto;padding:0 16px"><p>${ok ? 'Done. You will not get the Portal Report again.' : 'That link did not work. Reply to any Portal Report and we will take you off.'}</p></body>`);
+});
+app.get('/portal-board', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'portal-board.html'));
+});
+app.get('/api/portal/free-board/meta', _portalFreeLimiter, (req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600').json(require('./services/portalRoom').meta());
+});
+app.post('/api/portal/free-board', _portalFreeLimiter, async (req, res) => {
+  try { res.set('Cache-Control', 'no-store').json(await require('./services/portalRoom/freeBoard').freeBoard(store.pool, req.body || {})); }
+  catch (e) { if (!e.status) console.error('[portal/free-board]', e.message); res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' }); }
+});
+app.post('/api/portal/free-board/email', _portalLeadLimiter, async (req, res) => {
+  try { res.json(await require('./services/portalRoom/freeBoard').emailBoard(store.pool, req.body || {})); }
+  catch (e) { if (!e.status) console.error('[portal/free-board/email]', e.message); res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' }); }
+});
 app.get('/portal-profile/:token', (req, res) => {
   res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'portal-profile.html'));
 });
 app.get('/api/portal-profile/:token', _portalProfileLimiter, async (req, res) => {
   try {
-    const v = await _portalT().publicProfile(store.pool, store, req.params.token, { countView: true });
+    // Loading the page counts nothing: the page reports a view once it has
+    // been on screen (POST .../seen), so link checkers are not opens.
+    const v = await _portalT().publicProfile(store.pool, store, req.params.token, { countView: false });
     if (!v) return res.status(404).json({ error: 'This page is not available.' });
     res.set('Cache-Control', 'no-store').json(v);
   } catch (e) { console.error('[portal-profile]', e.message); res.status(500).json({ error: 'Something went wrong.' }); }
+});
+// Someone looked at the one-pager (services/portalRoom/opens). ?s= is the
+// school's own link from the email; the agent's own views never count.
+app.post('/api/portal-profile/:token/seen', _portalProfileLimiter, async (req, res) => {
+  try {
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const r = await require('./services/portalRoom/opens').recordOpen(store.pool, store, {
+      profileToken: req.params.token, linkToken: (req.body && req.body.s) || req.query.s || null,
+      viewerUserId: (req.session && req.session.userId) || null, ua: String(req.headers['user-agent'] || ''), ip,
+    });
+    res.set('Cache-Control', 'no-store').json({ ok: true, counted: !!r.counted });
+  } catch (e) { console.error('[portal-profile/seen]', e.message); res.json({ ok: true, counted: false }); }
+});
+// A wrong coaching change comes out (services/portalRoom/coachingWatch).
+app.delete('/api/admin/portal/coaching-change/:school', async (req, res) => {
+  try { res.json(await require('./services/portalRoom/coachingWatch').remove(store.pool, req.params.school)); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+// Run the news check now (it also runs 6 to 7am Central by itself).
+app.post('/api/admin/portal/coach-watch', async (req, res) => {
+  try { const r = await require('./services/portalRoom/coachingWatch').run(store.pool); res.json({ items: r.items, added: r.added, skipped: r.skipped.slice(0, 60) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/admin/portal/coverage', async (req, res) => {
   try { res.json(await require('./services/portalRoom/rosterSweep').coverage(store.pool)); }
@@ -16380,6 +16446,48 @@ try {
 } catch (e) {
   console.warn('[queue] scheduler failed to start:', e.message);
 }
+
+// ── Head coaching changes from the news (services/portalRoom/coachingWatch) ─
+// 6 to 7am Central, once a day, before the morning email. Off with
+// PORTAL_COACH_WATCH=off.
+try {
+  const PCW = require('./services/portalRoom/coachingWatch');
+  if (!PCW.on()) console.log('[portal] coaching-change watch is OFF (PORTAL_COACH_WATCH=off)');
+  else {
+    const cwTick = () => { PCW.tick(store.pool).then((r) => { if (r && r.added && r.added.length) console.log(`[portal] coaching changes added: ${r.added.map((a) => a.school).join(', ')}`); }).catch((e) => console.error('[portal] coaching-change watch failed:', e.message)); };
+    setTimeout(cwTick, 7 * 60 * 1000);
+    setInterval(cwTick, 15 * 60 * 1000);
+    console.log('[portal] coaching-change watch scheduled: 6-7am Central');
+  }
+} catch (e) { console.warn('[portal] coaching-change watch failed to start:', e.message); }
+
+// ── The weekly Portal Report (services/portalRoom/weeklyReport) ─────────────
+// Mondays 8 to 9am Central, to free Portal Board leads who have not said stop.
+// Off with PORTAL_REPORT=off.
+try {
+  const PWR = require('./services/portalRoom/weeklyReport');
+  if (!PWR.on()) console.log('[portal] weekly report is OFF (PORTAL_REPORT=off)');
+  else {
+    const wrTick = () => { PWR.tick(store.pool).then((r) => { if (r && r.sent) console.log(`[portal] weekly report: ${r.sent} sent of ${r.leads}`); }).catch((e) => console.error('[portal] weekly report failed:', e.message)); };
+    setTimeout(wrTick, 8 * 60 * 1000);
+    setInterval(wrTick, 15 * 60 * 1000);
+    console.log('[portal] weekly report scheduled: Mondays 8-9am Central');
+  }
+} catch (e) { console.warn('[portal] weekly report failed to start:', e.message); }
+
+// ── The Portal Room morning email (services/portalRoom/alerts) ──────────────
+// 7 to 9am Central, one per agent with a board, only when something is due.
+// Off with PORTAL_ALERTS=off.
+try {
+  const PRA = require('./services/portalRoom/alerts');
+  if (!PRA.on()) console.log('[portal] morning alerts are OFF (PORTAL_ALERTS=off)');
+  else {
+    const paTick = () => { PRA.tick(store.pool, store).then((r) => { if (r && r.sent) console.log(`[portal] morning alerts: ${r.sent} sent of ${r.agents}`); }).catch((e) => console.error('[portal] morning alerts tick failed:', e.message)); };
+    setTimeout(paTick, 6 * 60 * 1000);
+    setInterval(paTick, 15 * 60 * 1000);
+    console.log('[portal] morning alerts scheduled: 7-9am Central');
+  }
+} catch (e) { console.warn('[portal] morning alerts failed to start:', e.message); }
 
 // ── The Portal Room roster sweep (services/portalRoom/rosterSweep) ──────────
 // Every FBS football roster, a slice a night, 9 to 11pm Central, claimed by

@@ -48,7 +48,7 @@ const exists = (p) => fs.existsSync(REPO + p);
   ok('  it lists the pages a stranger can actually read', ['/', '/landing', '/demo', '/privacy', '/terms'].every((p) => sm.includes('<loc>https://mynildash.com' + p + '</loc>')));
   ok('  and lists NOTHING behind a login', !/(api|admin|dashboard|athlete-login|reset)/.test(sm));
   const opens = (sm.match(/<url>/g) || []).length, closes = (sm.match(/<\/url>/g) || []).length;
-  ok('  the tags balance', opens === closes && opens === 5, [opens, closes]);
+  ok('  the tags balance', opens === closes && opens === 19, [opens, closes]);   // 5 site pages + the Portal Room's public pages (14)
 
   // favicon.ico -- parsed the way a browser parses it.
   const ico = fs.readFileSync(REPO + 'public/favicon.ico');
