@@ -1435,6 +1435,12 @@
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
       "views": "INT DEFAULT 0"
     },
+    "portal_report_sends": {
+      "email": "TEXT",
+      "error": "TEXT",
+      "sent_at": "TIMESTAMPTZ",
+      "week": "DATE"
+    },
     "portal_sweep_runs": {
       "run_date": "DATE",
       "started_at": "TIMESTAMPTZ DEFAULT NOW()",

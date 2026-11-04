@@ -12792,6 +12792,24 @@ app.get('/portal-alerts/off', async (req, res) => {
   try { ok = await require('./services/portalRoom/alerts').turnOff(store.pool, req.query.a, req.query.s); } catch (e) { console.error('[portal-alerts/off]', e.message); }
   res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Portal Room emails</title><body style="font:16px/1.5 system-ui,sans-serif;max-width:560px;margin:60px auto;padding:0 16px"><p>${ok ? 'Done. You will not get the Portal Room morning email again.' : 'That link did not work. Reply to any Portal Room email and we will turn it off.'}</p><p><a href="/portal-room">Back to the Portal Room</a></p></body>`);
 });
+// Public pages: which FBS schools need each position (services/portalRoom/
+// positionPages), built on the server so search engines can read them.
+app.get('/portal-room/needs', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600').type('html').send(require('./services/portalRoom/positionPages').index());
+});
+app.get('/portal-room/needs/:pos', async (req, res, next) => {
+  try {
+    const html = await require('./services/portalRoom/positionPages').page(store.pool, req.params.pos);
+    if (!html) return next();
+    res.set('Cache-Control', 'public, max-age=1800').type('html').send(html);
+  } catch (e) { console.error('[portal-room/needs]', e.message); res.status(500).send('Something went wrong. Try again.'); }
+});
+// The stop link in the weekly Portal Report.
+app.get('/portal-report/stop', async (req, res) => {
+  let ok = false;
+  try { ok = await require('./services/portalRoom/weeklyReport').stop(store.pool, req.query.e, req.query.s); } catch (e) { console.error('[portal-report/stop]', e.message); }
+  res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Portal Report</title><body style="font:16px/1.5 system-ui,sans-serif;max-width:560px;margin:60px auto;padding:0 16px"><p>${ok ? 'Done. You will not get the Portal Report again.' : 'That link did not work. Reply to any Portal Report and we will take you off.'}</p></body>`);
+});
 app.get('/portal-board', (req, res) => {
   res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'portal-board.html'));
 });
@@ -16442,6 +16460,20 @@ try {
     console.log('[portal] coaching-change watch scheduled: 6-7am Central');
   }
 } catch (e) { console.warn('[portal] coaching-change watch failed to start:', e.message); }
+
+// ── The weekly Portal Report (services/portalRoom/weeklyReport) ─────────────
+// Mondays 8 to 9am Central, to free Portal Board leads who have not said stop.
+// Off with PORTAL_REPORT=off.
+try {
+  const PWR = require('./services/portalRoom/weeklyReport');
+  if (!PWR.on()) console.log('[portal] weekly report is OFF (PORTAL_REPORT=off)');
+  else {
+    const wrTick = () => { PWR.tick(store.pool).then((r) => { if (r && r.sent) console.log(`[portal] weekly report: ${r.sent} sent of ${r.leads}`); }).catch((e) => console.error('[portal] weekly report failed:', e.message)); };
+    setTimeout(wrTick, 8 * 60 * 1000);
+    setInterval(wrTick, 15 * 60 * 1000);
+    console.log('[portal] weekly report scheduled: Mondays 8-9am Central');
+  }
+} catch (e) { console.warn('[portal] weekly report failed to start:', e.message); }
 
 // ── The Portal Room morning email (services/portalRoom/alerts) ──────────────
 // 7 to 9am Central, one per agent with a board, only when something is due.

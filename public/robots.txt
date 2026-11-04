@@ -29,5 +29,13 @@ Disallow: /report/
 Disallow: /kit/
 Disallow: /media-kit/
 Disallow: /pitch/
+# The Portal Room's one-pager links (one per player, one per school) and the
+# stop link in its morning email.
+Disallow: /portal-profile/
+Disallow: /portal-alerts/
+Disallow: /portal-report/
+# The Portal Room app itself needs a login; its public pages (the demo, the
+# free board and /portal-room/needs) stay open.
+Disallow: /portal-room/classic
 
 Sitemap: https://mynildash.com/sitemap.xml

@@ -307,6 +307,34 @@ async function main() {
     ok('scheduled, with admin routes to run it and to take one out', /PCW\.tick\(store\.pool\)/.test(IXc) && /app\.delete\('\/api\/admin\/portal\/coaching-change\/:school'/.test(IXc) && /app\.post\('\/api\/admin\/portal\/coach-watch'/.test(IXc));
   }
 
+  OUT.push('-- public position pages and the weekly report --');
+  {
+    const PP = require(REPO + 'server/services/portalRoom/positionPages');
+    PP.clearCache();
+    const html = await PP.page(P, 'wr', { now: NOW });
+    ok('/portal-room/needs/wr is a full page from the roster count: thinnest rooms first, read rosters only', /<h1>FBS schools that need a wide receiver for the 2027 transfer portal<\/h1>/.test(html) && /Baylor/.test(html) && html.indexOf('Baylor') < html.indexOf('Houston') && !/Roster not read yet<\/b>/.test(html));
+    ok('it says how it is counted and what it is not', /Not every senior leaves/.test(html) && /from \d+ of \d+ FBS rosters read/.test(html) && /rel="canonical" href="https:\/\/mynildash\.com\/portal-room\/needs\/wr"/.test(html));
+    ok('it ends with the free board for that position and the demo', /href="\/portal-board\?position=wr"/.test(html) && /href="\/portal-room\/demo"/.test(html));
+    ok('an unknown position is a 404, not a page', (await PP.page(P, 'xyz')) === null);
+    ok('names are escaped on the page', !/<script>/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')));
+    const WR = require(REPO + 'server/services/portalRoom/weeklyReport');
+    await P.query(`UPDATE portal_board_leads SET unsubscribed = FALSE WHERE email = 'agent@example.com'`);
+    await P.query(`INSERT INTO portal_board_leads (email, name, grp, unsubscribed) VALUES ('gone@example.com','Gone','WR',TRUE) ON CONFLICT DO NOTHING`);
+    const sentR = [];
+    const monday = new Date('2026-11-09T14:30:00Z');   // Mon 8:30am Central
+    const rr = await WR.run(P, { now: monday, deps: { send: async (m) => sentR.push(m) } });
+    const toAgent = sentR.find((m) => m.to === 'agent@example.com');
+    ok('Monday: every lead who has not said stop gets one Portal Report for his position', toAgent && !sentR.some((m) => m.to === 'gone@example.com') && rr.sent === sentR.length && /Portal Report: who needs a/.test(toAgent.subject));
+    ok('it has the top 5, the window countdown, the free board and the trial, a stop link and the address, no em dashes', /^1\. /m.test(toAgent.text) && /days until the portal window opens/.test(toAgent.text) && /\/portal-board\?position=/.test(toAgent.text) && /\/try/.test(toAgent.text) && /portal-report\/stop\?e=agent%40example\.com&s=[a-f0-9]{32}/.test(toAgent.text) && /3796 Turnberry Court/.test(toAgent.text) && !/[—–]/.test(toAgent.text));
+    ok('never twice in a week', (await WR.run(P, { now: new Date(monday.getTime() + 1800000), deps: { send: async (m) => sentR.push(m) } })).sent === 0);
+    ok('a forged stop link does nothing; the real one stops him for good', !(await WR.stop(P, 'agent@example.com', 'a'.repeat(32))) && (await WR.stop(P, 'agent@example.com', WR.stopUrl('agent@example.com').split('s=')[1])) && (await P.query(`SELECT unsubscribed FROM portal_board_leads WHERE email = 'agent@example.com'`)).rows[0].unsubscribed === true);
+    ok('it only runs Mondays 8 to 9am Central', (await WR.tick(P, { now: new Date('2026-11-10T14:30:00Z') })).skipped === 'not the hour');
+    const IXp = fs.readFileSync(REPO + 'server/index.js', 'utf8');
+    const SM = fs.readFileSync(REPO + 'public/sitemap.xml', 'utf8');
+    const RB = fs.readFileSync(REPO + 'public/robots.txt', 'utf8');
+    ok('routes, schedule, sitemap and robots: public pages listed, token links never crawled', /app\.get\('\/portal-room\/needs\/:pos'/.test(IXp) && /PWR\.tick\(store\.pool\)/.test(IXp) && /app\.get\('\/portal-report\/stop'/.test(IXp) && /portal-room\/needs\/wr<\/loc>/.test(SM) && /portal-board<\/loc>/.test(SM) && /Disallow: \/portal-profile\//.test(RB) && /Disallow: \/portal-report\//.test(RB));
+  }
+
   OUT.push('-- the client list --');
   await P.query(`INSERT INTO athletes (id, agent_id, data) VALUES ('crm-ath2',$1,$2),('crm-ath3',$1,$3) ON CONFLICT DO NOTHING`, [AG, JSON.stringify({ name: 'Alex Bell', position: 'CB', sport: 'Football' }), JSON.stringify({ name: 'Sam Hoop', sport: 'Basketball' })]);
   const cl = await W.clients(P, AG, await store.getAthletesByAgent(AG));
