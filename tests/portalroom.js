@@ -92,7 +92,7 @@ async function main() {
   ok('model off: a thin page stays thin, no call', r.status === 'thin' && modelCalls === 1);
   delete process.env.PORTAL_ROSTER_MODEL;
   r = await Sweep.readRoster({ school: 'Hawaii', domain: 'hawaiiathletics.com', now: NOW }, { fetchPage: async (u) => ({ ok: false, status: 403, url: u }), ai: null });
-  ok('a site that refuses: failed, every URL tried recorded', r.status === 'failed' && r.tried.length === 4 && r.tried.every((t) => t.status === 403), r.tried);
+  ok('a site that refuses: failed, every URL tried recorded', r.status === 'failed' && r.tried.length === 8 && r.tried.every((t) => t.status === 403), r.tried);
 
   OUT.push('-- saving --');
   await Sweep.ensureTables(store.pool);

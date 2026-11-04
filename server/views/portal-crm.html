@@ -293,6 +293,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
   const day = (d) => (d ? new Date(String(d).length === 10 ? d + 'T12:00:00Z' : d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: String(d).length === 10 ? 'UTC' : 'America/Chicago' }) : '');
   const dueText = (n) => (n == null ? '' : n === 0 ? 'Due today' : n < 0 ? `${-n} day${n === -1 ? '' : 's'} overdue` : n === 1 ? 'Due tomorrow' : `Due in ${n} days`);
   const NEED = { high: 'Thin', medium: 'Below average', low: 'Deep', unknown: 'Roster not read yet' };
+  const needLabel = (n) => (n && n.noYears ? 'No class years printed' : NEED[n && n.rating] || '');
   const ICON = {
     ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157347" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L19 7"/></svg>',
     warn: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8A3F05" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>',
@@ -404,7 +405,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
     return `<button type="button" class="card" data-pick="${esc(c.id)}" aria-pressed="${c.id === S.sel}">
       <span class="t"><b>${esc(c.school)}</b><span>${esc(c.level || '')}</span></span>
       ${c.fit != null ? `<span class="l"><span>Fit</span><b>${c.fit}</b></span><span class="meter"><i style="width:${Math.max(2, Math.min(100, c.fit))}%"></i></span>` : ''}
-      ${n ? `<span class="l"><span>${esc(NEED[n.rating] || '')}</span><b>${n.rating === 'unknown' ? '' : `${n.leaving} of ${n.on} seniors+`}</b></span>` : ''}
+      ${n ? `<span class="l"><span>${esc(needLabel(n))}</span><b>${n.rating === 'unknown' ? '' : `${n.leaving} of ${n.on} seniors+`}</b></span>` : ''}
       ${c.coachingChange ? '<span class="chip warn" style="margin-top:8px">New head coach</span>' : ''}
       ${c.nextStep ? `<span class="nx">${esc(c.nextStep)}</span>` : ''}
       ${c.dueIn != null && c.stage !== 'committed' && c.stage !== 'passed' ? `<span class="due${c.dueIn <= 0 ? ' late' : ''}">${esc(dueText(c.dueIn))}</span>` : ''}
@@ -444,7 +445,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
           <div><h2 class="disp" style="margin:0;font-size:26px">${esc(c.school)}</h2><div class="sub">${esc([c.conference, c.level, c.stageLabel].filter(Boolean).join(' · '))}</div></div>
           ${c.fit != null ? `<div style="text-align:right"><div class="disp" style="font-size:28px;color:var(--accent)">${c.fit}</div><div style="font-size:11px;color:var(--muted)">fit score</div></div>` : ''}
         </div>
-        ${n ? `<div class="kv"><div><small>Need at ${esc(S.ws.group)}</small><b>${esc(NEED[n.rating])}</b></div><div><small>Seniors or older / on roster</small><b>${n.rating === 'unknown' ? 'Not read' : `${n.leaving} of ${n.on}`}</b></div></div><div class="foot">${esc(n.line)}</div>` : ''}
+        ${n ? `<div class="kv"><div><small>Need at ${esc(S.ws.group)}</small><b>${esc(needLabel(n))}</b></div><div><small>Seniors or older / on roster</small><b>${n.rating === 'unknown' ? 'Not read' : `${n.leaving} of ${n.on}`}</b></div></div><div class="foot">${esc(n.line)}</div>` : ''}
         ${c.coachingLine ? `<div class="note" style="font-size:13px">${esc(c.coachingLine)}</div>` : ''}
         <form id="tForm" style="display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px">
           <div class="grid2"><label class="f">Stage<select class="inp" id="tStage">${stageOpts}</select></label><label class="f">Due<input class="inp" type="date" id="tDue" value="${esc(c.dueOn || '')}"></label></div>
@@ -576,7 +577,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
     try {
       const prefs = S.prefs || (await api('GET', '/api/portal/wishlist/' + encodeURIComponent(S.aid))).prefs || {};
       S.prefs = prefs;
-      S.board = await api('POST', '/api/portal/board', { ...prefs, group: S.ws.group, position: S.ws.athlete.position || '', limit: 40 });
+      S.board = await api('POST', '/api/portal/board', { ...prefs, currentSchool: prefs.currentSchool || S.ws.athlete.school || null, group: S.ws.group, position: S.ws.athlete.position || '', limit: 40 });
       S.board._aid = S.aid;
       renderBoard();
     } catch (err) { $('boardBody').innerHTML = `<tr><td colspan="6" class="err">${esc(err.message)}</td></tr>`; }
@@ -593,7 +594,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
       const n = r.need;
       return `<tr>
         <td><b>${esc(r.school)}</b>${r.named ? ' <span class="chip ok">His pick</span>' : ''}<div class="foot">${esc([r.conference, r.level].filter(Boolean).join(' · '))}</div></td>
-        <td><b>${esc(NEED[n.rating])}</b><div class="foot">${n.rating === 'unknown' ? '' : `${n.back} coming back, median ${n.median}`}</div></td>
+        <td><b>${esc(needLabel(n))}</b><div class="foot">${n.rating === 'unknown' ? '' : `${n.back} coming back, median ${n.median}`}</div></td>
         <td>${n.rating === 'unknown' ? '' : `${n.leaving} of ${n.on}`}</td>
         <td class="sub">${r.coachingChange ? 'New head coach coming' : 'No change on file'}</td>
         <td><b>${r.score}</b></td>
@@ -693,7 +694,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
   function fillPrefs(p) {
     p = p || {};
     $('pGroup').value = p.group || S.ws.group || '';
-    $('pCur').value = p.currentSchool || ''; $('pCurLevel').value = p.currentLevel || ''; $('pLevel').value = p.level || 'any';
+    $('pCur').value = p.currentSchool || (S.meta && S.meta.schools.some((s) => s.name === S.ws.athlete.school) ? S.ws.athlete.school : '') || ''; $('pCurLevel').value = p.currentLevel || ''; $('pLevel').value = p.level || 'any';
     $('pHome').value = p.homeState || ''; $('pStates').value = (p.states || []).join(', '); $('pSchools').value = (p.schools || []).join(', ');
     for (const x of document.querySelectorAll('#pRegions input')) x.checked = (p.regions || []).includes(x.value);
     $('pClose').checked = !!p.closeToHome; $('pBirth').value = p.birthDate || ''; $('pEnroll').value = p.firstEnrollment || ''; $('pPrior').value = p.priorTransfers || 0;

@@ -102,7 +102,9 @@ async function workspace(pool, store, agent, athlete, { now = new Date() } = {})
   if (group) {
     // Every school scored with his saved wish list (the same scores the
     // Schools tab shows), so a target never falls off the bottom of a list.
-    const { prefs: cp } = PR.cleanPrefs({ ...prefs, group });
+    // No school saved yet: his school from his profile, so it is not ranked
+    // as a place to transfer to.
+    const { prefs: cp } = PR.cleanPrefs({ ...prefs, group, currentSchool: prefs.currentSchool || athlete.school || null });
     const [rows, coaching] = await Promise.all([PR.rosters(pool), PR.Coaching.load(pool, { now })]);
     const b = Board.rank({ group, prefs: cp, rosters: rows, coaching, limit: 1000, keepAll: true });
     boardRows = [...b.dream, ...b.options];

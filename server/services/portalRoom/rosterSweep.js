@@ -72,7 +72,72 @@ function candidateUrls(domain, staffUrl, now = new Date()) {
   if (domain) { hosts.push(`https://${domain}`); if (!/^www\./.test(domain)) hosts.push(`https://www.${domain}`); }
   const urls = [];
   for (const h of [...new Set(hosts)]) urls.push(`${h}/sports/football/roster`, `${h}/sports/football/roster/${season}`);
+  // Sites that name the sport the old way (Georgia Tech's /sports/m-footbl,
+  // Arkansas's /sport/m-footbl): tried only when the paths above fail.
+  for (const h of [...new Set(hosts)]) urls.push(`${h}/sports/m-footbl/roster`, `${h}/sport/m-footbl/roster/`);
   return [...new Set(urls)];
+}
+
+// ── ROSTERS IN A NUXT DATA BLOCK ────────────────────────────────────────────
+// WMT Digital sites (Clemson, Auburn, Iowa, Arizona State, Northwestern, Navy,
+// Georgia Tech, New Mexico...) print no roster table: the players ride in the
+// page's __NUXT_DATA__ script, a flat array where every object and array holds
+// indexes into the same array (the devalue format). Revived here, then the
+// biggest list of entries with a player position is the roster.
+function nuxtPlayers(html) {
+  const m = String(html || '').match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return [];
+  let arr;
+  try { arr = JSON.parse(m[1]); } catch (_) { return []; }
+  if (!Array.isArray(arr)) return [];
+  const memo = new Map();
+  const WRAP = /^(Shallow)?(Reactive|Ref)$|^EmptyRef$|^EmptyShallowRef$/;
+  const rev = (i) => {
+    if (typeof i !== 'number' || i < 0 || i >= arr.length) return undefined;
+    if (memo.has(i)) return memo.get(i);
+    const v = arr[i];
+    if (v === null || typeof v !== 'object') { memo.set(i, v); return v; }
+    if (Array.isArray(v)) {
+      if (typeof v[0] === 'string' && WRAP.test(v[0])) { memo.set(i, null); const r = rev(v[1]); memo.set(i, r); return r; }
+      if (v[0] === 'Date' && v.length === 2) { memo.set(i, v[1]); return v[1]; }
+      if (typeof v[0] === 'string' && ['Set', 'Map', 'BigInt', 'RegExp', 'null'].includes(v[0])) { memo.set(i, null); return null; }
+      const out = []; memo.set(i, out);
+      for (const x of v) out.push(rev(x));
+      return out;
+    }
+    const o = {}; memo.set(i, o);
+    for (const k of Object.keys(v)) o[k] = rev(v[k]);
+    return o;
+  };
+  let root;
+  try { root = rev(0); } catch (_) { return []; }
+  const label = (x) => (x == null ? '' : typeof x === 'object' ? (x.abbreviation || x.name || x.title || '') : String(x));
+  const nameOf = (e) => {
+    const p = e.player && typeof e.player === 'object' ? e.player : e;
+    return p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || p.name || '';
+  };
+  let best = [];
+  const seen = new Set();
+  const walk = (x, d) => {
+    if (!x || typeof x !== 'object' || seen.has(x) || d > 16) return;
+    seen.add(x);
+    if (Array.isArray(x)) {
+      const rows = x.filter((e) => e && typeof e === 'object' && !Array.isArray(e) && ('player_position' in e || 'position' in e || (e.player && 'player_position' in e.player)) && nameOf(e));
+      if (rows.length > best.length && rows.length >= x.length / 2) best = rows;
+      for (const y of x) walk(y, d + 1);
+    } else for (const k of Object.keys(x)) walk(x[k], d + 1);
+  };
+  walk(root, 0);
+  return best.map((e) => {
+    const p = e.player && typeof e.player === 'object' ? e.player : e;
+    return {
+      name: String(nameOf(e)).trim(),
+      position: label(e.player_position || e.position || p.player_position).trim(),
+      year: label(e.class_level || e.academic_year || e.year || p.class_level).trim(),
+      jersey: String(e.jersey_number_label || e.jersey_number || p.jersey_number || '').trim(),
+      hometown: typeof p.hometown === 'string' ? p.hometown : '',
+    };
+  });
 }
 
 async function fetchPage(url) {
@@ -146,9 +211,15 @@ async function readRoster({ school, domain, staffUrl, now = new Date() }, deps =
     if (!page.ok) { tried.push({ url, status: page.status || 0, error: page.error || null }); continue; }
     let players = [];
     try { players = parse(page.html).map(shape).filter((p) => p.name); } catch (e) { tried.push({ url, status: page.status, error: 'parse: ' + e.message }); continue; }
-    const sc = score(players);
-    tried.push({ url: page.url, status: page.status, players: sc.count, withPos: sc.withPos });
-    if (!best || sc.withPos > best.sc.withPos) best = { url: page.url, html: page.html, players, sc, via: 'parser' };
+    let sc = score(players), via = 'parser';
+    // No roster table: a Nuxt site carries the players in its data block.
+    if (sc.withPos < MIN_OK) {
+      const nx = nuxtPlayers(page.html).map(shape).filter((p) => p.name);
+      const ns = score(nx);
+      if (ns.withPos > sc.withPos) { players = nx; sc = ns; via = 'nuxt'; }
+    }
+    tried.push({ url: page.url, status: page.status, players: sc.count, withPos: sc.withPos, via });
+    if (!best || sc.withPos > best.sc.withPos) best = { url: page.url, html: page.html, players, sc, via };
     if (sc.withPos >= MIN_OK) break;
   }
   if (!best) return { school, status: 'failed', error: 'no roster page answered', tried, players: [] };
@@ -294,4 +365,4 @@ async function coverage(pool) {
   };
 }
 
-module.exports = { isRunning, MODEL_PER_NIGHT, MODEL_RETRY_DAYS, ensureTables, candidateUrls, readRoster, save, due, sweep, tick, coverage, shape, seasonOf, inPortalSeason, staleDays, centralHour, MIN_OK, SLICE, on };
+module.exports = { nuxtPlayers, isRunning, MODEL_PER_NIGHT, MODEL_RETRY_DAYS, ensureTables, candidateUrls, readRoster, save, due, sweep, tick, coverage, shape, seasonOf, inPortalSeason, staleDays, centralHour, MIN_OK, SLICE, on };

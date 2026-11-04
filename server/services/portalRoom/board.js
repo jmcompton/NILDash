@@ -33,6 +33,16 @@ const W = { need: 0.40, level: 0.20, money: 0.15, wants: 0.25 };
 const FALLBACK_MEDIAN = { QB: 3, RB: 4, WR: 8, TE: 4, OL: 12, DL: 12, LB: 7, DB: 12, K: 1, P: 1, LS: 1 };
 const MIN_FOR_MEDIAN = 20;
 
+// A roster that prints no class years (Georgia Tech's, for one) cannot say
+// who is leaving: its need is unknown, never "deep", and it stays out of the
+// medians.
+const MIN_YEAR_SHARE = 0.5;
+function hasYears(players) {
+  const list = players || [];
+  if (!list.length) return false;
+  return list.filter((p) => (p.cls || P.classOf(p.year).cls)).length / list.length >= MIN_YEAR_SHARE;
+}
+
 // One school's rooms: { WR: { on, leaving, back, leavingNames:[...] }, ... }
 function rooms(players) {
   const out = {};
@@ -108,6 +118,7 @@ function wantsFor(s, prefs) {
 }
 
 function needLine(group, n) {
+  if (n.rating === 'unknown' && n.noYears) return 'The roster prints no class years, so who is leaving is unknown.';
   if (n.rating === 'unknown') return 'Roster not read yet, so need is unknown.';
   const room = P.LABEL[group].toLowerCase();
   return `${n.on} ${room} on the roster, ${n.leaving} seniors or older likely leaving, ${n.back} coming back (FBS median ${n.median}).`;
@@ -121,7 +132,11 @@ function rank({ group, prefs = {}, rosters = [], coaching = new Map(), limit = 2
   if (!P.GROUPS.includes(group)) { const e = new Error('unknown position group'); e.status = 400; throw e; }
   const byRooms = {};
   const fetched = {};
-  for (const r of rosters) if (r.status === 'ok') { byRooms[r.school] = rooms(r.players); fetched[r.school] = r.fetched_at || null; }
+  const noYears = new Set();
+  for (const r of rosters) if (r.status === 'ok') {
+    fetched[r.school] = r.fetched_at || null;
+    if (hasYears(r.players)) byRooms[r.school] = rooms(r.players); else noYears.add(r.school);
+  }
   const med = medians(byRooms);
   const exclude = new Set([prefs.currentSchool].filter(Boolean));
   const rows = [];
@@ -130,6 +145,7 @@ function rank({ group, prefs = {}, rosters = [], coaching = new Map(), limit = 2
     if (!keepAll && prefs.level && prefs.level !== 'any' && s.level !== prefs.level && !(prefs.schools || []).includes(s.name)) continue;
     const ch = coaching.get(s.name) || null;
     const n = needFor(byRooms[s.name] ? byRooms[s.name][group] : null, med.by[group], ch);
+    if (noYears.has(s.name)) n.noYears = true;
     const lv = levelFit(s.level, { current: prefs.currentLevel, want: prefs.level });
     const money = s.level === 'P4' ? 1 : 0.45;
     const w = wantsFor(s, prefs);
@@ -143,7 +159,7 @@ function rank({ group, prefs = {}, rosters = [], coaching = new Map(), limit = 2
     rows.push({
       school: s.name, level: s.level, conference: s.conference, state: s.state, region: s.region,
       score: Math.round(total * 100), named: w.named,
-      need: { rating: n.rating, on: n.on, leaving: n.leaving, back: n.back, median: n.median, line: needLine(group, n) },
+      need: { rating: n.rating, on: n.on, leaving: n.leaving, back: n.back, median: n.median, noYears: !!n.noYears, line: needLine(group, n) },
       coachingChange: ch ? { coach: ch.coach, how: ch.how, date: ch.date, interim: ch.interim || null, newCoach: ch.newCoach || null, source: ch.source || null } : null,
       reasons, rosterReadAt: fetched[s.name] || null,
     });
@@ -154,7 +170,7 @@ function rank({ group, prefs = {}, rosters = [], coaching = new Map(), limit = 2
   return {
     group, groupLabel: P.LABEL[group],
     median: med.by[group], medianFrom: med.fallback ? 'typical FBS depth (too few rosters read yet)' : `${med.schools} FBS rosters`,
-    rostersRead: Object.keys(byRooms).length, totalSchools: Schools.all().length,
+    rostersRead: Object.keys(byRooms).length + noYears.size, rostersWithYears: Object.keys(byRooms).length, totalSchools: Schools.all().length,
     dream: named, options: rest,
   };
 }
@@ -162,9 +178,10 @@ function rank({ group, prefs = {}, rosters = [], coaching = new Map(), limit = 2
 // One school's room in detail, for the school drawer.
 function schoolRoom({ school, group, roster, rostersAll = [], coaching = null }) {
   const byRooms = {};
-  for (const r of rostersAll) if (r.status === 'ok') byRooms[r.school] = rooms(r.players);
+  for (const r of rostersAll) if (r.status === 'ok' && hasYears(r.players)) byRooms[r.school] = rooms(r.players);
   const med = medians(byRooms);
   if (!roster || roster.status !== 'ok') return { school, group, read: false, coachingChange: coaching || null, median: med.by[group] };
+  if (!hasYears(roster.players)) return { school, group, groupLabel: P.LABEL[group], read: true, noYears: true, rosterUrl: roster.roster_url || null, readAt: roster.fetched_at || null, need: { rating: 'unknown', noYears: true, line: needLine(group, { rating: 'unknown', noYears: true }) }, leavingPlayers: [], coachingChange: coaching || null };
   const rm = rooms(roster.players)[group];
   const n = needFor(rm, med.by[group], coaching);
   return {
@@ -175,4 +192,4 @@ function schoolRoom({ school, group, roster, rostersAll = [], coaching = null })
   };
 }
 
-module.exports = { rank, schoolRoom, rooms, medians, needFor, levelFit, wantsFor, W, FALLBACK_MEDIAN, MIN_FOR_MEDIAN };
+module.exports = { hasYears, rank, schoolRoom, rooms, medians, needFor, levelFit, wantsFor, W, FALLBACK_MEDIAN, MIN_FOR_MEDIAN };
