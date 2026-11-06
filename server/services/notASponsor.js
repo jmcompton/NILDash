@@ -85,13 +85,46 @@ function eduDomain(x) {
   const host = s.includes('@') ? s.split('@').pop() : s.replace(/^[a-z]+:\/\//, '').split('/')[0];
   return /(^|\.)[a-z0-9-]+\.edu$/.test(host.replace(/^www\./, '')) ? host.replace(/^www\./, '') : null;
 }
+// A HOSPITAL IS A SPONSOR. "Children's Hospital of Philadelphia Sports
+// Medicine" with sportsmed@chop.edu was held at send as a university department
+// (Nov 2026): CHOP is a hospital that kept a .edu address. Hospitals, health
+// systems, medical centers, sports medicine, orthopedics and physical
+// therapy buy athlete endorsements, whatever their domain.
+const HEALTH_NAME = /\b(hospital|hospitals|health|healthcare|health system|medical center|medical centre|medicine|sports medicine|orthopaedic|orthopaedics|orthopedic|orthopedics|ortho|physical therapy|physiotherapy|rehab|rehabilitation|clinic|children's|childrens|urgent care|chiropractic|sports performance)\b/i;
+const HEALTH_TYPES = new Set(['hospital', 'general_hospital', 'childrens_hospital', 'medical_clinic', 'medical_center', 'doctor', 'physiotherapist',
+  'chiropractor', 'sports_medicine_clinic', 'orthopedic_clinic', 'health', 'medical_lab', 'urgent_care_center', 'rehabilitation_center']);
+const ANIMAL = /\b(veterinary|vet|animal|pet)\b/i;
+// The academic offices of a school, whatever its name: colsa.dean@unh.edu is
+// a dean's office even under a clinic's name.
+const ACADEMIC_LOCAL = /(^|[._-])(dean|deans|provost|president|chancellor|registrar|admissions|admission|bursar|financialaid|finaid|alumni|advancement|athletics|athletic|compliance|sid|sports-info)([._-]|$)/i;
+function isHealthBusiness(name, ev) {
+  const e = ev || {};
+  const types = (Array.isArray(e.types) ? e.types : []).concat(e.primaryType ? [e.primaryType] : []).map((t) => String(t).toLowerCase());
+  const said = [name, e.primaryTypeDisplayName, e.category].filter(Boolean).join(' ');
+  if (ANIMAL.test(said)) return false;
+  return types.some((t) => HEALTH_TYPES.has(t)) || HEALTH_NAME.test(said);
+}
+// -> null, or the reason this .edu address is a university department.
+//   A .edu counts only when it is a college in the Department of Education
+//   directory (services/usColleges); and a hospital or health business at
+//   one is a sponsor, unless the address is one of the school's own offices.
+function universityDepartment(name, ev) {
+  const e = ev || {};
+  const edu = eduDomain(e.email) || eduDomain(e.website);
+  if (!edu) return null;
+  let college = true;
+  try { college = require('./usColleges').isCollegeDomain(edu); } catch (_) { /* no directory: the old rule */ }
+  if (!college) return null;
+  const local = String(e.email || '').includes('@') ? String(e.email).split('@')[0] : '';
+  if (isHealthBusiness(name, e) && !ACADEMIC_LOCAL.test(local)) return null;
+  return `${edu} is a university's own address: a university department, not a business that buys endorsements`;
+}
 function detect(name, evidence) {
   const col = COL.detect(name, evidence);
   if (col) return { key: 'collective', ...col };
   {
-    const ev = evidence || {};
-    const edu = eduDomain(ev.email) || eduDomain(ev.website);
-    if (edu) return { key: 'not-a-sponsor', kind: 'university-department', why: `${edu} is a university's own address: a university department, not a business that buys endorsements`, needsCategory: false };
+    const why = universityDepartment(name, evidence);
+    if (why) return { key: 'not-a-sponsor', kind: 'university-department', why, needsCategory: false };
   }
   const n = fold(name);
   if (!n) return null;
@@ -138,4 +171,4 @@ function detect(name, evidence) {
   return null;
 }
 
-module.exports = { detect, knownNames, PHRASES, MEDIA, MASCOTS, eduDomain };
+module.exports = { detect, knownNames, PHRASES, MEDIA, MASCOTS, eduDomain, universityDepartment, isHealthBusiness };

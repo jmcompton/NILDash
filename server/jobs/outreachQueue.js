@@ -638,6 +638,31 @@ async function insertCard(pool, { agentId, athleteId, slot, card, marketKey }) {
       return false;
     }
   }
+  // ── THE SEND GATE'S CHECK, ON THE ADDRESS IT WILL SEND TO ────────────────
+  // Every path that saves a card comes through here, and only here is the
+  // card's own address known on every lane: a university department's .edu
+  // is caught on the named person's address, not only the general inbox.
+  // Same check as at selection (compliance.screenCandidate); a card that
+  // fails is not written. A check that cannot run does not stop the card:
+  // the send gate still runs, fail closed.
+  if (card && card.email) {
+    try {
+      const ar = (await pool.query(`SELECT id, data, athlete_type FROM athletes WHERE id = $1`, [athleteId]).catch(() => ({ rows: [] }))).rows[0];
+      const ev = (await pool.query(
+        `SELECT evidence FROM brand_evidence_cache WHERE lane = 'places' AND LOWER(brand) = LOWER($1) ORDER BY refreshed_at DESC LIMIT 1`,
+        [card.brandName || '']).catch(() => ({ rows: [] }))).rows[0];
+      const place = ev && ev.evidence && ev.evidence.found !== false ? ev.evidence : null;
+      const sc = await require('../services/compliance').screenCandidate(pool, {
+        brandName: card.brandName, place, email: card.email, website: card.website || null,
+        athlete: ar ? { ...(ar.data || {}), id: ar.id, athlete_type: ar.athlete_type } : { id: athleteId },
+      });
+      if (sc) {
+        console.log(`[queue] athlete=${athleteId} "${card.brandName}": not written, compliance: ${sc.why}`);
+        card._complianceRejected = sc.why;
+        return false;
+      }
+    } catch (e) { console.error(`[queue] athlete=${athleteId} "${card && card.brandName}": compliance screen failed (${e.message}); the send gate still checks`); }
+  }
   // ── NO NAMED PERSON, NO CARD. THE ONE RULE, HERE, FOR EVERY PATH ──────────
   // The nightly fill, the on-demand fill, the admin button, the seed script:
   // everything that saves a card comes through this function, and this is
@@ -1990,6 +2015,21 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           tried.push({ brand: cand.brand_name, result: 'skipped', reason: 'excluded by the caller', lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
+        // THE SEND GATE'S OWN CHECK, BEFORE THE NAME SEARCH (see the local lane).
+        {
+          let sc = null;
+          try {
+            sc = await require('../services/compliance').screenCandidate(pool, {
+              brandName: cand.brand_name, place: null, website: cand.website || null,
+              athlete: { ...(ctx.athleteRow || {}), id: athleteId }, cache: ctx._complianceCache || (ctx._complianceCache = new Map()),
+            });
+          } catch (e) { say(`${cand.brand_name}: the compliance screen could not run (${e.message}); the send gate still checks`); }
+          if (sc) {
+            say(`${cand.brand_name}: not a card, compliance: ${sc.why}`);
+            tried.push({ brand: cand.brand_name, result: 'rejected', compliance: sc.ruleKey, reason: 'compliance: ' + sc.why, lane: cand.lane, places: { found: false }, risk: 'normal' });
+            continue;
+          }
+        }
         if (!(await Claims.claimResearch(pool, athleteId, cand.brand_name, ctx.runDate || today()))) {
           say(`${cand.brand_name}: skipped, already researched for ${athleteName} tonight`);
           tried.push({ brand: cand.brand_name, result: 'skipped', reason: Claims.RESEARCHED_TONIGHT_REASON, lane: cand.lane, places: { found: false }, risk: 'normal' });
@@ -2202,6 +2242,28 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         if (rx) {
           say(`${cand.brand_name}: not a card, ${rx.why}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', restricted: rx.key, reason: 'restricted: ' + rx.why, places: facts, risk: 'normal' });
+          continue;
+        }
+      }
+      // ── THE SEND GATE'S OWN CHECK, BEFORE ANY HUNTER CREDIT ─────────────
+      // compliance.screenCandidate runs the send gate's evaluate() (the
+      // sponsor rule, the .edu rule, the athlete's state and school rules,
+      // age) on what is known now: the name, the Places record, the website.
+      // A business that fails is not researched and never becomes a card; the
+      // reason goes on the night's row, so the nightly report shows it. Nov
+      // 2026: cards were placed, verified with Hunter, written and approved,
+      // and then stopped at send by this same check.
+      {
+        let sc = null;
+        try {
+          sc = await require('../services/compliance').screenCandidate(pool, {
+            brandName: cand.brand_name, place, website: (place && place.website) || cand.website || null,
+            athlete: { ...(ctx.athleteRow || {}), id: athleteId }, cache: ctx._complianceCache || (ctx._complianceCache = new Map()),
+          });
+        } catch (e) { say(`${cand.brand_name}: the compliance screen could not run (${e.message}); the send gate still checks`); }
+        if (sc) {
+          say(`${cand.brand_name}: not a card, compliance: ${sc.why}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', compliance: sc.ruleKey, reason: 'compliance: ' + sc.why, places: facts, risk: 'normal' });
           continue;
         }
       }
@@ -2822,6 +2884,11 @@ async function _fillAthlete(pool, ctx, nightFaults) {
         if (card.emailLabel === 'General inbox') generalPlaced++;
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
           + (card.contactName ? `, ${card.contactName}` : ''));
+      } else if (card._complianceRejected) {
+        const _te = tried[tried.length - 1];
+        if (_te && _te.brand === cand.brand_name) { _te.result = 'rejected'; _te.reason = 'compliance: ' + card._complianceRejected; }
+        else tried.push({ brand: cand.brand_name, result: 'rejected', reason: 'compliance: ' + card._complianceRejected, lane: cand.lane || null, places: facts, risk: 'normal' });
+        say(`${cand.brand_name}: not a card, compliance: ${card._complianceRejected}`);
       } else if (card._insertFault) {
         // Written and then lost to our database: not a business that failed.
         const _te = tried[tried.length - 1];

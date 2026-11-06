@@ -515,6 +515,34 @@ async function approveBatch(pool, agentId, opts = {}) {
     const out = new Set(refused.map((x) => String(x.id)));
     for (let i = rows.length - 1; i >= 0; i--) if (out.has(String(rows[i].id))) rows.splice(i, 1);
   }
+  // ── A HARD RULE, NO APPROVAL (compliance: HARD AND SOFT) ─────────────────
+  // Approve means send, and at send only a hard rule can stop an approved
+  // email (state law, a school rule, an athlete the law cannot be checked
+  // for, a trade the law blocks for a minor). So a draft one of those would
+  // stop is refused HERE with the reason, and stays a draft: an agent never
+  // approves what cannot send. A check that cannot run does not refuse; the
+  // send gate still runs, fail closed.
+  const hardRefused = [];
+  for (const r of rows) {
+    try {
+      const ax = (await pool.query(
+        `SELECT a.data->>'name' AS athlete_name, a.data->>'school' AS school, a.data->>'dob' AS dob,
+                a.data->>'over18' AS over18, a.data->'schoolRestrictions' AS school_restrictions,
+                a.athlete_type, a.data->>'athleteType' AS athlete_type_data, a.data->>'city' AS city,
+                (a.id IS NULL) AS athlete_missing,
+                (SELECT b.evidence FROM brand_evidence_cache b
+                  WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(l.brand_name)
+                  ORDER BY b.refreshed_at DESC LIMIT 1) AS places_evidence
+           FROM outreach_logs l LEFT JOIN athletes a ON a.id = l.athlete_id WHERE l.id = $1`, [r.id])).rows[0] || {};
+      const hard = await require('./compliance').hardFindingsFor(pool, { ...r, ...ax }, { now: opts.now });
+      if (hard.length) hardRefused.push({ id: r.id, brand: r.brand_name, why: `${hard[0].ruleLabel}: ${hard[0].reason}` });
+    } catch (e) { console.error(`[closer] approve: hard-rule check failed for ${r.id}, the send gate decides:`, e.message); }
+  }
+  if (hardRefused.length) {
+    const out = new Set(hardRefused.map((x) => String(x.id)));
+    for (let i = rows.length - 1; i >= 0; i--) if (out.has(String(rows[i].id))) rows.splice(i, 1);
+    for (const x of hardRefused) dropped.push({ id: x.id, why: 'cannot be sent: ' + x.why, hard: true });
+  }
   for (const r of rows) {
     // DUE NOW. No slot, no window: the release queue picks it up at once and
     // spaces it behind whatever this agent already has going out.
@@ -581,7 +609,9 @@ async function approveBatch(pool, agentId, opts = {}) {
     if (noSlot) bits.push(`${noSlot} had no send time in the next window and stay as drafts`);
     const early = dropped.filter((d) => /not due until/.test(d.why)).length;
     if (early) bits.push(`${early} ${early === 1 ? 'is a follow-up that is' : 'are follow-ups that are'} not due yet (4 and 9 days after the last touch) and stay as drafts`);
-    const stale = dropped.length - noSlot - early;
+    const hardN = dropped.filter((d) => d.hard);
+    if (hardN.length) bits.push(`${hardN.length} cannot be sent and ${hardN.length === 1 ? 'was' : 'were'} not approved: ${hardN.slice(0, 3).map((d) => d.why.replace(/^cannot be sent: /, '')).join('; ')}`);
+    const stale = dropped.length - noSlot - early - hardN.length;
     if (stale) bits.push(`${stale} were no longer waiting on approval`);
   }
   return {
@@ -706,6 +736,17 @@ async function complianceGate(pool, log, opts = {}) {
     if (filled) log.places_evidence = filled;
   }
 
+  // 0c. APPROVAL WINS ON SOFT RULES (compliance: HARD AND SOFT). The agent
+  //     approved this email; an open hold that is a judgment (not a sponsor,
+  //     a category we could not verify, supplements) is resolved as approved
+  //     by the agent. Only a hard rule (state law, a school rule, an athlete
+  //     the law cannot be checked for, a trade the law blocks for a minor)
+  //     goes on to stop it below.
+  if (log.approved_at) {
+    const soft = await compliance.resolveSoftForApproved(pool, log.id, log.approved_by || log.agent_id);
+    if (soft.length) console.log(`[closer] ${log.id}: approved by the agent, soft hold(s) resolved: ${soft.join(', ')}`);
+  }
+
   // 1. Anything already open on this outreach stops it, whatever it is.
   const open = await compliance.openHoldsFor(pool, log.id);
   if (open.length) {
@@ -758,6 +799,28 @@ async function complianceGate(pool, log, opts = {}) {
   });
 
   if (result.decision === 'pass') return { clear: true };
+
+  // 2b. APPROVED: SOFT FINDINGS ARE THE AGENT'S CALL. Written to the record
+  //     once, resolved as approved by the agent, and dropped; the hard ones
+  //     stand. (A draft cannot be approved with a hard one: closer.approve.)
+  if (log.approved_at) {
+    const already = await compliance.overriddenRulesFor(pool, log.id);
+    const soft = result.findings.filter((f) => f.severity !== 'note' && !compliance.isHard(f));
+    const fresh = soft.filter((f) => !already.has(f.ruleKey));
+    if (fresh.length) {
+      await compliance.recordApproved(pool, {
+        agentId: log.agent_id, athleteId: log.athlete_id, outreachLogId: log.id,
+        brandName: log.brand_name, brandKey: log.brand_key, evidence: log.places_evidence || null,
+        dob: log.dob || null, over18, schoolRestrictions: log.school_restrictions || [],
+        athleteType, school: log.school || null, city: log.city || null, stateCode, stateSource: st.source, now: opts.now,
+      }, fresh);
+      console.log(`[closer] ${log.id}: approved by the agent, soft finding(s) recorded and passed: ${fresh.map((f) => f.ruleKey).join(', ')}`);
+    }
+    const softKeys = new Set(soft.map((f) => f.ruleKey));
+    result = Object.assign({}, result, { findings: result.findings.filter((f) => !softKeys.has(f.ruleKey)) });
+    if (!result.findings.some((f) => f.severity === 'hold' || f.severity === 'block')) return { clear: true };
+    result.decision = result.findings.reduce((acc, f) => (RANK[f.severity] > RANK[acc] ? f.severity : acc), 'pass');
+  }
 
   // 3. DROP FINDINGS THE AGENT HAS ALREADY DECIDED. An override that the gate
   //    re-derives on the next tick is not an override -- the hold would resolve
