@@ -22,6 +22,13 @@
       "status": "TEXT",
       "subject": "TEXT"
     },
+    "agent_approval_releases": {
+      "agent_id": "TEXT",
+      "id": "BIGSERIAL",
+      "outreach_log_id": "TEXT",
+      "released_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "was": "TEXT"
+    },
     "agent_auto_mode": {
       "agent_id": "TEXT",
       "enabled_at": "TIMESTAMPTZ DEFAULT NOW()",
@@ -569,7 +576,7 @@
       "id": "SERIAL",
       "outreach_log_id": "TEXT",
       "reason": "TEXT",
-      "resolution": "TEXT CHECK (resolution IN ('overridden','cancelled','auto-cleared'))",
+      "resolution": "TEXT CHECK (resolution IN ('overridden','cancelled','auto-cleared','approved-by-agent'))",
       "resolution_reason": "TEXT",
       "resolved_at": "TIMESTAMPTZ",
       "resolved_by": "TEXT",

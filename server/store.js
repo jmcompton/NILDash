@@ -2040,10 +2040,16 @@ async function init() {
       created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       resolved_at       TIMESTAMPTZ,
       resolved_by       TEXT,
-      resolution        TEXT CHECK (resolution IN ('overridden','cancelled','auto-cleared')),
+      resolution        TEXT CHECK (resolution IN ('overridden','cancelled','auto-cleared','approved-by-agent')),
       resolution_reason TEXT
     )`).then(() => console.log('[init] compliance_holds table ready'))
     .catch((e) => console.error('[init] compliance_holds:', e.message));
+  // APPROVAL WINS ON SOFT RULES (services/compliance: HARD AND SOFT): a soft
+  // hold on an approved email is resolved as 'approved-by-agent'. The check on
+  // an existing table is replaced to allow it.
+  await pool.query(`ALTER TABLE compliance_holds DROP CONSTRAINT IF EXISTS compliance_holds_resolution_check`).catch((e) => console.error('[init] compliance_holds resolution check (drop):', e.message));
+  await pool.query(`ALTER TABLE compliance_holds ADD CONSTRAINT compliance_holds_resolution_check
+    CHECK (resolution IN ('overridden','cancelled','auto-cleared','approved-by-agent'))`).catch((e) => { if (!/already exists/.test(e.message)) console.error('[init] compliance_holds resolution check (add):', e.message); });
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_compliance_holds_open
     ON compliance_holds (agent_id, resolved_at) WHERE resolved_at IS NULL`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_compliance_holds_log

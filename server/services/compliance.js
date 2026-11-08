@@ -875,8 +875,31 @@ async function autoClearAgeHolds(pool, outreachLogId) {
 async function overriddenRulesFor(pool, outreachLogId) {
   const r = await pool.query(
     `SELECT DISTINCT rule_key FROM compliance_holds
-      WHERE outreach_log_id = $1 AND resolution = 'overridden'`, [outreachLogId]);
+      WHERE outreach_log_id = $1 AND resolution IN ('overridden', 'approved-by-agent')`, [outreachLogId]);
   return new Set(r.rows.map((x) => x.rule_key));
+}
+
+// APPROVAL WINS ON SOFT RULES (see HARD AND SOFT). Every open SOFT hold on
+// an approved email is resolved as 'approved-by-agent', on the record, so the
+// send gate goes on to the hard rules. -> the rule keys resolved.
+const _HARD_SQL = `(rule_key LIKE 'school-restricted-%' OR facts->>'source' = 'state-rule'
+  OR rule_key IN ('state-unknown', 'source-unreadable', 'gate-error', 'no-brand')
+  OR (severity = 'block' AND rule_key IN ('category-alcohol', 'category-tobacco', 'category-cannabis', 'category-gambling', 'category-firearms', 'category-adult')))`;
+async function resolveSoftForApproved(pool, outreachLogId, agentId) {
+  const r = await pool.query(
+    `UPDATE compliance_holds
+        SET resolved_at = NOW(), resolved_by = COALESCE($2, 'agent'), resolution = 'approved-by-agent',
+            resolution_reason = 'a judgment, not a legal rule: the agent approved this email, and approving it was the decision'
+      WHERE outreach_log_id = $1 AND resolved_at IS NULL AND NOT ${_HARD_SQL}
+      RETURNING rule_key`, [outreachLogId, agentId || null]);
+  return r.rows.map((x) => x.rule_key);
+}
+// Soft findings the gate derived again on an approved email, written once as
+// approved by the agent (and never again: overriddenRulesFor reads them).
+async function recordApproved(pool, ctx, findings) {
+  if (!findings.length) return [];
+  await recordFindings(pool, ctx, { findings, rulesVersion: RULES_VERSION, unchecked: UNCHECKED });
+  return resolveSoftForApproved(pool, ctx.outreachLogId, ctx.agentId);
 }
 
 async function openHoldsFor(pool, outreachLogId) {
@@ -921,7 +944,103 @@ function prepareDisclosureFiling(deal, athlete, stateRef) {
   };
 }
 
+// ── HARD AND SOFT ────────────────────────────────────────────────────────────
+// Nov 2026: an email an agent approved (Children's Hospital of Philadelphia
+// Sports Medicine) was held at send on a soft judgment ("not a sponsor"), and
+// 31 of one agent's approvals never left. The rule since:
+//
+//   AT SELECTION every finding counts: a business that fails is not a card,
+//   before any Hunter credit is spent on it (screenCandidate).
+//   AT SEND only a HARD finding stops an approved email. A soft one (a
+//   judgment: not a sponsor, a collective, a category we could not verify,
+//   supplements, an adult's restricted category under a school policy we do
+//   not hold) is the agent's call, and approving it was the call. It is
+//   written to the record as approved by the agent, so the record still says
+//   what the gate thought.
+//   AT APPROVAL a draft with a hard finding is refused with the reason
+//   (closer.approve), so an agent never approves what cannot send.
+//
+// HARD: a school rule the agent entered (school-restricted-*), a state rule
+// (source 'state-rule'), an athlete whose state or record cannot be read (the
+// law cannot be checked), and a restricted trade the law blocks for this
+// athlete (alcohol, tobacco, cannabis, gambling, firearms, adult at severity
+// block: a minor). A check that could not run is not soft either: it holds and
+// is re-run.
+const LEGAL_TRADES = new Set(['alcohol', 'tobacco', 'cannabis', 'gambling', 'firearms', 'adult']);
+const TECHNICAL = new Set(['gate-error', 'no-brand']);
+function isHard(f) {
+  if (!f) return false;
+  const k = String(f.ruleKey || f.rule_key || '');
+  const src = f.source || (f.facts && f.facts.source) || null;
+  if (k.startsWith('school-restricted-')) return true;
+  if (src === 'state-rule') return true;
+  if (k === 'state-unknown' || k === 'source-unreadable') return true;
+  if (TECHNICAL.has(k)) return true;
+  const m = k.match(/^category-(.+)$/);
+  if (m && LEGAL_TRADES.has(m[1]) && f.severity === 'block') return true;
+  return false;
+}
+
+// The athlete side of evaluate(), the same way the send gate builds it
+// (closer.complianceGate): state from the school or city, the state's rules,
+// age, school restrictions. a: the athlete's data (athletes.data) plus
+// athlete_type. Cached per athlete for a fill (cache: a Map).
+async function athleteContext(pool, a, cache) {
+  const d = a || {};
+  const key = d.id || d.name || JSON.stringify([d.school, d.city]);
+  if (cache && cache.has(key)) return cache.get(key);
+  const athleteType = (d.athlete_type === 'pro' || d.athleteType === 'pro') ? 'pro' : 'college';
+  const over18 = d.over18 === true || d.over18 === 'true' ? true : (d.over18 === false || d.over18 === 'false' ? false : undefined);
+  const st = await stateCodeFor(pool, { athleteType, school: d.school || null, city: d.city || null });
+  const stateRule = {};
+  if (st.stateCode) {
+    for (const c of CATEGORIES) {
+      const row = await stateRuleFor(pool, st.stateCode, c.key);
+      if (row) stateRule[c.key] = row;
+    }
+  }
+  const out = { athleteType, over18, stateCode: st.stateCode, stateNote: st.note, stateSource: st.source, stateRule,
+    dob: d.dob || null, schoolRestrictions: Array.isArray(d.schoolRestrictions) ? d.schoolRestrictions : [],
+    athleteName: d.name || null, school: d.school || null, city: d.city || null };
+  if (cache) cache.set(key, out);
+  return out;
+}
+
+// AT SELECTION: the send gate's evaluate(), on what is known before any
+// Hunter credit is spent (the name, the Places record, the website). Every
+// finding that would stop or hold a send counts, except two that are not
+// about the business: "we could not verify its category" (no Places record
+// is not evidence of anything; approving decides it) and supplements (held by
+// design for the agent to decide). -> null, or { ruleKey, label, severity, hard, why }.
+const SOFT_AT_SELECTION = new Set(['category-unknown', 'category-supplements', 'dob-missing']);
+async function screenCandidate(pool, { brandName, place, website, email, athlete, cache, now } = {}) {
+  const ax = await athleteContext(pool, athlete, cache);
+  const ev = place ? { ...place, found: true } : { found: false };
+  if (website) ev.website = website;
+  if (email) ev.email = email;
+  const r = await evaluate(pool, { ...ax, brandName, evidence: ev, now });
+  if (r.decision === 'pass') return null;
+  const f = (r.findings || []).filter((x) => x.severity !== 'note' && !SOFT_AT_SELECTION.has(x.ruleKey))
+    .sort((x, y) => (RANK[y.severity] || 0) - (RANK[x.severity] || 0))[0];
+  if (!f) return null;
+  return { ruleKey: f.ruleKey, label: f.ruleLabel, severity: f.severity, hard: isHard(f), why: `${f.ruleLabel}: ${f.reason}` };
+}
+
+// AT APPROVAL: the hard findings for a draft, the way the send gate would
+// find them. row: outreach_logs + athlete fields (as closer selects them).
+async function hardFindingsFor(pool, row, { now } = {}) {
+  const ax = await athleteContext(pool, {
+    name: row.athlete_name, school: row.school, city: row.city, dob: row.dob, over18: row.over18,
+    schoolRestrictions: row.school_restrictions || [], athlete_type: row.athlete_type, athleteType: row.athlete_type_data,
+  });
+  const r = await evaluate(pool, { ...ax, brandName: row.brand_name,
+    evidence: { ...(row.places_evidence || {}), email: row.sent_to_email || row.to_email || null },
+    athleteUnreadable: !!row.athlete_missing, now });
+  return (r.findings || []).filter(isHard);
+}
+
 module.exports = {
+  isHard, screenCandidate, hardFindingsFor, athleteContext, LEGAL_TRADES, resolveSoftForApproved, recordApproved,
   RULES_VERSION, UNCHECKED, CATEGORIES, CATEGORY_BY_KEY,
   classifyBusiness, ageFrom, severityFor, evaluate,
   recordFindings, overrideHold, cancelHold, openHoldsFor, overriddenRulesFor, autoClearAgeHolds,

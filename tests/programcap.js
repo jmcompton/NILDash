@@ -159,6 +159,14 @@ async function main() {
                 $3,CURRENT_DATE,true,true) ON CONFLICT (brand) DO UPDATE SET tier_stated = true, proof_date = CURRENT_DATE`,
       ['PCAP Form ' + i, 'https://pcap' + i + '.example', 'https://pcap' + i + '.example/athletes']);
   }
+  // This athlete has no school, so no state, so the selection screen
+  // (compliance.screenCandidate) would refuse every candidate as it should in
+  // production (nothing sends for an athlete with no state). This suite is
+  // about the program cap, not compliance (tests/complianceorder.js), so the
+  // screen is passed through here.
+  const _Cmp = require(REPO + 'server/services/compliance.js');
+  const _screen = _Cmp.screenCandidate;
+  _Cmp.screenCandidate = async () => null;
   const A1 = 'pcap-a1';
   const d1 = { name: 'No School', hometown: 'Knoxville, TN', sport: 'Football', instagram: 18000 };
   await P.query(`INSERT INTO athletes (id,agent_id,data) VALUES ($1,$2,$3::jsonb)`,

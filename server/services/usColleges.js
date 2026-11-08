@@ -109,4 +109,25 @@ function candidates(raw) {
   return out;
 }
 
-module.exports = { find, candidates, key, count: () => RAW.length };
+// Every college's web domain from the directory ("upenn.edu"), and whether a
+// host belongs to one: the host itself or a subdomain of it ("med.upenn.edu").
+// A .edu that is not a college in the directory (chop.edu, a hospital that
+// kept its old .edu) is not one.
+let _domains = null;
+function domains() {
+  if (_domains) return _domains;
+  _domains = new Set();
+  for (const r of RAW) { const d = String(r[6] || '').toLowerCase().replace(/^www\./, ''); if (d) _domains.add(d); }
+  return _domains;
+}
+function isCollegeDomain(host) {
+  let h = String(host || '').toLowerCase().replace(/^www\./, '');
+  const set = domains();
+  while (h && h.includes('.')) {
+    if (set.has(h)) return true;
+    h = h.slice(h.indexOf('.') + 1);
+  }
+  return false;
+}
+
+module.exports = { find, candidates, key, count: () => RAW.length, isCollegeDomain };
