@@ -3530,9 +3530,9 @@ async function runAgents(opts = {}) {
   // HUNTER_PRIORITY_AGENTS (services/hunterPriority): the listed agents run
   // first, as their own phase, so tonight's Hunter allowance reaches them
   // before anyone else. Unset: one phase, signup order, as before.
-  const phases = (() => {
+  const phases = await (async () => {
     const HPr = require('../services/hunterPriority');
-    const { first, rest } = HPr.split(agents, HPr.priorityList());
+    const { first, rest } = HPr.split(agents, await HPr.loadList(pool));
     if (first.length) console.log(`[queue] Hunter priority first: ${first.length} agent(s), then ${rest.length}`);
     return first.length ? [first, rest] : [agents];
   })();

@@ -5619,6 +5619,31 @@ app.post('/api/admin/run-ingestion', async (req, res) => {
 });
 
 // ── Plan management ──────────────────────────────────────────
+// ── Hunter priority list (services/hunterPriority) ──────────────────────────
+// Agents here reach the night's Hunter credits first, after any named in
+// HUNTER_PRIORITY_AGENTS. Body: { who: email or full name, note? }.
+async function _isAdmin(req) { const u = req.session && req.session.userId ? await store.getUser(req.session.userId) : null; return !!(u && u.email === ADMIN_EMAIL); }
+app.get('/api/admin/hunter-priority', async (req, res) => {
+  try {
+    if (!(await _isAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+    const HPr = require('./services/hunterPriority');
+    res.json({ env: HPr.priorityList().length, rows: await HPr.listRows(store.pool), order: await HPr.loadList(store.pool) });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+app.post('/api/admin/hunter-priority', async (req, res) => {
+  try {
+    if (!(await _isAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+    const who = await require('./services/hunterPriority').add(store.pool, (req.body || {}).who, (req.body || {}).note);
+    res.json({ ok: true, who });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+app.delete('/api/admin/hunter-priority/:who', async (req, res) => {
+  try {
+    if (!(await _isAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+    res.json({ ok: true, removed: await require('./services/hunterPriority').remove(store.pool, req.params.who) });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
 app.post('/api/admin/set-plan', async (req, res) => {
   try {
     const { userId, plan } = req.body;
