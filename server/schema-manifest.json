@@ -427,6 +427,10 @@
       "refreshed_at": "TIMESTAMPTZ DEFAULT NOW()",
       "website": "TEXT"
     },
+    "brand_market_optout": {
+      "agent_id": "TEXT",
+      "at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "brand_match_scores": {
       "agent_id": "TEXT",
       "athlete_id": "TEXT",
@@ -439,6 +443,35 @@
       "id": "TEXT",
       "partnership_opportunities": "JSONB DEFAULT '[]'",
       "reasoning": "TEXT"
+    },
+    "brand_request_sends": {
+      "agent_id": "TEXT",
+      "athlete_ids": "JSONB DEFAULT '[]'",
+      "error": "TEXT",
+      "request_id": "BIGINT",
+      "sent_at": "TIMESTAMPTZ"
+    },
+    "brand_requests": {
+      "agents_sent": "INTEGER DEFAULT 0",
+      "budget": "TEXT",
+      "business": "TEXT",
+      "category": "TEXT",
+      "closed_at": "TIMESTAMPTZ",
+      "confirmed_at": "TIMESTAMPTZ",
+      "contact_name": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "details": "TEXT",
+      "does": "JSONB DEFAULT '[]'",
+      "email": "TEXT",
+      "expires_at": "TIMESTAMPTZ",
+      "id": "BIGSERIAL",
+      "last_matched_at": "TIMESTAMPTZ",
+      "phone": "TEXT",
+      "schools": "JSONB DEFAULT '[]'",
+      "sports": "JSONB DEFAULT '[]'",
+      "status": "TEXT DEFAULT 'pending'",
+      "token": "TEXT",
+      "website": "TEXT"
     },
     "brief_connections": {
       "bytes": "INT DEFAULT 0",
@@ -915,6 +948,11 @@
       "kind": "TEXT",
       "sent_at": "TIMESTAMPTZ",
       "subject": "TEXT"
+    },
+    "hunter_priority_agents": {
+      "added_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "note": "TEXT",
+      "who": "TEXT"
     },
     "inbound_messages": {
       "classification": "TEXT",
