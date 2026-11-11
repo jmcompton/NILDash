@@ -200,11 +200,12 @@ async function main() {
     drafts.map((d) => W.checkEmail({ subject: d.subject, body: d.body_text }, d, ctx, 1)).filter((x) => x.length));
   ok('  under 120 words each', drafts.every((d) => W.words(d.body_text) < 120), drafts.map((d) => W.words(d.body_text)));
   ok('  the one link is mynildash.com/try, and it offers the 14-day trial', drafts.every((d) => W.links(d.body_text).join() === 'https://mynildash.com/try' && /14-day trial/.test(d.body_text)));
-  ok('  leads with the time bought back: 5 pitches, already written, verified people', drafts.every((d) => /mornings back/.test(d.body_text) && /5 (sponsorship )?pitches/.test(d.body_text) && /already written/.test(d.body_text) && /verified people/.test(d.body_text)));
+  ok('  leads with the time bought back: finds, verified email, drafts; they send; no count, no sending claim', drafts.every((d) => /mornings back/.test(d.body_text) && /drafts the/.test(d.body_text) && /verified email/.test(d.body_text) && /approves? and sends?/.test(d.body_text)
+    && !W.COUNT_CLAIM.test(d.body_text) && !W.SEND_CLAIM.test(d.body_text)));
   ok('  a specific line about them', drafts.every((d) => d.body_text.includes(d.org) || d.body_text.includes(String(d.fact || '').slice(0, 30))));
   const school = drafts.find((d) => d.lane === 'school');
   ok('schools get the team version: teams and programs, sponsorship, no individual athletes',
-    /teams and programs/.test(school.body_text) && /sponsorship pitches/.test(school.body_text) && !/athlete you represent/.test(school.body_text), school.body_text);
+    /teams and programs/.test(school.body_text) && /sponsorship pitch/.test(school.body_text) && !/athlete you represent/.test(school.body_text), school.body_text);
   ok('never claims NILDash closes or negotiates deals', drafts.every((d) => !/\b(close|negotiat)/i.test(d.body_text)));
   ok('the dry-run report lists all 20 with their verified address', /DRAFTED \(20\)/.test(dry.text) && (dry.text.match(/Hunter: valid, verified /g) || []).length === 20, dry.text.slice(0, 400));
 
@@ -434,13 +435,15 @@ async function main() {
     ['two links', 'Hi Ann,\n\nNILDash gives agents their mornings back: 5 pitches, already written, to verified people. https://bit.ly/x\n\nRidge Sports.\n\n15 minutes? https://mynildash.com/try\n\nJohnMark Compton'],
     ['AI', 'Hi Ann,\n\nNILDash uses AI to give agents their mornings back: 5 pitches, already written, to verified people.\n\nRidge Sports.\n\n15 minutes? https://mynildash.com/try\n\nJohnMark Compton'],
     ['too long', 'Hi Ann,\n\n' + 'NILDash gives agents their mornings back with 5 pitches already written to verified people. '.repeat(10) + '\n\nRidge Sports. 15 minutes? https://mynildash.com/try\n\nJohnMark Compton'],
+    ['a pitch count', 'Hi Ann,\n\nNILDash gives agents their mornings back: 5 pitches a night, drafted, to a verified email. You approve and send.\n\nRidge Sports.\n\n15 minutes? https://mynildash.com/try\n\nJohnMark Compton'],
+    ['a sending claim', 'Hi Ann,\n\nNILDash gives agents their mornings back: it drafts the pitch to a verified email and sends it for you. You approve and send.\n\nRidge Sports.\n\n15 minutes? https://mynildash.com/try\n\nJohnMark Compton'],
   ];
   for (const [what, body] of bad) {
     const w = await W.write(pA, ctx, { write: async () => ({ subject: 'Pitches for Ridge', body }) });
     ok(`a draft with ${what} is refused and the template goes instead`, w.by === 'template' && w.writerProblems && w.writerProblems.length > 0 && W.checkEmail(w, pA, ctx, 1).length === 0, w.writerProblems);
   }
   // (outside portal season: the portal line has its own checks below)
-  const good = await W.write(pA, { ...ctx, now: new Date('2027-02-01T18:00:00Z') }, { write: async () => ({ subject: 'Mornings back for Ridge Sports', body: 'Hi Ann,\n\nNILDash gives agents their mornings back. Every morning, each athlete you represent has 5 pitches ready for local and social brands, already written and going to verified people. You review and send.\n\nRidge Sports represents 14 college football players, so that adds up fast.\n\nWorth 15 minutes to see it? Book a time or start a 14-day trial here: https://mynildash.com/try\n\nJohnMark Compton\nNILDash' }) });
+  const good = await W.write(pA, { ...ctx, now: new Date('2027-02-01T18:00:00Z') }, { write: async () => ({ subject: 'Mornings back for Ridge Sports', body: 'Hi Ann,\n\nNILDash gives agents their mornings back. Overnight it finds local businesses that fit each of your athletes, who decides there and a verified email, and drafts the pitch. You edit, approve and send.\n\nRidge Sports represents 14 college football players, so that adds up fast.\n\nWorth 15 minutes to see it? Book a time or start a 14-day trial here: https://mynildash.com/try\n\nJohnMark Compton\nNILDash' }) });
   ok('a draft that keeps every rule goes as written', good.by === 'injected', good.writerProblems);
   ok('the pitch writer is untouched: still claude-sonnet-4-6', /const MODEL_BALANCED = 'claude-sonnet-4-6';/.test(src('server/ai.js')) && /const MODEL_GEN = MODEL_BALANCED;/.test(src('server/ai.js'))
     && !/MODEL_BALANCED|MODEL_GEN|generateDealPitch/.test(src('server/services/salesWriter.js').replace(/^\s*\/\/.*$/gm, '')));

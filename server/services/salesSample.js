@@ -343,7 +343,7 @@ details{margin-top:10px}summary{cursor:pointer;color:var(--acc);font-weight:600}
 <p class="lede">Built for ${esc(first || 'you')} at ${esc(p.org || 'your agency')}${a.school ? `. ${esc(a.name)}${a.position ? `, ${esc(a.position)}` : ''}, ${esc(a.school)}` : ''}. Each one is a real business, the person who decides, and a pitch already written in your name.</p></div>
 ${cards}
 <section class="cta"><h2>Get this every morning for every athlete you represent</h2>
-<p class="fine">5 pitches per athlete, already written, going to verified people. You review and send. NILDash finds and writes; you and your athletes decide every deal.</p>
+<p class="fine">NILDash does this overnight for every athlete you represent: the business, the person who decides, a verified email and a drafted pitch. You edit, approve and send. NILDash finds and writes; you and your athletes decide every deal.</p>
 <div class="btns">${bookBtn}${trial}</div>
 ${SA.TRIAL_ON() ? '<p class="fine">Card at signup. The first charge is on day 15; cancel before then and you pay nothing.</p>' : ''}
 </section>
