@@ -200,7 +200,7 @@ async function main() {
     drafts.map((d) => W.checkEmail({ subject: d.subject, body: d.body_text }, d, ctx, 1)).filter((x) => x.length));
   ok('  under 120 words each', drafts.every((d) => W.words(d.body_text) < 120), drafts.map((d) => W.words(d.body_text)));
   ok('  the one link is mynildash.com/try, and it offers the 14-day trial', drafts.every((d) => W.links(d.body_text).join() === 'https://mynildash.com/try' && /14-day trial/.test(d.body_text)));
-  ok('  leads with the time bought back: finds, verified email, drafts; they send; no count, no sending claim', drafts.every((d) => /In the morning/.test(d.body_text) && /drafts the/.test(d.body_text) && /verified email/.test(d.body_text) && /reviews? and sends?/.test(d.body_text)
+  ok('  leads with the time bought back: finds, verified email, drafts; they send; no count, no sending claim', drafts.every((d) => /In the morning/.test(d.body_text) && /a few miles from campus/.test(d.body_text) && /drafted/.test(d.body_text) && /verified email/.test(d.body_text) && /reviews? and sends?/.test(d.body_text)
     && !W.COUNT_CLAIM.test(d.body_text) && !W.SEND_CLAIM.test(d.body_text)));
   ok('  a specific line about them', drafts.every((d) => d.body_text.includes(d.org) || d.body_text.includes(String(d.fact || '').slice(0, 30))));
   const school = drafts.find((d) => d.lane === 'school');

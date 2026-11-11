@@ -137,10 +137,15 @@ function templateEmail(p, ctx) {
   // Short and plain (Nov 11): what it does, the portal line in season, one ask.
   // The org is named in the ask; with no org (or the try-it ask), a line about them.
   const fact = (p.org && !ctx.pitches) ? null : p.org ? workloadLine(p) : (cleanFact(p.fact) || fallbackFact(p));
+  // The insight first (where the money is and why it goes unclaimed), then
+  // what NILDash does about it, then one ask.
+  const hook = p.lane === 'school'
+    ? 'The easiest sponsorship money for most programs is a few miles from campus: the car dealer, the steakhouse, the gym. Finding each owner and writing to them is the part your staff never has time for.'
+    : 'The easiest NIL money for most college athletes is a few miles from campus: the car dealer, the steakhouse, the gym. Finding each owner and writing to them is the part nobody has time for.';
   const lead = p.lane === 'school'
-    ? 'Each night NILDash finds local businesses that fit your teams and programs, the person who decides at each, and a verified email, then drafts the sponsorship pitch. In the morning your staff reviews and sends.'
-    : 'Each night NILDash finds local businesses that fit your athletes, the person who decides at each, and a verified email, then drafts the pitch in your name. In the morning you review and send.';
-  const body = [`Hi ${first},`, '', lead].concat(fact ? ['', fact] : []).concat(portalOn(p, ctx) ? ['', PORTAL_LINE] : []).concat(['', askLine(p, ctx), '', signOff(ctx)]).join('\n');
+    ? 'NILDash does it overnight for your teams and programs: the business, the person who decides, a verified email, and a drafted sponsorship pitch. In the morning your staff reviews and sends.'
+    : 'NILDash does it overnight for each of your athletes: the business, the person who decides, a verified email, and a drafted pitch in your name. In the morning you review and send.';
+  const body = [`Hi ${first},`, '', hook, '', lead].concat(fact ? ['', fact] : []).concat(portalOn(p, ctx) ? ['', PORTAL_LINE] : []).concat(['', askLine(p, ctx), '', signOff(ctx)]).join('\n');
   const subject = p.lane === 'school' ? 'Local sponsors for your teams' : 'Local sponsors for your athletes';
   return { subject, body };
 }
