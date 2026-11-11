@@ -43,7 +43,7 @@ const lc = (s) => String(s || '').trim().toLowerCase();
 const MAX_WORDS = 119;          // "under 120"
 const MAX_SUBJECT_WORDS = 8;
 const PORTAL_UNTIL = '2027-01-16';   // the football portal window closes
-const PORTAL_LINE = 'New for the Jan 2 transfer portal: NILDash shows which schools are thin at your client\'s position and who to call there.';
+const PORTAL_LINE = 'Before the January transfer portal, it also shows which schools are thin at a client\'s position and who to call there.';
 // Football and NIL agencies, until the window closes (Central date).
 function portalOn(p, ctx) {
   if (!p || p.lane === 'school') return false;
@@ -129,16 +129,18 @@ function workloadLine(p) {
 function askLine(p, ctx) {
   // NIL_TRY_ON: try it on one athlete at /pitches, free, instead of a call.
   if (ctx.pitches) return `Want to see it on one of your athletes first? Put in a name and NILDash builds the pitches, free, no call: ${ctx.link}`;
-  const what = p.lane === 'school' ? `for ${p.org || 'your department'}` : 'with your roster';
-  return `Worth 15 minutes to see it ${what}? You can book a time${ctx.trialOn ? ' or start a 14-day trial' : ''} here: ${ctx.link}`;
+  const what = p.lane === 'school' ? `for ${p.org || 'your department'}` : `on ${p.org ? possessive(p.org) : 'your'} roster`;
+  return `Worth 15 minutes to see it ${what}? Book a time${ctx.trialOn ? ' or start a free 14-day trial' : ''}: ${ctx.link}`;
 }
 function templateEmail(p, ctx) {
   const first = firstName(p.person) || 'there';
-  const fact = p.org ? workloadLine(p) : (cleanFact(p.fact) || fallbackFact(p));
+  // Short and plain (Nov 11): what it does, the portal line in season, one ask.
+  // The org is named in the ask; with no org (or the try-it ask), a line about them.
+  const fact = (p.org && !ctx.pitches) ? null : p.org ? workloadLine(p) : (cleanFact(p.fact) || fallbackFact(p));
   const lead = p.lane === 'school'
-    ? 'NILDash gives athletic departments their mornings back. Overnight it finds local businesses that fit your teams and programs, the person who decides at each, and a verified email, then drafts the sponsorship pitch. In the morning your staff edits, approves and sends.'
-    : 'NILDash gives agents their mornings back. Overnight it finds local businesses that fit each athlete you represent, the person who decides at each, and a verified email, then drafts the pitch in your name. In the morning you edit, approve and send.';
-  const body = [`Hi ${first},`, '', lead, '', fact].concat(portalOn(p, ctx) ? ['', PORTAL_LINE] : []).concat(['', askLine(p, ctx), '', signOff(ctx)]).join('\n');
+    ? 'Each night NILDash finds local businesses that fit your teams and programs, the person who decides at each, and a verified email, then drafts the sponsorship pitch. In the morning your staff reviews and sends.'
+    : 'Each night NILDash finds local businesses that fit your athletes, the person who decides at each, and a verified email, then drafts the pitch in your name. In the morning you review and send.';
+  const body = [`Hi ${first},`, '', lead].concat(fact ? ['', fact] : []).concat(portalOn(p, ctx) ? ['', PORTAL_LINE] : []).concat(['', askLine(p, ctx), '', signOff(ctx)]).join('\n');
   const subject = p.lane === 'school' ? 'Local sponsors for your teams' : 'Local sponsors for your athletes';
   return { subject, body };
 }
@@ -153,10 +155,10 @@ function sampleEmail(p, ctx, sample) {
   const at = a.school ? ` at ${a.school}` : '';
   const lines = [
     `Hi ${first},`, '',
-    `I ran NILDash for one of ${possessive(p.org || 'your agency')} clients, ${a.name}${at}. It found ${what}, the person who decides at each with a verified email, and drafted a pitch in your name: ${ctx.link}`, '',
-    'NILDash can do that overnight for every athlete you represent, so each morning you edit, approve and send.', '',
+    `I ran NILDash for one of ${possessive(p.org || 'your agency')} clients, ${a.name}${at}. It found ${what} that fit, the person who decides at each with a verified email, and drafted the pitches: ${ctx.link}`, '',
+    'It can do this every night for your whole roster. Each morning you review and send.', '',
     ...(portalOn(p, ctx) ? [PORTAL_LINE, ''] : []),
-    `Worth 15 minutes to see it with your whole roster?${ctx.trialOn ? ' The page also lets you start a 14-day trial.' : ''}`, '',
+    `Worth 15 minutes?${ctx.trialOn ? ' The page also lets you start a free 14-day trial.' : ''}`, '',
     signOff(ctx),
   ];
   const last = String(a.name || '').trim().split(/\s+/).slice(-1)[0] || '';
@@ -176,7 +178,7 @@ function followUp(p, step, ctx) {
     return { subject: null, body: b.join('\n') };
   }
   const body = step === 2
-    ? [`Hi ${first},`, '', `Bumping this in case it got buried. If drafted pitches each morning for ${who} would save you time, here are 15 minutes: ${ctx.link}`, '', sign]
+    ? [`Hi ${first},`, '', `Bumping this in case it got buried. If drafted pitches each morning for ${who} would save you time, here is 15 minutes: ${ctx.link}`, '', sign]
     : [`Hi ${first},`, '', `Last note from me on this. If the timing is wrong, no reply needed. If you want to see it, you can book 15 minutes${ctx.trialOn ? ' or start a 14-day trial' : ''} here: ${ctx.link}`, '', sign];
   return { subject: null, body: body.join('\n') };
 }
@@ -231,6 +233,9 @@ function checkEmail({ subject, body }, p, ctx, step = 1) {
 async function write(p, ctx, deps = {}) {
   const base = templateEmail(p, ctx);
   if (deps.write === false) return { ...base, by: 'template' };
+  // The approved template goes as written (Nov 11: he wants to know exactly
+  // what is sent). SALES_WRITER=on brings the model rewrite back.
+  if (typeof deps.write !== 'function' && String(process.env.SALES_WRITER || '').toLowerCase() !== 'on') return { ...base, by: 'template' };
   try {
     let j;
     if (typeof deps.write === 'function') j = await deps.write(p, ctx);

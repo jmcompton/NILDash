@@ -166,7 +166,7 @@ async function main() {
   OUT.push('', '-- the plain template --');
   const p = { lane: 'agency', org: 'Green Sports Management', person: 'Daniel Green', fact: 'Green Sports Management is a family owned agency.' };
   const t = W.templateEmail(p, SA.writerCtx());
-  ok('the specific line is their workload, not their website read back', /For the team at Green Sports Management, that is hours of writing back every week\./.test(t.body) && !/family owned/.test(t.body), t.body);
+  ok('they are named in the ask, and their website is never read back', /see it on Green Sports Management's roster\?/.test(t.body) && !/family owned/.test(t.body), t.body);
   ok('  signed as Founder with the phone', /JohnMark Compton\nFounder, NILDash\n470-306-3835$/.test(t.body), t.body);
   ok('  and still passes every check', W.checkEmail(t, p, SA.writerCtx(), 1).length === 0, W.checkEmail(t, p, SA.writerCtx(), 1));
   const s = { lane: 'school', org: 'Temple', person: 'Brian Thornburg', level: 'Group of Five' };
