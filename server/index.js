@@ -12855,6 +12855,45 @@ app.post('/api/portal/free-board/email', _portalLeadLimiter, async (req, res) =>
   try { res.json(await require('./services/portalRoom/freeBoard').emailBoard(store.pool, req.body || {})); }
   catch (e) { if (!e.status) console.error('[portal/free-board/email]', e.message); res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' }); }
 });
+// ── THE BRAND MARKETPLACE (services/brandMarket) ────────────────────────────
+// /brands: a local business says what it wants from a local athlete; once it
+// confirms by email, every agent with an athlete who fits gets it that day.
+const _brandPage = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} | NILDash</title><meta name="robots" content="noindex"></head><body style="margin:0;background:#F4F5F2;color:#111613;font:16px/1.55 Inter,system-ui,sans-serif"><main style="max-width:560px;margin:64px auto;padding:0 16px">${body}<p style="margin-top:28px"><a href="/brands" style="color:#157347">Post another request</a></p></main></body></html>`;
+const _bEsc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+app.get('/brands', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300').sendFile(path.join(__dirname, 'views', 'brands.html'));
+});
+app.get('/api/brands/meta', (req, res) => { res.set('Cache-Control', 'public, max-age=3600').json(require('./services/brandMarket').meta()); });
+app.get('/api/brands/schools', _portalFreeLimiter, (req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600').json({ schools: require('./services/brandMarket').schoolSearch(String(req.query.q || '').slice(0, 80)) });
+});
+app.post('/api/brands', _portalLeadLimiter, async (req, res) => {
+  try { res.json(await require('./services/brandMarket').submit(store.pool, req.body || {})); }
+  catch (e) { if (!e.status) console.error('[brands] submit:', e.message); res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong. Try again.' }); }
+});
+app.get('/brands/confirm/:token', async (req, res) => {
+  let r = { ok: false };
+  try { r = await require('./services/brandMarket').confirm(store.pool, req.params.token); } catch (e) { console.error('[brands] confirm:', e.message); }
+  const body = !r.ok ? '<h1>That link did not work.</h1><p>Reply to the email we sent and we will fix it.</p>'
+    : r.status === 'closed' ? '<h1>This request is closed.</h1>'
+    : r.agents ? `<h1>Your request is live.</h1><p>It went to ${r.agents} agent${r.agents === 1 ? '' : 's'} with athletes near you. They will reply to you directly by email.</p>`
+    : `<h1>Your request is live.</h1><p>No agent on NILDash has an athlete near you yet. It stays up for 60 days and goes out the day one does. We will email you when it does.</p>`;
+  res.set('Cache-Control', 'no-store').type('html').send(_brandPage('Your request', body));
+});
+app.get('/brands/close/:token', async (req, res) => {
+  let r = { ok: false };
+  try { r = await require('./services/brandMarket').close(store.pool, req.params.token); } catch (e) { console.error('[brands] close:', e.message); }
+  res.set('Cache-Control', 'no-store').type('html').send(_brandPage('Request closed', r.ok ? `<h1>Done.</h1><p>${_bEsc(r.business)}'s request is closed. No more agents will get it.</p>` : '<h1>This request was already closed.</h1>'));
+});
+app.get('/brands/off', async (req, res) => {
+  let ok = false;
+  try { ok = await require('./services/brandMarket').optOut(store.pool, req.query.a, req.query.s); } catch (e) { console.error('[brands] off:', e.message); }
+  res.set('Cache-Control', 'no-store').type('html').send(_brandPage('Brand requests', ok ? '<h1>Done.</h1><p>You will not get brand requests by email again.</p>' : '<h1>That link did not work.</h1><p>Reply to any of these emails and we will turn them off.</p>'));
+});
+app.get('/api/admin/brand-requests', _coldAdmin, async (req, res) => {
+  try { res.json({ requests: await require('./services/brandMarket').list(store.pool) }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/portal-profile/:token', (req, res) => {
   res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(path.join(__dirname, 'views', 'portal-profile.html'));
 });
@@ -16519,6 +16558,20 @@ try {
     console.log('[portal] morning alerts scheduled: 7-9am Central');
   }
 } catch (e) { console.warn('[portal] morning alerts failed to start:', e.message); }
+
+// ── The brand marketplace, once a day (services/brandMarket) ───────────────
+// 10am Central: live requests reach athletes added since; expired ones close.
+// Off with BRAND_MARKET=off.
+try {
+  const BM = require('./services/brandMarket');
+  if (!BM.on()) console.log('[brands] marketplace is OFF (BRAND_MARKET=off)');
+  else {
+    const bmTick = () => { BM.tick(store.pool).then((r) => { if (r && r.agents) console.log(`[brands] daily match: ${r.agents} agent email(s) for ${r.live} live request(s)`); }).catch((e) => console.error('[brands] daily match failed:', e.message)); };
+    setTimeout(bmTick, 8 * 60 * 1000);
+    setInterval(bmTick, 30 * 60 * 1000);
+    console.log('[brands] daily match scheduled: 10am Central');
+  }
+} catch (e) { console.warn('[brands] daily match failed to start:', e.message); }
 
 // ── The Portal Room roster sweep (services/portalRoom/rosterSweep) ──────────
 // Every FBS football roster, a slice a night, 9 to 11pm Central, claimed by
