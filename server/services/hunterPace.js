@@ -108,7 +108,11 @@ async function readAccount(fetchImpl) {
     clearTimeout(t);
     const j = await r.json().catch(() => null);
     if (!r.ok) return { ok: false, error: `Hunter answered HTTP ${r.status}${j && j.errors && j.errors[0] ? ': ' + (j.errors[0].details || j.errors[0].id) : ''}` };
-    return parseAccount(j);
+    const acct = parseAccount(j);
+    // The plan's real size becomes the ceiling (hunterLookup.setAccountCeilings):
+    // an upgraded plan is used the first time it is read.
+    try { require('./hunterLookup').setAccountCeilings(acct); } catch (_) {}
+    return acct;
   } catch (e) { return { ok: false, error: e.name === 'AbortError' ? 'Hunter did not answer in 10s' : e.message }; }
 }
 

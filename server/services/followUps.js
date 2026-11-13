@@ -245,7 +245,15 @@ async function chainOf(pool, rootId) {
 
 // Every stop, in words, or null. Read fresh, so it is as true at Approve and
 // at send as it was when the card was written.
-async function stopReason(pool, root, chain) {
+// A reason that is not a stop: the address check could not run this pass, so
+// the follow-up waits for the next one. Never written to the row.
+const HOLD = 'hold: ';
+const isHold = (why) => typeof why === 'string' && why.startsWith(HOLD);
+
+// opts.atSend: called by the send loop, which verifies the address itself
+//   (sendGate.check, live, right after this), so only a known-invalid stops.
+// opts.gateDeps: { verifier } for tests.
+async function stopReason(pool, root, chain, opts = {}) {
   chain = chain || await chainOf(pool, root.id);
   if (!root.sent_at) return 'the first email never sent';
   if (chain.some((c) => c.replied_at)) return 'they replied';
@@ -262,8 +270,18 @@ async function stopReason(pool, root, chain) {
     const SG = require('./sendGate');
     const v = await SG.verificationOf(pool, addr);
     if (v && v.result === 'invalid') return `the address verified invalid${v.checked_at && new Date(v.checked_at) > new Date(root.sent_at) ? ' since the first email' : ''} (${v.detail || 'the verifier says invalid'})`;
-    if (root.send_verify_status !== 'valid' && !(v && v.result === 'valid')) {
-      return `the address was never verified (${v ? 'the verifier says ' + SG.categoryOf(v) : 'no check on record'}), so no follow-up goes to it`;
+    if (!opts.atSend && root.send_verify_status !== 'valid' && !(v && v.result === 'valid')) {
+      const cat = SG.categoryOf(v);
+      if (cat === 'catch-all') return 'the address is on a domain that accepts any address, so it cannot be verified and no follow-up goes to it';
+      // No check on record, or a check that got no answer: check it NOW
+      // instead of giving up on a thread nobody ever verified. (Nov 13: follow-
+      // ups died as "never verified (no check on record)" for addresses that
+      // were simply never asked about.) The send loop checks again at send.
+      const who = await SG.contactNameFor(pool, root).catch(() => null);
+      const g = await SG.check(pool, { email: addr, contactName: who, agentId: root.agent_id, athleteId: root.athlete_id, business: root.brand_name },
+        opts.gateDeps || {}).catch((e) => ({ ok: false, retry: true, why: 'the address check failed on our side: ' + e.message }));
+      if (g.retry) return HOLD + g.why;
+      if (!g.ok) return `the address did not verify (${g.why}), so no follow-up goes to it`;
     }
   }
   // A reply that reached a connected mailbox and has not been matched yet.
@@ -327,7 +345,7 @@ async function detectMailboxReplies(pool, { agentId, since } = {}) {
 // ── WHAT IS DUE ─────────────────────────────────────────────────────────────
 // Every first email sent in the lookback, and for each: the next touch, when
 // it is due, and whether anything stops it.
-async function plan(pool, { now, agentId } = {}) {
+async function plan(pool, { now, agentId, gateDeps } = {}) {
   const t = now ? new Date(now) : new Date();
   const roots = (await pool.query(
     `SELECT * FROM outreach_logs
@@ -344,16 +362,21 @@ async function plan(pool, { now, agentId } = {}) {
     const next = lastTouch + 1;
     const dueAt = new Date(new Date(last.sent_at).getTime() + GAP_DAYS[next] * DAY);
     const pending = chain.find((c) => Number(c.touch_no || 1) === next && !c.sent_at);
-    const why = await stopReason(pool, root, chain);
+    const why = await stopReason(pool, root, chain, { gateDeps });
+    if (isHold(why)) { out.push({ root, next, dueAt, waiting: true, hold: why.slice(HOLD.length), pending }); continue; }
     if (why) { out.push({ root, next, dueAt, stop: why, pending }); continue; }
     // The agent let a written follow-up lapse: that sequence is over.
     if (pending && pending.status === 'expired' && pending.body_html) { out.push({ root, next, dueAt, done: 'the follow-up expired unapproved', pending }); continue; }
     // Stopped with a body: the agent saw it and said no. Stopped WITHOUT one
     // was the old empty card ("This draft has no body yet") -- there was
     // nothing to approve, so skipping it is not an answer. It is written now.
-    if (pending && pending.cadence_stopped_at && pending.body_html) { out.push({ root, next, dueAt, done: 'stopped: ' + (pending.cadence_stop_reason || ''), pending }); continue; }
+    // EXCEPT the ones stopped by the old "never verified (no check on record)"
+    // rule: nobody said no to those, the address was just never asked about.
+    // It has been checked above (stopReason), so the follow-up is written again.
+    const wrongStop = !!(pending && pending.cadence_stopped_at && !pending.sent_at && /address was never verified \(no check on record\)/.test(pending.cadence_stop_reason || ''));
+    if (!wrongStop && pending && pending.cadence_stopped_at && pending.body_html) { out.push({ root, next, dueAt, done: 'stopped: ' + (pending.cadence_stop_reason || ''), pending }); continue; }
     // Written and waiting on the agent (or approved and on its way).
-    if (pending && pending.body_html && ['draft', 'approved'].includes(pending.status)) { out.push({ root, next, dueAt, waiting: true, pending }); continue; }
+    if (!wrongStop && pending && pending.body_html && ['draft', 'approved'].includes(pending.status)) { out.push({ root, next, dueAt, waiting: true, pending }); continue; }
     out.push({ root, next, dueAt, due: dueAt.getTime() <= t.getTime(), pending, chain });
   }
   return out;
@@ -393,11 +416,11 @@ async function prepare(pool, item, { now } = {}) {
 
 // The whole pass: match replies, then write what is due. Run by the hourly
 // poller (followUpAutomation) and on demand from admin.
-async function run(pool, { now, agentId } = {}) {
+async function run(pool, { now, agentId, gateDeps } = {}) {
   const out = { replies: 0, bounces: 0, written: [], refused: [], stopped: [], waiting: 0, notYet: 0, done: 0 };
   try { const d = await detectMailboxReplies(pool, { agentId }); out.replies = d.replies; out.bounces = d.bounces; }
   catch (e) { console.error('[followUps] mailbox scan failed:', e.message); }
-  const items = await plan(pool, { now, agentId });
+  const items = await plan(pool, { now, agentId, gateDeps });
   for (const it of items) {
     if (it.stop) {
       out.stopped.push({ root: it.root.id, brand: it.root.brand_name, why: it.stop });
@@ -424,7 +447,7 @@ async function stopForSend(pool, log) {
   if (!root) return 'the first email is gone';
   const chain = await chainOf(pool, root.id);
   if (chain.filter((c) => c.sent_at).length >= MAX_TOUCHES) return 'three touches already sent';
-  return stopReason(pool, root, chain);
+  return stopReason(pool, root, chain, { atSend: true });
 }
 
 // ── A CARD'S HISTORY, IN ORDER ──────────────────────────────────────────────
@@ -450,5 +473,5 @@ function historyOf(chain, now) {
 module.exports = {
   GAP_DAYS, MAX_TOUCHES, REST_DAYS, LOOKBACK_DAYS, BANNED,
   deliverableFor, textOf, reuses, checkFollowUp, materialFor, compose, subjectFor,
-  chainOf, stopReason, detectMailboxReplies, plan, prepare, run, stopForSend, historyOf,
+  chainOf, stopReason, isHold, detectMailboxReplies, plan, prepare, run, stopForSend, historyOf,
 };

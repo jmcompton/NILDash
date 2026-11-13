@@ -87,6 +87,46 @@ const MONTHLY_BUDGET = parseInt(process.env.HUNTER_MONTHLY_BUDGET, 10) || 1800;
 //   HUNTER_MONTHLY_BUDGET          searches, default 1,800 of 2,000
 //   HUNTER_MONTHLY_VERIFY_BUDGET   verifications, default 3,600 of 4,000
 const VERIFY_MONTHLY_BUDGET = parseInt(process.env.HUNTER_MONTHLY_VERIFY_BUDGET, 10) || 3600;
+// ── THE CEILINGS FOLLOW THE PLAN ────────────────────────────────────────────
+// The two numbers above are the floor, not the whole story. On Nov 13 the plan
+// went from 2,000 credits to Growth, and a fixed 1,800 would have kept the
+// nightly finder at the old plan's size. Every time Hunter's own account is
+// read (services/hunterPace.readAccount, free), the period's real size sets
+// the ceiling: 90% of it (HUNTER_RESERVE_PCT), by what each call costs. The
+// larger of that and the environment value wins, so a bigger plan is used the
+// first night it is read and a missing read never shrinks anything.
+let _acctCeil = null;   // { search, verify, plan, at }
+function ceilingsFromAccount(acct) {
+  if (!acct || !acct.ok) return null;
+  const num = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
+  const keep = 1 - num(process.env.HUNTER_RESERVE_PCT, 0.10);
+  const sc = num(process.env.HUNTER_SEARCH_CREDIT, 1), vc = num(process.env.HUNTER_VERIFY_CREDIT, 0.5);
+  if (acct.credits && acct.credits.available > 0) {
+    const usable = acct.credits.available * keep;
+    return { search: Math.floor(usable / sc), verify: Math.floor(usable / vc), plan: acct.plan || null };
+  }
+  const out = { search: 0, verify: 0, plan: acct.plan || null };
+  if (acct.searches && acct.searches.available > 0) out.search = Math.floor(acct.searches.available * keep);
+  if (acct.verifications && acct.verifications.available > 0) out.verify = Math.floor(acct.verifications.available * keep);
+  return (out.search || out.verify) ? out : null;
+}
+function setAccountCeilings(acct) {
+  const c = ceilingsFromAccount(acct);
+  if (c) _acctCeil = { ...c, at: Date.now() };
+  return c;
+}
+function searchBudget() { return Math.max(MONTHLY_BUDGET, (_acctCeil && _acctCeil.search) || 0); }
+function verifyBudget() { return Math.max(VERIFY_MONTHLY_BUDGET, (_acctCeil && _acctCeil.verify) || 0); }
+// After a restart, before tonight's read: the last account the pace stored.
+let _ceilLoaded = false;
+async function loadStoredCeilings() {
+  if (_ceilLoaded || _acctCeil) return;
+  _ceilLoaded = true;
+  try {
+    const r = await store.pool.query(`SELECT account FROM hunter_nights WHERE account IS NOT NULL ORDER BY run_date DESC LIMIT 1`);
+    if (r.rows[0] && r.rows[0].account && !_acctCeil) setAccountCeilings(r.rows[0].account);
+  } catch (_) { /* no table yet: the environment values stand */ }
+}
 // Both Hunter search products write a row per credit spent: Domain Search to
 // lane 'hunter' (by domain), Email Finder to lane 'hunterfinder' (by name and
 // domain). The search ceiling counts both.
@@ -121,7 +161,7 @@ async function creditsThisMonth(force) {
         } catch (e) {
           console.error('[hunter] budget read failed: ' + e.message);
           // Fail SAFE: an unreadable budget must not read as "plenty left".
-          _budgetCache = { at: Date.now(), used: MONTHLY_BUDGET, since: _budgetCache.since };
+          _budgetCache = { at: Date.now(), used: searchBudget(), since: _budgetCache.since };
         }
         // The count now includes every row written before it ran, so the
         // reservations it supersedes are cleared with it. Requests still in
@@ -215,14 +255,14 @@ async function accountUsedThisMonth(force) {
 async function reserveCredit(force) {
   // Awaited for their SIDE EFFECT -- refreshing _budgetCache and _verifyCache --
   // not for what they return.
-  await Promise.all([creditsThisMonth(force), verifyCreditsThisMonth(force)]);
+  await Promise.all([creditsThisMonth(force), verifyCreditsThisMonth(force), loadStoredCeilings()]);
   // ── NO await, NO yield, FROM HERE TO THE ++ ──────────────────────────────
   // SEARCHES ONLY. Verifications are their own pool (VERIFY_MONTHLY_BUDGET);
   // they are reported alongside, never subtracted from this one.
   const ladder = _budgetCache.used;
   const verify = _verifyCache.used;
   const used = ladder + _reserved;
-  if (used >= MONTHLY_BUDGET) return { ok: false, used, ladder, verify };
+  if (used >= searchBudget()) return { ok: false, used, ladder, verify };
   // Tonight's allowance (HUNTER_PACE_ON): still no await before the ++.
   const pace = HP.take('search');
   if (!pace.ok) return { ok: false, used, ladder, verify, pace: pace.why };
@@ -239,8 +279,9 @@ async function budgetStatus() {
   const a = await accountUsedThisMonth(true);
   const w = HPer.current();
   return { used: a.ladder, ladderUsed: a.ladder, verifyUsed: a.verify,
-    budget: MONTHLY_BUDGET, remaining: Math.max(0, MONTHLY_BUDGET - a.ladder),
-    verifyBudget: VERIFY_MONTHLY_BUDGET, verifyRemaining: Math.max(0, VERIFY_MONTHLY_BUDGET - a.verify),
+    budget: searchBudget(), remaining: Math.max(0, searchBudget() - a.ladder),
+    verifyBudget: verifyBudget(), verifyRemaining: Math.max(0, verifyBudget() - a.verify),
+    budgetFrom: _acctCeil && (_acctCeil.search > MONTHLY_BUDGET || _acctCeil.verify > VERIFY_MONTHLY_BUDGET) ? `Hunter's ${_acctCeil.plan || 'current'} plan` : 'HUNTER_MONTHLY_BUDGET',
     periodStart: _since(w), resetDate: w.resetDate, periodFrom: w.from, periodLine: HPer.describe(w) };
 }
 
@@ -462,7 +503,7 @@ async function findDomainEmails(domain, opts = {}) {
   const acct = await reserveCredit();
   if (!acct.ok) {
     console.warn(acct.pace ? `[hunter] @${key} SKIPPED: ${acct.pace}`
-      : `[hunter] @${key} SKIPPED: search budget spent (${acct.used}/${MONTHLY_BUDGET} since ${_since(HPer.current())}`
+      : `[hunter] @${key} SKIPPED: search budget spent (${acct.used}/${searchBudget()} since ${_since(HPer.current())}`
       + ` — ${acct.ladder} domain searches, ${acct.verify} verifications)`);
     return null;
   }
@@ -694,9 +735,9 @@ async function _findEmail(first, last, dom, key, opts) {
     // Tonight's allowance is a plan, not a fault: no fault row for it.
     if (acct.pace) { console.warn(`[hunter-finder] ${key} SKIPPED: ${acct.pace}`); return { email: null, budget: true, pace: true, why: acct.pace }; }
     const since = _since(HPer.current());
-    console.warn(`[hunter-finder] ${key} SKIPPED: search budget spent (${acct.used}/${MONTHLY_BUDGET} since ${since})`);
-    require('./ourFault').record('hunter', `search budget spent (${acct.used}/${MONTHLY_BUDGET} since ${since})`, '@' + dom);
-    return { email: null, budget: true, why: `this billing period's Hunter search budget is spent (${acct.used}/${MONTHLY_BUDGET} since ${since})` };
+    console.warn(`[hunter-finder] ${key} SKIPPED: search budget spent (${acct.used}/${searchBudget()} since ${since})`);
+    require('./ourFault').record('hunter', `search budget spent (${acct.used}/${searchBudget()} since ${since})`, '@' + dom);
+    return { email: null, budget: true, why: `this billing period's Hunter search budget is spent (${acct.used}/${searchBudget()} since ${since})` };
   }
   const params = new URLSearchParams({ domain: dom, first_name: first, last_name: last, api_key: apiKey });
   let resp;
@@ -742,6 +783,7 @@ module.exports = {
   findDomainEmails, findEmail, FINDER_URL, FINDER_LANE, SEARCH_LANES, VERIFY_MONTHLY_BUDGET,
   verifyEmail, verifyWithMillion, MV_URL, MV_ON, VERIFY_URL, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
   creditsThisMonth, verifyCreditsThisMonth, accountUsedThisMonth, budgetStatus, MONTHLY_BUDGET,
+  searchBudget, verifyBudget, setAccountCeilings, ceilingsFromAccount,
   _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
   _resetBreaker: () => { _breaker = null; }, BREAKER_MIN,
   _call, _setClock, _isRateLimit, _outcomeForStatus, PACE, FINDER_TIMEOUT_MS, TIMEOUT_MS, VERIFY_TIMEOUT_MS, BACKOFF_TRIES,

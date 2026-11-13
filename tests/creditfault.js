@@ -227,7 +227,7 @@ async function draftsFor(P, athleteId, n, tag) {
       && bs.verifyRemaining === hunter.VERIFY_MONTHLY_BUDGET - 6, JSON.stringify(bs));
   const hlSrc = require('fs').readFileSync(ROOT + 'server/services/hunterLookup.js', 'utf8');
   check('THE REGRESSION GUARD: the search ceiling counts searches, verification checks its own pool',
-    /const used = ladder \+ _reserved;/.test(hlSrc) && /if \(used >= MONTHLY_BUDGET\)/.test(hlSrc)
+    /const used = ladder \+ _reserved;/.test(hlSrc) && /if \(used >= searchBudget\(\)\)/.test(hlSrc)
       && /b\.verifyRemaining <= 0/.test(hlSrc));
 
   // ── 6. A CREDIT THAT CANNOT BE RECORDED IS NOT SPENT ──────────────────────

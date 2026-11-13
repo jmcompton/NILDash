@@ -80,16 +80,31 @@ async function run(pool, opts = {}) {
     const res = { id: r.id, agent: r.agent_email || r.agent_id, athlete: r.athlete_name, brand: r.brand_name, was: r.why, approved: r.approved_at };
     // 1. The address, once.
     let email = null, from = null;
+    // An address the send gate would refuse (a shared inbox, a department
+    // inbox, no named person, not the person's) is NOT a fresh email card:
+    // that card would be approved and refused again, the same loop. It is a
+    // call or DM card instead.
+    const SG = require('./sendGate');
+    const gateSays = async (e) => {
+      let p;
+      if (SG.ON()) {
+        const ctx = await SG.contextFor(pool, e, { brand: r.brand_name, athleteId: r.athlete_id }).catch(() => ({ brand: r.brand_name }));
+        p = SG.addressProblem(e, r.contact_name, ctx);
+      } else { const pc = SG.platformCheck(e); p = pc && !pc.ok ? pc : null; }
+      if (p) (res.gateRefused = res.gateRefused || []).push(`${e}: ${p.why}`);
+      return !p;
+    };
     const onRow = CHN.hasEmail(r.sent_to_email) ? String(r.sent_to_email).trim().toLowerCase() : null;
     if (onRow) {
       const sup = await suppression.isSuppressed(pool, onRow).catch(() => ({ suppressed: false }));
-      if (!sup.suppressed) { email = onRow; from = 'the address on the row'; } else res.addressRefused = `${onRow}: ${sup.reason}`;
+      if (sup.suppressed) res.addressRefused = `${onRow}: ${sup.reason}`;
+      else if (await gateSays(onRow)) { email = onRow; from = 'the address on the row'; }
     }
     if (!email) {
       // Our own address cache, both lanes (the website's address, and what a
       // past contact lookup found), bounced and unsubscribed addresses refused.
       const cached = await DC.cachedAddress(pool, r.brand_name).catch(() => null);
-      if (cached) { email = cached; from = 'our address cache'; }
+      if (cached && cached !== onRow && await gateSays(cached)) { email = cached; from = 'our address cache'; }
     }
     let phone = r.phone || null, instagram = r.instagram_scope === 'brand' ? null : (r.instagram || null);
     if (!email) {
@@ -97,9 +112,10 @@ async function run(pool, opts = {}) {
         try {
           const f = await lookup(r);
           out.lookups++; out.lookupUsd += Number(f.costUsd) || 0;
-          if (CHN.hasEmail(f.email) && !(await suppression.isSuppressed(pool, f.email).catch(() => ({}))).suppressed) { email = f.email.toLowerCase(); from = 'one contact lookup'; }
           phone = phone || f.phone || null; instagram = instagram || f.instagram || null;
           if (!r.contact_name && f.contactName) r.contact_name = f.contactName;
+          if (CHN.hasEmail(f.email) && !(await suppression.isSuppressed(pool, f.email).catch(() => ({}))).suppressed
+              && await gateSays(f.email.toLowerCase())) { email = f.email.toLowerCase(); from = 'one contact lookup'; }
           res.lookedUp = true;
         } catch (e) { res.lookupError = e.message; }
       } else res.wouldLookUp = true;
