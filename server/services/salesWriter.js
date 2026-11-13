@@ -4,8 +4,11 @@
 // One short plain-text email per prospect, written as JohnMark, and two
 // follow-ups that go in the same thread. The rules every email is held to,
 // whoever wrote it (checkEmail):
-//   - it leads with the time bought back: every morning, 5 ready pitches,
-//     already written, going to verified people;
+//   - it leads with the time bought back, and says only what NILDash does:
+//     overnight it finds local businesses that fit, the person who decides
+//     and a verified email, and drafts the pitch; the agent edits, approves
+//     and sends. It never promises a number of pitches (most athletes do not
+//     get five a night yet) and never says NILDash sends them (Nov 11 review);
 //   - one specific line about them (their agency, sport or school);
 //   - one ask: 15 minutes, with the one link (mynildash.com/try, which books
 //     the demo and starts the 14-day trial);
@@ -40,7 +43,7 @@ const lc = (s) => String(s || '').trim().toLowerCase();
 const MAX_WORDS = 119;          // "under 120"
 const MAX_SUBJECT_WORDS = 8;
 const PORTAL_UNTIL = '2027-01-16';   // the football portal window closes
-const PORTAL_LINE = 'New for the Jan 2 transfer portal: NILDash shows which schools are thin at your client\'s position and who to call there.';
+const PORTAL_LINE = 'Before the January transfer portal, it also shows which schools are thin at a client\'s position and who to call there.';
 // Football and NIL agencies, until the window closes (Central date).
 function portalOn(p, ctx) {
   if (!p || p.lane === 'school') return false;
@@ -61,6 +64,10 @@ const HYPE = [
 // NILDash never closes, negotiates or signs a deal: it finds and writes.
 const DEAL_CLAIM = /\b(clos(e|es|ed|ing)|negotiat\w*|sign(s|ed|ing)?|land(s|ed|ing)?|secur(e|es|ed|ing)|win(s|ning)?|won)\b[^.\n]{0,40}\b(deals?|sponsorships?|contracts?|partnerships?)\b|\b(deals?|sponsorships?|contracts?)\b[^.\n]{0,25}\b(closed|negotiated|signed)\b/i;
 const DASHES = /[\u2014\u2013]|\s--\s/;
+// Not every athlete gets five a night yet, so no email promises a count.
+const COUNT_CLAIM = /\b(\d+|five|ten)\s+(ready\s+|new\s+|sponsorship\s+)?pitches\b/i;
+// The agent sends; NILDash never does.
+const SEND_CLAIM = /\balready (sent|going out)\b|\b(sends?|emails?) (them|it|the pitch(es)?) for you\b|\bgoing to verified\b/i;
 
 function words(text) { return String(text || '').split(/\s+/).filter(Boolean).length; }
 function firstName(full) {
@@ -122,17 +129,24 @@ function workloadLine(p) {
 function askLine(p, ctx) {
   // NIL_TRY_ON: try it on one athlete at /pitches, free, instead of a call.
   if (ctx.pitches) return `Want to see it on one of your athletes first? Put in a name and NILDash builds the pitches, free, no call: ${ctx.link}`;
-  const what = p.lane === 'school' ? `for ${p.org || 'your department'}` : 'with your roster';
-  return `Worth 15 minutes to see it ${what}? You can book a time${ctx.trialOn ? ' or start a 14-day trial' : ''} here: ${ctx.link}`;
+  const what = p.lane === 'school' ? `for ${p.org || 'your department'}` : `on ${p.org ? possessive(p.org) : 'your'} roster`;
+  return `Worth 15 minutes to see it ${what}? Book a time${ctx.trialOn ? ' or start a free 14-day trial' : ''}: ${ctx.link}`;
 }
 function templateEmail(p, ctx) {
   const first = firstName(p.person) || 'there';
-  const fact = p.org ? workloadLine(p) : (cleanFact(p.fact) || fallbackFact(p));
+  // Short and plain (Nov 11): what it does, the portal line in season, one ask.
+  // The org is named in the ask; with no org (or the try-it ask), a line about them.
+  const fact = (p.org && !ctx.pitches) ? null : p.org ? workloadLine(p) : (cleanFact(p.fact) || fallbackFact(p));
+  // The insight first (where the money is and why it goes unclaimed), then
+  // what NILDash does about it, then one ask.
+  const hook = p.lane === 'school'
+    ? 'The easiest sponsorship money for most programs is a few miles from campus: the car dealer, the steakhouse, the gym. Finding each owner and writing to them is the part your staff never has time for.'
+    : 'The easiest NIL money for most college athletes is a few miles from campus: the car dealer, the steakhouse, the gym. Finding each owner and writing to them is the part nobody has time for.';
   const lead = p.lane === 'school'
-    ? 'NILDash gives athletic departments their mornings back. Every morning, each of your teams and programs has 5 sponsorship pitches ready for local businesses, already written and going to verified people at those businesses. Your staff reviews and sends.'
-    : 'NILDash gives agents their mornings back. Every morning, each athlete you represent has 5 pitches ready for local and social brands, already written and going to verified people at those businesses. You review and send.';
-  const body = [`Hi ${first},`, '', lead, '', fact].concat(portalOn(p, ctx) ? ['', PORTAL_LINE] : []).concat(['', askLine(p, ctx), '', signOff(ctx)]).join('\n');
-  const subject = p.lane === 'school' ? 'Sponsor pitches for your teams, ready daily' : 'Pitches for your athletes, ready each morning';
+    ? 'NILDash does it overnight for your teams and programs: the business, the person who decides, a verified email, and a drafted sponsorship pitch. In the morning your staff reviews and sends.'
+    : 'NILDash does it overnight for each of your athletes: the business, the person who decides, a verified email, and a drafted pitch in your name. In the morning you review and send.';
+  const body = [`Hi ${first},`, '', hook, '', lead].concat(fact ? ['', fact] : []).concat(portalOn(p, ctx) ? ['', PORTAL_LINE] : []).concat(['', askLine(p, ctx), '', signOff(ctx)]).join('\n');
+  const subject = p.lane === 'school' ? 'Local sponsors for your teams' : 'Local sponsors for your athletes';
   return { subject, body };
 }
 
@@ -146,10 +160,10 @@ function sampleEmail(p, ctx, sample) {
   const at = a.school ? ` at ${a.school}` : '';
   const lines = [
     `Hi ${first},`, '',
-    `I ran NILDash for one of ${possessive(p.org || 'your agency')} clients, ${a.name}${at}. It found ${what}, the right person to contact, and a pitch already written in your name: ${ctx.link}`, '',
-    'Every athlete you represent would get that each morning: 5 pitches, already written, going to verified people. You review and send.', '',
+    `I ran NILDash for one of ${possessive(p.org || 'your agency')} clients, ${a.name}${at}. It found ${what} that fit, the person who decides at each with a verified email, and drafted the pitches: ${ctx.link}`, '',
+    'It can do this every night for your whole roster. Each morning you review and send.', '',
     ...(portalOn(p, ctx) ? [PORTAL_LINE, ''] : []),
-    `Worth 15 minutes to see it with your whole roster?${ctx.trialOn ? ' The page also lets you start a 14-day trial.' : ''}`, '',
+    `Worth 15 minutes?${ctx.trialOn ? ' The page also lets you start a free 14-day trial.' : ''}`, '',
     signOff(ctx),
   ];
   const last = String(a.name || '').trim().split(/\s+/).slice(-1)[0] || '';
@@ -169,7 +183,7 @@ function followUp(p, step, ctx) {
     return { subject: null, body: b.join('\n') };
   }
   const body = step === 2
-    ? [`Hi ${first},`, '', `Bumping this in case it got buried. If 5 ready pitches each morning for ${who} would save you time, here are 15 minutes: ${ctx.link}`, '', sign]
+    ? [`Hi ${first},`, '', `Bumping this in case it got buried. If drafted pitches each morning for ${who} would save you time, here is 15 minutes: ${ctx.link}`, '', sign]
     : [`Hi ${first},`, '', `Last note from me on this. If the timing is wrong, no reply needed. If you want to see it, you can book 15 minutes${ctx.trialOn ? ' or start a 14-day trial' : ''} here: ${ctx.link}`, '', sign];
   return { subject: null, body: body.join('\n') };
 }
@@ -184,6 +198,8 @@ function checkEmail({ subject, body }, p, ctx, step = 1) {
   if (/!/.test(all)) problems.push('has an exclamation mark');
   if (DASHES.test(all)) problems.push('has an em dash');
   if (DEAL_CLAIM.test(all)) problems.push('says NILDash closes, negotiates or signs deals');
+  if (COUNT_CLAIM.test(all)) problems.push('promises a number of pitches');
+  if (SEND_CLAIM.test(all)) problems.push('says NILDash sends the pitches');
   const n = words(body);
   if (n > MAX_WORDS) problems.push(`too long (${n} words; under 120)`);
   const ls = links(body);
@@ -194,10 +210,10 @@ function checkEmail({ subject, body }, p, ctx, step = 1) {
   if (step === 1) {
     if (!subject || !String(subject).trim()) problems.push('has no subject');
     else if (words(subject) > MAX_SUBJECT_WORDS) problems.push(`subject too long (${words(subject)} words)`);
-    if (!/\b(5|five)\b[^.]{0,40}\bpitch/i.test(body)) problems.push('does not say 5 ready pitches');
     if (!/\bmornings?\b/i.test(body)) problems.push('does not lead with the mornings bought back');
-    if (!/already written/i.test(body)) problems.push('does not say the pitches are already written');
-    if (!/\bverified\b/i.test(body)) problems.push('does not say they go to verified people');
+    if (!/\bdraft(s|ed)?\b/i.test(body)) problems.push('does not say NILDash drafts the pitch');
+    if (!/\bverified\b/i.test(body)) problems.push('does not say the email is verified');
+    if (!/\b(you|your staff)\b[^.]{0,40}\bsends?\b/i.test(body)) problems.push('does not say they send it themselves');
     if (ctx.pitches) {
       if (!/\bfree\b/i.test(body) || !/\bone of your athletes\b/i.test(body)) problems.push('does not offer to run it free on one of their athletes');
     } else {
@@ -222,6 +238,9 @@ function checkEmail({ subject, body }, p, ctx, step = 1) {
 async function write(p, ctx, deps = {}) {
   const base = templateEmail(p, ctx);
   if (deps.write === false) return { ...base, by: 'template' };
+  // The approved template goes as written (Nov 11: he wants to know exactly
+  // what is sent). SALES_WRITER=on brings the model rewrite back.
+  if (typeof deps.write !== 'function' && String(process.env.SALES_WRITER || '').toLowerCase() !== 'on') return { ...base, by: 'template' };
   try {
     let j;
     if (typeof deps.write === 'function') j = await deps.write(p, ctx);
@@ -238,7 +257,7 @@ async function write(p, ctx, deps = {}) {
 FACTS (use only these): ${JSON.stringify(facts)}
 Shape, in this order:
 1. "Hi ${facts.to.firstName || 'there'}," on its own line.
-2. Lead with the time they get back: every morning ${team ? 'each of their teams and programs has 5 sponsorship pitches ready for local businesses' : 'each athlete they represent has 5 pitches ready for local and social brands'}, already written and going to verified people at those businesses; ${team ? 'their staff reviews and sends' : 'they review and send'}. Two or three plain sentences.
+2. Lead with the time they get back: overnight NILDash finds local businesses that fit ${team ? 'their teams and programs' : 'each athlete they represent'}, the person who decides at each and a verified email, and drafts the ${team ? 'sponsorship ' : ''}pitch; in the morning ${team ? 'their staff edits, approves and sends' : 'they edit, approve and send'}. Two or three plain sentences. Never give a number of pitches, and never say NILDash sends anything.
 3. The specific line, in your own words, keeping its facts: ${JSON.stringify(facts.specificLine)} (it must name them and say what the time is worth to them; never describe their company back to them)${portalOn(p, ctx) ? `\n3b. Then this sentence, as written: ${JSON.stringify(PORTAL_LINE)}` : ''}
 4. One ask, one sentence: ${ctx.pitches ? `see it on one of their athletes first: they put in a name and NILDash builds the pitches, free, no call (use the words "free" and "one of your athletes"), with this link exactly once: ${ctx.link}` : `15 minutes to see it, with this link exactly once: ${ctx.link}${ctx.trialOn ? ' (the same link also starts a 14-day trial; say so)' : ''}`}.
 5. The sign-off exactly: ${JSON.stringify(facts.signOff)}
@@ -263,4 +282,4 @@ Return ONLY JSON: {"subject":"under 8 words, plain","body":"the email with \\n l
 
 module.exports = { portalOn, PORTAL_LINE, write, templateEmail, sampleEmail, followUp, checkEmail, cleanFact, fallbackFact, firstName, words, links, stateName,
   signOff, workloadLine, possessive,
-  HYPE, DEAL_CLAIM, MAX_WORDS, STATE_NAMES };
+  HYPE, DEAL_CLAIM, COUNT_CLAIM, SEND_CLAIM, MAX_WORDS, STATE_NAMES };
