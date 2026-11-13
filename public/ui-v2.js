@@ -180,6 +180,46 @@
     });
   }
 
+
+  // ── TODAY: a greeting and four numbers above the cards ───────────────────
+  // Every number comes from the same /api/agent/home answer the cards do
+  // (HQ.data), so the strip and the page can never disagree.
+  function todayHead() {
+    var view = document.getElementById('view-home');
+    var d = (typeof HQ !== 'undefined' && HQ) ? HQ.data : null;
+    if (!view || !d || !built) return;
+    var el = document.getElementById('v2TodayHead');
+    if (!el) { el = document.createElement('div'); el.id = 'v2TodayHead'; view.insertBefore(el, view.firstChild); }
+    var s = d.sinceYesterday || {};
+    var ready = (d.athletes || []).reduce(function (n, a) { return n + (Number(a.pending) || 0); }, 0);
+    var withWork = (d.athletes || []).filter(function (a) { return Number(a.pending) > 0; }).length;
+    var reps = (d.replies || []).length;
+    var h = new Date().getHours();
+    var hello = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+    var who = (typeof currentUser !== 'undefined' && currentUser && currentUser.name) ? String(currentUser.name).split(/\s+/)[0] : '';
+    var esc = window.escHtml || function (t) { return String(t); };
+    var date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+    var lede = ready ? ready + ' pitch' + (ready === 1 ? ' is' : 'es are') + ' ready across ' + withWork + ' athlete' + (withWork === 1 ? '' : 's') + '.'
+      : 'Nothing to approve right now. Tonight’s research fills this page by morning.';
+    var stat = function (label, n, note, hi) {
+      return '<div class="v2-stat"><div class="l">' + label + '</div><div class="n' + (hi ? ' hi' : '') + '">' + n + '</div><div class="s">' + note + '</div></div>';
+    };
+    el.innerHTML = '<div class="v2-today-h"><h1>' + hello + (who ? ', ' + esc(who) : '') + '</h1><p>' + date + '. ' + lede + '</p></div>'
+      + '<div class="v2-stats">'
+      + stat('Ready to approve', ready, withWork ? 'Across ' + withWork + ' athlete' + (withWork === 1 ? '' : 's') : 'All caught up', ready > 0)
+      + stat('Replies waiting', reps, reps ? 'Answer these first' : 'None waiting', false)
+      + stat('Follow-ups ready', Number(s.followUpsReady) || 0, 'Go out when you approve', false)
+      + stat('Sent since yesterday', Number(s.sent) || 0, (Number(s.signed) ? s.signed + ' deal' + (s.signed === 1 ? '' : 's') + ' signed' : 'From your inbox'), false)
+      + '</div>';
+  }
+  function installToday() {
+    if (typeof window.hqRender !== 'function' || window.hqRender.__v2) return;
+    var orig = window.hqRender;
+    var v2 = function () { var r = orig.apply(this, arguments); try { todayHead(); } catch (e) {} return r; };
+    v2.__v2 = true;
+    window.hqRender = v2;
+  }
+
   var built = false;
   function build() {
     if (built || !isAgent()) return;
@@ -210,6 +250,8 @@
     }
     recopy(document.getElementById('appScreen'));
     installRoster();
+    installToday();
+    try { todayHead(); } catch (e) {}
     try { window.renderRoster(); } catch (e) {}
     mark(currentView());
   }
