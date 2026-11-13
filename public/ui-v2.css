@@ -15,6 +15,7 @@ html[data-ui="v2"]{
   --head:'Inter Tight','Inter',system-ui,sans-serif;--mono:'Inter',system-ui,sans-serif;
   --r:14px;--r-sm:9px;
   --v2-ink:#0A0A08;--v2-dim:#8B8B92;
+  --card:#111113;--line:#232327;--dim:#8B8B92;--fg:#F4F4F2;--amber:#F5A524;--blue:#7AA7FF;--surface1:#111113;--surf:#111113;--panel:#111113;
 }
 html[data-ui="v2"] body{background:#09090B;color:#F4F4F2;font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 html[data-ui="v2"] #appScreen button,
@@ -136,3 +137,61 @@ html[data-ui="v2"] .pipe-card{background:#141417;border:1px solid #26262B;border
 html[data-ui="v2"] .pipe-brand{font-family:'Inter',sans-serif;font-size:14.5px}
 html[data-ui="v2"] .pipe-athlete{font-family:'Inter',sans-serif;font-size:13px;color:#A1A1A6}
 html[data-ui="v2"] .pipe-amount{font-family:'Inter Tight','Inter',sans-serif;font-size:15px;color:#F4F4F2;font-variant-numeric:tabular-nums}
+
+/* ── the old navy, retuned. Classes and inline styles across the app still
+      name the first palette's blues; these put them on the new neutrals. ── */
+html[data-ui="v2"] .hm-card,
+html[data-ui="v2"] .hq-card,
+html[data-ui="v2"] .hq-waiting{background:#111113;border:1px solid #232327;border-radius:14px}
+html[data-ui="v2"] .hq-log,
+html[data-ui="v2"] .hq-tab-count{background:#0C0C0E}
+html[data-ui="v2"] .hm-cell{border-left-color:#232327}
+html[data-ui="v2"] .hm-bar i{background:#2C2C31}
+html[data-ui="v2"] .hm-bar.is-now i{background:#C8F135}
+html[data-ui="v2"] .hm-bar.is-now span{color:#C8F135}
+html[data-ui="v2"] .hm-eyebrow,html[data-ui="v2"] .hm-quiet,html[data-ui="v2"] .hm-bar span{color:#8B8B92}
+html[data-ui="v2"] .hm-sub,html[data-ui="v2"] .hq-why,html[data-ui="v2"] .hq-note,html[data-ui="v2"] .hq-logline{color:#A1A1A6}
+html[data-ui="v2"] .hq-sponsor{color:#C8F135}
+html[data-ui="v2"] .hq-rowhead{min-height:72px}
+html[data-ui="v2"] .hq-tab{border-radius:8px}
+html[data-ui="v2"] #appScreen [style*="#0D1520" i]{background-color:#111113!important}
+html[data-ui="v2"] #appScreen [style*="#141929" i]{background-color:#111113!important}
+html[data-ui="v2"] #appScreen [style*="#0a0f16" i]{background-color:#0C0C0E!important}
+html[data-ui="v2"] #appScreen [style*="#1e2a3a" i]{border-color:#232327!important}
+
+/* ── roster table (ui-v2.js renderRoster) ── */
+html[data-ui="v2"] #rosterGrid.v2-roster{display:block}
+html[data-ui="v2"] .v2-rt{background:#111113;border:1px solid #232327;border-radius:14px;overflow-x:auto}
+html[data-ui="v2"] .v2-rt-in{min-width:820px}
+html[data-ui="v2"] .v2-rr{display:grid;grid-template-columns:minmax(260px,2.4fr) minmax(130px,1fr) minmax(100px,.8fr) minmax(120px,1fr) 260px;gap:12px;align-items:center;padding:14px 20px;border-top:1px solid #1D1D21;cursor:pointer}
+html[data-ui="v2"] .v2-rr:hover{background:#141417}
+html[data-ui="v2"] .v2-rr.head{border-top:0;cursor:default;padding:12px 20px;font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8B8B92}
+html[data-ui="v2"] .v2-rr.head:hover{background:transparent}
+html[data-ui="v2"] .v2-rr.sel{background:rgba(200,241,53,.04);box-shadow:inset 3px 0 0 #C8F135}
+html[data-ui="v2"] .v2-ath{display:flex;align-items:center;gap:12px;min-width:0}
+html[data-ui="v2"] .v2-av{flex:0 0 40px;width:40px;height:40px;border-radius:50%;background:#26262B;color:#F4F4F2;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
+html[data-ui="v2"] .v2-rr.sel .v2-av{background:#C8F135;color:#0A0A08}
+html[data-ui="v2"] .v2-nm{font-weight:600;font-size:15px;color:#F4F4F2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-ui="v2"] .v2-mt{font-size:13px;color:#A1A1A6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-ui="v2"] .v2-num{font-variant-numeric:tabular-nums;font-size:14.5px;color:#F4F4F2}
+html[data-ui="v2"] .v2-num small{display:block;font-size:12px;color:#8B8B92}
+html[data-ui="v2"] .v2-pill{display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:999px;font-size:12px;font-weight:600;background:#1E1E22;color:#C9C9CD;white-space:nowrap}
+html[data-ui="v2"] .v2-pill.on{background:rgba(200,241,53,.12);color:#C8F135}
+html[data-ui="v2"] .v2-acts{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+html[data-ui="v2"] .v2-b{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;border-radius:8px;border:1px solid #2C2C31;background:#141417;color:#F4F4F2;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+html[data-ui="v2"] .v2-b:hover{border-color:#45454C}
+html[data-ui="v2"] .v2-b.p{background:#C8F135;border-color:#C8F135;color:#0A0A08}
+html[data-ui="v2"] .v2-b.link{border:0;background:transparent;color:#C8F135;padding:0;height:auto;font-size:12.5px}
+html[data-ui="v2"] .v2-more{position:relative}
+html[data-ui="v2"] .v2-more>summary{list-style:none;width:34px;height:34px;border-radius:8px;border:1px solid #2C2C31;background:#141417;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#A1A1A6}
+html[data-ui="v2"] .v2-more>summary::-webkit-details-marker{display:none}
+html[data-ui="v2"] .v2-more[open]>summary{border-color:#45454C;color:#F4F4F2}
+html[data-ui="v2"] .v2-menu{position:absolute;right:0;top:40px;z-index:30;min-width:200px;padding:6px;border-radius:12px;background:#17171A;border:1px solid #2E2E34;box-shadow:0 18px 40px rgba(0,0,0,.55)}
+html[data-ui="v2"] .v2-menu button{display:block;width:100%;text-align:left;padding:9px 12px;border-radius:8px;border:0;background:transparent;color:#F4F4F2;font-size:14px;cursor:pointer}
+html[data-ui="v2"] .v2-menu button:hover{background:#1F1F23}
+html[data-ui="v2"] .v2-menu button.danger{color:#FCA5A5}
+html[data-ui="v2"] .v2-menu hr{border:0;border-top:1px solid #26262B;margin:6px 4px}
+html[data-ui="v2"] .v2-note{margin-top:4px;font-size:12.5px;color:#8B8B92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── deliverables filters sit in one row ── */
+html[data-ui="v2"] #view-calendar .select-sm{width:auto;height:38px;padding:0 10px}
