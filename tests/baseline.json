@@ -827,6 +827,11 @@
       "total": 13,
       "fault": null
     },
+    "mailboxsync.js": {
+      "failed": 0,
+      "total": 17,
+      "fault": null
+    },
     "mailboxprospects.js": {
       "failed": 0,
       "total": 43,
