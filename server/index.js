@@ -11184,6 +11184,17 @@ app.post('/api/agent/outreach-queue/:id/sent', requireAuth, async (req, res) => 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/agent/applications — every queued program card (a brand's own
+// athlete program) with its finished application: each answer written from
+// what we hold, the link, and a one-tap email to the athlete. Shown on Home
+// (services/applyPacket). Marked done with POST .../sent { via: 'program' }.
+app.get('/api/agent/applications', requireAuth, async (req, res) => {
+  try {
+    const list = await require('./services/applyPacket').listForAgent(store.pool, req.session.userId);
+    res.json({ applications: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/agent/outreach-queue/:id/skip — frees the slot and retires the brand
 // FOR THIS ATHLETE. Another athlete on the roster can still be shown it.
 app.post('/api/agent/outreach-queue/:id/skip', requireAuth, async (req, res) => {
