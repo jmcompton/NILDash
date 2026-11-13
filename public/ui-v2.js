@@ -3,9 +3,9 @@
 // THE SWITCH. html[data-ui="v2"] turns on public/ui-v2.css and the sidebar
 // below. The tiny inline script in index.html's <head> sets it before paint so
 // there is no flash:
-//   ?ui=v2  turns it on for this browser (remembered in localStorage)
-//   ?ui=v1  turns it off again
-//   window.NILDASH_UI_DEFAULT ('v1' | 'v2') is the default for everyone else.
+//   On for everyone (the default is 'v2').
+//   ?ui=v1  brings back the old look for this browser (remembered in localStorage)
+//   ?ui=v2  turns the new look back on
 //
 // THE SIDEBAR. Agent mode only (athletes and universities keep theirs). Eighteen
 // entries become eight places plus Settings. Nothing is deleted: every old view
