@@ -67,7 +67,8 @@
     'Admin-only · Automated outreach to NIL agents and schools': 'Admin only. Outreach to agents and schools.' };
   // Button and label copy: NILDash is sold as software, not as an AI product.
   // Exact, whole-label matches only; disclaimers about generated contracts stay.
-  var COPY = { 'Scan Deals with AI': 'Search', 'AI Lookup': 'Look up', 'AI Generate Bio': 'Write bio', '✨ AI Draft': 'Draft',
+  var COPY = { 'Scan Deals with AI': 'Search', 'Write Outreach': 'Write pitch', '+ Pipeline': 'Add to pipeline', '\u26a1 AI Outreach': 'Draft email',
+    'Outreach Sent': 'Pitched', '\u2192 Outreach Sent': '\u2192 Pitched', 'AI Lookup': 'Look up', 'AI Generate Bio': 'Write bio', '✨ AI Draft': 'Draft',
     'Extract Athletes with AI': 'Import athletes', 'AI Roster Import': 'Roster import', 'AI Outreach Emails': 'Outreach emails',
     'Generating posts with AI...': 'Writing posts...', 'AI is mapping your roster…': 'Reading your roster…',
     'Enter a real athlete. AI Lookup can fill the profile for you.': 'Enter a real athlete. Look up fills the profile for you.' };
@@ -204,6 +205,8 @@
     var stat = function (label, n, note, hi) {
       return '<div class="v2-stat"><div class="l">' + label + '</div><div class="n' + (hi ? ' hi' : '') + '">' + n + '</div><div class="s">' + note + '</div></div>';
     };
+    var news = document.getElementById('home-news');
+    view.classList.toggle('v2-rail', !!(news && news.querySelector('.hq-replies, .hq-todo, .hq-faults')));
     el.innerHTML = '<div class="v2-today-h"><h1>' + hello + (who ? ', ' + esc(who) : '') + '</h1><p>' + date + '. ' + lede + '</p></div>'
       + '<div class="v2-stats">'
       + stat('Ready to approve', ready, withWork ? 'Across ' + withWork + ' athlete' + (withWork === 1 ? '' : 's') : 'All caught up', ready > 0)
@@ -218,6 +221,152 @@
     var v2 = function () { var r = orig.apply(this, arguments); try { todayHead(); } catch (e) {} return r; };
     v2.__v2 = true;
     window.hqRender = v2;
+  }
+
+
+  // ── INBOX: every reply, with the pitch it answered (GET /api/agent/inbox) ──
+  // Read here, answered in the agent's own mailbox (openUrl), so the reply goes
+  // out threaded and from their address. Handled / Not interested / Signed are
+  // Home's own actions (hqReplyHandled, hqReplyNo, hqReplyDeal).
+  var IB = { items: [], sel: null, filter: 'needs', mode: 'replies', loading: false };
+  function ibEsc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function ibWhen(d) {
+    if (!d) return '';
+    var t = new Date(d), now = new Date();
+    if (t.toDateString() === now.toDateString()) return t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return t.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+  function ibBadge(n) {
+    var b = navBtn('email-inbox'); if (!b) return;
+    var el = b.querySelector('.v2-badge');
+    if (!el) { el = document.createElement('span'); el.className = 'v2-badge'; b.appendChild(el); }
+    el.textContent = n > 0 ? String(n) : '';
+    el.hidden = !(n > 0);
+  }
+  function ibLoad() {
+    if (IB.loading) return;
+    IB.loading = true;
+    fetch('/api/agent/inbox', { credentials: 'same-origin' }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (x) {
+        IB.loading = false;
+        if (!x.ok) { IB.error = x.d.error || 'Could not load your replies.'; }
+        else { IB.error = null; IB.items = x.d.items || []; ibBadge(x.d.needsReply || 0); }
+        ibRender();
+      }).catch(function () { IB.loading = false; IB.error = 'Could not load your replies. Try again in a minute.'; ibRender(); });
+  }
+  function ibAfter() { setTimeout(ibLoad, 900); }
+  window.v2Inbox = {
+    pick: function (id) { IB.sel = id; ibRender(); },
+    filter: function (f) { IB.filter = f; IB.sel = null; ibRender(); },
+    mode: function (m) { IB.mode = m; ibRender(); },
+    handled: function (btn, id) { try { hqReplyHandled(btn, id); } catch (e) {} ibAfter(); },
+    no: function (btn, card) { try { hqReplyNo(btn, card); } catch (e) {} ibAfter(); },
+    deal: function (card, ath) { try { hqReplyDeal(card, ath); } catch (e) {} ibAfter(); },
+    reload: ibLoad,
+  };
+  function ibRender() {
+    var view = document.getElementById('view-email-inbox');
+    if (!view || !built) return;
+    var box = document.getElementById('v2Inbox');
+    if (!box) { box = document.createElement('div'); box.id = 'v2Inbox'; }
+    var tabs = document.getElementById('v2Tabs');
+    if (tabs && tabs.parentNode === view) view.insertBefore(box, tabs.nextSibling); else view.insertBefore(box, view.firstChild);
+    // the old Inbox (mailboxes, compose, athlete emails) lives under "Compose"
+    Array.prototype.forEach.call(view.children, function (c) {
+      if (c === box || c.id === 'v2Tabs') return;
+      c.classList.toggle('v2-hide', IB.mode === 'replies');
+    });
+    var modeTabs = '<div class="v2-tabs" role="tablist" aria-label="Inbox">'
+      + '<button type="button" role="tab" aria-selected="' + (IB.mode === 'replies') + '" onclick="v2Inbox.mode(\'replies\')">Replies</button>'
+      + '<button type="button" role="tab" aria-selected="' + (IB.mode === 'compose') + '" onclick="v2Inbox.mode(\'compose\')">Compose and mailboxes</button></div>';
+    if (IB.mode !== 'replies') { box.innerHTML = modeTabs; return; }
+    var head = '<div class="v2-ib-head"><div><h1 class="v2-h1">Inbox</h1><p class="v2-sub">Replies from businesses, tied to the athlete and the pitch they answered.</p></div>'
+      + '<button type="button" class="v2-b" onclick="v2Inbox.reload()">Refresh</button></div>';
+    if (IB.error) { box.innerHTML = modeTabs + head + '<div class="v2-ib-empty">' + ibEsc(IB.error) + '</div>'; return; }
+    var all = IB.items || [];
+    var list = IB.filter === 'needs' ? all.filter(function (i) { return i.needsReply; }) : all;
+    var waiting = all.filter(function (i) { return i.needsReply; }).length;
+    if (!all.length) {
+      box.innerHTML = modeTabs + head + '<div class="v2-ib-empty"><b>No replies yet.</b><br>When a business answers a pitch, it shows up here with the pitch it answered.</div>';
+      return;
+    }
+    if (!IB.sel || !list.some(function (i) { return i.logId === IB.sel; })) IB.sel = list.length ? list[0].logId : null;
+    var rows = list.map(function (i) {
+      var sel = i.logId === IB.sel;
+      return '<button type="button" class="v2-ib-row' + (sel ? ' sel' : '') + '" onclick="v2Inbox.pick(\'' + ibEsc(i.logId) + '\')">'
+        + '<span class="dot' + (i.needsReply ? ' on' : '') + '"></span>'
+        + '<span class="tx"><span class="top"><b>' + ibEsc(i.business || 'A business') + '</b><span>' + ibEsc(ibWhen(i.repliedAt)) + '</span></span>'
+        + '<span class="who">' + ibEsc([i.from, i.athlete ? 'for ' + i.athlete : null].filter(Boolean).join(' · ')) + '</span>'
+        + '<span class="snip">' + ibEsc((i.reply || 'Reply received. Open it in your mailbox.').slice(0, 140)) + '</span></span></button>';
+    }).join('') || '<div class="v2-ib-empty" style="margin:12px">Nothing waiting on you.</div>';
+    var c = list.filter(function (i) { return i.logId === IB.sel; })[0];
+    var detail = '';
+    if (c) {
+      var state = c.needsReply ? '<span class="v2-pill on">Needs a reply</span>'
+        : c.outcome === 'closed' ? '<span class="v2-pill on">Deal signed</span>'
+        : c.outcome === 'declined' || c.outcome === 'dead' ? '<span class="v2-pill">Not interested</span>' : '<span class="v2-pill">Handled</span>';
+      var acts = (c.openUrl ? '<a class="v2-b p" href="' + ibEsc(c.openUrl) + '" target="_blank" rel="noopener">Reply in your mailbox</a>' : '')
+        + (c.needsReply && c.cardId ? '<button type="button" class="v2-b" onclick="v2Inbox.deal(' + Number(c.cardId) + ',\'' + ibEsc(c.athleteId) + '\')">Mark deal signed</button>'
+          + '<button type="button" class="v2-b" onclick="v2Inbox.no(this,' + Number(c.cardId) + ')">Not interested</button>' : '')
+        + (c.needsReply ? '<button type="button" class="v2-b" onclick="v2Inbox.handled(this,\'' + ibEsc(c.logId) + '\')">Handled</button>' : '');
+      detail = '<div class="v2-ib-dh"><div><div class="v2-ib-biz">' + ibEsc(c.business || 'A business') + '</div>'
+        + '<div class="v2-sub">' + ibEsc([c.athlete ? 'For ' + c.athlete : null, c.subject].filter(Boolean).join(' · ')) + '</div></div>' + state + '</div>'
+        + '<div class="v2-ib-body">'
+        + '<div class="v2-ib-msg them"><div class="m">' + ibEsc(c.from || 'Their reply') + ' · ' + ibEsc(ibWhen(c.repliedAt)) + '</div>'
+        + '<div class="t">' + (c.reply ? ibEsc(c.reply) : '<i>The reply is in your mailbox; its text was not captured.</i>') + '</div></div>'
+        + (c.pitch ? '<details class="v2-ib-msg you"><summary><span class="m">Your pitch · ' + ibEsc(ibWhen(c.sentAt)) + '</span></summary><div class="t">' + ibEsc(c.pitch) + '</div></details>' : '')
+        + '</div><div class="v2-ib-acts">' + acts + '</div>';
+    }
+    box.innerHTML = modeTabs + head
+      + '<div class="v2-ib">'
+      + '<div class="v2-ib-list"><div class="v2-ib-filter">'
+      + '<button type="button" aria-pressed="' + (IB.filter === 'needs') + '" onclick="v2Inbox.filter(\'needs\')">Needs reply <span>' + waiting + '</span></button>'
+      + '<button type="button" aria-pressed="' + (IB.filter === 'all') + '" onclick="v2Inbox.filter(\'all\')">All <span>' + all.length + '</span></button></div>'
+      + rows + '</div>'
+      + '<div class="v2-ib-detail">' + (detail || '<div class="v2-ib-empty">Pick a reply on the left.</div>') + '</div>'
+      + '</div>';
+  }
+
+
+  // ── PIPELINE: tidy the board after every draw ───────────────────────────
+  function installPipeline() {
+    var P = window.NILPipeline;
+    if (!P || !P.render || P.render.__v2) return;
+    var orig = P.render;
+    var v2 = function (deals, board) { var r = orig.apply(this, arguments); try { if (board) { board.classList.add('v2-board'); recopy(board); } } catch (e) {} return r; };
+    v2.__v2 = true;
+    P.render = v2;
+  }
+
+  // ── SETTINGS: a list of sections beside one long page ───────────────────
+  function settingsNav() {
+    var view = document.getElementById('view-settings');
+    if (!view || view.querySelector('.v2-set')) return;
+    var secs = [];
+    Array.prototype.forEach.call(view.children, function (c) {
+      if (c.classList.contains('page-title') || c.classList.contains('page-sub') || c.id === 'v2Tabs' || c.tagName === 'SCRIPT' || c.tagName === 'STYLE') return;
+      var h = c.querySelector('div[style*="font-weight:700"]');
+      var t = h ? (h.textContent || '').trim() : '';
+      secs.push({ el: c, title: t && t.length < 48 ? t : '' });
+    });
+    if (secs.length < 3) return;
+    var wrap = document.createElement('div'); wrap.className = 'v2-set';
+    var nav = document.createElement('nav'); nav.className = 'v2-set-nav'; nav.setAttribute('aria-label', 'Settings sections');
+    var body = document.createElement('div'); body.className = 'v2-set-body';
+    secs.forEach(function (x) {
+      body.appendChild(x.el);
+      if (!x.title) return;
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = x.title;
+      b.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (y) { y.removeAttribute('aria-current'); });
+        b.setAttribute('aria-current', 'true');
+        x.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      nav.appendChild(b);
+    });
+    if (nav.firstChild) nav.firstChild.setAttribute('aria-current', 'true');
+    wrap.appendChild(nav); wrap.appendChild(body);
+    view.appendChild(wrap);
   }
 
   var built = false;
@@ -251,6 +400,19 @@
     recopy(document.getElementById('appScreen'));
     installRoster();
     installToday();
+    installPipeline();
+    ibLoad();
+    // Views draw their content after showView returns (scans, boards, lists),
+    // so new copy is renamed as it arrives. childList only: renaming a text
+    // node is a characterData change and does not wake this again.
+    var content = document.querySelector('#appScreen .content');
+    if (content && window.MutationObserver) {
+      var pend = null;
+      new MutationObserver(function () {
+        if (pend) return;
+        pend = setTimeout(function () { pend = null; try { recopy(document.querySelector('.view.active')); } catch (e) {} }, 120);
+      }).observe(content, { childList: true, subtree: true });
+    }
     try { todayHead(); } catch (e) {}
     try { window.renderRoster(); } catch (e) {}
     mark(currentView());
@@ -270,6 +432,9 @@
     var bc = document.getElementById('breadcrumb');
     if (bc && CRUMB[id]) bc.textContent = CRUMB[id];
     recopy(document.getElementById('view-' + id));
+    if (id === 'email-inbox') { ibRender(); ibLoad(); }
+    if (id === 'settings') settingsNav();
+    if (id === 'pipeline') installPipeline();
     // tab row
     var old = document.getElementById('v2Tabs');
     if (old) old.remove();
