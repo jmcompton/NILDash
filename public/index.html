@@ -22740,7 +22740,9 @@ async function hqLoadApps(athleteId) {
           + '<div class="hq-app-btns">'
           + (a.programUrl ? '<a class="hq-app-go" href="' + hqEscape(a.programUrl) + '" target="_blank" rel="noopener" onclick="hqAppCopy(' + i + ',true)">Open application</a>' : '')
           + '<button class="hq-app-b" onclick="hqAppCopy(' + i + ')">Copy answers</button>'
-          + (a.mailto ? '<a class="hq-app-b" href="' + hqEscape(a.mailto) + '">Send to athlete</a>' : '')
+          + (a.mailto ? '<a class="hq-app-b" href="' + hqEscape(a.mailto) + '">Send to athlete</a>'
+            : '<button class="hq-app-b" onclick="hqAppText(' + i + ')">Copy for athlete</button>')
+          + (a.igConnected ? '' : '<button class="hq-app-b" onclick="hqAppIg(' + i + ',this)">Instagram link</button>')
           + '<button class="hq-app-b" onclick="hqAppDone(' + i + ',this)">Applied</button>'
           + '<button class="hq-app-b hq-app-skip" onclick="hqAppSkip(' + i + ',this)">Skip</button>'
           + '</div><div class="hq-app-st" id="hq-app-st-' + i + '"></div></div>';
@@ -22766,6 +22768,27 @@ async function hqAppPost(i, btn, path, body) {
   } catch (e) { if (st) st.textContent = 'Did not save: ' + e.message; if (btn) btn.disabled = false; }
 }
 function hqAppDone(i, btn) { return hqAppPost(i, btn, 'sent', { via: 'program' }); }
+// No athlete email: the same message, copied for a text or a DM.
+function hqAppText(i) {
+  var a = HQAPPS[i]; if (!a) return;
+  var done = function () { if (typeof showToast === 'function') showToast('Copied. Paste it in a text to ' + String(a.athleteName || 'the athlete').split(' ')[0]); };
+  if (navigator.clipboard) navigator.clipboard.writeText(a.athleteText || a.text).then(done, done); else done();
+}
+// Not connected: the athlete's Instagram connect link, copied with a short
+// note, so the next application carries Instagram's own numbers.
+async function hqAppIg(i, btn) {
+  var a = HQAPPS[i]; if (!a) return;
+  var st = document.getElementById('hq-app-st-' + i);
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch(API_BASE + '/api/agents/athletes/' + encodeURIComponent(a.athleteId) + '/instagram-invite', { method: 'POST', credentials: 'include' });
+    var j = await r.json();
+    if (!r.ok || !j.text) throw new Error(j.error || ('HTTP ' + r.status));
+    var done = function () { if (typeof showToast === 'function') showToast('Instagram link copied. Send it to ' + String(a.athleteName || 'the athlete').split(' ')[0]); };
+    if (navigator.clipboard) navigator.clipboard.writeText(j.text).then(done, done); else done();
+  } catch (e) { if (st) st.textContent = 'Could not make the link: ' + e.message; }
+  if (btn) btn.disabled = false;
+}
 function hqAppSkip(i, btn) { return hqAppPost(i, btn, 'skip', {}); }
 
 function hqRenderCard(c, i) {

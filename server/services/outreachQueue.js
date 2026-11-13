@@ -889,7 +889,18 @@ function passesProgramBar(cand, ig) {
   const handle = (ig && ig.handle) ? ig.handle : null;
   // The page wins when there is one: a brand running a real athlete program has
   // told us how it wants to be approached, and that is not by DM.
-  if (c.programUrl) return { ok: true, reason: null, channel: 'program' };
+  // ONLY A REAL APPLICATION PAGE IS A PROGRAM CARD (services/dealMix): the
+  // brand's own site or a creator platform, on an ambassador / athlete /
+  // creator / affiliate / apply path. Nov 13: with the deal mix off, a
+  // brand's website or a product page ("/collections/coconut-vanilla") went
+  // out as the "application". A page that is not one is dropped here, so the
+  // brand falls to its handle (a DM) or is skipped, never sent as a form.
+  if (c.programUrl) {
+    const v = require('./applyPacket').linkOk(c.programUrl, c.website || null);
+    if (v.ok) return { ok: true, reason: null, channel: 'program' };
+    c.programUrlRejected = `${c.programUrl}: ${v.why}`;
+    c.programUrl = null;
+  }
   if (handle) return { ok: true, reason: null, channel: 'dm' };
   return { ok: false, channel: null,
     reason: 'they spend on NIL but we hold no athlete-program page for them and could '

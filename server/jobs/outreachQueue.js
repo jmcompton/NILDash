@@ -3062,6 +3062,11 @@ async function fillAgent(pool, agent, opts) {
   // taken its allowance of program slots tonight is skipped for the rest of the
   // roster rather than winning all nine. Seeded from the database so a restart
   // mid-run does not reset the ceiling.
+  // A queued program card whose link is not an application page holds the
+  // athlete's one program slot forever: closed first, so tonight can fill it.
+  await require('../services/applyPacket').expireBadLinks(pool, { agentId: agent.id })
+    .then((x) => { if (x.bad.length) console.log(`[queue] closed ${x.bad.length} program card(s) with no application page`); })
+    .catch((e) => console.error('[queue] program link check: ' + e.message));
   const programBrandTally = await loadProgramBrandTally(pool, agent.id);
   // THE WHOLE ATHLETE, not three fields. Every pitch used to say "a college
   // athlete here in your area", which throws away the only thing being sold.

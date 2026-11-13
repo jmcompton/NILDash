@@ -123,7 +123,7 @@ async function main() {
       && /Instagram/.test(Q.passesProgramBar({}, null).reason),
     Q.passesProgramBar({}, null));
   ok('the page wins over the handle when a brand has both',
-    Q.passesProgramBar({ programUrl: 'https://b.example/a' }, { handle: 'h' }).channel === 'program');
+    Q.passesProgramBar({ programUrl: 'https://b.example/ambassadors' }, { handle: 'h' }).channel === 'program');
   ok('the cap is one', Q.PROGRAM_SLOT_CAP === 1);
   ok('  and it is reached at one, not after one',
     Q.programCapReached(0) === false && Q.programCapReached(1) === true);
