@@ -195,3 +195,15 @@ html[data-ui="v2"] .v2-note{margin-top:4px;font-size:12.5px;color:#8B8B92;white-
 
 /* ── deliverables filters sit in one row ── */
 html[data-ui="v2"] #view-calendar .select-sm{width:auto;height:38px;padding:0 10px}
+
+/* ── Today header (ui-v2.js todayHead) ── */
+html[data-ui="v2"] #v2TodayHead{margin:0 0 22px}
+html[data-ui="v2"] .v2-today-h h1{margin:0;font-family:'Inter Tight','Inter',sans-serif!important;font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.15;color:#F4F4F2}
+html[data-ui="v2"] .v2-today-h p{margin:6px 0 0;font-size:15px;color:#A1A1A6}
+html[data-ui="v2"] .v2-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:20px}
+html[data-ui="v2"] .v2-stat{background:#111113;border:1px solid #232327;border-radius:14px;padding:16px 18px}
+html[data-ui="v2"] .v2-stat .l{font-size:13px;font-weight:500;color:#A1A1A6}
+html[data-ui="v2"] .v2-stat .n{margin-top:6px;font-family:'Inter Tight','Inter',sans-serif!important;font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1.1;color:#F4F4F2;font-variant-numeric:tabular-nums}
+html[data-ui="v2"] .v2-stat .n.hi{color:#C8F135}
+html[data-ui="v2"] .v2-stat .s{margin-top:4px;font-size:13px;color:#A1A1A6}
+html[data-ui="v2"] #view-home .hq-since{display:none}
