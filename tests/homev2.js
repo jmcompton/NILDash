@@ -6,12 +6,13 @@
 //   1. what the page says, against the rules it was written to (no em dashes,
 //      not sold as an AI product, no "built" addresses, no free athlete plan),
 //      and each claim against the code that makes it true;
-//   2. the fonts load (Syne, DM Mono, Inter, font-display: swap) and every
+//   2. the fonts load (Inter Tight, Inter, DM Mono, Syne for the wordmark,
+//      font-display: swap) and every
 //      stack falls back to a sans or mono face, never a serif;
 //   3. none of the agent portal is in it;
 //   4. the live counts: honest labels, zeros hidden, the demo account left out;
 //   5. who gets the page at / with the switch on, and that off changes nothing;
-//   6. the athlete waitlist and its admin script;
+//   6. the athlete waitlist API and its admin script (the form is off the page);
 //   7. the hero graphic: a morning card built in HTML, CSS and inline SVG, no
 //      pictures anywhere on the page, fictional names;
 //   8. at 390px and 1440px wide in a real browser (when Playwright is installed).
@@ -77,8 +78,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('THE CALCULATOR IS GONE: "hours a week back" is nowhere in the page, its markup, CSS or script', !/hours a week back/i.test(HTML), (HTML.match(/.{40}hours a week back.{20}/i) || [])[0]);
   ok('  no calculator form, fields, result or script left behind', !/class="calc|id="calc|calc-(ath|min|out|ex|grid|title)|Your hours back|var PITCHES|EXAMPLE = /.test(HTML)
     && !/\.calc\b|\.field\b/.test(CSS));
-  ok('  the only inputs left are the athlete waitlist\'s', JSON.stringify((HTML.match(/<input id="([a-z-]+)"/g) || []).map((t) => t.slice(11, -1))) === '["wl-email","wl-website"]',
-    HTML.match(/<input id="([a-z-]+)"/g));
+  ok('  no form fields on the page at all (the athlete waitlist is gone)', !/<(input|form|textarea|select)\b/.test(HTML), HTML.match(/<(input|form)\b[^>]*>/g));
   ok('  and the hours section ends with the By hand / With NILDash comparison', /<div class="vs">/.test(hrs) && !/<form/.test(hrs)
     && /<\/ol>\s*<\/div>\s*<\/div>\s*<\/div>$/.test(hrs.trim()), hrs.slice(-120));
 
@@ -134,24 +134,39 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('the old feature sections are not on this page', !/class="feat|id="features"|class="asstband"/.test(HTML));
 
   const pr = section('pricing');
-  ok('pricing: Founding Agent $99/month to get your mornings back', /<span class="who">Founding Agent<\/span>\s*<div class="price">\$99<span>\/month<\/span><\/div>\s*<p class="why">to get your mornings back<\/p>/.test(pr)
-    && /\$99 \/month to get your mornings back/.test(VISIBLE));
-  ok('  Athletes: "Coming soon" with a waitlist email field', /<span class="who">Athletes<\/span>\s*<div class="soon">Coming soon<\/div>/.test(pr)
-    && /<form class="wl" id="wl" action="\/api\/public\/waitlist" method="post"/.test(pr) && /type="email"/.test(pr));
-  ok('  Schools and collectives: talk to us, by email', /<span class="who">Schools and collectives<\/span>\s*<div class="soon">Talk to us<\/div>/.test(pr) && /mailto:contact@mynildash\.com/.test(pr));
-  ok('  no athlete price anywhere', !/id="athletes"[\s\S]*?\$\d/.test(pr.slice(pr.indexOf('id="athletes"'), pr.indexOf('id="teams"'))));
+  ok('pricing: priced by roster size, every feature on every plan', /<h2 class="h2">Priced by roster size\. Every feature on every plan\.<\/h2>/.test(pr));
+  ok('  the plans are filled in by the server (<!--PRICING-->), not swapped in by a script', /<!--PRICING-->/.test(pr) && /<!--PERIOD_TOGGLE-->/.test(pr) && !/fetch\(/.test(HTML));
+  ok('  every plan includes the same list', /<h3>Every plan includes<\/h3>/.test(pr) && (pr.match(/<li>/g) || []).length >= 6);
+  ok('  the $99 founding rate is offered by email', /Ask about the \$99\/month founding rate/.test(pr) && /mailto:contact@mynildash\.com\?subject=Founding/.test(pr));
+  ok('  athletic departments and collectives: talk to us, by email', /<h3>Athletic departments and collectives<\/h3>/.test(pr) && /mailto:contact@mynildash\.com\?subject=NILDash%20for%20schools/.test(pr));
+  ok('NO ATHLETE CARD: no athlete plan, no "Coming soon", no waitlist anywhere on the page', !/id="athletes"|Coming soon|waitlist|id="wl"/i.test(HTML));
+  const T = require(REPO + 'server/services/pricing').publicTiers();
+  const on4 = PH.renderPricing(true, T);
+  ok('renderPricing on: four plans, Growth marked most popular', (on4.match(/class="tier( pop)?" data-tier=/g) || []).length === 4
+    && /<div class="tier pop" data-tier="growth"><div class="tier-name">Growth<span class="tag">Most popular<\/span>/.test(on4), on4.slice(0, 300));
+  ok('  monthly shown, yearly carried for the toggle', /data-m="\$149" data-y="\$1,490">\$149</.test(on4) && /data-m="\$499" data-y="\$4,990">\$499</.test(on4));
+  ok('  Agency says what happens over 50', /Up to 50 athletes, then <span data-m="\$8\/athlete"/.test(on4));
+  ok('  every plan signs up', (on4.match(/href="\/\?signin=agent&amp;tab=signup">Get started<\/a>/g) || []).length === 4);
+  const off1 = PH.renderPricing(false, []);
+  ok('renderPricing off: the one $99 Founding Agent card', /<div class="tier-name">Founding Agent<\/div>/.test(off1) && /<span class="amt">\$99<\/span><span class="per-u">\/month<\/span>/.test(off1)
+    && !/data-tier=/.test(off1));
+  ok('the hero says what you get with no fine print: own inbox, verified, no contract', /<ul class="trust"/.test(hero) && /Sends from your own Gmail or Outlook/.test(hero) && /No contract, cancel anytime/.test(hero));
+  ok('an FAQ, and a footer that names the company', /<section class="sec alt" id="faq">/.test(HTML) && (section('faq').match(/<details>/g) || []).length >= 5
+    && /&copy; <!--YEAR--> Compton Group LLC\. All rights reserved\./.test(HTML));
   ok('the footer keeps the postal address, Privacy and Terms', /Compton Group LLC, 3000 Northwoods Pkwy, Suite 115, Norcross, GA 30071/.test(HTML)
     && /href="\/privacy"/.test(HTML) && /href="\/terms"/.test(HTML));
 
   console.log('\n2. THE FONTS');
   const link = (HTML.match(/<link rel="stylesheet" href="(https:\/\/fonts\.googleapis\.com\/css2\?[^"]+)">/) || [])[1] || '';
-  ok('the brand fonts are loaded: Syne, DM Mono, Inter', /family=Syne:/.test(link) && /family=DM\+Mono:/.test(link) && /family=Inter:/.test(link), link);
+  ok('the fonts are loaded: Inter Tight, Inter, DM Mono, and Syne for the wordmark only', /family=Inter\+Tight:/.test(link) && /family=DM\+Mono:/.test(link) && /family=Inter:/.test(link) && /family=Syne:wght@800&/.test(link), link);
   ok('  with font-display: swap', /&display=swap$/.test(link), link);
-  ok('  the weights the page uses are the weights it loads (Syne 700 and 800)', /Syne:wght@[0-9;]*700[0-9;]*800/.test(link));
+  ok('  the weights the page uses are the weights it loads (Inter Tight 600 and 700)', /Inter\+Tight:wght@600;700/.test(link));
   ok('  preconnected, the font files with crossorigin', /<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com" crossorigin>/.test(HTML));
-  const stacks = [...CSS.matchAll(/--(head|body|mono):([^;]+);/g)].map((m) => [m[1], m[2]]);
-  ok('three stacks, Syne for headings, Inter for body, DM Mono for labels', stacks.length === 3
-    && /^'Syne'/.test(stacks.find((s) => s[0] === 'head')[1]) && /^'Inter'/.test(stacks.find((s) => s[0] === 'body')[1]) && /^'DM Mono'/.test(stacks.find((s) => s[0] === 'mono')[1]), stacks);
+  const stacks = [...CSS.matchAll(/--(head|body|mono|brand):([^;]+);/g)].map((m) => [m[1], m[2]]);
+  ok('four stacks: Inter Tight for headings, Inter for body, DM Mono for labels, Syne for the wordmark', stacks.length === 4
+    && /^'Inter Tight'/.test(stacks.find((s) => s[0] === 'head')[1]) && /^'Inter'/.test(stacks.find((s) => s[0] === 'body')[1]) && /^'DM Mono'/.test(stacks.find((s) => s[0] === 'mono')[1])
+    && /^'Syne'/.test(stacks.find((s) => s[0] === 'brand')[1]), stacks);
+  ok('  Syne is the wordmark and logo only', (CSS.match(/var\(--brand\)/g) || []).length === 2 && /\.gl\{[^}]*var\(--brand\)/.test(CSS) && /\.wm\{[^}]*var\(--brand\)/.test(CSS));
   ok('  each ends in a sans or mono generic, never a serif', stacks.every(([k, v]) => (k === 'mono' ? /monospace$/ : /sans-serif$/).test(v.trim()) && !/(^|,)\s*serif\b/.test(v)), stacks);
   ok('  and no rule names a font outside the stacks (the old page\'s bare font-family:\'Syne\')', !/font-family:\s*'/.test(CSS));
 
@@ -159,7 +174,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
   ok('no app markup in the page', !/id="(appScreen|authScreen|mktLanding|home-panel|home-tabs|loginForm)"/.test(HTML));
   ok('  no "Could not load today\'s outreach"', !/Could not load today/.test(HTML));
   ok('  no app scripts loaded', !/<script[^>]+src=/.test(HTML), (HTML.match(/<script[^>]+src=[^>]+>/g) || []));
-  ok('  the only requests the page makes are the waitlist and the public plan list', (HTML.match(/fetch\('([^']+)'/g) || []).sort().join() === "fetch('/api/pricing',fetch('/api/public/waitlist'");
+  ok('  the page makes no requests of its own', !/fetch\(|XMLHttpRequest/.test(HTML));
   ok('it is not under public/, so express.static can never serve it raw', !fs.existsSync(REPO + 'public/home.html') && /server\/views\/home\.html|'views', 'home\.html'/.test(read('server/services/publicHome.js')));
 
   console.log('\n4. THE LIVE COUNTS');
@@ -244,7 +259,9 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
     ok('  logout says nothing about a homepage', lo.ok === true && lo.home === null, lo);
   } finally { off.srv.kill(); }
 
-  const on = await boot({ HOME_V2_ON: '1' });
+  const PRICES = {};
+  for (const k of ['STARTER', 'GROWTH', 'PRO', 'AGENCY']) for (const per of ['MONTHLY', 'YEARLY']) PRICES[`STRIPE_PRICE_${k}_${per}`] = 'price_test_' + k + per;
+  const on = await boot({ HOME_V2_ON: '1', PRICING_V2_ON: '1', ...PRICES });
   let browser = null;
   try {
     ok('SWITCH ON: the server boots', on.up, on.err());
@@ -252,8 +269,9 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
     const r = await fetch(on.base + '/');
     const h = await r.text();
     ok('  / for a visitor with no session is the new page', r.ok && isHome(h));
-    ok('  with the live counts in it (3 businesses, 2 verified, 2 sent)', /<span class="n">3<\/span><span class="l">local businesses found/.test(h)
-      && /<span class="n">2<\/span><span class="l">contact emails verified/.test(h) && /<span class="n">2<\/span><span class="l">pitch emails sent/.test(h), (h.match(/<section class="stats"[\s\S]*?<\/section>/) || [])[0]);
+    ok('  no live counts on the page (small early numbers undersell it)', !/<section class="stats"/.test(h) && !/<!--HOME_STATS-->/.test(HTML));
+    ok('  the four plans, rendered by the server, with the toggle', (h.match(/data-tier="/g) || []).length === 4 && /<div class="per" role="group" aria-label="Billing period">/.test(h) && !/<!--PRICING-->|<!--PERIOD_TOGGLE-->/.test(h));
+    ok('  the year in the footer is this year', h.includes('&copy; ' + new Date().getFullYear() + ' Compton Group LLC') && !/<!--YEAR-->/.test(h));
     ok('  not cached by anything in between, and varies by cookie', /private/.test(r.headers.get('cache-control') || '') && /Cookie/.test(r.headers.get('vary') || ''), [r.headers.get('cache-control'), r.headers.get('vary')]);
     ok('  and none of the portal is in what the server sent', !/Could not load today|id="appScreen"|id="home-panel"/.test(h));
     const hd = await fetch(on.base + '/', { method: 'HEAD' });
@@ -329,7 +347,7 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
         const vw = window.innerWidth;
         const wide = [...document.querySelectorAll('body *')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && (r.right > vw + 1 || r.left < -1); })
           .filter((e) => !e.closest('.sr,.hp')).map((e) => e.tagName + '.' + e.className).slice(0, 5);
-        const ctas = [...document.querySelectorAll('.hero .btn, .plan .btn, .wl button')].map((b) => Math.round(b.getBoundingClientRect().height));
+        const ctas = [...document.querySelectorAll('.hero .btn, .tier .btn, .orgs .btn')].map((b) => Math.round(b.getBoundingClientRect().height));
         const h1 = document.querySelector('h1');
         return { scroll: document.documentElement.scrollWidth - vw, wide, ctas, h1: h1 && h1.textContent, h1font: h1 && getComputedStyle(h1).fontFamily,
           body: getComputedStyle(document.body).fontFamily, stats: document.querySelectorAll('.stat').length, navHidden: getComputedStyle(document.querySelector('.navlinks')).display === 'none',
@@ -339,9 +357,9 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
       ok('  nothing pokes past the edge', m.wide.length === 0, m.wide);
       ok('  every button is a full tap target (44px or taller)', m.ctas.length >= 5 && m.ctas.every((x) => x >= 44), m.ctas);
       ok('  the hero reads as written', m.h1 === 'Buy back your time.', m.h1);
-      ok('  headings are set in Syne, falling back to a sans, never a serif', /^Syne,/.test(m.h1font) && /sans-serif$/.test(m.h1font) && /^Inter,/.test(m.body), [m.h1font, m.body]);
+      ok('  headings are set in Inter Tight, falling back to a sans, never a serif', /^"Inter Tight",/.test(m.h1font) && /sans-serif$/.test(m.h1font) && /^Inter,/.test(m.body), [m.h1font, m.body]);
       ok('  the section links fold away on a phone; Sign in and Get started stay', m.navHidden && await pg.isVisible('.navright .signin') && await pg.isVisible('.navright .btn'));
-      ok('  the counts show', m.stats === 3, m.stats);
+      ok('  no counts row', m.stats === 0, m.stats);
       ok('  and none of the portal is in the page', !m.portal);
       // NO CALCULATOR, the comparison stays.
       const nc = await pg.evaluate(() => ({ text: /hours a week back/i.test(document.body.innerText), calc: !!document.getElementById('calc'),
@@ -363,11 +381,12 @@ const section = (id) => { const i = HTML.indexOf(`id="${id}"`); return i < 0 ? '
       ok('  it fits the phone', g.card.left >= 0 && g.card.right <= g.vw, g.card);
       ok('  the pitch shows exactly 2 lines', g.lines === 2, g.lines);
       ok('  every icon draws', g.svgs.length >= 5 && g.svgs.every(Boolean), g.svgs);
-      await pg.fill('#wl-email', 'browser@school.edu');
-      await pg.click('#wl button');
-      await pg.waitForFunction(() => /on the list/.test(document.getElementById('wl-msg').textContent), null, { timeout: 8000 }).catch(() => {});
-      ok('the waitlist form joins from the page and says so', /You're on the list/.test(await pg.textContent('#wl-msg'))
-        && (await P.query(`SELECT 1 FROM home_waitlist WHERE email = 'browser@school.edu'`)).rows.length === 1);
+      const yr = await pg.evaluate(() => { document.querySelector('.per button[data-p="yearly"]').click();
+        return { amt: [...document.querySelectorAll('.tier .amt')].map((e) => e.textContent), per: document.querySelector('.tier .per-u').textContent,
+          pressed: document.querySelector('.per button[data-p="yearly"]').getAttribute('aria-pressed') }; });
+      ok('Yearly shows the yearly prices', JSON.stringify(yr.amt) === '["$1,490","$2,490","$3,490","$4,990"]' && yr.per === '/year' && yr.pressed === 'true', yr);
+      const mo = await pg.evaluate(() => { document.querySelector('.per button[data-p="monthly"]').click(); return [...document.querySelectorAll('.tier .amt')].map((e) => e.textContent); });
+      ok('  and Monthly puts them back', JSON.stringify(mo) === '["$149","$249","$349","$499"]', mo);
       await pg.goto(on.base + '/?signin=agent&tab=signup', { waitUntil: 'domcontentloaded' });
       await pg.waitForTimeout(400);
       const auth = await pg.evaluate(() => ({ auth: !document.getElementById('authScreen').classList.contains('hidden'),
