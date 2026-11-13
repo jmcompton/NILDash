@@ -238,6 +238,9 @@ function checks(deps) {
             continue;
           }
           await MN.clear(pool, r.id).catch(() => {});
+          // The login works, so a mailbox parked in 'error' by a failed sync
+          // is not disconnected: put it back in the poller now.
+          await pool.query(`UPDATE email_accounts SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'error'`, [r.id]).catch(() => {});
         } else checked++;
       }
       if (undecryptable && undecryptable === rows.length) {

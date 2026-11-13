@@ -36,9 +36,15 @@ async function syncAllAccounts() {
     // Gmail inbox sync off: exclude Gmail accounts in the QUERY rather than looping
     // them and logging a skip line each. With 7 accounts that was 7 identical lines
     // per run, drowning the deploy logs. The state is announced once at startup.
-    const r = INBOX_SYNC_ENABLED
-      ? await pool.query(`SELECT * FROM email_accounts WHERE status='active'`)
-      : await pool.query(`SELECT * FROM email_accounts WHERE status='active' AND provider <> 'gmail'`);
+    // 'error' rows come back too, at most once an hour (RETRY_ERROR_MS): a
+    // mailbox that failed once is tried again rather than dropped for good.
+    // Only a refused login (authFailure) parks a row in 'error' now; it
+    // returns to 'active' the moment a sync or the nightly token check works.
+    const retryBefore = new Date(Date.now() - RETRY_ERROR_MS);
+    const r = await pool.query(
+      `SELECT * FROM email_accounts
+        WHERE (status = 'active' OR (status = 'error' AND (last_sync IS NULL OR last_sync < $1)))
+          ${INBOX_SYNC_ENABLED ? '' : "AND provider <> 'gmail'"}`, [retryBefore]);
     if (!r.rows.length) return; // nothing syncable, say nothing
     for (const account of r.rows) {
       syncAccount(account).catch(e =>
@@ -129,13 +135,20 @@ async function syncAccount(account) {
     await emailStore.updateAccountStatus(account.id, 'active', new Date());
 
   } catch (e) {
-    errorMsg = e.message;
-    await emailStore.updateAccountStatus(account.id, 'error', new Date());
-    console.error(`[emailSync] Sync failed for ${account.email_address}:`, e.message);
-    // The account now leaves the poller (status 'error'), so this is said once,
-    // as a fault, with the provider's words.
+    errorMsg = describeError(e);
+    // Only a refused login means the agent has to reconnect. A Graph 504, a
+    // throttle, a timeout or a network blip is ours to retry: the mailbox
+    // stays 'active' and the next poll tries again. (Before, any one failure
+    // set 'error' and the poller never looked at the mailbox again: one
+    // Microsoft 504 on Nov 12 stopped an agent's inbox for good.)
+    const auth = authFailure(e);
+    if (auth) await emailStore.updateAccountStatus(account.id, 'error', new Date());
+    else if (account.status === 'error') await emailStore.updateAccountStatus(account.id, 'error', new Date()); // retry clock
+    console.error(`[emailSync] Sync failed for ${account.email_address}:`, errorMsg);
     require('./ourFault').record((account.provider || 'mail') + '-sync',
-      `sync failed for ${account.email_address}; polling stopped until it reconnects: ${e.message}`, 'emailSync');
+      auth
+        ? `sync refused for ${account.email_address}; the login was refused, so it is retried hourly and the agent must reconnect if it keeps failing: ${errorMsg}`
+        : `sync failed for ${account.email_address} (temporary, retried on the next poll): ${errorMsg}`, 'emailSync');
   } finally {
     await emailStore.logSyncFinish(logId, synced, errorMsg);
     syncLocks.delete(account.id);
@@ -143,6 +156,34 @@ async function syncAccount(account) {
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
+
+// A failure the agent must fix by reconnecting: the provider refused the
+// login itself. Everything else (5xx, 429, timeouts, resets, an empty Graph
+// error) is temporary and retried.
+const AUTH_REFUSED = /invalid_grant|invalid_client|unauthorized_client|interaction_required|consent_required|AADSTS(?:50076|50079|50173|500133|65001|70000|70008|700082|700084|7000215)|InvalidAuthenticationToken|token (?:has )?expired|token is expired|refresh token|access token is empty|Lifetime validation failed|unauthori[sz]ed|reconnect it/i;
+function statusOfError(e) {
+  if (!e) return 0;
+  const s = Number(e.statusCode || e.status || e.code && /^\d{3}$/.test(String(e.code)) && e.code || 0);
+  if (s) return s;
+  const m = String(e.message || '').match(/\bHTTP (\d{3})\b/);
+  return m ? Number(m[1]) : 0;
+}
+function authFailure(e) {
+  const status = statusOfError(e);
+  if (status === 401) return true;
+  if (status >= 500 || status === 429 || status === 408) return false;
+  const words = [e && e.message, e && e.code, e && e.body && (typeof e.body === 'string' ? e.body : JSON.stringify(e.body))].filter(Boolean).join(' ');
+  return AUTH_REFUSED.test(words);
+}
+// Graph errors often carry an empty message ("UnknownError" with a 504):
+// say what we know instead of nothing.
+function describeError(e) {
+  const msg = String((e && e.message) || '').trim();
+  const status = statusOfError(e);
+  const code = e && e.code && !/^\d+$/.test(String(e.code)) ? String(e.code) : '';
+  const parts = [status ? 'HTTP ' + status : '', code, msg].filter(Boolean);
+  return parts.length ? parts.join(': ') : 'no error message from the provider';
+}
 
 async function persistMessage(msg, account, athleteEmailMap) {
   // Determine direction-based association
@@ -239,6 +280,9 @@ async function maybeRefreshToken(account, accessToken, refreshToken) {
     // runs on an expired token and the account drops out of polling.
     require('./ourFault').record(account.provider === 'gmail' ? 'gmail-token' : 'outlook-token',
       'token refresh failed for ' + account.email_address + ': ' + e.message, 'emailSync');
+    // A temporary failure at the token endpoint must not turn into a 401 on
+    // the expired token and park the mailbox: fail this poll as temporary.
+    if (!authFailure(e)) throw e;
   }
 
   return { access: newAccess, refresh: refreshToken, expiry: newExpiry };
@@ -248,6 +292,7 @@ async function maybeRefreshToken(account, accessToken, refreshToken) {
 
 let pollerHandle = null;
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
+const RETRY_ERROR_MS = 60 * 60 * 1000; // a mailbox in 'error' is retried hourly
 
 function startPoller() {
   if (pollerHandle) return;
@@ -267,4 +312,4 @@ function stopPoller() {
   if (pollerHandle) { clearInterval(pollerHandle); pollerHandle = null; }
 }
 
-module.exports = { syncAllAccounts, syncAccount, startPoller, stopPoller, INBOX_SYNC_ENABLED };
+module.exports = { syncAllAccounts, syncAccount, startPoller, stopPoller, INBOX_SYNC_ENABLED, authFailure, describeError, RETRY_ERROR_MS };
