@@ -101,6 +101,38 @@ async function main() {
   ok('the program lists football: the why says so', /works with football athletes/.test((one.fields.find((f) => /Why/.test(f.label)) || {}).value || ''), one.fields);
   ok('the athlete\'s email gives a Send to athlete link', /^mailto:jordan%40samford\.edu/.test(one.mailto || ''), one.mailto);
 
+  ok('no email: a text for the athlete, with the link and the answers', /^Hey Jordan, Gainz Fuel has an athlete program/.test(AP.athleteText(p, 'Jordan Reese')) && /Apply here: https:\/\/gainzfuel/.test(AP.athleteText(p, 'Jordan Reese')));
+  ok('not connected: the card offers the Instagram link', one.igConnected === false && typeof one.athleteText === 'string', { ig: one.igConnected });
+
+  // ── ONLY REAL APPLICATION PAGES (Nov 13: a product page went out as one) ─
+  ok('a product page is not an application', !AP.linkOk('https://www.shopco.example/collections/coconut-vanilla', 'https://shopco.example').ok);
+  ok('a homepage is not an application', !AP.linkOk('https://shopco.example/', 'https://shopco.example').ok);
+  ok('an ambassador page on the brand\'s own site is', AP.linkOk('https://www.shopco.example/pages/ambassadors', 'https://shopco.example').ok);
+  ok('a creator platform page is', AP.linkOk('https://shopco.grin.live/apply', null).ok);
+  ok('another site is not', !AP.linkOk('https://randomblog.example/ambassador', 'https://shopco.example').ok);
+  await P.query(`INSERT INTO social_brands (brand, category, website, proof_url, offer_summary, deal_structure, sports, active, proof_date, tier_min, tier_max)
+                 VALUES ('Shop Co','Grooming','https://shopco.example','https://shopco.example/collections/coconut-vanilla','Free product','gifting', ARRAY['all'], true, CURRENT_DATE, 0, 1000000)`);
+  await P.query(`INSERT INTO outreach_queue (id, agent_id, athlete_id, brand_name, brand_key, channel, state, program_url, lane, slot)
+                 VALUES (905,'ap-ag','ap-a1','Shop Co','name:shop co','program','queued','https://shopco.example/collections/coconut-vanilla','social',777)`);
+  const list2 = await AP.listForAgent(P, 'ap-ag', { verifiedFor: async () => null });
+  ok('a card with a product page is not shown as an application', !list2.some((x) => String(x.id) === '905') && list2.some((x) => String(x.id) === '901'), list2.map((x) => x.id));
+  const dry = await AP.expireBadLinks(P, { agentId: 'ap-ag', apply: false });
+  ok('the check finds it (dry run changes nothing)', dry.bad.length === 1 && dry.bad[0].brand === 'Shop Co'
+    && (await P.query(`SELECT state FROM outreach_queue WHERE id = 905`)).rows[0].state === 'queued', dry);
+  await AP.expireBadLinks(P, { agentId: 'ap-ag' });
+  const closed = (await P.query(`SELECT state, email_note FROM outreach_queue WHERE id IN (901, 905) ORDER BY id`)).rows;
+  ok('it is closed, with why, so the slot frees; the real one stays', closed[0].state === 'queued' && closed[1].state === 'expired' && /not an application page/.test(closed[1].email_note || ''), closed);
+  const Q = require(REPO + 'server/services/outreachQueue.js');
+  const c1 = { brand_name: 'Shop Co', programUrl: 'https://shopco.example/collections/x', website: 'https://shopco.example' };
+  const bar1 = Q.passesProgramBar(c1, { handle: 'shopco' });
+  ok('the nightly bar: a product page with a handle becomes a DM, not a form', bar1.ok && bar1.channel === 'dm' && c1.programUrl === null && /not/.test(c1.programUrlRejected || ''), { bar1, c1 });
+  const bar2 = Q.passesProgramBar({ brand_name: 'Shop Co', programUrl: 'https://shopco.example/', website: 'https://shopco.example' }, null);
+  ok('  and with no handle, no card', !bar2.ok, bar2);
+  const bar3 = Q.passesProgramBar({ brand_name: 'Shop Co', programUrl: 'https://shopco.example/pages/ambassadors', website: 'https://shopco.example' }, null);
+  ok('  a real application page is still a program card', bar3.ok && bar3.channel === 'program', bar3);
+  const job = fs.readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
+  ok('each agent\'s nightly run closes bad links before placing cards', /expireBadLinks\(pool, \{ agentId: agent\.id \}\)[\s\S]{0,400}loadProgramBrandTally\(pool, agent\.id\)/.test(job));
+
   // ── HOME AND THE ROUTE ─────────────────────────────────────────────────
   const idx = fs.readFileSync(REPO + 'server/index.js', 'utf8');
   ok('GET /api/agent/applications is behind requireAuth', /app\.get\('\/api\/agent\/applications', requireAuth/.test(idx));
@@ -109,6 +141,7 @@ async function main() {
   ok('  and no longer sends them to another tab', !/waiting on the Outreach tab/.test(html));
   ok('  Applied records it as a program contact', /hqAppPost\(i, btn, 'sent', \{ via: 'program' \}\)/.test(html));
   ok('the sent route accepts program', /const VIA = \['dm', 'call', 'program', 'email'\]/.test(idx));
+  ok('no email: Copy for athlete; not connected: Instagram link', /Copy for athlete/.test(html) && /hqAppIg\(/.test(html) && /instagram-invite/.test(html));
   ok('the admin report is registered', Object.keys(require(REPO + 'server/services/adminScripts').discover({ strict: true })).includes('applications'));
 
   console.log(OUT.join('\n'));

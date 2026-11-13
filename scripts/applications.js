@@ -4,8 +4,10 @@
 // every agent at once: the brand, the athlete, the link, every answer, and
 // what is missing on the athlete. Read-only.
 //
-//   node scripts/applications.js [--agent <email>] [--limit N]
-//   /api/admin/scripts/applications?text=1&agent=<email>&limit=5
+//   node scripts/applications.js [--agent <email>] [--limit N] [--close-bad]
+//   /api/admin/scripts/applications?text=1&agent=<email>&limit=5   (&closebad=1)
+// --close-bad closes the queued program cards whose link is not an
+// application page (a homepage, a product page), as the nightly run does.
 const path = require('path');
 const ROOT = path.join(__dirname, '..') + path.sep;
 const store = require(ROOT + 'server/store.js');
@@ -22,6 +24,10 @@ async function main() {
     `SELECT DISTINCT u.id, u.name, u.email FROM outreach_queue q JOIN users u ON u.id = q.agent_id
       WHERE q.state = 'queued' AND q.channel = 'program' ${agentEmail ? 'AND LOWER(u.email) = LOWER($1)' : ''}
       ORDER BY u.email`, agentEmail ? [agentEmail] : [])).rows;
+  const bad = await AP.expireBadLinks(P, { apply: process.argv.includes('--close-bad') });
+  console.log(`LINKS: ${bad.checked} queued program card(s) checked, ${bad.bad.length} not an application page${process.argv.includes('--close-bad') ? ' (closed)' : ' (dry run: add closebad=1 to close them)'}`);
+  for (const b of bad.bad) console.log(`  ${b.brand}: ${b.url || 'no link'} (${b.why})`);
+  console.log('');
   const tot = (await P.query(`SELECT COUNT(*)::int n FROM outreach_queue WHERE state = 'queued' AND channel = 'program'`)).rows[0].n;
   console.log(`READY TO APPLY ${new Date().toISOString().slice(0, 10)}: ${tot} queued program card(s), ${agents.length} agent(s)\n`);
   let shown = 0;

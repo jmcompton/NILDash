@@ -166,12 +166,61 @@ function mailtoFor(packet, athleteEmail, athleteName) {
   return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
+// Is this card's link a real application page? (services/dealMix)
+// With the brand's site known: its own site or a creator platform, on an
+// application path (dealMix.isOfficialProgramPage). Without it: the path alone
+// must say application (ambassador, athlete, creator, affiliate, apply...).
+function linkOk(programUrl, website) {
+  if (!programUrl) return { ok: false, why: 'no application page' };
+  const DM = require('./dealMix');
+  if (website) return DM.isOfficialProgramPage(programUrl, website);
+  let u;
+  try { u = new URL(/^https?:\/\//i.test(programUrl) ? programUrl : 'https://' + programUrl); } catch (_) { return { ok: false, why: 'not a valid address' }; }
+  const path = decodeURIComponent(u.pathname + u.search);
+  if (DM.PROGRAM_HOSTS.test(u.hostname) || DM.PROGRAM_PATH.test(path)) return { ok: true, why: null };
+  return { ok: false, why: `${u.hostname}${u.pathname} is not an application page (no ambassador, athlete, creator, affiliate or apply in the address)` };
+}
+
+// THE CARDS THAT ARE NOT APPLICATIONS. A queued program card whose link is a
+// brand's homepage or a product page holds the athlete's one program slot and
+// can never be applied to. Closed (state 'expired', the reason written down)
+// so tonight's run can fill the slot with a real one. Run at the start of
+// each agent's nightly run and by the admin report with apply=1.
+async function expireBadLinks(pool, { agentId, apply = true } = {}) {
+  const rows = (await pool.query(
+    `SELECT q.id, q.brand_name, q.program_url, sb.website
+       FROM outreach_queue q
+       LEFT JOIN LATERAL (SELECT website FROM social_brands s WHERE LOWER(s.brand) = LOWER(q.brand_name) LIMIT 1) sb ON TRUE
+      WHERE q.state = 'queued' AND q.channel = 'program' ${agentId ? 'AND q.agent_id = $1' : ''}`, agentId ? [agentId] : [])).rows;
+  const bad = [];
+  for (const r of rows) {
+    const v = linkOk(r.program_url, r.website);
+    if (!v.ok) bad.push({ id: r.id, brand: r.brand_name, url: r.program_url, why: v.why });
+  }
+  if (apply && bad.length) {
+    for (const b of bad) {
+      await pool.query(
+        `UPDATE outreach_queue SET state = 'expired', email_note = $2, updated_at = NOW() WHERE id = $1 AND state = 'queued'`,
+        [b.id, `Closed: ${b.url || 'no link'} is not an application page (${b.why})`.slice(0, 400)]);
+    }
+  }
+  return { checked: rows.length, bad };
+}
+
+// A text for the athlete when we hold no email: the agent pastes it into a
+// text message or a DM.
+function athleteText(packet, athleteName) {
+  const first = (clean(athleteName) || '').split(' ')[0] || 'there';
+  return `Hey ${first}, ${packet.brand} has an athlete program that fits you. I filled out your application below. `
+    + `Open the link, paste each answer, check it and submit. Takes about two minutes.\n\n${packet.text}`;
+}
+
 // Every queued program card for one agent, each with its finished application.
 async function listForAgent(pool, agentId, deps = {}) {
   const rows = (await pool.query(
     `SELECT q.id, q.athlete_id, q.brand_name, q.brand_key, q.program_url, q.lane, q.why, q.created_at,
             a.data AS athlete_data, a.id AS aid,
-            sb.brand AS sb_brand, sb.category, sb.offer_summary, sb.deal_structure, sb.proof_url, sb.sports, sb.tier_min, sb.tier_max, sb.tier_stated, sb.brand_size,
+            sb.brand AS sb_brand, sb.category, sb.offer_summary, sb.deal_structure, sb.proof_url, sb.website AS sb_website, sb.sports, sb.tier_min, sb.tier_max, sb.tier_stated, sb.brand_size,
             mk.slug AS kit_slug, u.name AS agent_name, u.email AS agent_email
        FROM outreach_queue q
        JOIN athletes a ON a.id = q.athlete_id
@@ -186,6 +235,8 @@ async function listForAgent(pool, agentId, deps = {}) {
   const Fit = require('./fitReasons');
   const out = [];
   for (const r of rows) {
+    // A link that is not an application page is never shown as one.
+    if (!linkOk(r.program_url, r.sb_website).ok) continue;
     const athlete = RECORD.resolveAthlete({ id: r.aid, data: r.athlete_data || {} });
     if (!igCache.has(r.aid)) igCache.set(r.aid, await verifiedFor(pool, r.aid).catch(() => null));
     const verifiedIg = igCache.get(r.aid);
@@ -198,9 +249,14 @@ async function listForAgent(pool, agentId, deps = {}) {
       agent: { name: r.agent_name, email: r.agent_email } });
     const d = r.athlete_data || {};
     out.push({ id: r.id, athleteId: r.aid, athleteName: athlete.name, ...packet,
-      mailto: mailtoFor(packet, d.email || d.contactEmail || null, athlete.name), createdAt: r.created_at });
+      mailto: mailtoFor(packet, d.email || d.contactEmail || null, athlete.name),
+      // No email on file: the same message, to paste into a text.
+      athleteText: athleteText(packet, athlete.name),
+      // Not connected: the card offers the athlete's Instagram connect link,
+      // so the next application carries Instagram's own numbers.
+      igConnected: !!verifiedIg, createdAt: r.created_at });
   }
   return out;
 }
 
-module.exports = { build, listForAgent, mailtoFor, ideasFor, introOf };
+module.exports = { build, listForAgent, mailtoFor, ideasFor, introOf, linkOk, expireBadLinks, athleteText };
