@@ -70,7 +70,15 @@ async function main() {
   ok('no double period on the offer', c2.offer === 'Athletes earn commissions', c2.offer);
   const t2 = L({ name: 'T T', school: 'Minnesota', sport: 'tennis' }, { n: 'K', category: 'skincare' });
   ok('tennis has a match, not a game', /tennis match/.test(get(t2, 'Content I would create')) && !/ game/.test(get(t2, 'Content I would create')), get(t2, 'Content I would create'));
-  ok('no year: "I play tennis at Minnesota."', /^I play tennis at Minnesota\./.test(get(t2, "Why I'm a fit for K")), get(t2, "Why I'm a fit for K"));
+  ok('no year: "I\'m on the Minnesota tennis team."', /^I'm on the Minnesota tennis team\./.test(get(t2, "Why I'm a fit for K")), get(t2, "Why I'm a fit for K"));
+
+  // Second live pass: no year, an odd class year, track, a pro, plurals.
+  const I = (d) => AP.introOf(RECORD.resolveAthlete({ id: 'i', data: d }));
+  ok('no year: "I play WR on the ... team."', I({ school: 'State U', sport: 'football', position: 'WR' }) === 'I play WR on the State U football team.', I({ school: 'State U', sport: 'football', position: 'WR' }));
+  ok('a class year that is not a word is left out of the sentence', I({ school: 'State U', sport: 'football', position: 'LB', year: 'Fr (Redshirt)' }) === 'I play LB on the State U football team.');
+  ok('track: competing in an event, not "playing Distance"', I({ school: 'State U', sport: 'track', position: 'Distance', year: 'Senior' }) === "I'm a senior on the State U track team, competing in distance.", I({ school: 'State U', sport: 'track', position: 'Distance', year: 'Senior' }));
+  ok('a pro: "a professional baseball player with the ..."', I({ athleteType: 'pro', team: 'River Hawks', city: 'Rivertown, CA', sport: 'baseball', position: '1B' }) === "I'm a professional baseball player with the River Hawks, playing 1B.");
+  ok('meets, not "meetes"', /after meets/.test(AP.ideasFor('X', 'supplement', 'track')[1]) && /after games/.test(AP.ideasFor('X', 'supplement', 'football')[1]));
 
   // The email to the athlete.
   const m = AP.mailtoFor(p, 'jordan@samford.edu', 'Jordan Reese');

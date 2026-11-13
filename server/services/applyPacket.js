@@ -62,27 +62,38 @@ const IDEAS = [
 function ideasFor(brand, category, sport) {
   const s = sportWord(sport) || 'my sport';
   const o = outing(s);
-  const fix = (x) => x.replace(/game-day/g, o === 'game' ? 'game-day' : o + '-day').replace(/ game\b/g, ' ' + o).replace(/\bgames\b/g, o + 'es'.slice(o === 'game' ? 1 : 0));
+  const plural = o === 'match' ? 'matches' : o + 's';
+  const fix = (x) => x.replace(/game-day/g, o === 'game' ? 'game-day' : o + '-day').replace(/\bgames\b/g, plural).replace(/ game\b/g, ' ' + o);
   for (const [re, fn] of IDEAS) if (re.test(String(category || ''))) return fn(brand, s).map(fix);
   return [`A game-day post featuring ${brand}`, `A day-in-the-life reel as a ${s} athlete that shows ${brand}`].map(fix);
 }
 
 // The athlete's line in one sentence: "I'm a junior wide receiver on the
 // Samford football team." Only the parts we hold.
+const YEARS = /^(freshman|sophomore|junior|senior|graduate|grad student|fifth[- ]year|redshirt (freshman|sophomore|junior|senior))$/i;
+const INDIVIDUAL = /track|cross country|swim|div|golf|tennis|wrestl|gymnast|rowing|bowling|fenc|ski/i;
 function introOf(a) {
-  const sport = sportWord(a.sport), school = clean(a.school), pos = clean(a.position), yr = clean(a.year);
+  const sport = sportWord(a.sport), school = clean(a.school), pos = clean(a.position), yrRaw = clean(a.year);
   if (a.athleteType === 'pro') {
-    return clean(`I'm a professional ${sport || 'athlete'}${a.team ? ' with ' + a.team : ''}${a.city ? ' in ' + a.city : ''}.`);
+    const team = clean(a.team);
+    const the = team && !/^the\s/i.test(team) ? 'the ' : '';
+    return `I'm a professional ${sport ? sport + ' player' : 'athlete'}${team ? ' with ' + the + team : ''}${pos ? ', playing ' + pos : ''}.`;
   }
   if (!school && !sport) return null;
-  const year = yr ? yr.toLowerCase() : null;
+  // A class year we can say in a sentence; anything else ("Fr (Redshirt)",
+  // "Class of 2026") is left on the application's own Class year line.
+  const year = yrRaw && YEARS.test(yrRaw) ? yrRaw.toLowerCase() : null;
   const article = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
   const the = school && /^the\s/i.test(school) ? '' : 'the ';
-  let line;
-  if (school && sport) line = year ? `I'm ${article(year)} ${year} on ${the}${school} ${sport} team` : `I play ${sport} at ${school}`;
-  else if (school) line = year ? `I'm ${article(year)} ${year} at ${school}` : `I'm an athlete at ${school}`;
-  else line = `I play ${sport}`;
-  return line + (pos ? `, playing ${pos}.` : '.');
+  const team = school && sport ? `${the}${school} ${sport} team` : null;
+  const role = pos ? (INDIVIDUAL.test(sport) ? `competing in ${/^[A-Z0-9/ &-]+$/.test(pos) ? pos : pos.toLowerCase()}` : `playing ${pos}`) : null;
+  if (team) {
+    if (year) return `I'm ${article(year)} ${year} on ${team}${role ? ', ' + role : ''}.`;
+    if (pos && !INDIVIDUAL.test(sport)) return `I play ${pos} on ${team}.`;
+    return `I'm on ${team}${role ? ', ' + role : ''}.`;
+  }
+  if (school) return `I'm ${year ? article(year) + ' ' + year : 'an athlete'} at ${school}${role ? ', ' + role : ''}.`;
+  return `I play ${sport}${role ? ', ' + role : ''}.`;
 }
 
 // build({ card, athlete (resolveAthlete record), brand (social_brands row or {}),
