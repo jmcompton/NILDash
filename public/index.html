@@ -2004,6 +2004,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-name{font-family:'Syne',sans-serif;font-weight:700;font-size:27px;line-height:1.15;
   letter-spacing:-.015em;margin:0 0 3px;text-wrap:balance}
 .hq-sub{color:var(--muted,#9a9a8e);font-size:14.5px;margin:0 0 20px}
+.hq-apps{margin-top:28px}
+.hq-apps-h{font-size:18px;margin:0 0 4px}
+.hq-app{border:1px solid var(--border,#2a2f2a);border-radius:12px;padding:14px 16px;margin:0 0 12px;background:var(--card,rgba(255,255,255,.02))}
+.hq-app-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.hq-app-brand{font-weight:700;font-size:16px}
+.hq-app-for{color:var(--muted,#9a9a8e);font-size:13px;margin-top:2px}
+.hq-app-tag{font-size:11px;font-weight:700;color:#0A0E1A;background:#84CC16;border-radius:6px;padding:3px 8px;white-space:nowrap}
+.hq-app-ans{margin:10px 0 0}.hq-app-ans summary{cursor:pointer;font-size:13px;color:var(--muted,#9a9a8e)}
+.hq-app-row{display:grid;grid-template-columns:150px 1fr;gap:10px;font-size:13px;padding:5px 0;border-top:1px solid var(--border,#2a2f2a)}
+.hq-app-row span{color:var(--muted,#9a9a8e)}.hq-app-row b{font-weight:500}
+@media (max-width:600px){.hq-app-row{grid-template-columns:1fr;gap:2px}}
+.hq-app-miss{font-size:12.5px;color:#f5b74f;margin:8px 0 0}
+.hq-app-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.hq-app-go{font-size:13px;font-weight:700;color:#0A0E1A;background:#84CC16;padding:8px 14px;border-radius:8px;text-decoration:none}
+.hq-app-b{font-size:13px;font-weight:600;color:inherit;background:transparent;border:1px solid var(--border,#3a3f3a);padding:7px 12px;border-radius:8px;cursor:pointer;text-decoration:none}
+.hq-app-skip{opacity:.7}
+.hq-app-st{font-size:12.5px;color:#f87171;margin-top:6px}
 .hq-cards{display:flex;flex-direction:column;gap:10px}
 .hq-card{background:var(--card,#121210);border:1px solid var(--line,#26261f);
   border-radius:11px;padding:15px 17px}
@@ -22161,12 +22178,11 @@ function hqRender() {
     html += '<div class="hq-cards">' + d.cards.map(function (c, i) {
       return hqRenderCard(c, i);
     }).join('') + '</div>';
-    if (d.programs) {
-      html += '<p class="hq-sub" style="margin-top:14px">' + d.programs
-        + (d.programs === 1 ? ' programme application is' : ' programme applications are')
-        + ' waiting on the Outreach tab. They are applications, not approaches.</p>';
-    }
   }
+  // ── READY TO APPLY (services/applyPacket) ─────────────────────────────────
+  // A brand's own athlete program, with the application already written. These
+  // were one grey line pointing at another tab, and in 60 days none was used.
+  if (d.programs) html += '<div id="hq-apps" class="hq-apps"></div>';
   // ONE PLACE, EVERY STATE. Admin-only, and in the same spot whether the page is
   // empty, paused or full -- a control that moves depending on what the queue
   // happens to hold is a control nobody can find twice.
@@ -22175,6 +22191,7 @@ function hqRender() {
   html += hqFillPanel(d);
   panel.innerHTML = html;
   hqPollOutbox(d);
+  if (d.programs) hqLoadApps(d.selected);
 
   var btn = document.getElementById('home-approve');
   var capEl = document.getElementById('home-cap');
@@ -22693,6 +22710,63 @@ function hqPollOutbox(d) {
     hqLoad(d.selected);
   }, 3000);
 }
+
+// ── READY TO APPLY ───────────────────────────────────────────────────────────
+// Each card is one brand's athlete program with the answers already written.
+// Open the application, copy the answers in, submit; or email them to the
+// athlete in one tap. "Applied" records it (POST .../sent { via: 'program' }).
+var HQAPPS = [];
+async function hqLoadApps(athleteId) {
+  var box = document.getElementById('hq-apps'); if (!box) return;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/applications', { credentials: 'include' });
+    var j = await r.json();
+    var all = (j && j.applications) || [];
+    HQAPPS = athleteId ? all.filter(function (a) { return String(a.athleteId) === String(athleteId); }) : all;
+    if (!HQAPPS.length && all.length) HQAPPS = all;
+    if (!HQAPPS.length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<h2 class="hq-apps-h">Ready to apply</h2>'
+      + '<p class="hq-sub">Brands with open athlete programs. The application is written; open it, paste, submit.</p>'
+      + HQAPPS.map(function (a, i) {
+        var rows = a.fields.map(function (f) {
+          return '<div class="hq-app-row"><span>' + hqEscape(f.label) + '</span><b>' + hqEscape(f.value) + '</b></div>';
+        }).join('');
+        return '<div class="hq-app" id="hq-app-' + i + '">'
+          + '<div class="hq-app-top"><div><div class="hq-app-brand">' + hqEscape(a.brand) + '</div>'
+          + '<div class="hq-app-for">For ' + hqEscape(a.athleteName || '') + (a.offer ? ' · ' + hqEscape(a.offer) : '') + '</div></div>'
+          + (a.verified ? '<span class="hq-app-tag">Instagram verified</span>' : '') + '</div>'
+          + '<details class="hq-app-ans"><summary>See the application</summary>' + rows + '</details>'
+          + (a.missing && a.missing.length ? '<p class="hq-app-miss">Add on the athlete first: ' + hqEscape(a.missing.join(', ')) + '</p>' : '')
+          + '<div class="hq-app-btns">'
+          + (a.programUrl ? '<a class="hq-app-go" href="' + hqEscape(a.programUrl) + '" target="_blank" rel="noopener" onclick="hqAppCopy(' + i + ',true)">Open application</a>' : '')
+          + '<button class="hq-app-b" onclick="hqAppCopy(' + i + ')">Copy answers</button>'
+          + (a.mailto ? '<a class="hq-app-b" href="' + hqEscape(a.mailto) + '">Send to athlete</a>' : '')
+          + '<button class="hq-app-b" onclick="hqAppDone(' + i + ',this)">Applied</button>'
+          + '<button class="hq-app-b hq-app-skip" onclick="hqAppSkip(' + i + ',this)">Skip</button>'
+          + '</div><div class="hq-app-st" id="hq-app-st-' + i + '"></div></div>';
+      }).join('');
+  } catch (e) { box.innerHTML = '<p class="hq-sub">Could not load applications: ' + hqEscape(e.message) + '</p>'; }
+}
+function hqAppCopy(i, quiet) {
+  var a = HQAPPS[i]; if (!a) return;
+  var done = function () { if (!quiet && typeof showToast === 'function') showToast('Answers copied'); };
+  if (navigator.clipboard) navigator.clipboard.writeText(a.text).then(done, done); else done();
+}
+async function hqAppPost(i, btn, path, body) {
+  var a = HQAPPS[i]; if (!a) return;
+  if (btn) btn.disabled = true;
+  var st = document.getElementById('hq-app-st-' + i);
+  try {
+    var r = await fetch(API_BASE + '/api/agent/outreach-queue/' + encodeURIComponent(a.id) + '/' + path, {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    if (!r.ok) throw new Error((await r.json().catch(function () { return {}; })).error || ('HTTP ' + r.status));
+    var card = document.getElementById('hq-app-' + i);
+    if (card) card.innerHTML = '<div class="hq-app-brand">' + hqEscape(a.brand) + '</div><p class="hq-sub" style="margin:4px 0 0">'
+      + (path === 'sent' ? 'Applied. It is on the Pipeline board as contacted.' : 'Skipped for ' + hqEscape(a.athleteName || 'this athlete') + '.') + '</p>';
+  } catch (e) { if (st) st.textContent = 'Did not save: ' + e.message; if (btn) btn.disabled = false; }
+}
+function hqAppDone(i, btn) { return hqAppPost(i, btn, 'sent', { via: 'program' }); }
+function hqAppSkip(i, btn) { return hqAppPost(i, btn, 'skip', {}); }
 
 function hqRenderCard(c, i) {
   var ch = HQ_CH[c.channel] || { label: c.channel || 'Card', cls: 'call' };
