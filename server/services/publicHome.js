@@ -115,12 +115,47 @@ function template() {
   return _template;
 }
 
+// ── PRICING, RENDERED ON THE SERVER ─────────────────────────────────────────
+// The page used to paint the old $99 card and then swap in the plan list from
+// /api/pricing, so a visitor saw one price flash into another. Now the plans
+// are in the HTML the server sends. Pure: (on, tiers) -> markup.
+const CTA_SIGNUP = '/?signin=agent&amp;tab=signup';
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const money = (n) => '$' + Number(n).toLocaleString('en-US');
+
+function renderPricing(on, tiers) {
+  if (!on || !Array.isArray(tiers) || !tiers.length) {
+    return '<div class="tiers one"><div class="tier pop" id="agents">'
+      + '<div class="tier-name">Founding Agent</div>'
+      + '<div class="tier-price"><span class="amt">$99</span><span class="per-u">/month</span></div>'
+      + '<p class="tier-sub">Founding rate, locked in for as long as you stay.</p>'
+      + `<a class="btn primary" href="${CTA_SIGNUP}">Get started</a></div></div>`;
+  }
+  return '<div class="tiers" id="agents">' + tiers.map((t) => {
+    const who = t.extra ? `Up to ${t.athletes} athletes, then <span data-m="${money(t.extra.monthly)}/athlete" data-y="${money(t.extra.yearly)}/athlete a year">${money(t.extra.monthly)}/athlete</span>`
+      : `Up to ${t.athletes} athletes`;
+    return `<div class="tier${t.popular ? ' pop' : ''}" data-tier="${esc(t.key)}">`
+      + `<div class="tier-name">${esc(t.name)}${t.popular ? '<span class="tag">Most popular</span>' : ''}</div>`
+      + `<div class="tier-price"><span class="amt" data-m="${money(t.monthly)}" data-y="${money(t.yearly)}">${money(t.monthly)}</span>`
+      + '<span class="per-u" data-m="/month" data-y="/year">/month</span></div>'
+      + `<p class="tier-sub">${who}</p>`
+      + `<a class="btn ${t.popular ? 'primary' : 'ghost'}" href="${CTA_SIGNUP}">Get started</a></div>`;
+  }).join('') + '</div>';
+}
+
 async function render(pool, opts = {}) {
   const s = await statsForPage(pool, opts);
+  const Pricing = require('./pricing');
+  const pricingOn = opts.pricingOn != null ? opts.pricingOn : Pricing.ON();
   let html = template().replace('<!--HOME_STATS-->', renderStats(s))
-    // "Start 14-day trial" (SALES_TRIAL_ON, services/salesAutopilot). Off: nothing.
+    .replace('<!--PRICING-->', renderPricing(pricingOn, pricingOn ? Pricing.publicTiers() : []))
+    .replace('<!--PERIOD_TOGGLE-->', pricingOn
+      ? '<div class="per" role="group" aria-label="Billing period"><button type="button" data-p="monthly" aria-pressed="true">Monthly</button><button type="button" data-p="yearly" aria-pressed="false">Yearly <span>2 months off</span></button></div>' : '')
+    .replace(/<!--YEAR-->/g, String(new Date().getFullYear()))
+    // "Start 14-day trial" (SALES_TRIAL_ON, services/salesAutopilot): the first
+    // item under the hero buttons, linking to the trial sign-up. Off: nothing.
     .replace('<!--TRIAL_CTA-->', require('./salesAutopilot').TRIAL_ON()
-      ? '<a class="btn ghost" href="/?signin=agent&amp;tab=signup&amp;trial=14">Start 14-day trial</a>' : '');
+      ? '<li><a href="/?signin=agent&amp;tab=signup&amp;trial=14">Start 14-day trial</a></li>' : '');
   if (opts.preview) html = html.replace('<head>', '<head>\n<meta name="robots" content="noindex">');
   return html;
 }
@@ -170,6 +205,6 @@ function _reset() { _cache = null; _pending = null; _template = null; }
 
 module.exports = {
   ON, servesHome, onlyMarketingParams, MARKETING_PARAM,
-  STATS, STATS_TTL_MS, stats, statsForPage, renderStats, render, send, TEMPLATE,
+  STATS, STATS_TTL_MS, stats, statsForPage, renderStats, renderPricing, render, send, TEMPLATE,
   ensureTable, cleanEmail, joinWaitlist, waitlist, DEMO_EMAIL, _reset,
 };
