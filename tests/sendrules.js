@@ -169,11 +169,14 @@ const TUE = Date.parse('2026-08-25T15:00:00Z');
   const r4 = await release(TUE);
   ok('the first note to Twice Co sends', r4.detail.some((d) => d.id === 'sr-d3' && d.result === 'sent'), r4.detail);
   await draft('sr-d4', 'sr-a2', 'Twice Co', 'twice@sr.example', 'quick  idea for twice co');
+  // Since Nov 13 the rule runs at Approve too: it is never approved at all,
+  // instead of approved and stopped hours later by the queue.
   await approve(['sr-d4'], TUE + 14 * DAY);
-  await P.query(`UPDATE outreach_logs SET scheduled_send_at=$1 WHERE id='sr-d4'`, [new Date(TUE + 14 * DAY - 60000)]);
+  const d4 = await row('sr-d4');
+  ok('THE SAME SUBJECT TO THE SAME ADDRESS TWO WEEKS LATER IS STOPPED AT APPROVE, NOT SENT',
+    d4.status !== 'approved' && !d4.sent_at && /already sent/.test(d4.cadence_stop_reason || ''), { status: d4.status, why: d4.cadence_stop_reason });
   const r5 = await release(TUE + 14 * DAY);
-  const twice = r5.detail.find((d) => d.id === 'sr-d4');
-  ok('THE SAME SUBJECT TO THE SAME ADDRESS TWO WEEKS LATER IS STOPPED, NOT SENT', !!twice && twice.result === 'stopped' && /already sent/.test(twice.why), twice);
+  ok('  and the queue never sends it', !r5.detail.some((d) => d.id === 'sr-d4' && d.result === 'sent'), r5.detail);
   ok('  for good: the draft is cadence-stopped', !!(await row('sr-d4')).cadence_stopped_at);
   const same = await SR.check(P, { email: 'twice@sr.example', subject: 'Quick Idea For Twice Co', system: 'compose', now: TUE + 30 * DAY });
   ok('  and a month later the inbox may not send it either', same.ok === false && same.kind === 'same-subject', same);

@@ -418,7 +418,7 @@ async function approveBatch(pool, agentId, opts = {}) {
             -- sent_to_email is the only recipient column outreach_logs has;
             -- there is no to_email, and selecting one would throw here and take
             -- every approve down with it.
-            l.sent_to_email,
+            l.sent_to_email, l.touch_no, l.parent_id, l.agent_id,
             e.location AS biz_address, a.data->>'school' AS school
        FROM outreach_logs l
        JOIN athletes a ON a.id = l.athlete_id
@@ -543,6 +543,48 @@ async function approveBatch(pool, agentId, opts = {}) {
     for (let i = rows.length - 1; i >= 0; i--) if (out.has(String(rows[i].id))) rows.splice(i, 1);
     for (const x of hardRefused) dropped.push({ id: x.id, why: 'cannot be sent: ' + x.why, hard: true });
   }
+  // ── THE SEND GATE, AT APPROVAL (services/sendGate) ────────────────────
+  // APPROVE MEANS SEND. The release queue runs the send gate and the shared
+  // send rules on every email, and until now it ran them only there: an agent
+  // approved info@, an address with no person's name, or a subject already
+  // sent to that address, and hours later the queue stopped it with nobody
+  // watching. 31 of them sat in the morning alert on Nov 13. The same checks
+  // run here, before anything is approved. A refusal is final: the draft
+  // stops, says why, and its card becomes the call or DM behind it, now, on
+  // the page the agent is looking at. A check that could not run does not
+  // refuse (the queue verifies again before it sends and holds, never drops).
+  const gateRefused = [];
+  for (const r of rows) {
+    const email = addr.get(String(r.id)) || r.sent_to_email || null;
+    let who = null, verdict = null;
+    try {
+      if (SG.ON()) {
+        who = await SG.contactNameFor(pool, r).catch(() => null);
+        verdict = await SG.check(pool, { email, contactName: who, agentId, athleteId: r.athlete_id, business: r.brand_name,
+          now: opts.now, deadlineMs: 8000 }, opts.gateDeps || {});
+      } else {
+        verdict = SG.platformCheck(email);
+      }
+    } catch (e) { verdict = { ok: false, retry: true, why: 'the address check failed on our side: ' + e.message }; }
+    if (verdict && !verdict.ok && !verdict.retry) { gateRefused.push({ r, email, who, verdict }); continue; }
+    const rule = await sendRules.check(pool, { email, subject: r.subject,
+      system: Number(r.touch_no || 1) > 1 ? 'follow-up' : 'closer', now: opts.now ? new Date(opts.now) : new Date(), refId: r.id })
+      .catch(() => ({ ok: true }));
+    if (!rule.ok && rule.kind !== 'window') gateRefused.push({ r, email, who, rule: true, verdict: { ok: false, code: rule.kind, why: rule.reason } });
+  }
+  if (gateRefused.length) {
+    const out = new Set(gateRefused.map((x) => String(x.r.id)));
+    for (let i = rows.length - 1; i >= 0; i--) if (out.has(String(rows[i].id))) rows.splice(i, 1);
+    for (const x of gateRefused) {
+      // A repeated subject is a stop, as in the release queue (the business
+      // already has this email); an address that cannot take it is a call or DM.
+      const b = x.rule ? (await stop(pool, x.r, x.verdict.why), null)
+        : await SG.blockAndOffer(pool, { ...x.r, sent_to_email: x.email, agent_id: agentId }, x.verdict, { contactName: x.who })
+          .catch((e) => { console.error('[closer] approve: block ' + x.r.id + ':', e.message); return null; });
+      dropped.push({ id: x.r.id, brand: x.r.brand_name, why: 'cannot be sent: ' + x.verdict.why, gate: true,
+        offer: b ? b.offer : null, converted: !!(b && b.converted) });
+    }
+  }
   for (const r of rows) {
     // DUE NOW. No slot, no window: the release queue picks it up at once and
     // spaces it behind whatever this agent already has going out.
@@ -611,7 +653,13 @@ async function approveBatch(pool, agentId, opts = {}) {
     if (early) bits.push(`${early} ${early === 1 ? 'is a follow-up that is' : 'are follow-ups that are'} not due yet (4 and 9 days after the last touch) and stay as drafts`);
     const hardN = dropped.filter((d) => d.hard);
     if (hardN.length) bits.push(`${hardN.length} cannot be sent and ${hardN.length === 1 ? 'was' : 'were'} not approved: ${hardN.slice(0, 3).map((d) => d.why.replace(/^cannot be sent: /, '')).join('; ')}`);
-    const stale = dropped.length - noSlot - early - hardN.length;
+    const gateN = dropped.filter((d) => d.gate);
+    if (gateN.length) {
+      const conv = gateN.filter((d) => d.converted && d.offer);
+      bits.push(`${gateN.length} could not be emailed and ${gateN.length === 1 ? 'was' : 'were'} not approved (${gateN.slice(0, 3).map((d) => `${d.brand}: ${d.why.replace(/^cannot be sent: /, '')}`).join('; ')}${gateN.length > 3 ? '; ...' : ''})`
+        + (conv.length ? `. ${conv.length === 1 ? 'It is' : `${conv.length} are`} now a call or DM card on Home` : ''));
+    }
+    const stale = dropped.length - noSlot - early - hardN.length - gateN.length;
     if (stale) bits.push(`${stale} were no longer waiting on approval`);
   }
   return {

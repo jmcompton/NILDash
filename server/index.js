@@ -15875,7 +15875,7 @@ ${!hcb ? '<p class="note">Could not compute — see the errors above.</p>' : (()
   <tr><td>Share where siteEmail finds nothing <span class="dim">(measured — only these call Hunter)</span></td><td class="mono">${bn.needRatePct}%</td></tr>
   <tr><td><b>Projected credits/month</b> <span class="dim">(30-day window)</span></td><td class="mono" style="color:${over ? '#f59e0b' : '#84CC16'}">${bn.projected30d}</td></tr>
   <tr><td><b>Projected credits/month</b> <span class="dim">(90-day average)</span></td><td class="mono">${bn.projected90dAvg}</td></tr>
-  <tr><td>Budget cap <span class="dim">(HUNTER_MONTHLY_BUDGET, of 2,000 on the plan)</span></td><td class="mono">${bn.budget}</td></tr>
+  <tr><td>Budget cap <span class="dim">(${bn.budgetFrom || 'HUNTER_MONTHLY_BUDGET'})</span></td><td class="mono">${bn.budget}</td></tr>
   <tr><td>Spent this billing period <span class="dim">(${esc(bn.periodLine || 'since the 1st')})</span></td><td class="mono">${bn.usedThisMonth} <span class="dim">· ${bn.remainingThisMonth} left</span></td></tr>
 </tbody></table>
 <p class="note">A domain is cached 30 days, so a business costs <b>one credit per month however many
@@ -16091,7 +16091,7 @@ function hbPoll(){
            '<tr><td>Share where siteEmail finds nothing <span class="dim">(measured, these are the ones that call Hunter)</span></td><td class="mono">'+bn.needRatePct+'%</td></tr>'+
            '<tr><td><b>Projected credits/month</b> <span class="dim">(30-day window)</span></td><td class="mono" style="color:'+(over?'#f59e0b':'#84CC16')+'">'+bn.projected30d+'</td></tr>'+
            '<tr><td><b>Projected credits/month</b> <span class="dim">(90-day average)</span></td><td class="mono">'+bn.projected90dAvg+'</td></tr>'+
-           '<tr><td>Budget cap <span class="dim">(HUNTER_MONTHLY_BUDGET, of 2,000 on the plan)</span></td><td class="mono">'+bn.budget+'</td></tr>'+
+           '<tr><td>Budget cap <span class="dim">('+(bn.budgetFrom||'HUNTER_MONTHLY_BUDGET')+')</span></td><td class="mono">'+bn.budget+'</td></tr>'+
            '<tr><td>Spent this billing period <span class="dim">('+esc(bn.periodLine||'since the 1st')+')</span></td><td class="mono">'+bn.usedThisMonth+' <span class="dim">· '+bn.remainingThisMonth+' left</span></td></tr>'+
            '</tbody></table>'+
            '<p class="note">A domain is cached 30 days, so a business costs <b>one credit per month however '+

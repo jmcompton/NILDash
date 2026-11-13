@@ -17,12 +17,14 @@
 //      when valid. Off: unchanged.
 //   3. The editor's Send: blocked, with the reason and the call or DM on
 //      send-status. "This bounced": suppressed, follow-ups stopped.
-//   4. Follow-ups: never to an address never verified, or invalid since.
+//   4. Follow-ups: never to an address invalid since; one never verified is
+//      verified now (planner) or by the gate at send, not given up on.
 //   5. stop-unverified: print first, apply stops; never a sent or replied one.
 //   6. bounce-report: path (card / by hand) x verification at send time.
 //   7. Every address from the finder: strip, annotate, forPerson; the nightly
 //      job's general-inbox and catch-all doors; Home and My Brands labels.
 //   8. The 17 cards (unverified-cards): each path, and what closed it.
+//   9. Approve means send: the gate and the send rules run at Approve.
 const _tp = require('path');
 const REPO = _tp.join(__dirname, '..') + _tp.sep;
 process.env.PGHOST = process.env.PGHOST || '/tmp';
@@ -67,6 +69,12 @@ function guard() {
     'server/index.js': { n: 15, extra: true, why: 'system mail to NILDash users (welcome, invites, verification, reports, password reset, alerts) and the second branch of _sendAthleteEmail' },
     'server/jobs/weeklyDigest.js': { n: 2, why: "the agent's own digest" },
     'server/routes/growth.js': { n: 1, why: "NILDash's own sales list, admin-sent" },
+    'server/services/brandMarket.js': { n: 1, why: 'the brand marketplace: confirmations to the business that filled in the form, and its request to agents' },
+    'server/services/portalRoom/alerts.js': { n: 1, why: 'Portal Room alerts to the agent or coach who signed up for them' },
+    'server/services/portalRoom/coachingWatch.js': { n: 1, why: "an alert to NILDash's own admin inbox" },
+    'server/services/portalRoom/freeBoard.js': { n: 1, why: 'the free Portal Board, to the person who asked for it' },
+    'server/services/portalRoom/opens.js': { n: 1, why: 'Portal Room alerts to the subscriber who asked for them' },
+    'server/services/portalRoom/weeklyReport.js': { n: 1, why: 'the weekly Portal Report, to its subscribers' },
     'server/routes/resendInbound.js': { n: 1, why: 'forwards a reply to the agent' },
     'server/services/coldAgent.js': { n: 2, why: "NILDash's own account holders, admin-approved" },
     'server/services/mailboxProspects.js': { n: 2, why: "NILDash's own prospects, from the admin's mailbox" },
@@ -372,8 +380,29 @@ async function followups(P) {
   };
   on();
   const never = await mk('Never Co', 'avery@neverco.com', null, null);
+  // Nov 13: "never verified (no check on record)" killed follow-ups to
+  // addresses nobody had asked about. Now nobody-asked means ask, now.
   const why1 = await FUP.stopForSend(P, never.t2);
-  ok('first email never verified: no follow-up', /never verified/.test(why1 || ''), why1);
+  ok('at send, never verified is left to the gate right after (which verifies live)', !why1, why1);
+  const rootOf = async (x) => row(P, x.root);
+  const V = (a) => ({ verifier: async () => a });
+  const p1 = await FUP.stopReason(P, await rootOf(never), null, { gateDeps: V({ status: 'valid' }) });
+  ok('planner, no check on record: checked now, valid, the follow-up is written', !p1, p1);
+  const never2 = await mk('Nevertwo Co', 'avery@nevertwo.com', null, null);
+  const p2 = await FUP.stopReason(P, await rootOf(never2), null, { gateDeps: V({ status: 'invalid' }) });
+  ok('planner, no check on record: checked now, invalid, stops', /did not verify/.test(p2 || '') && !FUP.isHold(p2), p2);
+  const never3 = await mk('Neverthree Co', 'avery@neverthree.com', null, null);
+  const p3 = await FUP.stopReason(P, await rootOf(never3), null, { gateDeps: V({ ok: false, why: 'Hunter is down' }) });
+  ok('planner, the check could not run: held for the next pass, not stopped', FUP.isHold(p3), p3);
+  const catchy = await mk('Catchy Co', 'avery@catchyco.com', null, null);
+  await P.query(`INSERT INTO email_verification (email, result, detail, source, status, checked_at) VALUES ('avery@catchyco.com','unknown','seeded','hunter','accept_all',NOW())`);
+  const p4 = await FUP.stopReason(P, await rootOf(catchy), null, { gateDeps: V({ status: 'valid' }) });
+  ok('planner, a catch-all domain still stops', /accepts any address/.test(p4 || ''), p4);
+  const wrong = await mk('Wrongstop Co', 'avery@wrongstop.com', null, null);
+  await P.query(`UPDATE outreach_logs SET cadence_stopped_at = NOW(), cadence_stop_reason = 'the address was never verified (no check on record), so no follow-up goes to it' WHERE id = $1`, [wrong.t2.id]);
+  const plan = await FUP.plan(P, { agentId: AG, gateDeps: V({ status: 'valid' }) });
+  const it = plan.find((x) => x.root.id === wrong.root) || {};
+  ok('a follow-up the old rule stopped is written again once the address checks out', it.due === true && !it.done && !it.stop, { due: it.due, done: it.done, stop: it.stop, waiting: it.waiting });
   const since = await mk('Since Co', 'avery@sinceco.com', 'invalid', 'valid');
   const why2 = await FUP.stopForSend(P, since.t2);
   ok('verified then, invalid since: no follow-up', /invalid/.test(why2 || ''), why2);
@@ -593,6 +622,52 @@ async function seventeen(P) {
   ok('it prints each path with what closed it', /general-inbox/.test(txt) && /closed:/.test(txt) && /2 not a named person/.test(txt), txt);
 }
 
+// ── 9. APPROVE MEANS SEND ───────────────────────────────────────────────────
+// Nov 13: 31 approved emails sat in the morning alert, stopped by the queue
+// hours after the agent approved them (info@, no named person, a subject
+// already sent). The same checks now run at Approve.
+async function approveMeansSend(P) {
+  console.log('\n9. APPROVE MEANS SEND');
+  const C = require(ROOT + 'server/services/closer.js');
+  on();
+  const sh = await draft(P, { brand: 'Shared Ap', email: 'info@sharedap.com', status: 'draft', contact: 'Jamie Shared' });
+  const shCard = await card(P, { brand: 'Shared Ap', contact: 'Jamie Shared', log: sh, email: 'info@sharedap.com', phone: '(205) 555-0101', slot: 21 });
+  const gd = await draft(P, { brand: 'Good Ap', email: 'jamie@goodap.com', status: 'draft', contact: 'Jamie Good' });
+  await verified(P, 'jamie@goodap.com', 'valid', 2);
+  const dn = await draft(P, { brand: 'Down Ap', email: 'dana@downap.com', status: 'draft', contact: 'Dana Down' });
+  const dp = await draft(P, { brand: 'Dup Ap', email: 'casey@dupap.com', status: 'draft', contact: 'Casey Dup', subject: 'Quick idea for Dup Ap' });
+  await verified(P, 'casey@dupap.com', 'valid', 2);
+  await draft(P, { brand: 'Dup Ap', email: 'casey@dupap.com', status: 'sent', contact: 'Casey Dup', subject: 'Quick idea for Dup Ap',
+    sentAt: new Date(Date.now() - 30 * DAY), createdAt: new Date(Date.now() - 31 * DAY) });
+  const gateDeps = { verifier: async (e) => (e === 'dana@downap.com' ? { ok: false, why: 'Hunter is down' } : { status: 'valid' }) };
+  const r = await C.approveBatch(P, AG, { ids: [sh, gd, dn, dp], athleteId: ATH, gateDeps });
+  const st = async (id) => { const x = await row(P, id); return { status: x.status, stopped: !!x.cadence_stopped_at, why: x.cadence_stop_reason }; };
+  const a = await st(sh), b = await st(gd), c = await st(dn), d = await st(dp);
+  ok('info@ is not approved: stopped at Approve, with the reason', a.status !== 'approved' && a.stopped && /shared inbox/.test(a.why || ''), a);
+  const q = (await P.query(`SELECT channel, outreach_log_id FROM outreach_queue WHERE id = $1`, [shCard])).rows[0];
+  ok('  and its card is the call behind it, now', q && q.channel === 'call' && !q.outreach_log_id, q);
+  ok('a verified named person is approved', b.status === 'approved' && !b.stopped, b);
+  ok('a check that could not run does not refuse (the queue verifies before it sends)', c.status === 'approved' && !c.stopped, c);
+  ok('a subject already sent to that address is not approved', d.status !== 'approved' && d.stopped && /already sent/.test(d.why || ''), d);
+  ok('the note says what was not approved and why', /could not be emailed/.test(r.note || '') && /Shared Ap/.test(r.note || ''), r.note);
+  ok('  and counts them apart from stale ones', !/no longer waiting/.test(r.note || ''), r.note);
+  off();
+  const sh2 = await draft(P, { brand: 'Shared Off', email: 'info@sharedoff.com', status: 'draft', contact: 'Jamie Off' });
+  await C.approveBatch(P, AG, { ids: [sh2], athleteId: ATH });
+  ok('gate off: unchanged (only a platform address is refused)', (await st(sh2)).status === 'approved', await st(sh2));
+
+  // The backlog sweep: an address the gate refuses is not a fresh email card.
+  on();
+  const AB = require(ROOT + 'server/services/approvedBacklog.js');
+  const old = await draft(P, { brand: 'Loop Co', email: 'info@loopco.com', status: 'approved', contact: 'Lou Loop' });
+  await P.query(`UPDATE outreach_logs SET approved_at = NOW() - INTERVAL '20 days', cadence_stop_reason = 'info@ is a shared inbox' WHERE id = $1`, [old]);
+  await card(P, { brand: 'Loop Co', contact: 'Lou Loop', log: old, email: 'info@loopco.com', phone: '(205) 555-0199', slot: 22 });
+  const dry = await AB.run(P, { olderThanDays: 7, agentEmail: 'sg@agency.com' });
+  const lr = (dry.results || []).find((x) => x.id === old) || {};
+  ok('backlog: a shared inbox is not offered back as a fresh email card', lr.becomes !== 'fresh email card' && (lr.gateRefused || []).length, lr);
+  off();
+}
+
 (async () => {
   guard();
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));
@@ -600,7 +675,7 @@ async function seventeen(P) {
   await require(ROOT + 'server/services/sendGate.js').ensureColumns(P);
   await require(ROOT + 'server/services/sendRules.js').ensureTable(P);   // made at boot in production
   await seedBase(P);
-  for (const step of [rule, release, editor, followups, stopUnverified, bounceReport, finder, seventeen]) {
+  for (const step of [rule, release, editor, followups, stopUnverified, bounceReport, finder, seventeen, approveMeansSend]) {
     try { await step(P); } catch (e) { F++; console.log('  FAIL  ' + step.name + ' threw: ' + (e.stack || e.message).split('\n').slice(0, 4).join(' | ')); }
   }
   console.log(`\n${N - F}/${N} passed`);

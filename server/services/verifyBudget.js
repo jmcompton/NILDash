@@ -147,7 +147,17 @@ async function spentToday(pool, athleteId, day) {
 // It is to have a THIRD state. `unknown` is not `exhausted`: it stops spending,
 // like exhausted does, but it says something an engineer can act on rather than
 // something an agent will read as a bill.
+// The cap in force: the env number, or what Hunter's own plan allows if that
+// is more (hunterLookup reads the account; a Growth upgrade lifts it without a
+// Railway change).
+function liveCap() {
+  let acct = 0;
+  try { acct = require('./hunterLookup').verifyBudget() || 0; } catch (_) { acct = 0; }
+  return Math.max(VERIFY_MONTHLY_CAP, acct);
+}
+
 async function accountStatus(pool) {
+  const CAP = liveCap();
   let verifyUsed = 0;
   let ladderUsed = 0;
   let fault = null;
@@ -179,7 +189,7 @@ async function accountStatus(pool) {
       // Never a number. A caller that prints these gets a blank or a dash, not a
       // figure it will be believed about.
       verifyUsed: null, ladderUsed, accountUsed: null,
-      accountMonthly: ACCOUNT_MONTHLY, verifyCap: VERIFY_MONTHLY_CAP,
+      accountMonthly: ACCOUNT_MONTHLY, verifyCap: CAP,
       ladderReserve: Math.round(ACCOUNT_MONTHLY * LADDER_RESERVE_PCT),
       // remaining=0 stops the spending, because we cannot count what we spend
       // and unmetered verification is the other bug in this incident. `unknown`
@@ -195,13 +205,13 @@ async function accountStatus(pool) {
   // ITS OWN POOL. Searches (ladderUsed) are reported, never subtracted.
   const accountUsed = verifyUsed;
   const reserve = 0;
-  const remaining = Math.max(0, VERIFY_MONTHLY_CAP - verifyUsed);
-  const usedPct = VERIFY_MONTHLY_CAP > 0 ? verifyUsed / VERIFY_MONTHLY_CAP : 1;
+  const remaining = Math.max(0, CAP - verifyUsed);
+  const usedPct = CAP > 0 ? verifyUsed / CAP : 1;
 
   const resets = period ? period.resetDate : null;
   return {
     verifyUsed, ladderUsed, accountUsed, accountMonthly: ACCOUNT_MONTHLY,
-    verifyCap: VERIFY_MONTHLY_CAP, ladderReserve: reserve,
+    verifyCap: CAP, ladderReserve: reserve,
     remaining, usedPct: Math.round(usedPct * 1000) / 10,
     unknown: false, fault: null,
     periodStart: period ? period.start.toISOString().slice(0, 10) : null, resetDate: resets, periodFrom: period ? period.from : null,
@@ -211,8 +221,8 @@ async function accountStatus(pool) {
     // thing rather than inventing its own phrasing.
     line: remaining <= 0
       ? `Address verification is paused until the plan resets${resets ? ' on ' + resets : ''}: ${verifyUsed} of `
-        + `${VERIFY_MONTHLY_CAP} checks used. Cards still appear; they are marked unverified.`
-      : `Address verification has used ${verifyUsed} of ${VERIFY_MONTHLY_CAP} checks this `
+        + `${CAP} checks used. Cards still appear; they are marked unverified.`
+      : `Address verification has used ${verifyUsed} of ${CAP} checks this `
         + `billing period (${Math.round(usedPct * 100)}%). At this rate it runs out before the plan resets${resets ? ' on ' + resets : ''}.`,
   };
 }
@@ -322,5 +332,5 @@ function limiter(pool, opts = {}) {
 
 module.exports = {
   ensureTable, dayFor, spentToday, record, limiter, accountStatus,
-  PER_ATHLETE_DAY, ACCOUNT_MONTHLY, VERIFY_MONTHLY_CAP, LADDER_RESERVE_PCT, WARN_AT_PCT,
+  PER_ATHLETE_DAY, ACCOUNT_MONTHLY, VERIFY_MONTHLY_CAP, liveCap, LADDER_RESERVE_PCT, WARN_AT_PCT,
 };

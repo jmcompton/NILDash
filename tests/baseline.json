@@ -1374,7 +1374,7 @@
     },
     "sendgate.js": {
       "failed": 0,
-      "total": 149,
+      "total": 163,
       "fault": null
     },
     "sendguard.js": {
@@ -1389,7 +1389,7 @@
     },
     "sendrules.js": {
       "failed": 0,
-      "total": 69,
+      "total": 70,
       "fault": null
     },
     "sendscope.js": {
@@ -1680,6 +1680,11 @@
     "rosterdedupe.js": {
       "failed": 0,
       "total": 16,
+      "fault": null
+    },
+    "planceiling.js": {
+      "failed": 0,
+      "total": 10,
       "fault": null
     }
   }
