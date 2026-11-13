@@ -1,0 +1,138 @@
+/* ── NILDASH UI V2 ───────────────────────────────────────────────────────────
+   The redesigned look for the agent app: the homepage's palette and type
+   (Inter, Inter Tight, lime #C8F135 used only for actions and wins), a calmer
+   sidebar with eight places, and sentence-case labels instead of tiny caps.
+
+   Every rule is scoped to html[data-ui="v2"], so nothing here applies until
+   ui-v2.js turns it on (see that file for the switch). Off, the app is exactly
+   as it was. */
+
+html[data-ui="v2"]{
+  --bg:#09090B;--surface:#111113;--surface2:#17171A;
+  --border:#232327;--border2:#2E2E34;
+  --text:#F4F4F2;--muted:#A1A1A6;
+  --accent:#C8F135;--accent2:#B5DC2A;--red:#F87171;--gold:#F5A524;--electric:#7AA7FF;
+  --head:'Inter Tight','Inter',system-ui,sans-serif;--mono:'Inter',system-ui,sans-serif;
+  --r:14px;--r-sm:9px;
+  --v2-ink:#0A0A08;--v2-dim:#8B8B92;
+}
+html[data-ui="v2"] body{background:#09090B;color:#F4F4F2;font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+html[data-ui="v2"] #appScreen button,
+html[data-ui="v2"] #appScreen input,
+html[data-ui="v2"] #appScreen select,
+html[data-ui="v2"] #appScreen textarea{font-family:'Inter',system-ui,sans-serif}
+
+/* One family across the app: Inter for everything, Inter Tight for display
+   type. The app names five different families in classes and inline styles;
+   this overrides them all except the icon font (.ti). */
+html[data-ui="v2"] #appScreen *:not(.ti):not([class^="ti-"]):not([class*=" ti-"]){font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif!important}
+html[data-ui="v2"] #appScreen [style*="Syne"],
+html[data-ui="v2"] #appScreen [style*="Bebas"],
+html[data-ui="v2"] #appScreen .hq-name,
+html[data-ui="v2"] #appScreen .sr-title,
+html[data-ui="v2"] #appScreen .sr-val,
+html[data-ui="v2"] #appScreen .sr-sentence,
+html[data-ui="v2"] #appScreen .sr-fig-n,
+html[data-ui="v2"] #appScreen .page-title,
+html[data-ui="v2"] #appScreen .card-title,
+html[data-ui="v2"] #appScreen .kpi-val,
+html[data-ui="v2"] #appScreen .kpi-value,
+html[data-ui="v2"] #appScreen .ac-name,
+html[data-ui="v2"] #appScreen .pipe-amount{font-family:'Inter Tight','Inter',system-ui,sans-serif!important;letter-spacing:-.015em}
+html[data-ui="v2"] #appScreen .hq-name{font-weight:700;font-size:26px;text-transform:none}
+
+/* ── sidebar ── */
+html[data-ui="v2"] .sidebar{background:#0E0E10;border-right:1px solid #1D1D21}
+html[data-ui="v2"] .sidebar-logo{border-bottom:0;padding:20px 18px 12px}
+html[data-ui="v2"] .nildash-logo-sub{color:#8B8B92;letter-spacing:.14em;font-size:9px}
+html[data-ui="v2"] .sidebar-nav{padding:8px 12px}
+html[data-ui="v2"] .nav-item{gap:12px;min-height:40px;padding:0 12px;border-radius:9px;border:0;color:#A1A1A6;font-size:14px;font-weight:500;font-family:'Inter',system-ui,sans-serif;margin-bottom:2px}
+html[data-ui="v2"] .nav-item:hover{background:#17171A;color:#F4F4F2}
+html[data-ui="v2"] .nav-item.active{background:#1B1B1F;color:#F4F4F2;border:0;font-weight:600}
+html[data-ui="v2"] .nav-item .nav-dot-item{display:none}
+html[data-ui="v2"] .nav-item .v2-ic{width:18px;height:18px;flex:0 0 18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+html[data-ui="v2"] .nav-item.active .v2-ic{stroke:#C8F135}
+html[data-ui="v2"] .nav-item #deliverables-overdue-badge,
+html[data-ui="v2"] .nav-item #athlete-email-badge{margin-left:auto!important;background:#26262B!important;color:#F4F4F2!important;font-size:11.5px!important;padding:1px 7px!important}
+html[data-ui="v2"] .nav-item #deliverables-overdue-badge{background:#3A1F1F!important;color:#FCA5A5!important}
+html[data-ui="v2"] .v2-hide{display:none!important}
+html[data-ui="v2"] .sidebar-bottom{border-top:1px solid #1D1D21}
+html[data-ui="v2"] .user-card{background:#111113;border:1px solid #232327;border-radius:12px}
+html[data-ui="v2"] .user-avatar{background:#26262B;color:#F4F4F2;border:0;font-family:'Inter',sans-serif}
+html[data-ui="v2"] .user-name{font-size:13.5px;font-weight:600}
+html[data-ui="v2"] .user-role{font-size:12.5px;color:#A1A1A6}
+html[data-ui="v2"] .logout-btn{border-color:#232327;color:#A1A1A6;font-family:'Inter',sans-serif;font-size:12.5px;border-radius:9px}
+
+@media (min-width:769px){
+  html[data-ui="v2"] .sidebar{width:232px}
+  html[data-ui="v2"] .main{margin-left:232px;width:calc(100% - 232px)}
+}
+
+/* ── top bar ── */
+html[data-ui="v2"] .topbar{background:rgba(9,9,11,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid #1D1D21;height:60px;padding:0 32px}
+html[data-ui="v2"] .breadcrumb{font-family:'Inter',sans-serif;font-size:13.5px;color:#8B8B92;letter-spacing:0}
+html[data-ui="v2"] .breadcrumb span{color:#F4F4F2;font-weight:600}
+html[data-ui="v2"] .ai-status{display:none!important}
+html[data-ui="v2"] .v2-add{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:9px;border:0;background:#C8F135;color:#0A0A08;font:600 14px 'Inter',sans-serif;cursor:pointer;white-space:nowrap}
+html[data-ui="v2"] .v2-add:hover{background:#d6f765}
+html[data-ui="v2"] .v2-add svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+html[data-ui="v2"] .content{padding:28px 32px 32px}
+
+/* ── section tabs (Find brands, Roster, Deliverables, Reports) ── */
+html[data-ui="v2"] .v2-tabs{display:flex;flex-wrap:wrap;gap:4px;padding:4px;margin:0 0 20px;border-radius:10px;background:#111113;border:1px solid #232327;width:max-content;max-width:100%}
+html[data-ui="v2"] .v2-tabs button{min-height:36px;padding:0 14px;border-radius:8px;border:0;background:transparent;color:#A1A1A6;font:500 14px 'Inter',sans-serif;cursor:pointer}
+html[data-ui="v2"] .v2-tabs button:hover{color:#F4F4F2}
+html[data-ui="v2"] .v2-tabs button[aria-selected="true"]{background:#1F1F23;color:#F4F4F2;font-weight:600}
+
+/* ── page type ── */
+html[data-ui="v2"] .page-title{font-family:'Inter Tight','Inter',sans-serif!important;font-size:28px!important;font-weight:700!important;letter-spacing:-.02em!important;line-height:1.2;text-transform:none;color:#F4F4F2;margin-bottom:4px}
+html[data-ui="v2"] .page-sub{font-family:'Inter',sans-serif;font-size:14.5px;color:#A1A1A6;margin-bottom:16px}
+html[data-ui="v2"] .card{background:#111113;border:1px solid #232327;border-radius:14px;padding:20px 22px}
+html[data-ui="v2"] .card:hover{border-color:#2E2E34}
+html[data-ui="v2"] .card-title{font-family:'Inter Tight','Inter',sans-serif;font-size:16px;font-weight:600;letter-spacing:-.01em;text-transform:none;color:#F4F4F2;border-bottom:1px solid #1D1D21}
+html[data-ui="v2"] .kpi{background:#111113;border:1px solid #232327;border-top:1px solid #232327;border-radius:14px;padding:16px 18px}
+html[data-ui="v2"] .kpi:hover{transform:none;border-color:#2E2E34}
+html[data-ui="v2"] .kpi-label{font-family:'Inter',sans-serif;font-size:13px;font-weight:500;letter-spacing:0;text-transform:none;color:#A1A1A6}
+html[data-ui="v2"] .kpi-val,html[data-ui="v2"] .kpi-value{font-family:'Inter Tight','Inter',sans-serif!important;font-size:28px!important;font-weight:700!important;letter-spacing:-.02em!important;color:#F4F4F2!important;-webkit-text-fill-color:#F4F4F2!important;font-variant-numeric:tabular-nums}
+html[data-ui="v2"] .kpi-sub{font-family:'Inter',sans-serif;font-size:13px;color:#A1A1A6}
+
+/* ── buttons and fields ── */
+html[data-ui="v2"] .run-btn,
+html[data-ui="v2"] #appScreen .btn-primary{background:#C8F135;color:#0A0A08;font:600 14px 'Inter',sans-serif;letter-spacing:0;text-transform:none;border-radius:9px;padding:10px 18px}
+html[data-ui="v2"] .run-btn:hover,
+html[data-ui="v2"] #appScreen .btn-primary:hover{background:#d6f765}
+html[data-ui="v2"] .qb{font-family:'Inter',sans-serif;font-size:13px;border-radius:8px;border-color:#2C2C31;background:#141417;color:#D6D6D3;padding:6px 12px}
+html[data-ui="v2"] .qb:hover{background:#1F1F23;color:#F4F4F2;border-color:#45454C}
+html[data-ui="v2"] #appScreen .form-input,
+html[data-ui="v2"] #appScreen .form-select,
+html[data-ui="v2"] #appScreen .select-sm,
+html[data-ui="v2"] #appScreen .input-sm,
+html[data-ui="v2"] #appScreen textarea{background:#0C0C0E;border:1px solid #2C2C31;border-radius:9px;color:#F4F4F2;font-family:'Inter',sans-serif;font-size:14px}
+html[data-ui="v2"] #appScreen .form-input:focus,
+html[data-ui="v2"] #appScreen .form-select:focus,
+html[data-ui="v2"] #appScreen textarea:focus{border-color:#C8F135;outline:none}
+html[data-ui="v2"] textarea.cmd-input{font-family:'Inter',sans-serif}
+
+/* ── tables ── */
+html[data-ui="v2"] table{font-size:14px}
+html[data-ui="v2"] thead th{background:transparent;color:#8B8B92;font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;letter-spacing:.04em;border-bottom:1px solid #232327;padding:12px 16px}
+html[data-ui="v2"] tbody td{padding:12px 16px}
+html[data-ui="v2"] tbody tr{border-bottom:1px solid #1D1D21}
+html[data-ui="v2"] tbody tr:hover{background:#141417}
+
+/* ── roster ── */
+html[data-ui="v2"] .athlete-card{background:#111113;border:1px solid #232327;border-radius:14px;padding:20px 22px}
+html[data-ui="v2"] .athlete-card:hover{transform:none;border-color:#3A3A41}
+html[data-ui="v2"] .athlete-card.selected{border-color:#C8F135;background:#111113}
+html[data-ui="v2"] .ac-name{font-family:'Inter Tight','Inter',sans-serif;font-size:17px;letter-spacing:-.01em}
+html[data-ui="v2"] .ac-meta{font-family:'Inter',sans-serif;font-size:13px;color:#A1A1A6}
+html[data-ui="v2"] .ac-stat{background:#18181B;border:1px solid #26262B;border-radius:999px;font-family:'Inter',sans-serif;font-size:12.5px;padding:3px 10px}
+html[data-ui="v2"] .ac-stat span{color:#F4F4F2;font-family:'Inter',sans-serif}
+
+/* ── pipeline ── */
+html[data-ui="v2"] .pipe-col-name{font-family:'Inter',sans-serif;font-size:13.5px;font-weight:600;letter-spacing:0;text-transform:none;color:#F4F4F2}
+html[data-ui="v2"] .pipe-count{background:#1E1E22;border:0;color:#C9C9CD;font-size:12px}
+html[data-ui="v2"] .pipe-card{background:#141417;border:1px solid #26262B;border-radius:12px}
+html[data-ui="v2"] .pipe-brand{font-family:'Inter',sans-serif;font-size:14.5px}
+html[data-ui="v2"] .pipe-athlete{font-family:'Inter',sans-serif;font-size:13px;color:#A1A1A6}
+html[data-ui="v2"] .pipe-amount{font-family:'Inter Tight','Inter',sans-serif;font-size:15px;color:#F4F4F2;font-variant-numeric:tabular-nums}
