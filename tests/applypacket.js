@@ -38,7 +38,7 @@ async function main() {
   ok('reach per post and the top follower city', /1,840/.test(get(p, 'Average reach per post') || '') && get(p, 'Top follower city') === 'Birmingham, Alabama', p.fields);
   ok('the media kit link', get(p, 'Media kit') === 'https://mynildash.com/media-kit/jreese');
   const why = get(p, "Why I'm a fit for Gainz Fuel") || '';
-  ok('why: in the athlete\'s voice, from facts', /^I'm a junior wide receiver on the Samford football team\./.test(why) && /2,512 people follow me/.test(why) && /works with football athletes/.test(why), why);
+  ok('why: in the athlete\'s voice, from facts', /^I'm a junior on the Samford football team, playing Wide Receiver\./.test(why) && /2,512 people follow me/.test(why) && /works with football athletes/.test(why), why);
   ok('content ideas follow the brand\'s category', /before football practice/.test(get(p, 'Content I would create') || ''), get(p, 'Content I would create'));
   ok('representation: the agent', get(p, 'Representation') === 'Pat Agent, pat@agency.example');
   ok('the offer as the program states it', p.offer === 'Free product and a commission on sales');
@@ -54,6 +54,23 @@ async function main() {
   ok('no fake numbers or placeholders', !/followers|undefined|null|\[|\{/.test(q.text), q.text);
   const agentNum = AP.build({ card: { brand_name: 'X' }, athlete: ath, brand: {} });
   ok('unconnected: the agent\'s follower count, without "verified"', /@jreese, 2,400 followers$/.test(get(agentNum, 'Instagram')) && !agentNum.verified, get(agentNum, 'Instagram'));
+
+  // Seen in the first live run (Nov 13): a URL as the handle, "the The
+  // Citadel", "womens", lower-cased abbreviations, a tennis "game", a default
+  // 3% engagement, "..", and raw deal codes.
+  const L = (d, b) => AP.build({ card: { brand_name: b.n }, athlete: RECORD.resolveAthlete({ id: 'z', data: d }), brand: b });
+  const w = L({ name: 'N W', school: 'Baylor', sport: 'womens soccer', year: 'Sophomore', position: 'Midfielder (MF)', instagramHandle: '_jamie.lee_/?hl=en', instagram: 52000, engagement: 3 },
+    { n: 'KNEMO', category: 'Beauty', deal_structure: 'gifting_code' });
+  ok('a profile URL as the handle is cleaned', /^@_jamie\.lee_, 52,000 followers$/.test(get(w, 'Instagram')), get(w, 'Instagram'));
+  ok("women's, and the position as written", /^I'm a sophomore on the Baylor women's soccer team, playing Midfielder \(MF\)\./.test(get(w, "Why I'm a fit for KNEMO")), get(w, "Why I'm a fit for KNEMO"));
+  ok('an entered engagement rate is left off (only a connected account\'s is used)', !get(w, 'Engagement rate'));
+  ok('a deal code in words', w.offer === 'Free product and a discount code', w.offer);
+  const c2 = L({ name: 'K D', school: 'The Citadel', sport: 'basketball', year: 'Junior', position: 'G' }, { n: 'AT', offer_summary: 'Athletes earn commissions.' });
+  ok('no "the The Citadel"', /^I'm a junior on The Citadel basketball team, playing G\./.test(get(c2, "Why I'm a fit for AT")), get(c2, "Why I'm a fit for AT"));
+  ok('no double period on the offer', c2.offer === 'Athletes earn commissions', c2.offer);
+  const t2 = L({ name: 'T T', school: 'Minnesota', sport: 'tennis' }, { n: 'K', category: 'skincare' });
+  ok('tennis has a match, not a game', /tennis match/.test(get(t2, 'Content I would create')) && !/ game/.test(get(t2, 'Content I would create')), get(t2, 'Content I would create'));
+  ok('no year: "I play tennis at Minnesota."', /^I play tennis at Minnesota\./.test(get(t2, "Why I'm a fit for K")), get(t2, "Why I'm a fit for K"));
 
   // The email to the athlete.
   const m = AP.mailtoFor(p, 'jordan@samford.edu', 'Jordan Reese');
@@ -80,7 +97,7 @@ async function main() {
   const list = await AP.listForAgent(P, 'ap-ag', { verifiedFor: async () => null });
   ok('one queued program card for this agent, nobody else\'s, no DM, no sent one', list.length === 1 && String(list[0].id) === '901', list.map((x) => x.id));
   const one = list[0] || { fields: [] };
-  ok('it carries the brand\'s program facts', one.brand === 'Gainz Fuel' && one.offer === 'Free product and a commission on sales. Affiliate' && one.category === 'Sports nutrition', one);
+  ok('it carries the brand\'s program facts', one.brand === 'Gainz Fuel' && one.offer === 'Free product and a commission on sales' && one.category === 'Sports nutrition', one);
   ok('the program lists football: the why says so', /works with football athletes/.test((one.fields.find((f) => /Why/.test(f.label)) || {}).value || ''), one.fields);
   ok('the athlete\'s email gives a Send to athlete link', /^mailto:jordan%40samford\.edu/.test(one.mailto || ''), one.mailto);
 

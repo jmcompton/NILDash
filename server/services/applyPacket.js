@@ -21,7 +21,17 @@ const RECORD = require('./athleteRecord');
 
 const fmtN = (n) => Number(n).toLocaleString('en-US');
 const clean = (s) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '') || null;
-const handle = (h) => { const x = clean(h); return x ? '@' + x.replace(/^@+/, '') : null; };
+const handle = (h) => {
+  let x = clean(h); if (!x) return null;
+  x = x.replace(/^https?:\/\/(www\.)?(instagram\.com|tiktok\.com)\//i, '').replace(/^@+/, '').split(/[/?#\s]/)[0];
+  return /^[A-Za-z0-9._]{1,30}$/.test(x) ? '@' + x : null;
+};
+// "womens soccer" -> "women's soccer"; otherwise as entered, lower case.
+const sportWord = (s) => (clean(s) || '').toLowerCase().replace(/\b(wo)?mens\b/g, (m) => m.replace(/s$/, "'s"));
+// What one outing is called in each sport.
+const outing = (s) => (/tennis|golf|wrestl/i.test(s) ? 'match' : /track|cross country|swim|div|gymnast|rowing/i.test(s) ? 'meet' : 'game');
+// The program's deal type, in words.
+const DEAL_WORDS = { affiliate: 'Affiliate commission', gifting_code: 'Free product and a discount code', gifting: 'Free product', paid: 'Paid posts', paid_post: 'Paid posts', ambassador: 'Ambassador program' };
 
 // Two content ideas a program form asks for ("what would you post?"), by the
 // brand's category. Plain and specific to the athlete's sport; the athlete
@@ -50,23 +60,29 @@ const IDEAS = [
     `A recovery-day post on how ${b} fits my routine`]],
 ];
 function ideasFor(brand, category, sport) {
-  const s = (clean(sport) || 'my sport').toLowerCase();
-  for (const [re, fn] of IDEAS) if (re.test(String(category || ''))) return fn(brand, s);
-  return [`A game-day post featuring ${brand}`, `A day-in-the-life reel as a ${s} athlete that shows ${brand}`];
+  const s = sportWord(sport) || 'my sport';
+  const o = outing(s);
+  const fix = (x) => x.replace(/game-day/g, o === 'game' ? 'game-day' : o + '-day').replace(/ game\b/g, ' ' + o).replace(/\bgames\b/g, o + 'es'.slice(o === 'game' ? 1 : 0));
+  for (const [re, fn] of IDEAS) if (re.test(String(category || ''))) return fn(brand, s).map(fix);
+  return [`A game-day post featuring ${brand}`, `A day-in-the-life reel as a ${s} athlete that shows ${brand}`].map(fix);
 }
 
 // The athlete's line in one sentence: "I'm a junior wide receiver on the
 // Samford football team." Only the parts we hold.
 function introOf(a) {
-  const sport = clean(a.sport), school = clean(a.school), pos = clean(a.position), yr = clean(a.year);
+  const sport = sportWord(a.sport), school = clean(a.school), pos = clean(a.position), yr = clean(a.year);
   if (a.athleteType === 'pro') {
     return clean(`I'm a professional ${sport || 'athlete'}${a.team ? ' with ' + a.team : ''}${a.city ? ' in ' + a.city : ''}.`);
   }
   if (!school && !sport) return null;
-  const who = [yr ? yr.toLowerCase() : null, pos ? pos.toLowerCase() : null].filter(Boolean).join(' ');
-  const article = /^[aeiou]/i.test(who || (sport || 'athlete')) ? 'an' : 'a';
-  if (school && sport) return `I'm ${article} ${who ? who + ' on the' : sport.toLowerCase() + ' player at'} ${who ? school + ' ' + sport.toLowerCase() + ' team' : school}.`;
-  return `I'm ${article} ${who || (sport ? sport.toLowerCase() + ' player' : 'athlete')}${school ? ' at ' + school : ''}.`;
+  const year = yr ? yr.toLowerCase() : null;
+  const article = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
+  const the = school && /^the\s/i.test(school) ? '' : 'the ';
+  let line;
+  if (school && sport) line = year ? `I'm ${article(year)} ${year} on ${the}${school} ${sport} team` : `I play ${sport} at ${school}`;
+  else if (school) line = year ? `I'm ${article(year)} ${year} at ${school}` : `I'm an athlete at ${school}`;
+  else line = `I play ${sport}`;
+  return line + (pos ? `, playing ${pos}.` : '.');
 }
 
 // build({ card, athlete (resolveAthlete record), brand (social_brands row or {}),
@@ -103,7 +119,9 @@ function build({ card, athlete, brand, verifiedIg, fit, mediaKitUrl, agent } = {
   } else if (ig || a.instagram) {
     add('Instagram', `${ig || ''}${ig && a.instagram ? ', ' : ''}${a.instagram ? fmtN(a.instagram) + ' followers' : ''}`, true);
   } else missing.push('Instagram');
-  if (a.engagement != null) add('Engagement rate', `${a.engagement}%`, false);
+  // Only the connected account's own rate: an entered or default number
+  // (many records hold 3%) is not something to put on an application.
+  if (a.engagement != null && verifiedIg && verifiedIg.followers) add('Engagement rate', `${a.engagement}%`, false);
   const tt = handle(a.tiktokHandle);
   if (tt || a.tiktok) add('TikTok', `${tt || ''}${tt && a.tiktok ? ', ' : ''}${a.tiktok ? fmtN(a.tiktok) + ' followers' : ''}`, false);
   add('Media kit', mediaKitUrl, false);
@@ -118,7 +136,7 @@ function build({ card, athlete, brand, verifiedIg, fit, mediaKitUrl, agent } = {
     why.push(`${fmtN(a.instagram)} people follow me on Instagram.`);
   }
   const sportFit = fit && Array.isArray(fit.kinds) && fit.kinds.includes('sport');
-  if (sportFit && a.sport) why.push(`Your program works with ${a.sport.toLowerCase()} athletes, and I would be proud to represent ${brandName}.`);
+  if (sportFit && a.sport) why.push(`Your program works with ${sportWord(a.sport)} athletes, and I would be proud to represent ${brandName}.`);
   else why.push(`I would be proud to represent ${brandName} and share it with the people who follow my season.`);
   add(`Why I'm a fit for ${brandName}`, why.join(' '), false);
 
@@ -126,7 +144,9 @@ function build({ card, athlete, brand, verifiedIg, fit, mediaKitUrl, agent } = {
   add('Content I would create', ideas.map((x, i) => `${i + 1}. ${x}`).join(' '), false);
   if (agent && (agent.name || agent.email)) add('Representation', [clean(agent.name), clean(agent.email)].filter(Boolean).join(', '), false);
 
-  const offer = [clean(b.offer_summary), clean(b.deal_structure)].filter(Boolean).join('. ') || null;
+  const summary = clean(b.offer_summary) ? clean(b.offer_summary).replace(/[.;\s]+$/, '') : null;
+  const deal = clean(b.deal_structure) ? (DEAL_WORDS[clean(b.deal_structure).toLowerCase()] || null) : null;
+  const offer = summary || deal || null;
   const programUrl = clean(c.program_url) || clean(b.proof_url) || null;
   const text = [`Application: ${brandName} athlete program`, programUrl ? `Apply here: ${programUrl}` : null, '',
     ...fields.map((f) => `${f.label}: ${f.value}`)].filter((x) => x !== null).join('\n');
