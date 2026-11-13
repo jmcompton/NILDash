@@ -1317,6 +1317,19 @@ tbody td{padding:11px 14px;vertical-align:middle}
 #mktLanding section{padding:60px 0}
 #mktLanding .strip .row{flex-direction:column;gap:18px}}
 </style>
+<!-- UI V2 (public/ui-v2.css, public/ui-v2.js): off unless ?ui=v2 or NILDASH_UI_DEFAULT says so. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700&display=swap">
+<script>
+(function () {
+  try {
+    var q = new URLSearchParams(location.search).get('ui');
+    if (q === 'v2' || q === 'v1') localStorage.setItem('nildash_ui', q);
+    var v = localStorage.getItem('nildash_ui') || window.NILDASH_UI_DEFAULT || 'v1';
+    if (v === 'v2') document.documentElement.setAttribute('data-ui', 'v2');
+  } catch (e) {}
+})();
+</script>
+<link rel="stylesheet" href="/ui-v2.css">
 </head>
 <body>
 <!--  MARKETING LANDING (logged-out home)  -->
@@ -16276,6 +16289,7 @@ function exportCommissionCSV() {
 <script src="/assistant.js"></script>
 <script src="/onboarding.js"></script>
 <script src="/agent-setup.js"></script>
+<script src="/ui-v2.js"></script>
 
 <!-- ── Athlete Emails Module ──────────────────────────────────────────────── -->
 <script>
