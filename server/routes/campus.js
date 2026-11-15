@@ -17,6 +17,9 @@
 //   POST /api/university/market/pitch             { brand, teamId | athlete:{name,facts}, acknowledgeHistory }
 //   GET  /api/university/market/cards             this morning's cards (the nightly feed)
 //   POST /api/university/market/me/title          { title }  (for the sign-off)
+//   GET  /api/university/applications             athlete applications (services/universityApply)
+//   POST /api/university/applications/refresh     open new ones for the roster
+//   POST /api/university/applications/:id/state   { state }
 const CM = require('../services/campusMarket');
 
 function mount(app, { store, requireAuth }) {
@@ -105,6 +108,31 @@ function mount(app, { store, requireAuth }) {
 
   app.get('/api/university/market/deals', guard, async (req, res) => {
     res.json({ deals: await CM.deals(pool, req.staff.university_id) });
+  });
+
+  // ── ATHLETE APPLICATIONS (services/universityApply) ─────────────────────
+  //   GET  /api/university/applications           ?sport=&state=   counts by sport + every application, written
+  //   POST /api/university/applications/refresh                     open new ones for the roster
+  //   POST /api/university/applications/:id/state { state }         sent | applied | accepted | declined | skipped
+  const UA = require('../services/universityApply');
+  app.get('/api/university/applications', guard, async (req, res) => {
+    try {
+      const sender = await CM.senderFor(pool, req.staff.id).catch(() => null);
+      const staffInfo = { name: (sender && sender.name) || req.staff.name, title: sender && sender.title, email: (sender && sender.email) || req.staff.email };
+      res.json(await UA.list(pool, req.staff.university_id, { sport: req.query.sport || null, state: req.query.state || null, staff: staffInfo }));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/university/applications/refresh', guard, async (req, res) => {
+    if (req.staff.viewingAsAdmin) return res.status(403).json({ error: 'Viewing as admin: read only.' });
+    try { res.json({ ok: true, ...(await UA.refresh(pool, req.staff.university_id)) }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/university/applications/:id/state', guard, async (req, res) => {
+    if (req.staff.viewingAsAdmin) return res.status(403).json({ error: 'Viewing as admin: read only.' });
+    try {
+      const r = await UA.setState(pool, req.staff.university_id, parseInt(req.params.id, 10), String((req.body && req.body.state) || ''), req.staff.id);
+      res.status(r.ok ? 200 : (r.error === 'not found' ? 404 : 400)).json(r);
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   app.post('/api/university/market/pitch', guard, async (req, res) => {

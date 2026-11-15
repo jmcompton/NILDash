@@ -235,17 +235,18 @@ async function main() {
     .every((s) => page.includes(s) && html.includes(s)));
   // ONLY SCREENS THAT WORK (2026-10-07): the demo's eight "Coming soon" items
   // are gone from the nav until they ship; Sponsor Scan is the business list.
-  ok('  the nav lists only the screens that work: Home, Sponsor Scan, My Teams, Inventory', /const NAV1 = \[\s*\["home","Home"\], \["sponsors","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
+  // Athlete Deals (2026-11-15, services/universityApply) joined them.
+  ok('  the nav lists only the screens that work: Home, Athlete Deals, Sponsor Scan, My Teams, Inventory', /const NAV1 = \[\s*\["home","Home"\], \["athletes","Athlete Deals"\], \["sponsors","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
     && /const NAV2 = \[\];/.test(page));
-  ok('  every item does something; nothing says "coming soon"', /const LIVE = \{ home:true, sponsors:true, teams:true, inventory:true \}/.test(page) && !/coming soon/i.test(page)
+  ok('  every item does something; nothing says "coming soon"', /const LIVE = \{ home:true, athletes:true, sponsors:true, teams:true, inventory:true \}/.test(page) && !/coming soon/i.test(page)
     && !/aria-disabled="true"/.test(page.slice(page.indexOf('function paintNav'), page.indexOf('function paintNav') + 600)));
   // The one exception on both counts is the admin's read-only view bar
   // (shown only when viewingAsAdmin): its "Back to admin" ends the view and
   // returns to the admin console. A department user never sees it.
   const bar = page.slice(page.indexOf('viewingAsAdmin'), page.indexOf('viewingAsAdmin') + 1400);
   const outside = page.replace(bar, '');
-  ok('  it reads only its own department\'s APIs (teams, inventory, the market tool) and signs in with the account login',
-    (outside.match(/\/api\/[a-z/_-]+/g) || []).every((u) => ['/api/university/teams', '/api/university/inventory', '/api/auth/login', '/api/auth/logout'].includes(u) || u.startsWith('/api/university/market/'))
+  ok('  it reads only its own department\'s APIs (teams, inventory, the market tool, athlete applications) and signs in with the account login',
+    (outside.match(/\/api\/[a-z/_-]+/g) || []).every((u) => ['/api/university/teams', '/api/university/inventory', '/api/auth/login', '/api/auth/logout'].includes(u) || u.startsWith('/api/university/market/') || u.startsWith('/api/university/applications'))
     && (bar.match(/\/api\/[a-z/_-]+/g) || []).every((u) => u === '/api/admin/view-university'),
     [...new Set(page.match(/\/api\/[a-z/_-]+/g))]);
   ok('  and never sends anyone to the agent app (only the admin view bar returns its admin to /admin)',
@@ -310,7 +311,7 @@ async function main() {
       // from the rendered nav too, not just from NAV1. Each item there opens
       // its screen.
       const navItems = await p.$$eval('#nav1 button', (bs) => bs.map((b) => ({ text: b.textContent.trim(), disabled: b.getAttribute('aria-disabled') })));
-      ok('the nav shows the four working screens and nothing disabled', navItems.length === 4 && navItems.every((n) => n.disabled !== 'true')
+      ok('the nav shows the five working screens and nothing disabled', navItems.length === 5 && navItems.every((n) => n.disabled !== 'true')
         && (await p.$$('[aria-disabled="true"]')).length === 0 && (await p.textContent('#crumbNow')) === 'Inventory', navItems);
       ok('  and nothing threw', errs.length === 0, errs);
       const s2 = { loginAs: 'agent' };

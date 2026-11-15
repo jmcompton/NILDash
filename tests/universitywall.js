@@ -92,7 +92,13 @@ async function main() {
   // other path must be named exactly.
   const MARKET = '/api/university/market/';
   for (const f of [...fetched]) if (f.split(' ')[1].startsWith(MARKET)) fetched.delete(f);
-  const every = new Set((page.match(/\/api\/[a-z/_-]+/g) || []).filter((p) => !p.startsWith(MARKET)));
+  // Athlete Deals (services/universityApply): its list is one exact GET and
+  // its actions sit under one POST prefix, both pinned below.
+  const APPS = '/api/university/applications';
+  for (const f of [...fetched]) if (f.split(' ')[1].startsWith(APPS)) fetched.delete(f);
+  const every = new Set((page.match(/\/api\/[a-z/_-]+/g) || []).filter((p) => !p.startsWith(MARKET) && !p.startsWith(APPS)));
+  ok('Athlete Deals calls only its list and its actions', (page.match(/\/api\/university\/applications[a-z/_-]*/g) || [])
+    .every((p) => p === APPS || p === APPS + '/refresh' || p === APPS + '/'), page.match(/\/api\/university\/applications[a-z/_-]*/g));
   ok('every API path in university.html is accounted for', [...every].every((p) => [...fetched].some((f) => f.endsWith(' ' + p))), [...every]);
   // Beyond the page: a staff member's own mailbox connect (send only), named
   // here one by one so nothing else slips in. The market tool is a prefix,
@@ -105,12 +111,12 @@ async function main() {
   const adminOnly = [...fetched].filter((f) => / \/api\/admin\//.test(f));
   const staff = [...fetched].filter((f) => !adminOnly.includes(f));
   ok('  and the allowlist is exactly those plus the mailbox connect, no more',
-    [...MG.UNIVERSITY_ALLOWED].sort().join('|') === [...staff, ...MAILBOX].sort().join('|'), { allowed: [...MG.UNIVERSITY_ALLOWED], staff });
+    [...MG.UNIVERSITY_ALLOWED].sort().join('|') === [...staff, ...MAILBOX, 'GET ' + APPS].sort().join('|'), { allowed: [...MG.UNIVERSITY_ALLOWED], staff });
   ok('  the page\'s admin call is the admin view bar\'s, and the wall never lets a university session reach /api/admin',
     adminOnly.every((f) => f === 'POST /api/admin/view-university') && /viewingAsAdmin[\s\S]{0,1200}fetch\("\/api\/admin\/view-university"/.test(page)
     && ![...MG.UNIVERSITY_ALLOWED].some((f) => / \/api\/admin\//.test(f)), adminOnly);
-  ok('  the only prefix is the department market tool',
-    JSON.stringify(MG.UNIVERSITY_ALLOWED_PREFIXES) === JSON.stringify([['GET', '/api/university/market/'], ['POST', '/api/university/market/']]));
+  ok('  the only prefixes are the department market tool and Athlete Deals\' actions',
+    JSON.stringify(MG.UNIVERSITY_ALLOWED_PREFIXES) === JSON.stringify([['GET', '/api/university/market/'], ['POST', '/api/university/market/'], ['POST', '/api/university/applications/']]));
   ok('admin is not a confined role', !MG.UNIVERSITY_ONLY_ROLES.has('admin') && !MG.UNIVERSITY_ONLY_ROLES.has('agent'));
 
   // ── 3. MOUNTED ONCE, BEFORE EVERY SESSION ROUTE; requireAgentMode GONE ─────
