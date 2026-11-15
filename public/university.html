@@ -488,10 +488,10 @@ const word = n => WORDS[n] || String(n);
    list (id "sponsors": search, team and stage filters, named contact, reach,
    best fit, distance, Write a pitch, the spreadsheet). */
 const NAV1 = [
-  ["home","Home"], ["sponsors","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"]
+  ["home","Home"], ["athletes","Athlete Deals"], ["sponsors","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"]
 ];
 const NAV2 = [];
-const LIVE = { home:true, sponsors:true, teams:true, inventory:true };
+const LIVE = { home:true, athletes:true, sponsors:true, teams:true, inventory:true };
 
 let view = "home";
 let ME = null;              /* from /api/university/market/me: teams, stages, sender */
@@ -668,6 +668,88 @@ function paintNav(){
   $("nav1").innerHTML = NAV1.filter(([id]) => LIVE[id]).map(row).join("");
   if ($("nav2")) $("nav2").innerHTML = NAV2.filter(([id]) => LIVE[id]).map(row).join("");
   $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","Home"])[1];
+}
+
+/* ===================== ATHLETE DEALS ===================== */
+/* Every athlete on the roster, matched to brands that run their own athlete
+   programs, with the application already written (services/universityApply).
+   The office sends it to the athlete, the athlete submits, the office marks it. */
+const AT = { loaded:false, loading:false, failed:false, data:null, sport:"", state:"open", busy:false, show:40 };
+const AT_STATE = { open:"To send", sent:"Sent to athlete", applied:"Applied", accepted:"Accepted", declined:"Declined", skipped:"Skipped" };
+async function atLoad(){
+  AT.loading = true; AT.show = 40; paint();
+  const q = new URLSearchParams(); if (AT.sport) q.set("sport", AT.sport); if (AT.state) q.set("state", AT.state);
+  const r = await getJson("/api/university/applications?" + q.toString());
+  AT.loading = false; AT.failed = r.status !== 200; AT.data = r.status === 200 ? r.body : null; AT.loaded = true; paint();
+}
+async function atRefresh(btn){
+  if (AT.busy) return; AT.busy = true; if (btn) { btn.disabled = true; btn.textContent = "Matching…"; }
+  const r = await fetch("/api/university/applications/refresh", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body:"{}" });
+  const j = await r.json().catch(() => ({}));
+  AT.busy = false;
+  toast(r.ok ? (j.opened ? `${j.opened} new applications for your athletes.` : "Every athlete already has applications to send.") : (j.error || "Could not match right now. Try again."));
+  atLoad();
+}
+async function atSet(id, state){
+  const r = await fetch(`/api/university/applications/${encodeURIComponent(id)}/state`, { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ state }) });
+  if (!r.ok) { toast("Could not save that. Try again."); return; }
+  toast(AT_STATE[state] ? `Marked: ${AT_STATE[state]}` : "Saved.");
+  atLoad();
+}
+function vAthletes(){
+  if (!AT.loaded && !AT.loading) { setTimeout(atLoad, 0); }
+  const d = AT.data || { totals:{ athletes:0, covered:0, open:0, applied:0, accepted:0 }, bySport:[], applications:[] };
+  const t = d.totals;
+  const sports = d.bySport || [];
+  const rows = d.applications || [];
+  const pct = (a, b) => b ? Math.round(100 * a / b) + "%" : "0%";
+  return `<div class="board">
+    <div class="head">
+      <h1>Athlete Deals</h1>
+      <p>Brands that run their own athlete programs and are asking for applications. NILDash matches every athlete on your roster
+         and writes the application. Send it to the athlete, they submit it, you mark it.</p>
+    </div>
+    <div class="toolrow">
+      <span class="stats"><span><b>${t.covered}</b> of ${t.athletes} athletes have applications (${pct(t.covered, t.athletes)})</span>
+        <span><b>${t.open}</b> to send</span><span><b>${t.applied}</b> applied</span><span><b>${t.accepted}</b> accepted</span></span>
+      <span class="grow"></span>
+      <button type="button" class="btn go sm" data-atrefresh>Match more athletes</button>
+    </div>
+    ${sports.length ? `<div class="tablewrap"><table><thead><tr><th>Team</th><th>Athletes</th><th>With applications</th><th>To send</th><th>Applied</th><th>Accepted</th></tr></thead><tbody>
+      ${sports.map(s => `<tr data-atsport="${esc(s.sport)}" style="cursor:pointer">
+        <td data-l="TEAM"><span class="b">${esc(s.sport)}</span></td><td data-l="ATHLETES">${s.athletes}</td>
+        <td data-l="WITH APPLICATIONS">${s.withApps} <span class="s">${pct(s.withApps, s.athletes)}</span></td>
+        <td data-l="TO SEND">${s.open}</td><td data-l="APPLIED">${s.applied}</td><td data-l="ACCEPTED">${s.accepted}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}
+    <div class="toolrow">
+      <select class="sel" id="atsport"><option value="">Every team</option>${sports.map(s => `<option value="${esc(s.sport)}" ${s.sport===AT.sport?"selected":""}>${esc(s.sport)}</option>`).join("")}</select>
+      <select class="sel" id="atstate"><option value="">Any status</option>${Object.keys(AT_STATE).map(k => `<option value="${k}" ${k===AT.state?"selected":""}>${AT_STATE[k]}</option>`).join("")}</select>
+      <span class="grow"></span><span class="stats"><span>${AT.loading ? "Loading…" : `<b>${rows.length}</b> shown`}</span></span>
+    </div>
+    ${AT.failed ? `<div class="empty"><b>Could not load applications</b>Try again in a moment.</div>`
+      : !rows.length && !AT.loading ? `<div class="empty"><b>${t.athletes ? "Nothing here yet" : "No roster on file yet"}</b>${t.athletes ? "Press Match more athletes to write applications for your roster." : "Import your rosters first, then match your athletes."}</div>`
+      : rows.slice(0, AT.show).map(a => `<div class="panel">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div><h3 style="margin:0">${esc(a.brand)}</h3>
+            <p class="lede" style="margin:2px 0 0">For ${esc(a.athleteName)} · ${esc(a.sport || "")}${a.offer ? " · " + esc(a.offer) : ""}</p></div>
+          <span class="s">${esc(AT_STATE[a.state] || a.state)}</span>
+        </div>
+        ${a.missing && a.missing.length ? `<p class="s" style="color:#f5b74f;margin:8px 0 0">Not on file for this athlete: ${esc(a.missing.join(", "))}. The athlete can add it on the form.</p>` : ""}
+        <details style="margin-top:10px"><summary class="s" style="cursor:pointer">See the application</summary>
+          <div class="tablewrap" style="margin-top:8px"><table><tbody>${a.fields.map(f => `<tr><td data-l="${esc(f.label.toUpperCase())}" style="width:190px"><span class="s">${esc(f.label)}</span></td><td>${esc(f.value)}</td></tr>`).join("")}</tbody></table></div>
+        </details>
+        <div class="acts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          ${a.programUrl ? `<a class="btn go sm" style="text-decoration:none" href="${esc(a.programUrl)}" target="_blank" rel="noopener">Open application</a>` : ""}
+          ${a.mailto ? `<a class="btn ghost sm" style="text-decoration:none" href="${esc(a.mailto)}" data-atsent="${a.id}">Email to athlete</a>` : ""}
+          <button type="button" class="btn ghost sm" data-atcopy="${a.id}">Copy for athlete</button>
+          ${a.state === "open" ? `<button type="button" class="btn ghost sm" data-atset="sent" data-atid="${a.id}">Sent to athlete</button>` : ""}
+          ${["open","sent"].includes(a.state) ? `<button type="button" class="btn ghost sm" data-atset="applied" data-atid="${a.id}">Applied</button>` : ""}
+          ${a.state === "applied" ? `<button type="button" class="btn ghost sm" data-atset="accepted" data-atid="${a.id}">Accepted</button><button type="button" class="btn ghost sm" data-atset="declined" data-atid="${a.id}">Declined</button>` : ""}
+          ${["open","sent"].includes(a.state) ? `<button type="button" class="btn ghost sm" data-atset="skipped" data-atid="${a.id}">Skip</button>` : ""}
+        </div>
+      </div>`).join("")}
+    ${rows.length > AT.show ? `<div style="text-align:center"><button type="button" class="btn ghost sm" data-atmore>Show ${Math.min(40, rows.length - AT.show)} more of ${rows.length - AT.show}</button></div>` : ""}
+  </div>`;
 }
 
 /* ===================== MY TEAMS ===================== */
@@ -1068,7 +1150,7 @@ function exportCsv(){
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-const VIEWS = { home:vHome, sponsors:vSponsors, teams:vTeams, inventory:vInventory };
+const VIEWS = { home:vHome, athletes:vAthletes, sponsors:vSponsors, teams:vTeams, inventory:vInventory };
 function paint(){
   $("view").innerHTML = (VIEWS[view] || vHome)();
   paintNav();
@@ -1085,6 +1167,8 @@ document.addEventListener("input", e => {
 });
 document.addEventListener("change", e => {
   const id = e.target.id;
+  if (id === "atsport"){ AT.sport = e.target.value; atLoad(); return }
+  if (id === "atstate"){ AT.state = e.target.value; atLoad(); return }
   if (id === "spteam"){ SP.team = e.target.value; spLoad(); return }
   if (id === "spstage"){ SP.stage = e.target.value; spLoad(); return }
   if (id === "spcontact"){ SP.contact = e.target.checked; spLoad(); return }
@@ -1108,8 +1192,18 @@ async function findOwnerFor(id, btn){
   paint();
 }
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall]");
+  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore]");
   if (!t) return;
+  if (t.dataset.atrefresh !== undefined){ atRefresh(t); return }
+  if (t.dataset.atmore !== undefined){ AT.show += 40; paint(); return }
+  if (t.dataset.atset !== undefined){ atSet(t.dataset.atid, t.dataset.atset); return }
+  if (t.dataset.atsport !== undefined){ AT.sport = t.dataset.atsport; AT.state = ""; atLoad(); return }
+  if (t.dataset.atsent !== undefined){ atSet(t.dataset.atsent, "sent"); return }   /* the mailto opens as usual */
+  if (t.dataset.atcopy !== undefined){
+    const a = ((AT.data && AT.data.applications) || []).find(x => String(x.id) === String(t.dataset.atcopy));
+    if (a) { try { navigator.clipboard.writeText(a.athleteText || a.text); toast(`Copied. Paste it in a text or email to ${String(a.athleteName || "the athlete").split(" ")[0]}.`); } catch (_) { toast("Select the text and copy it."); } }
+    return
+  }
   const copy = (txt) => { try { navigator.clipboard.writeText(txt); toast("Copied. Paste it into your email."); } catch (_) { toast("Select the text and copy it."); } };
   if (t.dataset.copy !== undefined){ const d = CARDS.find(x => x.id === t.dataset.copy); if (d) copy((d.subject ? "Subject: " + d.subject + "\n\n" : "") + (d.body || "")); return }
   if (t.dataset.copytext !== undefined){ copy(t.dataset.copytext); return }

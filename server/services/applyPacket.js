@@ -100,7 +100,7 @@ function introOf(a) {
 //         verifiedIg (instagramInsights.verifiedFor or null), fit (fitReasons
 //         result or null), mediaKitUrl, agent: { name, email } })
 // -> { brand, programUrl, offer, fields: [{ label, value }], text, missing: [] }
-function build({ card, athlete, brand, verifiedIg, fit, mediaKitUrl, agent } = {}) {
+function build({ card, athlete, brand, verifiedIg, fit, mediaKitUrl, agent, contactLabel } = {}) {
   const a = athlete || {}, b = brand || {}, c = card || {};
   const brandName = clean(c.brand_name) || clean(b.brand) || 'this brand';
   const fields = [];
@@ -153,7 +153,8 @@ function build({ card, athlete, brand, verifiedIg, fit, mediaKitUrl, agent } = {
 
   const ideas = ideasFor(brandName, b.category, a.sport);
   add('Content I would create', ideas.map((x, i) => `${i + 1}. ${x}`).join(' '), false);
-  if (agent && (agent.name || agent.email)) add('Representation', [clean(agent.name), clean(agent.email)].filter(Boolean).join(', '), false);
+  // An agent's athlete: 'Representation'. A department's roster: 'School contact'.
+  if (agent && (agent.name || agent.email)) add(contactLabel || 'Representation', [clean(agent.name), clean(agent.email)].filter(Boolean).join(', '), false);
 
   const summary = clean(b.offer_summary) ? clean(b.offer_summary).replace(/[.;\s]+$/, '') : null;
   const deal = clean(b.deal_structure) ? (DEAL_WORDS[clean(b.deal_structure).toLowerCase()] || null) : null;

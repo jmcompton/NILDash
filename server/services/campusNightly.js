@@ -281,6 +281,14 @@ async function runNight(pool, universityId, deps = {}) {
       for (const [k, v] of Object.entries(row.byLane)) prev.byLane[k] = (Number(prev.byLane[k]) || 0) + (Number(v) || 0);
     }
     }
+    // ── ATHLETE DEALS: new applications for the roster (services/universityApply).
+    // Free: the public brand catalog and the roster, no model call. An
+    // athlete who already has three open gets none, so it never piles up.
+    let applications = null;
+    if (deps.applications !== false) {
+      applications = await require('./universityApply').refresh(pool, universityId)
+        .catch((e) => ({ error: e.message }));
+    }
     // ── NAMES FOR TONIGHT'S BEST CARDS: one budget for the school ──────────
     // Not per team: a flat NAMES_USD a night, spent on the free-night cards
     // with no owner's name, best fit first (services/ownerLookup.nameTonight).
@@ -325,6 +333,7 @@ async function runNight(pool, universityId, deps = {}) {
       byLane,
       // The whole night against its one cap, by what the money bought.
       costUsd: r3(spent()), nightCapUsd: nightCap,
+      applications,
       names: names && { tried: names.tried || 0, found: names.found || 0, usd: r3(Number(names.usd) || 0), budgetUsd: NAMES_USD, stoppedFor: names.stoppedFor || null, error: names.error || null },
       spend: { namesUsd: r3(usd.names), writingUsd: r3(usd.writing), contactsForCardsUsd: r3(usd.contactsForCards), discoveryUsd: r3(usd.discovery),
         contactsForTomorrowUsd: r3(usd.contactsForTomorrow), placesRingsUsd: r3(usd.places),

@@ -81,6 +81,7 @@ async function requireUniversityMode(req, res, next) {
 // THE ALLOWLIST IS EXACTLY WHAT public/university.html FETCHES:
 //   GET  /api/university/teams      My Teams
 //   GET  /api/university/inventory  Inventory
+//   GET  /api/university/applications, POST .../applications/*  Athletes
 //   POST /api/auth/login            its sign-in form (a signed-in university
 //                                   user can still switch accounts)
 //   POST /api/auth/logout           its Sign out link
@@ -103,6 +104,9 @@ const UNIVERSITY_ALLOWED = new Set([
   'GET /api/email/oauth/outlook',
   'GET /api/email/oauth/outlook/callback',
   'GET /api/email/accounts',
+  // Athlete applications (routes/campus.js, services/universityApply): the
+  // roster's brand program applications, scoped to the session's university.
+  'GET /api/university/applications',
 ]);
 
 // The department's own market tool (routes/campus.js): search, CRM, deals,
@@ -111,6 +115,7 @@ const UNIVERSITY_ALLOWED = new Set([
 const UNIVERSITY_ALLOWED_PREFIXES = [
   ['GET', '/api/university/market/'],
   ['POST', '/api/university/market/'],
+  ['POST', '/api/university/applications/'],
 ];
 function allowedForUniversity(key) {
   if (UNIVERSITY_ALLOWED.has(key)) return true;

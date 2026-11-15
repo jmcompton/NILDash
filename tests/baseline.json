@@ -1539,7 +1539,7 @@
     },
     "universitywall.js": {
       "failed": 0,
-      "total": 37,
+      "total": 38,
       "fault": null
     },
     "univperteam.js": {
@@ -1695,6 +1695,11 @@
     "applypacket.js": {
       "failed": 0,
       "total": 56,
+      "fault": null
+    },
+    "universityapply.js": {
+      "failed": 0,
+      "total": 34,
       "fault": null
     }
   }
