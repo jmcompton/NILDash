@@ -1532,6 +1532,11 @@
       "total": 19,
       "fault": null
     },
+    "universitiespage.js": {
+      "failed": 0,
+      "total": 14,
+      "fault": null
+    },
     "universityportal.js": {
       "failed": 0,
       "total": 53,
