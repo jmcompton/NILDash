@@ -430,6 +430,10 @@ const SPORT_WORDS = [
   'football', 'basketball', 'baseball', 'softball', 'soccer', 'volleyball', 'track', 'cross country',
   'swimming', 'diving', 'tennis', 'golf', 'wrestling', 'gymnastics', 'lacrosse', 'hockey',
   'rowing', 'bowling', 'beach volleyball', 'water polo',
+  // Two-word sports, so "field hockey" is read as ONE sport and never as a
+  // bare "hockey" (which canonicalises to ice hockey and refused every
+  // correct pitch for a field hockey athlete).
+  'field hockey', 'ice hockey',
 ];
 const YEAR_WORDS = [
   'freshman', 'sophomore', 'junior', 'senior', 'redshirt', 'graduate student', 'grad student',
@@ -639,15 +643,24 @@ function alignSport(text, a) {
   let from = null;
   for (const w of SPORT_WORDS.slice().sort((x, y) => y.length - x.length)) {
     if (sportKey(w) === storedKey) continue;             // already the right sport
-    const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\function _sportRule(a) {') + '\\b', 'gi');
+    // A word that is the tail of a longer sport ("hockey" in "field hockey",
+    // "volleyball" in "beach volleyball") is left alone where it sits inside
+    // that longer name: the longer name is judged on its own.
+    const longer = SPORT_WORDS.filter((L) => L !== w && L.endsWith(' ' + w)).map((L) => L.slice(0, -w.length));
+    const guard = longer.map((pre) => '(?<!' + pre.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')').join('');
+    const re = new RegExp(guard + '\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
     if (!re.test(out)) continue;
+    re.lastIndex = 0;
     // Only inside a sentence about the athlete, the same scope the lint used
     // to find it: "the basketball court down the road" is about the town.
-    if (!_findVocab(out, [w], a).length) continue;
+    // Judged against the whole vocabulary, so a word that only appears inside
+    // a longer, correct sport name is not a hit.
+    if (!_findVocab(out, SPORT_WORDS, a).includes(w)) continue;
     from = from || w;
     // Keep the casing the draft used: "a basketball player" becomes "a
-    // baseball player", not "a Baseball player" in the middle of a sentence.
-    out = out.replace(re, (m) => (/^[a-z]/.test(m) ? stored.charAt(0).toLowerCase() + stored.slice(1) : stored));
+    // baseball player", not "a Baseball player" in the middle of a sentence,
+    // and "ice hockey" becomes "field hockey", not "field Hockey".
+    out = out.replace(re, (m) => (/^[a-z]/.test(m) ? stored.toLowerCase() : stored));
   }
   return { text: out, changed: out !== String(text || ''), from };
 }
