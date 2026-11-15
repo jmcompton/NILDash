@@ -469,7 +469,7 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
   // the catch-all. Off, / is index.html from here, as it always was.
   index: require('./services/publicHome').ON() ? false : 'index.html',
   setHeaders: (res, filePath) => {
-    if (['demo.html', 'athletics.html', 'university.html'].includes(path.basename(filePath))) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    if (['demo.html', 'athletics.html', 'university.html', 'universities.html'].includes(path.basename(filePath))) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   },
 }));
 app.set('trust proxy', 1);
@@ -16246,6 +16246,18 @@ app.get('/demo', (req, res) => {
 // replace public/athletics.html.
 app.get('/athletics', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'athletics.html'),
+    { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
+});
+
+// ── Universities sales page ─────────────────────────────────────────────
+// PUBLIC. https://mynildash.com/universities is the page a NIL director or AD
+// is sent to: what NILDash does for a department, the product screens
+// (public/images/universities, sample school and data), pricing and the
+// pilot offer. Self-contained, no auth, above the app catch-all, no-cache like
+// /demo so a replaced file shows on the next load. /athletics stays the older
+// click-through demo (scripts/seed-cypress reads it).
+app.get(['/universities', '/universities/'], (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'universities.html'),
     { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
 });
 
