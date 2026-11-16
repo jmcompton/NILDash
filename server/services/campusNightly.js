@@ -57,7 +57,8 @@ function centralNow(now = new Date()) {
 async function universitiesDue(pool) {
   const unis = (await pool.query(
     `SELECT u.id, u.location FROM universities u
-      WHERE EXISTS (SELECT 1 FROM university_teams t WHERE t.university_id = u.id)`)).rows;
+      WHERE EXISTS (SELECT 1 FROM university_teams t WHERE t.university_id = u.id)
+        AND u.id NOT LIKE '%-demo'`)).rows;   // the demo school (services/demoSchool) never runs a night
   const CP = require('./campusPool');
   const out = [];
   for (const u of unis) {
@@ -165,12 +166,35 @@ async function runway(pool, universityId) {
 // Polo: no home dates known). Where the dates are missing the card does not
 // claim a number of home games (teamWriter only states dates it has). A row
 // with nothing to sell (the roster half of a duplicate) is not pitched.
+// A TEAM HAS SOMETHING TO SELL when it has players a business can pay
+// (a roster, or athletes on file), an NIL deal rate the school set, or
+// sponsorship inventory still available. Before the team deal (2026-11-16)
+// only inventory counted, so a school with no inventory loaded got no pitches
+// at all, though every one of its athletes could be paid.
 async function sellableTeams(pool, universityId) {
   const rows = (await pool.query(
-    `SELECT t.id, COALESCE(t.home_dates, 0)::int AS home_dates,
+    `SELECT t.id, COALESCE(t.home_dates, 0)::int AS home_dates, COALESCE(t.roster_size, 0)::int AS roster,
+            COALESCE((to_jsonb(t)->>'nil_rate_cents')::int, 0) AS rate,
             (SELECT COUNT(*)::int FROM university_inventory i WHERE i.team_id = t.id AND i.status = 'available') AS items
        FROM university_teams t WHERE t.university_id = $1`, [universityId]).catch(() => ({ rows: [] }))).rows;
-  return new Map(rows.map((r) => [r.id, { sellable: r.items > 0, homeDates: r.home_dates, items: r.items }]));
+  const onFile = new Map((await pool.query(
+    `SELECT data->>'teamId' AS team_id, COUNT(*)::int n FROM university_athletes WHERE university_id = $1 GROUP BY 1`, [universityId])
+    .catch(() => ({ rows: [] }))).rows.map((r) => [r.team_id, r.n]));
+  // The same team twice ("Men's Swimming & Diving (roster row)" beside "Men's
+  // Swim & Dive", teamNames.teamKey) is pitched once: players alone never make
+  // a duplicate row sellable; inventory or a rate on it still does.
+  const TN = require('./teamNames');
+  const names = new Map((await pool.query(`SELECT id, name FROM university_teams WHERE university_id = $1`, [universityId])
+    .catch(() => ({ rows: [] }))).rows.map((r) => [r.id, TN.teamKey(String(r.name || '').replace(/\([^)]*\)/g, ' '))]));
+  const firstOfKey = new Map();
+  for (const r of [...rows].sort((a, b) => (b.items + b.rate) - (a.items + a.rate) || String(a.id).localeCompare(String(b.id)))) {
+    const k = names.get(r.id); if (k && !firstOfKey.has(k)) firstOfKey.set(k, r.id);
+  }
+  return new Map(rows.map((r) => {
+    const players = Math.max(r.roster, onFile.get(r.id) || 0);
+    const k = names.get(r.id), duplicate = !!k && firstOfKey.get(k) !== r.id;
+    return [r.id, { sellable: r.items > 0 || r.rate > 0 || (players > 0 && !duplicate), homeDates: r.home_dates, items: r.items, players, rate: r.rate, duplicate }];
+  }));
 }
 
 // One department, every team. deps pass straight to the team loop (tests).
@@ -380,7 +404,7 @@ function formatNight(s) {
     + (s.replenish.pendingLeft != null ? `; ${s.replenish.pendingLeft} businesses still without a lookup` : ''));
   if (s.reserve) L.push(`  RESERVE (named contacts unused, ready for tomorrow): ${s.reserve.before} -> ${s.reserve.after} (${s.reserve.change >= 0 ? '+' : ''}${s.reserve.change})`);
   for (const x of s.short || []) L.push(`  SHORT ${x.team}: ${x.cards} cards; stopped by ${x.stop || x.error}; rungs ${(x.rungs || []).join(' > ')}`);
-  if ((s.notSellable || []).length) L.push(`  NOT PITCHED, no inventory to sell: ${s.notSellable.map((x) => `${x.team} (${x.items} items)`).join(', ')}`);
+  if ((s.notSellable || []).length) L.push(`  NOT PITCHED, nothing to sell (no players, rate or inventory, or a second row for the same team): ${s.notSellable.map((x) => `${x.team} (${x.items} items)`).join(', ')}`);
   return L.join('\n');
 }
 

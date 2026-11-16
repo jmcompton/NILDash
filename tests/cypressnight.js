@@ -121,9 +121,9 @@ async function main() {
   ok('NO ROSTER IS NOT NO PITCH: Men\'s Basketball, 0 athletes on file, gets its cards', bb && bb.cards > 0
     && (await P.query(`SELECT COUNT(*)::int n FROM university_athletes WHERE university_id = $1`, [U])).rows[0].n === 0, bb);
   ok('  Women\'s Tennis, no roster published, 9 home dates and $775: pitched', wten && wten.cards > 0, wten);
-  ok('NOTHING TO SELL, NO PITCH: a row with no home dates and no inventory gets no cards, listed as not pitched', dup && dup.cards === 0 && dup.stop === 'nothing-to-sell'
+  ok('NOTHING TO SELL, NO PITCH: a second roster row for a team already on file, no inventory, gets no cards, listed as not pitched', dup && dup.cards === 0 && dup.stop === 'nothing-to-sell'
     && r.notSellable.some((x) => x.team.startsWith("Men's Swimming & Diving")) && !r.short.some((x) => x.team.startsWith("Men's Swimming & Diving")), { dup, notSellable: r.notSellable });
-  ok('  printed', /NOT PITCHED, no inventory to sell: Men's Swimming & Diving \(roster row\) \(0 items\)/.test(CN.formatNight(r)), CN.formatNight(r));
+  ok('  printed', /NOT PITCHED, nothing to sell \(no players, rate or inventory, or a second row for the same team\): Men's Swimming & Diving \(roster row\) \(0 items\)/.test(CN.formatNight(r)), CN.formatNight(r));
   ok('  and left out of the estimate (17 teams with something to sell, not 18)', est.teams === 17, est.teams);
   const bvb = r.perTeam.find((t) => t.teamId === 'cy:bvb');
   ok('NO HOME DATES KNOWN IS NOT NO PITCH: a team with inventory and no dates gets its cards', bvb && bvb.cards > 0, bvb);

@@ -1537,6 +1537,11 @@
       "total": 78,
       "fault": null
     },
+    "universitybook.js": {
+      "failed": 0,
+      "total": 46,
+      "fault": null
+    },
     "universityleads.js": {
       "failed": 0,
       "total": 21,

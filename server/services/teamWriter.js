@@ -282,11 +282,14 @@ function compose(parsed, ctx) {
   const hello = first && /^[A-Z][a-z'-]+$/.test(first) ? `Hi ${first},` : `Hi ${ctx.business.brand_name} team,`;
   const s = ctx.sender;
   // A DM signs off with a name and the department; no email address.
-  if (ctx.dm) return `${hello}\n\n${parsed.body.trim()}\n\n${[s && s.name, `${ctx.university.name} Athletics`].filter(Boolean).join(', ')}`;
+  // THE BOOKING LINK (services/universityBook): a team deal pitch ends with
+  // the page where the business picks the deal and a date.
+  const link = ctx.bookUrl && kindOf(ctx) === 'pitch' ? `\n\nSee the options and pick a date: ${ctx.bookUrl}` : '';
+  if (ctx.dm) return `${hello}\n\n${parsed.body.trim()}${link}\n\n${[s && s.name, `${ctx.university.name} Athletics`].filter(Boolean).join(', ')}`;
   const signOff = s && s.name
     ? [s.name, s.title, `${ctx.university.name} Athletics`, s.email].filter(Boolean).join('\n')
     : `${ctx.team.name}\n${ctx.university.name} Athletics`;
-  return `${hello}\n\n${parsed.body.trim()}\n\n${signOff}`;
+  return `${hello}\n\n${parsed.body.trim()}${link}\n\n${signOff}`;
 }
 
 // ── THE REVIEW ──────────────────────────────────────────────────────────────

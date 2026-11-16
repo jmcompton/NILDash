@@ -304,13 +304,13 @@ async function pitch(pool, universityId, userId, opts) {
   // A TEAM WITH NOTHING TO SELL IS NOT PITCHED (campusNightly.sellableTeams):
   // inventory still available, roster or home dates or not.
   if (team && !((await require('./campusNightly').sellableTeams(pool, universityId)).get(team.id) || {}).sellable) {
-    return { ok: false, status: 422, error: `${team.name} has no inventory left to sell, so there is nothing to pitch for it yet.` };
+    return { ok: false, status: 422, error: `${team.name} has no players on file, no NIL deal rate and no inventory yet, so there is nothing to pitch for it.` };
   }
   if (opts.teamId && !team) return { ok: false, status: 404, error: 'team not found' };
   if (!team && !(opts.athlete && opts.athlete.name)) return { ok: false, status: 400, error: 'pick a team or name an athlete' };
   const sender = await senderFor(pool, userId);
   const TW = require('./teamWriter');
-  const ctx = { university: u, team: team || { name: `${u.name} Athletics` },
+  const ctx = { university: u, team: team || { name: `${u.name} Athletics` }, bookUrl: team ? require('./universityBook').bookUrl(universityId, team.id) : null,
     business: { brand_name: biz.brand, kindLabel: biz.kind, category: biz.category, address: biz.address, distance_m: biz.miles === null ? null : biz.miles * MI,
       rating: biz.rating, user_ratings_total: biz.reviews, evidence: biz.athleteHistoryNote },
     athlete: opts.athlete && opts.athlete.name ? { name: String(opts.athlete.name).slice(0, 80), facts: String(opts.athlete.facts || '').slice(0, 400) } : null,

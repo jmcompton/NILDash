@@ -637,7 +637,7 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       w = { ok: true, subject: `Call ${c.brand_name}`, body: CHN.callText({ contactName: c.contact_name, phone: c.phone, best, points }), model: null };
     } else {
       asks++;
-      w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: channel === 'dm',
+      w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: channel === 'dm', bookUrl: require('./universityBook').bookUrl(university.id, team.id),
         ...(c.social ? { program: { url: c.program_url, offer: c.offer } } : {}) }, { ai: deps.ai });
       asks += w.reviews || 0;   // the reviewer's calls count against the night's cap too
     }
@@ -649,7 +649,7 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       if (channel === 'dm') dmText = w.body;
       else {
         asks++;
-        const d = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: true }, { ai: deps.ai });
+        const d = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: true, bookUrl: require('./universityBook').bookUrl(university.id, team.id) }, { ai: deps.ai });
         asks += d.reviews || 0;
         if (d.ok) dmText = d.body;
       }

@@ -111,7 +111,7 @@ async function main() {
     // the leads moved one click over, to Approve.
     const today = await page.evaluate(() => ({ crumb: document.getElementById('crumbNow').textContent, text: document.getElementById('view').innerText,
       pill: ((document.querySelector('#nav1 [data-goto="home"] .pill') || {}).textContent || '') }));
-    ok('Today first: the leads waiting, counted, with a button to them', today.crumb === 'Today' && /3 deals are written and waiting on you/.test(today.text)
+    ok('Today first: the leads waiting, counted, with a button to them', today.crumb === 'Today' && /3 pitches are written and waiting on you/.test(today.text)
       && /Review and send \(3\)/.test(today.text) && today.pill === '3', today);
     await page.click('#nav1 [data-goto="home"]'); await page.waitForTimeout(300);
     const home = await page.evaluate(() => ({
@@ -120,7 +120,7 @@ async function main() {
       kpi: [...document.querySelectorAll('.kpi')].map((k) => k.innerText.replace(/\s+/g, ' ')), text: document.getElementById('view').innerText,
       mailto: (document.querySelector('.lead a[href^="mailto:"][data-sent]') || {}).href || '',
     }));
-    ok('Home is where Xavier lands, and it says what NILDash does in one sentence', home.crumb === 'Approve' && /Approve: deals for Lead Test College Athletics/.test(home.h1)
+    ok('Home is where Xavier lands, and it says what NILDash does in one sentence', home.crumb === 'Approve' && /Approve: pitches for Lead Test College Athletics/.test(home.h1)
       && /finds the person who decides, and writes the first email for you/.test(home.text) && /Nothing goes out without you/.test(home.text), home.h1);
     ok('  the numbers: 3 leads this morning for two teams, 12 businesses near campus, 8 with a named person, 2 teams',
       /WAITING ON YOU 3 for two teams/.test(home.kpi[0]) && /BUSINESSES NEAR CAMPUS 12/.test(home.kpi[1]) && /WITH A NAMED PERSON 8/.test(home.kpi[2]) && /YOUR TEAMS 2/.test(home.kpi[3]), home.kpi);

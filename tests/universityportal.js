@@ -238,7 +238,7 @@ async function main() {
   // Athlete Deals (2026-11-15, services/universityApply) joined them; Today
   // and In progress (2026-11-16, services/universityToday) too, and the
   // morning leads screen ("home") is now called Approve.
-  ok('  the nav lists only the screens that work: Today, Approve, Athlete Deals, In progress, Sponsor Scan, My Teams, Inventory', /const NAV1 = \[\s*\["today","Today"\], \["home","Approve"\], \["athletes","Athlete Deals"\], \["progress","In progress"\],\s*\["sponsors","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
+  ok('  the nav lists only the screens that work: Today, Approve, Athlete Deals, In progress, Find Businesses, My Teams, Inventory', /const NAV1 = \[\s*\["today","Today"\], \["home","Approve"\], \["athletes","Athlete Deals"\], \["progress","In progress"\],\s*\["sponsors","Find Businesses"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
     && /const NAV2 = \[\];/.test(page));
   ok('  every item does something; nothing says "coming soon"', /const LIVE = \{ today:true, home:true, athletes:true, progress:true, sponsors:true, teams:true, inventory:true \}/.test(page) && !/coming soon/i.test(page)
     && !/aria-disabled="true"/.test(page.slice(page.indexOf('function paintNav'), page.indexOf('function paintNav') + 600)));

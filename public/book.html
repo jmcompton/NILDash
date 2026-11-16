@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book athletes</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#F6F8F6;--card:#FFFFFF;--ink:#13201A;--muted:#5B6B61;--line:#DCE5DF;--accent:#1F9D5B;--accent-ink:#FFFFFF;--soft:#E8F5EE;--err:#B42318}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0F1A14;--card:#16261D;--ink:#EAF2EC;--muted:#A9BDB0;--line:#24402F;--accent:#4CC283;--accent-ink:#0F1A14;--soft:#1B3326;--err:#F97066}}
+:root[data-theme="dark"]{--bg:#0F1A14;--card:#16261D;--ink:#EAF2EC;--muted:#A9BDB0;--line:#24402F;--accent:#4CC283;--accent-ink:#0F1A14;--soft:#1B3326;--err:#F97066}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Inter,system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:28px 16px 48px}
+h1{font-family:"Barlow Semi Condensed",sans-serif;font-size:40px;line-height:1.05;margin:4px 0 10px}
+.kicker{font-size:13px;font-weight:700;letter-spacing:.08em;color:var(--accent);text-transform:uppercase}
+.lede{color:var(--muted);margin:0 0 22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:14px}
+.step{font-size:13px;font-weight:700;color:var(--muted);margin-bottom:10px}
+.teams{display:flex;flex-wrap:wrap;gap:8px}
+.team{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:999px;padding:9px 14px;font:inherit;font-size:15px;cursor:pointer}
+.team[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.deal{display:flex;flex-direction:column;gap:10px}
+.opt{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer}
+.opt input{margin-top:4px}
+.opt b{display:block}
+.price{font-family:"Barlow Semi Condensed",sans-serif;font-size:30px;font-weight:700;color:var(--accent);line-height:1}
+.muted{color:var(--muted);font-size:14px}
+label.f{display:block;font-size:14px;font-weight:600;margin:12px 0 5px}
+input.t,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:80px;resize:vertical}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media (max-width:560px){.row{grid-template-columns:1fr}h1{font-size:32px}}
+button.go{margin-top:18px;width:100%;background:var(--accent);color:var(--accent-ink);border:0;border-radius:12px;padding:15px;font:inherit;font-weight:700;font-size:17px;cursor:pointer}
+button.go:disabled{opacity:.6;cursor:default}
+.err{color:var(--err);font-size:14px;margin-top:10px;min-height:1em}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.done{text-align:center;padding:36px 20px}
+.done h2{font-family:"Barlow Semi Condensed",sans-serif;font-size:32px;margin:0 0 8px}
+footer{color:var(--muted);font-size:13px;text-align:center;margin-top:26px;line-height:1.5}
+footer b{color:var(--ink)}
+</style>
+</head>
+<body>
+<main id="app"><p class="muted">Loading…</p></main>
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const slug = decodeURIComponent(location.pathname.split("/").filter(Boolean)[1] || "").toLowerCase();
+  const q = new URLSearchParams(location.search);
+  const S = { data:null, team:q.get("t") || "", options:false, sending:false, done:false };
+  const app = $("app");
+
+  function teamOf(id){ return ((S.data && S.data.teams) || []).find((t) => t.id === id) || null; }
+  function render(){
+    const d = S.data, sch = d.school;
+    document.title = `Book ${sch.short} athletes`;
+    if (S.done) {
+      app.innerHTML = `<div class="card done"><h2>Sent.</h2><p>The ${esc(sch.name)} NIL office has your request and will get back to you to set the terms.</p>
+        <p class="muted">The deal is set up and paid through the school's NIL marketplace.</p></div>${foot(sch)}`;
+      return;
+    }
+    const t = teamOf(S.team);
+    app.innerHTML = `
+      <div class="kicker">${esc(sch.name)} Athletics</div>
+      <h1>Book our athletes for your business</h1>
+      <p class="lede">Pay players on our teams for an appearance at your business or posts on their own accounts. Pick a team, choose the deal and a date. Our NIL office sets it up and pays the players through the school's NIL marketplace.</p>
+      <div class="card"><div class="step">1. PICK A TEAM</div>
+        <div class="teams">${d.teams.length ? d.teams.map((x) => `<button type="button" class="team" data-team="${esc(x.id)}" aria-pressed="${x.id === S.team}">${esc(x.name)}</button>`).join("") : `<span class="muted">No teams are listed yet.</span>`}</div>
+      </div>
+      ${t ? `<div class="card"><div class="step">2. THE DEAL</div><div class="deal">
+        ${t.rate ? `
+          <label class="opt"><input type="radio" name="o" value="rate" ${!S.options ? "checked" : ""}><span><span class="price">${esc(t.rate.price)}</span><b style="margin-top:6px">${esc(t.rate.what)}</b><span class="muted">Paid to the players. Price set by ${esc(sch.short)} Athletics.</span></span></label>
+          <label class="opt"><input type="radio" name="o" value="options" ${S.options ? "checked" : ""}><span><b>Something different</b><span class="muted">Tell us what you have in mind and the office will send options with prices.</span></span></label>`
+        : `<div class="opt" style="cursor:default"><span><b>${esc(t.name)}: an appearance, posts, or both</b><span class="muted">The office will send you a few options with prices. Tell us what you have in mind below.</span></span></div>`}
+      </div></div>
+      <form class="card" id="f" novalidate><div class="step">3. YOUR DETAILS</div>
+        <label class="f" for="business">Business name</label><input class="t" id="business" autocomplete="organization" required>
+        <div class="row">
+          <div><label class="f" for="name">Your name</label><input class="t" id="name" autocomplete="name" required></div>
+          <div><label class="f" for="phone">Phone</label><input class="t" id="phone" type="tel" autocomplete="tel"></div>
+        </div>
+        <label class="f" for="email">Email</label><input class="t" id="email" type="email" autocomplete="email">
+        <label class="f" for="dates">When works for you?</label><input class="t" id="dates" placeholder="For example: a Saturday in March, or before the home opener">
+        <label class="f" for="note">Anything else? <span class="muted">(optional)</span></label><textarea id="note" placeholder="What you sell, what you'd like the players to do"></textarea>
+        <div class="hp" aria-hidden="true"><label for="website">Website</label><input id="website" tabindex="-1" autocomplete="off"></div>
+        <button class="go" type="submit" ${S.sending ? "disabled" : ""}>${S.sending ? "Sending…" : "Send to the NIL office"}</button>
+        <div class="err" id="err" role="alert"></div>
+      </form>` : ""}
+      ${foot(sch)}`;
+  }
+  function foot(sch){
+    return `<footer>Booking for ${esc(sch.name)} Athletics, powered by <b>NILDash</b>.<br>NILDash does not sign or negotiate deals. The school's NIL office sets the terms and pays the players.</footer>`;
+  }
+  app.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-team]");
+    if (b) { S.team = b.dataset.team; S.options = false; render(); const f = $("f"); if (f) f.scrollIntoView({ behavior:"smooth", block:"start" }); }
+  });
+  app.addEventListener("change", (e) => { if (e.target.name === "o") S.options = e.target.value === "options"; });
+  app.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (S.sending) return;
+    const v = (id) => ($(id) || {}).value || "";
+    const err = $("err"); err.textContent = "";
+    if (v("business").trim().length < 2) { err.textContent = "Enter your business name."; return; }
+    if (v("name").trim().length < 2) { err.textContent = "Enter your name."; return; }
+    if (!v("email").trim() && v("phone").replace(/\D/g, "").length < 10) { err.textContent = "Enter an email or a phone number so the office can reach you."; return; }
+    const keep = { business:v("business"), name:v("name"), phone:v("phone"), email:v("email"), dates:v("dates"), note:v("note") };
+    S.sending = true; render(); Object.entries(keep).forEach(([k, val]) => { if ($(k)) $(k).value = val; });
+    let body = {}, ok = false;
+    try {
+      const r = await fetch(`/api/book/${encodeURIComponent(slug)}`, { method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ ...keep, teamId:S.team, wantsOptions:S.options, website:v("website"), ref:q.get("r") || "" }) });
+      ok = r.ok; try { body = await r.json(); } catch (_) {}
+    } catch (_) {}
+    S.sending = false;
+    if (ok) { S.done = true; render(); window.scrollTo(0, 0); return; }
+    render(); Object.entries(keep).forEach(([k, val]) => { if ($(k)) $(k).value = val; });
+    $("err").textContent = body.error || "Could not send that. Check your connection and try again.";
+  });
+
+  fetch(`/api/book/${encodeURIComponent(slug)}`).then((r) => r.json().then((b) => ({ ok:r.ok, b }))).then(({ ok, b }) => {
+    if (!ok) { app.innerHTML = `<div class="card done"><h2>Page not found</h2><p class="muted">Check the link you were sent.</p></div>`; return; }
+    S.data = b;
+    if (S.team && !teamOf(S.team)) S.team = "";
+    render();
+  }).catch(() => { app.innerHTML = `<div class="card done"><h2>Could not load</h2><p class="muted">Check your connection and refresh.</p></div>`; });
+})();
+</script>
+</body>
+</html>

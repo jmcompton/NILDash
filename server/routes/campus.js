@@ -50,6 +50,7 @@ function mount(app, { store, requireAuth }) {
     await require('../services/campusPool').ensureTables(pool);
     await require('../services/teamScan').ensureTables(pool);
     await require('../services/ownerLookup').ensureTable(pool);
+    await require('../services/universityBook').ensureTables(pool);
   })().catch((e) => { _ready = null; throw e; }));
   ready().catch((e) => console.error('[campus] table setup at mount failed:', e.message));
   const brandOf = (req) => String((req.body && req.body.brand) || req.query.brand || '').trim().slice(0, 300);
@@ -84,6 +85,25 @@ function mount(app, { store, requireAuth }) {
     const d = await CM.detail(pool, req.staff.university_id, brandOf(req));
     if (!d) return res.status(404).json({ error: 'business not found' });
     res.json(d);
+  });
+
+  // THE BOOKING LINK and what came in through it (services/universityBook).
+  app.get('/api/university/market/bookings', guard, async (req, res) => {
+    const UB = require('../services/universityBook');
+    await UB.ensureTables(pool);
+    res.json({ url: UB.bookUrl(req.staff.university_id), bookings: await UB.list(pool, req.staff.university_id, { status: req.query.status || null }) });
+  });
+  app.get('/api/university/market/booking-qr.svg', guard, async (req, res) => {
+    const UB = require('../services/universityBook');
+    const svg = await require('qrcode').toString(UB.bookUrl(req.staff.university_id, req.query.t || null), { type: 'svg', margin: 2, width: 600 });
+    res.set('Content-Type', 'image/svg+xml');
+    if (req.query.download) res.set('Content-Disposition', 'attachment; filename="booking-qr.svg"');
+    res.send(svg);
+  });
+  app.post('/api/university/market/booking/status', guard, async (req, res) => {
+    if (req.staff.viewingAsAdmin) return res.status(403).json({ error: 'Viewing as admin: read only.' });
+    const r = await require('../services/universityBook').setStatus(pool, req.staff.university_id, (req.body || {}).id, (req.body || {}).status);
+    res.status(r.ok ? 200 : 400).json(r);
   });
 
   // A team's NIL deal rate (teamWriter.rateFor): the price the nightly pitch
