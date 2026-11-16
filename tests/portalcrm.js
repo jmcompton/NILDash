@@ -406,6 +406,13 @@ async function main() {
     ok('it has more than one client, and only the first is filled in', D.clients.length >= 2 && D.workspace.athlete.id === D.clients[0].id && /only ' \+ D\.workspace\.athlete\.name \+ ' is filled in/.test(PG));
   }
 
+  // A NEW AGENT ADDS HIS FIRST PLAYER RIGHT HERE (2026-11-16). He used to be
+  // told to go to the dashboard; a free invite landed on an empty page.
+  ok('no clients: the page asks for his first player (name, position, school) instead of sending him away',
+    /if \(!S\.clients\.length\) \{ firstPlayer\(\); return; \}/.test(PG) && /Add your first player/.test(PG) && !/Add a football client on your/.test(PG)
+    && /id="fpName"/.test(PG) && /id="fpPos"/.test(PG) && /id="fpSchool" list="schoolList"/.test(PG));
+  ok('  saved through the same route as the dashboard (school and seat rules hold), as football, then his Schools board opens',
+    /api\('POST', '\/api\/athletes', body\)/.test(PG) && /sport: 'Football'/.test(PG) && /setTab\('schools'\);/.test(PG));
   console.log(OUT.join('\n'));
   const total = OUT.filter((l) => /^(PASS|FAIL) /.test(l)).length;
   console.log(`\n${total - F}/${total} passed`);

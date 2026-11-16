@@ -342,6 +342,43 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
   }
   const say = (id, t, bad) => { const el = $(id); if (!el) return; el.textContent = t || ''; el.classList.toggle('err', !!bad); };
 
+  // ── HIS FIRST PLAYER, RIGHT HERE ─────────────────────────────────────────
+  // A new agent (a free invite, a trial) used to land on "add a client on
+  // your dashboard" and leave. Now he adds the player here: name, position,
+  // school. The same save as the dashboard (POST /api/athletes, so the
+  // school and seat rules hold), then the board for that position opens.
+  function firstPlayer() {
+    for (const id of ['head', 'stats', 'tab-pipeline']) $(id).classList.add('hidden');
+    const groups = (S.meta && S.meta.groups) || [];
+    const g = $('gate');
+    g.className = '';   // the gate is a warning box; this is a welcome, not a warning
+    g.innerHTML = `<div class="panel" style="max-width:640px">
+      <h3 style="margin:0 0 6px">Add your first player</h3>
+      <div class="sub" style="margin-bottom:14px">Tell us who he is and where he plays now. You'll see every FBS school ranked by how many spots open at his position, who to call there, and his own pipeline.</div>
+      <form id="fpForm" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600">Player name<input class="inp" id="fpName" autocomplete="off" required></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600">Position<select class="inp" id="fpPos" required><option value="">Pick one</option>${groups.map((x) => `<option value="${esc(x.key)}">${esc(x.label)}</option>`).join('')}</select></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600">School now<input class="inp" id="fpSchool" list="schoolList" autocomplete="off" required placeholder="Where he plays today"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600">Class<select class="inp" id="fpYear"><option value="">Not sure</option><option>Freshman</option><option>Redshirt Freshman</option><option>Sophomore</option><option>Redshirt Sophomore</option><option>Junior</option><option>Redshirt Junior</option><option>Senior</option></select></label>
+        <div style="grid-column:1/-1;display:flex;gap:10px;align-items:center"><button class="btn primary" type="submit" id="fpGo">Add him</button><span class="msg" id="fpMsg"></span></div>
+      </form></div>`;
+    $('fpForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = { name: $('fpName').value.trim(), sport: 'Football', position: $('fpPos').value, school: $('fpSchool').value.trim(), year: $('fpYear').value };
+      if (!body.name || !body.position || !body.school) { say('fpMsg', 'Name, position and school, please.', true); return; }
+      $('fpGo').disabled = true; say('fpMsg', 'Adding him…');
+      try {
+        const a = await api('POST', '/api/athletes', body);
+        S.clients = (await api('GET', '/api/portal/clients')).clients || [];
+        renderClients();
+        g.className = 'note hidden'; g.innerHTML = '';
+        for (const id of ['head', 'stats', 'tab-pipeline']) $(id).classList.remove('hidden');
+        await openClient((a && a.id) || (S.clients[0] && S.clients[0].id));
+        setTab('schools');
+      } catch (err) { $('fpGo').disabled = false; say('fpMsg', err.message, true); }
+    });
+  }
+
   // ── LAYOUT ───────────────────────────────────────────────────────────────
   function setTab(t) {
     S.tab = t;
@@ -355,7 +392,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
 
   function renderClients() {
     $('clients').innerHTML = S.clients.length ? S.clients.map((c) => `<button type="button" class="client" data-client="${esc(c.id)}" aria-current="${c.id === S.aid}"><span class="av">${esc(initials(c.name))}</span><span style="min-width:0"><b>${esc(c.name || 'Unnamed')}</b><span>${esc([c.position, c.committed ? 'Committed' : `${c.schools} school${c.schools === 1 ? '' : 's'}`].filter(Boolean).join(' · '))}</span></span></button>`).join('')
-      : '<div class="empty" style="color:var(--side-muted)">No football clients yet. Add one on your NILDash dashboard.</div>';
+      : '<div class="empty" style="color:var(--side-muted)">No players yet. Add your first one to get started.</div>';
   }
   $('clients').addEventListener('click', (e) => { const b = e.target.closest('[data-client]'); if (b && b.dataset.client !== S.aid) openClient(b.dataset.client); });
 
@@ -796,11 +833,7 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
       S.clients = (await api('GET', '/api/portal/clients')).clients || [];
     } catch (err) { $('gate').textContent = err.message; $('gate').classList.remove('hidden'); $('head').classList.add('hidden'); return; }
     renderClients();
-    if (!S.clients.length) {
-      $('gate').innerHTML = 'Add a football client on your <a href="/">NILDash dashboard</a> and he shows up here.'; $('gate').classList.remove('hidden');
-      for (const id of ['head', 'stats', 'tab-pipeline']) $(id).classList.add('hidden');
-      return;
-    }
+    if (!S.clients.length) { firstPlayer(); return; }
     const want = new URLSearchParams(location.search).get('a');
     const first = (want && S.clients.find((c) => c.id === want)) || S.clients[0];
     setTab('pipeline');
