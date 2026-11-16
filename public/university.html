@@ -894,6 +894,29 @@ function vAthletes(){
 }
 
 /* ===================== MY TEAMS ===================== */
+/* The team's NIL deal rate (POST /api/university/market/team/rate). The school
+   sets it; the nightly pitch quotes it (services/teamWriter.rateFor). */
+const RATE = { open:"" };
+function rateCell(t){
+  const ro = ME && ME.me && ME.me.viewingAsAdmin;
+  const shown = t.nil_rate_cents ? `<span class="b" style="color:var(--lime)">${money(t.nil_rate_cents)}</span><br><span class="s">${esc(t.nil_rate_what || "")}</span>` : `<span class="s">Not set</span>`;
+  if (ro) return shown;
+  if (RATE.open !== t.id) return `${shown}<br><button type="button" class="btn ghost xs" style="margin-top:4px" data-rateedit="${esc(t.id)}">${t.nil_rate_cents ? "Change" : "Set rate"}</button>`;
+  return `<div style="display:flex;flex-direction:column;gap:6px;min-width:220px">
+    <input id="rateDollars" inputmode="decimal" placeholder="Price in dollars, e.g. 1000" value="${t.nil_rate_cents ? t.nil_rate_cents / 100 : ""}" style="padding:7px 9px;border-radius:8px">
+    <input id="rateWhat" maxlength="240" placeholder="What they get, e.g. 10 players: a two-hour appearance and one post each" value="${esc(t.nil_rate_what || "")}" style="padding:7px 9px;border-radius:8px">
+    <div style="display:flex;gap:6px"><button type="button" class="btn go xs" data-ratesave="${esc(t.id)}">Save</button><button type="button" class="btn ghost xs" data-rateedit="">Cancel</button></div>
+  </div>`;
+}
+async function rateSave(teamId, btn){
+  if (btn) btn.disabled = true;
+  const dollars = ($("rateDollars") || {}).value || "", what = ($("rateWhat") || {}).value || "";
+  const r = await fetch("/api/university/market/team/rate", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ teamId, dollars, what }) });
+  let b = {}; try { b = await r.json() } catch (_) {}
+  if (!r.ok){ toast(b.error || "Could not save that. Try again."); if (btn) btn.disabled = false; return }
+  const t = TEAMS.find(x => x.id === teamId); if (t){ t.nil_rate_cents = b.nil_rate_cents; t.nil_rate_what = b.nil_rate_what; }
+  RATE.open = ""; toast(b.nil_rate_cents ? "Saved. Tonight's pitches for this team quote it." : "Rate cleared."); paint();
+}
 function vTeams(){
   // A team whose season is not set yet is listed under "Season not set",
   // never left off the page.
@@ -910,14 +933,14 @@ function vTeams(){
          ${dates(bySeason(s))} home dates</p>
       <div class="tablewrap" style="margin-top:12px">
         <table><thead><tr>
-          <th>Team</th><th>Roster</th><th>Home dates</th><th>Venue</th><th>Crowd</th><th>Inventory</th>
+          <th>Team</th><th>Roster</th><th>Home dates</th><th>Venue</th><th>NIL deal rate</th><th>Inventory</th>
         </tr></thead><tbody>
         ${bySeason(s).map(t => `<tr>
             <td data-l="TEAM"><span class="b">${esc(t.name)}</span></td>
             <td data-l="ROSTER">${t.roster_published === false || t.roster_size == null ? `<span class="s">Roster not published yet</span>` : t.roster_size}</td>
             <td data-l="HOME DATES">${t.home_dates == null ? "" : t.home_dates}</td>
             <td data-l="VENUE"><span class="s">${esc(String(t.venue || "").replace((university.name || "") + " ",""))}</span></td>
-            <td data-l="CROWD"><span class="s">—</span></td>
+            <td data-l="NIL DEAL RATE">${rateCell(t)}</td>
             <td data-l="INVENTORY"><span style="color:var(--lime)">${money(t.inventory_cents)}</span></td>
           </tr>`).join("")}
         </tbody></table>
@@ -935,8 +958,9 @@ function vTeams(){
     <div class="head">
       <h1>My Teams</h1>
       <p>${word(TEAMS.length)} teams, ${roster(TEAMS)} athletes, ${dates(TEAMS)} home dates a year.
-         On the university side NILDash works a team at a time, not an athlete at a time. Nothing here
-         touches an individual student athlete or their name, image or likeness.</p>
+         You set each team's NIL deal rate: what a business gets and what it pays the players. Every
+         nightly pitch for that team quotes your rate exactly. With no rate set, the pitch offers a paid
+         deal and says your office will send options. NILDash never sets the price.</p>
     </div>
     <div class="kpi-grid">
       <div class="kpi"><span class="kpi-label">TEAMS</span><span class="kpi-val">${TEAMS.length}</span><span class="kpi-note">${noFootball ? "no football" : ""}</span></div>
@@ -1334,8 +1358,10 @@ async function findOwnerFor(id, btn){
   paint();
 }
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore],[data-tdretry],[data-pgmove]");
+  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore],[data-tdretry],[data-pgmove],[data-rateedit],[data-ratesave]");
   if (!t) return;
+  if (t.dataset.rateedit !== undefined){ RATE.open = t.dataset.rateedit; paint(); return }
+  if (t.dataset.ratesave !== undefined){ rateSave(t.dataset.ratesave, t); return }
   if (t.dataset.tdretry !== undefined){ TD.loaded = false; tdLoad(); return }
   if (t.dataset.pgmove !== undefined){ pgMove(t.dataset.pgmove, t.dataset.pgto, t); return }
   if (t.dataset.atrefresh !== undefined){ atRefresh(t); return }

@@ -42,7 +42,7 @@ const roster = async (P, uid) => {
 };
 const U = 'univ-cyptest', MK = 'cyptown, ca';
 const prompts = [];
-const ai = { oneShot: async (prompt) => { prompts.push(prompt); const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`; } };
+const ai = { oneShot: async (prompt) => { if (/You are reviewing an email/.test(prompt)) return '{"pass": true, "problems": []}'; prompts.push(prompt); const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; if (/paid NIL deal/.test(prompt)) return `SUBJECT: Players for ${biz}\nBODY:\n${biz} is close to campus and home games bring families past you. Players on the team would do an appearance at ${biz} and post about it on their own accounts, paid by you. The office will send a few options with prices, and it is set up and paid through our NIL marketplace. Could we set up a short call?`; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`; } };
 let n = 0;
 const contactsAi = {
   deepContactCtx: (o) => ({ ...o }),

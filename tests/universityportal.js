@@ -65,7 +65,7 @@ async function main() {
   const teamCols = await cols('university_teams');
   ok('university_teams has the specified columns',
     JSON.stringify(teamCols.slice(0, TEAM_SPEC.length)) === JSON.stringify(TEAM_SPEC)
-    && teamCols.slice(TEAM_SPEC.length).every((c) => ['source', 'roster_url', 'roster_imported_at'].includes(c)), teamCols);
+    && teamCols.slice(TEAM_SPEC.length).every((c) => ['source', 'roster_url', 'roster_imported_at', 'nil_rate_cents', 'nil_rate_what'].includes(c)), teamCols);
   ok('university_inventory has the specified columns',
     JSON.stringify(await cols('university_inventory')) === JSON.stringify(['id', 'university_id', 'team_id', 'name', 'price_cents', 'status', 'created_at', 'updated_at']),
     await cols('university_inventory'));

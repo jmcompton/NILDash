@@ -86,6 +86,22 @@ function mount(app, { store, requireAuth }) {
     res.json(d);
   });
 
+  // A team's NIL deal rate (teamWriter.rateFor): the price the nightly pitch
+  // quotes. The school sets it; 0 or empty clears it.
+  app.post('/api/university/market/team/rate', guard, async (req, res) => {
+    if (req.staff.viewingAsAdmin) return res.status(403).json({ error: 'Viewing as admin: read only.' });
+    const b = req.body || {};
+    const cents = Math.round(Number(String(b.dollars == null ? '' : b.dollars).replace(/[$,\s]/g, '')) * 100);
+    if (!Number.isFinite(cents) || cents < 0 || cents > 10000000) return res.status(400).json({ error: 'Enter a price in dollars, up to $100,000.' });
+    const what = String(b.what || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    if (cents > 0 && what.length < 8) return res.status(400).json({ error: 'Say what the business gets, for example "10 players: a two-hour appearance and one post each".' });
+    await require('../services/teamScan').ensureTables(pool);
+    const r = await pool.query(`UPDATE university_teams SET nil_rate_cents = $1, nil_rate_what = $2, updated_at = NOW() WHERE id = $3 AND university_id = $4`,
+      [cents || null, cents ? what : null, String(b.teamId || ''), req.staff.university_id]);
+    if (!r.rowCount) return res.status(404).json({ error: 'No such team.' });
+    res.json({ ok: true, teamId: b.teamId, nil_rate_cents: cents || null, nil_rate_what: cents ? what : null });
+  });
+
   app.post('/api/university/market/business/stage', guard, async (req, res) => {
     const r = await CM.setStage(pool, req.staff.university_id, req.staff.id, brandOf(req), req.body.stage, req.body.notes);
     res.status(r.ok ? 200 : 400).json(r);

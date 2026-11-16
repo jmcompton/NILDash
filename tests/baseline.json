@@ -1502,6 +1502,11 @@
       "total": 42,
       "fault": null
     },
+    "teamdeal.js": {
+      "failed": 0,
+      "total": 35,
+      "fault": null
+    },
     "teamfloor.js": {
       "failed": 0,
       "total": 8,

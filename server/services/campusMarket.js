@@ -277,8 +277,8 @@ function cardForPortal(d, universityName) {
   if (d.contact_title) out.contact_title = require('./cardTitle').displayTitle(d.contact_title);
   if (channel === 'call' && !d.talking_points) {
     out.best_time = d.best_time || CHN.bestTime(String(d.why || '') + ' ' + String(d.brand_name || ''));
-    out.talking_points = CHN.talkingPoints({ who: `${universityName} Athletics`, subject: d.team_label ? `the ${d.team_label} program` : 'the athletics program',
-      business: d.brand_name, why: d.why });
+    out.talking_points = CHN.talkingPoints({ who: `${universityName} Athletics`, subject: d.team_label ? `a paid NIL deal with the ${d.team_label} team` : 'a paid NIL deal with our athletes',
+      business: d.brand_name, why: d.why, ask: require('./teamWriter').dealAsk({ name: d.team_label || 'athletics' }, d.brand_name) });
   }
   // A call card has no email in it; its body is what to say.
   if (channel === 'call') { out.subject = null; out.body = CHN.callText({ contactName: d.contact_name, phone: d.contact_phone, best: out.best_time, points: out.talking_points }); }
@@ -333,8 +333,8 @@ async function pitch(pool, universityId, userId, opts) {
   if (channel === 'call') {
     best = CHN.bestTime([biz.category, biz.kind].filter(Boolean).join(' '));
     points = CHN.talkingPoints({ who: [sender && sender.name, `${u.name} Athletics`].filter(Boolean).join(', '),
-      subject: ctx.athlete ? ctx.athlete.name : `the ${ctx.team.name} program`, business: biz.brand, why: biz.fit && biz.fit.why, miles: biz.miles,
-      ask: ctx.athlete ? `would ${biz.brand} like to work with ${ctx.athlete.name} on a few posts or an appearance? If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.` : null });
+      subject: ctx.athlete ? ctx.athlete.name : `a paid NIL deal with the ${ctx.team.name} team`, business: biz.brand, why: biz.fit && biz.fit.why, miles: biz.miles,
+      ask: ctx.athlete ? `would ${biz.brand} like to work with ${ctx.athlete.name} on a few posts or an appearance? If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.` : TW.dealAsk(ctx.team, biz.brand) });
     w = { ok: true, subject: `Call ${biz.brand}`, body: CHN.callText({ contactName: biz.contact.name, phone: biz.contact.phone, best, points }), model: null };
   } else {
     w = await TW.writeAsk({ ...ctx, dm: channel === 'dm' }, { ai: opts.ai });

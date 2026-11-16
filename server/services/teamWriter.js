@@ -22,6 +22,12 @@
 // asked to greet someone invents one.
 
 const MODEL = 'claude-sonnet-4-6';
+// THE REVIEWER (2026-11-16). Every nightly card (a team deal or a brand
+// program) is read by a second model before it can reach a school, against
+// the rules below, and a draft it fails is rewritten once with its reasons
+// or dropped. Haiku: it judges a short email against a checklist.
+const REVIEW_MODEL = 'claude-haiku-4-5-20251001';
+const REVIEW_TIMEOUT_MS = 30000;
 const DRAFT_TIMEOUT_MS = 45000;
 const MAX_WORDS = 170;
 
@@ -33,10 +39,35 @@ const SYSTEM = 'You write short sponsorship asks from a college athletics depart
 
 // The pitches (no item, no price) have their own: the athlete pitch may use
 // NIL, about the one athlete the staff member named, and nobody else.
-const SYSTEM_PITCH = 'You write short, plain emails from a college athletic department to a local business near campus. '
+const SYSTEM_PITCH = 'You write short, plain emails from a college athletic department\'s NIL office to a local business near campus. '
   + 'You write like a person at the department who knows the town and has looked at this business. '
   + 'You never name or describe any student athlete except one you are explicitly given, and you never invent a fact. '
-  + 'No prices, no filler, no flattery, no sentence that would be true of any other business.';
+  + 'No filler, no flattery, no sentence that would be true of any other business.';
+
+// ── THE TEAM DEAL (2026-11-16) ──────────────────────────────────────────────
+// The nightly local card used to ask a business to "support the program" for
+// the season: sponsorship, the media rights partner's job, and nothing a
+// school buys NILDash for. It is now an NIL deal that pays the players for
+// real work (an appearance, posts).
+//
+// THE SCHOOL SETS THE PRICE, NOT NILDASH. A team's rate is set by the office
+// on My Teams (university_teams.nil_rate_cents and nil_rate_what, "10 players:
+// a two-hour appearance and one Instagram post each"). With a rate, the pitch
+// quotes it once, exactly. Without one, the pitch still offers a paid NIL deal
+// and says the office will send options with prices; it names no number.
+function rateFor(team) {
+  const cents = Number(team && team.nil_rate_cents) || 0;
+  if (cents <= 0) return null;
+  const what = String((team && team.nil_rate_what) || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  return { priceCents: cents, what: what || `players from the ${(team && team.name) || 'team'}: an appearance at the business and posts on their own accounts` };
+}
+// The call card's ask, the same deal in a sentence.
+function dealAsk(team, business) {
+  const r = rateFor(team);
+  return r
+    ? `would ${business} pay for ${r.what}, at ${money(r.priceCents)} paid to the players? It is set up and paid through our NIL marketplace. If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.`
+    : `would ${business} pay players on the ${team.name} team for an appearance or a few posts? We send options with prices, and it is set up and paid through our NIL marketplace. If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.`;
+}
 
 function money(cents) {
   const d = Math.round(Number(cents) || 0) / 100;
@@ -137,13 +168,34 @@ SUBJECT: <subject line>
 BODY:
 <body>`;
   }
-  const what = kind === 'athlete'
-    ? `Write a short email from the athletic department introducing ${ctx.athlete.name} for a name, image and likeness (NIL) partnership with this business: for example a few social posts or an appearance at the business. Use only the athlete facts above. Name no other person.`
-    : `Write a short email from the athletic department asking whether this business would like to support the ${ctx.team.name} program as a local partner this season. The support goes to the program (the season, travel, equipment), never to a person. Never name or describe any student athlete, coach or staff member. Never use the words NIL, endorsement or influencer.`;
-  return `${facts(ctx)}
+  if (kind === 'athlete') {
+    return `${facts(ctx)}
 
-${what}
+Write a short email from the athletic department introducing ${ctx.athlete.name} for a name, image and likeness (NIL) partnership with this business: for example a few social posts or an appearance at the business. Use only the athlete facts above. Name no other person.
 ${ctx.dm ? dmRules(ctx) : '- 60 to 130 words. Plain sentences, no bullet points, no headings.\n'}${common}
+${retryBecause ? `\nYour last draft was rejected: ${retryBecause}. Fix that.\n` : ''}
+Output exactly:
+SUBJECT: <subject line>
+BODY:
+<body>`;
+  }
+  const rate = rateFor(ctx.team);
+  const price = rate ? money(rate.priceCents) : null;
+  return `${facts(ctx)}${rate ? `
+THE DEAL THE SCHOOL OFFERS: ${rate.what}
+PRICE SET BY THE SCHOOL: ${price}, paid to the players` : `
+PRICE: not set; the office sends options with prices when the business replies`}
+
+Write a short email from the ${ctx.university.name} NIL office offering this business a paid NIL deal with players on the ${ctx.team.name} team${rate ? ': the deal above, at the price above' : ', such as an appearance at the business or a few posts on the players\' own accounts'}.
+- This is an NIL deal: the business pays the players for real work (an appearance, posts). It is NOT a sponsorship, a donation, or support for the program, and it must never read like one. Never use the words sponsor, sponsorship, donate, donation or "support the program".
+${rate ? `- Name the deal in plain words and state the price exactly as "${price}", once. No other dollar amounts.` : '- Name no price and no dollar amount. Say the office will send a few options with prices.'}
+- Say in one short sentence that the deal is set up and paid through the school's NIL marketplace, so it is simple and handled properly.
+- Never name or describe any individual student athlete, coach or staff member.
+${ctx.dm ? dmRules(ctx) : '- 60 to 130 words. Plain sentences, no bullet points, no headings.\n'}- Do NOT write a greeting or a sign-off; they are added for you.
+- Say why this business, from the facts above only. A real reason is one of: they are close to campus; home games bring students and families past them; or what they do serves players and the people who watch them (training, recovery, health, food after games, banking for students).
+- Never build the reason on a coincidence: a shared word, a name, a theme, a mascot, a colour or a pun. If the only true reasons are that they are nearby and games bring people past them, say that plainly.
+- Never invent a fact that is not above.
+- End with one short line asking for a reply or a short call.
 ${retryBecause ? `\nYour last draft was rejected: ${retryBecause}. Fix that.\n` : ''}
 Output exactly:
 SUBJECT: <subject line>
@@ -161,7 +213,7 @@ function parse(raw) {
   return { subject, body };
 }
 
-const ROLE_THEN_NAME = /\b(guard|forward|center|point guard|captain|player|athlete|student-athlete|freshman|sophomore|junior|senior|coach|star|standout)\s+[A-Z][a-z]+\s+[A-Z][a-z]+/;
+const ROLE_THEN_NAME = /\b(guard|forward|center|point guard|captain|player|athlete|student-athlete|freshman|sophomore|junior|senior|coach|star|standout|setter|libero|hitter|pitcher|catcher|shortstop|outfielder|infielder|keeper|goalkeeper|striker|midfielder|defender|quarterback|receiver|sprinter|swimmer|golfer|runner|wrestler)\s+[A-Z][a-z]+\s+[A-Z][a-z]+/;
 const JERSEY = /(?:#|\bNo\.\s?)\d{1,2}\b/;
 // REASONING FROM A COINCIDENCE. The Pirates Dinner Adventure ask argued the
 // pirate theme was a natural match for basketball. The words that carry that
@@ -189,11 +241,23 @@ function checkAsk(parsed, ctx) {
   return { ok: true };
 }
 
+// Sponsorship words: the team deal is an NIL deal and must never read as one.
+const SPONSORSHIP = /\bsponsor(s|ed|ing|ship|ships)?\b|\bdonat(e|es|ed|ion|ions)\b|\bsupport(ing)?\s+(the|our)\s+(\S+\s+){0,3}program\b|\blocal partner\b/i;
 function checkPitch(parsed, ctx, kind) {
   const body = String(parsed.body || '');
   const text = parsed.subject + '\n' + body;
-  if (/\$\s?\d/.test(body)) return { ok: false, why: 'it names a price; this message has none' };
-  if (kind === 'pitch' && /\bNIL\b|\bendorse(ment|s)?\b|\binfluencer/i.test(text)) return { ok: false, why: 'it uses NIL, endorsement or influencer language' };
+  if (kind === 'pitch') {
+    const rate = rateFor(ctx.team);
+    if (rate) {
+      const price = money(rate.priceCents);
+      if (!body.includes(price)) return { ok: false, why: `it does not state the school's price ${price}` };
+      const other = (body.match(/\$\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?(?!\d)/g) || []).find((p) => p.replace(/\s/g, '') !== price);
+      if (other) return { ok: false, why: `it names another dollar amount (${other}); the only price is the school's ${price}` };
+    } else if (/\$\s?\d/.test(body)) return { ok: false, why: 'it names a price; the school has not set one, so the office sends options' };
+    const sp = text.match(SPONSORSHIP);
+    if (sp) return { ok: false, why: `it reads as sponsorship ("${sp[0]}"); this is an NIL deal that pays the players for the appearance and posts` };
+    if (!/\b(players?|athlete[s]?)\b/i.test(body)) return { ok: false, why: 'it does not say the players are paid for the work' };
+  } else if (/\$\s?\d/.test(body)) return { ok: false, why: 'it names a price; this message has none' };
   if ((kind === 'pitch' || kind === 'program') && (ROLE_THEN_NAME.test(body) || JERSEY.test(body))) return { ok: false, why: 'it names or identifies a person on the team' };
   if (kind === 'athlete') {
     const allowed = String(ctx.athlete.name || '').toLowerCase();
@@ -225,11 +289,65 @@ function compose(parsed, ctx) {
   return `${hello}\n\n${parsed.body.trim()}\n\n${signOff}`;
 }
 
+// ── THE REVIEW ──────────────────────────────────────────────────────────────
+// The second read. The lint above checks what a pattern can; this checks
+// what only a reader can: is it really an NIL deal, is every claim about the
+// business in the facts, is the reason true, does it sound like a person.
+// -> { pass, problems[] }. A reply that is not the JSON asked for is a fail:
+// nothing reaches a school on a review that did not happen.
+function reviewPrompt(parsed, ctx) {
+  const kind = kindOf(ctx);
+  const rate = kind === 'pitch' ? rateFor(ctx.team) : null;
+  const rules = [
+    kind === 'pitch'
+      ? `It offers an NIL deal that pays the players for real work (an appearance and posts). It must NOT read as a sponsorship, a donation or support for the program.`
+      : `It asks the brand to work with players on the team through the brand's own athlete program. It must NOT ask for money for the program.`,
+    rate ? `It states the school's price ${money(rate.priceCents)} once, and no other dollar amount.` : `It names no price or dollar amount.`,
+    `Every claim about the business is supported by the FACTS. Anything not in the facts (an event, an award, a person, a history, a product, a review) is invented and fails.`,
+    `The reason the business fits is real: being near campus, the crowd at home games, or what the business does for players and fans. A coincidence of names, themes, mascots or colours fails.`,
+    `It names or describes no individual student athlete, coach or staff member.`,
+    `It reads like a person at the athletic department wrote it: plain, specific to this business, no hype, no filler.`,
+    `It ends with one clear ask: a reply or a short call.`,
+  ];
+  return `You are reviewing an email before it goes to a local business. Be strict: if any rule fails, it fails.
+
+FACTS:
+${facts(ctx)}${rate ? `\nTHE DEAL THE SCHOOL OFFERS: ${rate.what}\nPRICE SET BY THE SCHOOL: ${money(rate.priceCents)}` : ''}
+
+EMAIL:
+SUBJECT: ${parsed.subject}
+${parsed.body}
+
+RULES:
+${rules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+
+Reply with JSON only, no other text: {"pass": true or false, "problems": ["the rule number and what is wrong, in one short sentence", ...]}`;
+}
+function parseReview(raw) {
+  const m = String(raw || '').match(/\{[\s\S]*\}/);
+  if (!m) return { pass: false, problems: ['the review did not answer in the format asked'] };
+  try {
+    const j = JSON.parse(m[0]);
+    const problems = Array.isArray(j.problems) ? j.problems.map((x) => String(x).slice(0, 300)).filter(Boolean) : [];
+    // A pass that still lists problems is a fail; a fail with no reason still fails.
+    const pass = j.pass === true && !problems.length;
+    return { pass, problems: pass ? [] : (problems.length ? problems : ['failed without a reason']) };
+  } catch (_) { return { pass: false, problems: ['the review did not answer in the format asked'] }; }
+}
+const REVIEWED = new Set(['pitch', 'program']);
+async function review(parsed, ctx, ai) {
+  const call = ai.oneShot(reviewPrompt(parsed, ctx), 'You check short business emails against a checklist and answer in JSON.', 400, REVIEW_MODEL, {});
+  const raw = typeof ai.withDeadline === 'function' ? await ai.withDeadline(call, REVIEW_TIMEOUT_MS, `review for ${ctx.business.brand_name}`) : await call;
+  return parseReview(raw);
+}
+
 // Write one ask. `oneShot` is injectable for tests; the default is ai.oneShot
-// on MODEL. Returns { ok, subject, body, model, retried } or { ok:false, error }.
+// on MODEL. A nightly card (team deal or brand program) also passes the
+// review; `reviews` says how many review calls were made, for the cost cap.
+// Returns { ok, subject, body, model, retried, reviews } or { ok:false, error, reviews }.
 async function writeAsk(ctx, opts = {}) {
   const ai = opts.ai || require('../ai');
-  let lastWhy = null;
+  let lastWhy = null, reviews = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     let raw;
     try {
@@ -241,9 +359,16 @@ async function writeAsk(ctx, opts = {}) {
     if (!parsed) { lastWhy = 'the reply was not in the SUBJECT/BODY format'; continue; }
     const check = checkAsk(parsed, ctx);
     if (!check.ok) { lastWhy = check.why; continue; }
-    return { ok: true, subject: parsed.subject, body: compose(parsed, ctx), model: MODEL, retried: attempt > 0 };
+    if (REVIEWED.has(kindOf(ctx)) && opts.review !== false) {
+      let r;
+      reviews++;
+      try { r = await review(parsed, ctx, ai); }
+      catch (e) { return { ok: false, error: 'model: review: ' + e.message, reviews }; }
+      if (!r.pass) { lastWhy = 'the reviewer failed it: ' + r.problems.join('; '); continue; }
+    }
+    return { ok: true, subject: parsed.subject, body: compose(parsed, ctx), model: MODEL, retried: attempt > 0, reviews };
   }
-  return { ok: false, error: 'refused after retry: ' + lastWhy };
+  return { ok: false, error: 'refused after retry: ' + lastWhy, reviews };
 }
 
-module.exports = { writeAsk, buildPrompt, checkAsk, parse, compose, money, facts, kindOf, MODEL, SYSTEM, SYSTEM_PITCH, COINCIDENCE };
+module.exports = { writeAsk, buildPrompt, checkAsk, parse, compose, money, facts, kindOf, rateFor, dealAsk, reviewPrompt, parseReview, SPONSORSHIP, MODEL, REVIEW_MODEL, SYSTEM, SYSTEM_PITCH, COINCIDENCE };

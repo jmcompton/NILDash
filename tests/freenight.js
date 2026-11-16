@@ -42,7 +42,9 @@ const U = 'univ-freetest', MK = 'freetown, ca';
 
 const ai = {
   oneShot: async (prompt) => {
+    if (/You are reviewing an email/.test(prompt)) return '{"pass": true, "problems": []}';
     const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1];
+    if (/paid NIL deal/.test(prompt)) return `SUBJECT: Players for ${biz}\nBODY:\n${biz} is close to campus and home games bring families past you. Players on the team would do an appearance at ${biz} and post about it on their own accounts, paid by you. The office will send a few options with prices, and it is set up and paid through our NIL marketplace. Could we set up a short call?`;
     return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`;
   },
 };
