@@ -20,6 +20,8 @@
 //   GET  /api/university/applications             athlete applications (services/universityApply)
 //   POST /api/university/applications/refresh     open new ones for the roster
 //   POST /api/university/applications/:id/state   { state }
+//   GET  /api/university/market/today             the home screen (services/universityToday)
+//   GET  /api/university/market/progress          every business past "not contacted", and every deal
 const CM = require('../services/campusMarket');
 
 function mount(app, { store, requireAuth }) {
@@ -133,6 +135,20 @@ function mount(app, { store, requireAuth }) {
       const r = await UA.setState(pool, req.staff.university_id, parseInt(req.params.id, 10), String((req.body && req.body.state) || ''), req.staff.id);
       res.status(r.ok ? 200 : (r.error === 'not found' ? 404 : 400)).json(r);
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── TODAY AND IN PROGRESS (services/universityToday) ────────────────────
+  //   GET /api/university/market/today      the home screen
+  //   GET /api/university/market/progress   every business past "not contacted", and every deal
+  // Reads only; scoped to the session's university.
+  const UT = require('../services/universityToday');
+  app.get('/api/university/market/today', guard, async (req, res) => {
+    try { await ready(); res.json(await UT.today(pool, req.staff.university_id)); }
+    catch (e) { console.error('[campus/today]', e.message); res.status(500).json({ error: 'Today could not be loaded.' }); }
+  });
+  app.get('/api/university/market/progress', guard, async (req, res) => {
+    try { await ready(); res.json(await UT.progress(pool, req.staff.university_id)); }
+    catch (e) { console.error('[campus/progress]', e.message); res.status(500).json({ error: 'In progress could not be loaded.' }); }
   });
 
   app.post('/api/university/market/pitch', guard, async (req, res) => {

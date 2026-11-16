@@ -488,12 +488,13 @@ const word = n => WORDS[n] || String(n);
    list (id "sponsors": search, team and stage filters, named contact, reach,
    best fit, distance, Write a pitch, the spreadsheet). */
 const NAV1 = [
-  ["home","Home"], ["athletes","Athlete Deals"], ["sponsors","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"]
+  ["today","Today"], ["home","Approve"], ["athletes","Athlete Deals"], ["progress","In progress"],
+  ["sponsors","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"]
 ];
 const NAV2 = [];
-const LIVE = { home:true, athletes:true, sponsors:true, teams:true, inventory:true };
+const LIVE = { today:true, home:true, athletes:true, progress:true, sponsors:true, teams:true, inventory:true };
 
-let view = "home";
+let view = "today";
 let ME = null;              /* from /api/university/market/me: teams, stages, sender */
 let CARDS = [];             /* this morning's leads, /api/university/market/cards */
 let HOME_TEAM = "";          /* the team picker on Home: "" is All teams, best fit first */
@@ -615,7 +616,7 @@ async function doSignin(e){
 
 async function signout(){
   try { await fetch("/api/auth/logout", { method:"POST", credentials:"same-origin" }) } catch (_) {}
-  university = null; TEAMS = []; ITEMS = []; view = "home"; invFilter = "All"; CARDS = []; ME = null; SP = { q:"", team:"", contact:false, stage:"", rows:[], total:0, loading:false };
+  university = null; TEAMS = []; ITEMS = []; view = "today"; TD.loaded = false; TD.data = null; PG.loaded = false; PG.data = null; invFilter = "All"; CARDS = []; ME = null; SP = { q:"", team:"", contact:false, stage:"", rows:[], total:0, loading:false };
   signin("");
 }
 
@@ -653,7 +654,7 @@ ${NAV2.length ? `<div class="eyebrow">ADMINISTRATION</div>
 
   <main class="stage">
     <div class="crumb">
-      <span class="path">${esc(name)} Athletics / <b id="crumbNow">Home</b></span>
+      <span class="path">${esc(name)} Athletics / <b id="crumbNow">Today</b></span>
       <span class="grow"></span>
       <span class="search">Search...</span>
       <span class="ready"><i></i>AI READY</span>
@@ -664,10 +665,150 @@ ${NAV2.length ? `<div class="eyebrow">ADMINISTRATION</div>
 }
 
 function paintNav(){
-  const row = ([id,label]) => `<button type="button" class="${id===view?"active":""}" data-goto="${id}">${esc(label)}</button>`;
+  /* Approve carries how many pitches still wait on the office. */
+  const waiting = CARDS.filter(d => !d.sent_at && (!d.stage || d.stage === "not_contacted")).length;
+  const pill = id => id === "home" && waiting ? `<span class="pill">${waiting}</span>` : "";
+  const row = ([id,label]) => `<button type="button" class="${id===view?"on active":""}" data-goto="${id}"><i></i>${esc(label)}${pill(id)}</button>`;
   $("nav1").innerHTML = NAV1.filter(([id]) => LIVE[id]).map(row).join("");
   if ($("nav2")) $("nav2").innerHTML = NAV2.filter(([id]) => LIVE[id]).map(row).join("");
-  $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","Home"])[1];
+  $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","Today"])[1];
+}
+
+/* ===================== TODAY ===================== */
+/* The office's home: what waits on them, who answered, deals done, which teams
+   need deals most, and Athlete Deals. One read (/api/university/market/today,
+   services/universityToday), scoped to this university. */
+const TD = { loaded:false, loading:false, failed:false, data:null };
+async function tdLoad(){
+  TD.loading = true;
+  const r = await getJson("/api/university/market/today");
+  TD.loading = false; TD.loaded = true; TD.failed = r.status !== 200; TD.data = r.status === 200 ? r.body : null;
+  if (view === "today") paint();
+}
+const ago = iso => {
+  if (!iso) return "";
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return d <= 0 ? "today" : d === 1 ? "yesterday" : d + " days ago";
+};
+const dollars = cents => "$" + Math.round((Number(cents) || 0) / 100).toLocaleString("en-US");
+function vToday(){
+  if (!TD.loaded && !TD.loading) { setTimeout(tdLoad, 0); }
+  const name = university.name || "Your university";
+  const first = String((ME && ME.me && ME.me.name) || "").split(/\s+/)[0];
+  const dateLine = new Date().toLocaleDateString("en-US", { weekday:"long", month:"short", day:"numeric" }).toUpperCase();
+  if (!TD.loaded || TD.loading) return `<div class="board"><div class="head"><h1>Today</h1><p>Loading…</p></div></div>`;
+  if (TD.failed || !TD.data) return `<div class="board"><div class="head"><h1>Today</h1></div>
+    <div class="panel"><h3>Today could not be loaded</h3><p class="lede">Reload the page in a minute. We have been told.</p>
+    <div class="toolrow" style="margin-top:10px"><button type="button" class="btn ghost sm" data-tdretry>Try again</button></div></div></div>`;
+  const D = TD.data, L = D.leads || {}, P = D.pipeline || {}, DL = D.deals || {}, A = D.athletes;
+  const waiting = L.waiting || 0;
+  const headline = waiting
+    ? `${first ? "Morning, " + esc(first) + ". " : ""}${waiting} deal${waiting === 1 ? "" : "s"} ${waiting === 1 ? "is" : "are"} written and waiting on you.`
+    : `${first ? "Morning, " + esc(first) + ". " : ""}Nothing is waiting on you right now.`;
+  const sub = waiting
+    ? `Last night NILDash picked businesses near campus for ${word(L.teams || 0).toLowerCase()} of your teams and wrote the first email to each. Read them, send the ones you like from your own email, and mark them sent.`
+    : (L.night ? "Every pitch from last night has been handled. New ones arrive after tonight's run." : "The first pitches arrive after your department's first nightly run.");
+  const teams = D.teams || [];
+  const fewest = teams.filter(t => t.athletes > 0).slice(0, 5);
+  const maxA = Math.max(1, ...fewest.map(t => t.athletes));
+  const replies = D.replies || [];
+  return `<div class="board">
+    <div class="head">
+      <span class="kpi-label">${esc(dateLine)}</span>
+      <h1 style="margin-top:4px">${headline}</h1>
+      <p>${esc(sub)}</p>
+    </div>
+    ${waiting ? `<div class="toolrow"><button type="button" class="btn go" data-goto="home">Review and send (${waiting})</button><span class="kpi-note">About a minute each.</span></div>` : ""}
+    <div class="kpi-grid">
+      <div class="kpi"><span class="kpi-label">PAID TO ATHLETES</span><span class="kpi-val lime">${dollars(DL.cents)}</span><span class="kpi-note">${DL.count} deal${DL.count === 1 ? "" : "s"} logged${DL.monthCount ? `, ${DL.monthCount} this month` : ""}</span></div>
+      <div class="kpi"><span class="kpi-label">BUSINESSES PITCHED</span><span class="kpi-val">${(P.contacted || 0) + (P.replied || 0) + (P.inTalks || 0) + (P.dealSigned || 0) + (P.declined || 0)}</span><span class="kpi-note">${(P.replied || 0) + (P.inTalks || 0) + (P.dealSigned || 0) + (P.declined || 0)} answered, ${P.dealSigned || 0} said yes</span></div>
+      <div class="kpi"><span class="kpi-label">ATHLETE DEALS</span><span class="kpi-val">${A ? A.covered : 0}${A && A.roster ? `<span style="font-size:15px;color:var(--dim)"> of ${A.roster}</span>` : ""}</span><span class="kpi-note">${A ? `athletes with applications, ${A.applied} applied` : "athletes with applications"}</span></div>
+      <div class="kpi"><span class="kpi-label">YOUR TEAMS</span><span class="kpi-val">${teams.length}</span><span class="kpi-note">${teams.reduce((a, t) => a + (t.athletes || 0), 0)} athletes</span></div>
+    </div>
+    <div class="grid g2">
+      <div class="panel">
+        <h3>Waiting on your reply</h3>
+        ${replies.length ? `<div class="follow">${replies.map(r => `
+          <div class="followrow"><span class="b">${esc(r.brand)}</span>
+            <span class="chip ${r.stage === "in_talks" ? "lime" : "blue"}">${esc(r.stageLabel)}</span>
+            ${r.team ? `<span class="st">${esc(r.team)}</span>` : ""}
+            <span class="ago">${esc(ago(r.at))}</span>
+            ${r.said ? `<span class="st" style="flex:1 1 100%">${esc(r.said)}</span>` : ""}</div>`).join("")}</div>
+          <div class="toolrow" style="margin-top:10px"><button type="button" class="btn ghost sm" data-goto="progress">See everything in progress</button></div>`
+        : `<p class="lede">No business is waiting on you. When one answers, mark it "Replied" on its card and it shows here.</p>`}
+      </div>
+      <div class="panel">
+        <h3>Teams with the fewest deals</h3>
+        <p class="lede" style="font-size:13px">Push these next. Tonight's run looks for businesses that fit them.</p>
+        ${fewest.length ? `<div style="display:flex;flex-direction:column;gap:11px;margin-top:12px">${fewest.map(t => `
+          <div><div style="display:flex;justify-content:space-between;gap:10px;font-size:14px"><span>${esc(t.name)}</span>
+            <span class="kpi-note">${t.deals} deal${t.deals === 1 ? "" : "s"} · ${t.athletes} athletes${t.waiting ? ` · ${t.waiting} waiting` : ""}</span></div>
+            <div style="height:7px;border-radius:4px;background:#1C2637;margin-top:5px"><div style="height:7px;border-radius:4px;width:${Math.max(4, Math.round(100 * t.athletes / maxA))}%;background:${t.deals ? "var(--lime-dim)" : "var(--amber)"}"></div></div></div>`).join("")}</div>`
+        : `<p class="lede">Add your teams under My Teams and they show here.</p>`}
+      </div>
+    </div>
+    <div class="howto">
+      <div><b>NILDash finds the business</b>Every night, near campus, matched to each team.</div>
+      <div><b>You approve and send</b>From your own email. Nothing goes out without you.</div>
+      <div><b>Deals finish in your marketplace</b>NILDash never signs or negotiates for anyone.</div>
+    </div>
+  </div>`;
+}
+
+/* ===================== IN PROGRESS ===================== */
+/* Every business past "not contacted", by where it stands, with its last touch,
+   and every deal logged (/api/university/market/progress). Moving a business
+   to the next stage is the same stage call Sponsor Scan uses. */
+const PG = { loaded:false, loading:false, failed:false, data:null };
+async function pgLoad(){
+  PG.loading = true;
+  const r = await getJson("/api/university/market/progress");
+  PG.loading = false; PG.loaded = true; PG.failed = r.status !== 200; PG.data = r.status === 200 ? r.body : null;
+  if (view === "progress") paint();
+}
+const NEXT_STAGE = { contacted:["replied","They replied"], replied:["in_talks","Working out terms"], in_talks:["deal_signed","Deal done"] };
+function vProgress(){
+  if (!PG.loaded && !PG.loading) { setTimeout(pgLoad, 0); }
+  const head = `<div class="head"><h1>In progress</h1>
+      <p>Every business your office has pitched, by where it stands. Move one forward when it answers.
+         When a business says yes, the deal is set up in your NIL marketplace and logged here.</p></div>`;
+  if (!PG.loaded || PG.loading) return `<div class="board">${head}<p class="lede">Loading…</p></div>`;
+  if (PG.failed || !PG.data) return `<div class="board">${head}<div class="panel"><h3>This could not be loaded</h3><p class="lede">Reload the page in a minute.</p></div></div>`;
+  const stages = PG.data.stages || [];
+  const total = stages.reduce((a, s) => a + s.total, 0);
+  const card = (r, st) => {
+    const nx = NEXT_STAGE[st.key];
+    const quiet = st.key !== "deal_signed" && r.daysQuiet != null && r.daysQuiet >= 7;
+    return `<div class="kancard">
+      <span class="t">${esc(r.brand)}</span>
+      ${r.team ? `<span class="m">${esc(r.team)}</span>` : ""}
+      ${r.last ? `<span class="m">${esc(r.last)}</span>` : ""}
+      <span class="m" style="${quiet ? "color:var(--amber)" : ""}">${r.at ? (quiet ? "Quiet for " + r.daysQuiet + " days" : "Last touch " + esc(ago(r.at))) : ""}</span>
+      ${nx && !(ME && ME.me && ME.me.viewingAsAdmin) ? `<button type="button" class="btn ghost xs" style="align-self:flex-start;margin-top:4px" data-pgmove="${esc(r.brand)}" data-pgto="${nx[0]}">${esc(nx[1])}</button>` : ""}
+    </div>`;
+  };
+  const board = total ? `<div class="kan" style="grid-template-columns:repeat(4,minmax(205px,1fr))">${stages.map(st => `
+      <div class="kancol"><div class="kanhead">${esc(st.label.toUpperCase())}<b>${st.total}</b></div>
+        ${st.rows.length ? st.rows.map(r => card(r, st)).join("") : `<span class="kpi-note">None yet</span>`}
+        ${st.total > st.rows.length ? `<span class="kpi-note">+ ${st.total - st.rows.length} more in Sponsor Scan</span>` : ""}
+      </div>`).join("")}</div>`
+    : `<div class="empty"><b>Nothing pitched yet</b>When you send a pitch from Approve and mark it sent, the business shows up here.</div>`;
+  const deals = PG.data.deals || [];
+  const dealTable = deals.length ? `<div class="tablewrap"><table><thead><tr><th>Business</th><th>Team or athlete</th><th>What</th><th>Value</th><th>Date</th></tr></thead><tbody>
+      ${deals.map(d => `<tr><td data-l="BUSINESS"><span class="b">${esc(d.brand)}</span></td>
+        <td data-l="FOR">${esc([d.team, d.athlete].filter(Boolean).join(", ") || "")}</td>
+        <td data-l="WHAT"><span class="s">${esc(d.what || "")}</span></td>
+        <td data-l="VALUE">${d.cents == null ? "" : esc(dollars(d.cents))}</td>
+        <td data-l="DATE"><span class="s">${d.on ? esc(new Date(String(d.on).slice(0,10) + "T12:00:00").toLocaleDateString("en-US", { month:"short", day:"numeric" })) : ""}</span></td></tr>`).join("")}
+    </tbody></table></div>` : `<p class="lede">No deals logged yet. Log one from a business's page in Sponsor Scan once terms are set.</p>`;
+  return `<div class="board">${head}${board}
+    <div class="teamhead"><h3>Deals done</h3><span>${deals.length}</span></div>${dealTable}</div>`;
+}
+async function pgMove(brand, stage, btn){
+  if (btn) { btn.disabled = true; }
+  const r = await fetch("/api/university/market/business/stage", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ brand, stage }) });
+  toast(r.ok ? `${brand}: ${stageLabel(stage)}` : "Could not save that. Try again.");
+  TD.loaded = false; pgLoad();
 }
 
 /* ===================== ATHLETE DEALS ===================== */
@@ -907,13 +1048,13 @@ function vHome(){
   const night = CARDS.length && CARDS[0].night ? new Date(String(CARDS[0].night).slice(0,10) + "T12:00:00").toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" }) : "";
   const intro = `
     <div class="head">
-      <h1>Sponsor leads for ${esc(name)} Athletics</h1>
+      <h1>Approve: deals for ${esc(name)} Athletics</h1>
       <p>Every night NILDash looks at the businesses around campus, picks the ones that fit each of your teams,
          finds the person who decides, and writes the first email for you. You read it, open it in your own email, and send it.
          Nothing goes out without you.</p>
     </div>
     <div class="kpi-grid">
-      <div class="kpi"><span class="kpi-label">LEADS THIS MORNING</span><span class="kpi-val lime">${CARDS.length}</span><span class="kpi-note">${CARDS.length ? `for ${word(teamsWithLeads.length).toLowerCase()} team${teamsWithLeads.length === 1 ? "" : "s"}` : "the first arrive after a nightly run"}</span></div>
+      <div class="kpi"><span class="kpi-label">WAITING ON YOU</span><span class="kpi-val lime">${CARDS.length}</span><span class="kpi-note">${CARDS.length ? `for ${word(teamsWithLeads.length).toLowerCase()} team${teamsWithLeads.length === 1 ? "" : "s"}` : "the first arrive after a nightly run"}</span></div>
       <div class="kpi"><span class="kpi-label">BUSINESSES NEAR CAMPUS</span><span class="kpi-val">${NEAR.total.toLocaleString("en-US")}</span><span class="kpi-note">looked at for your teams</span></div>
       <div class="kpi"><span class="kpi-label">WITH A NAMED PERSON</span><span class="kpi-val">${NEAR.withContact.toLocaleString("en-US")}</span><span class="kpi-note">who to ask for, and how</span></div>
       <div class="kpi"><span class="kpi-label">YOUR TEAMS</span><span class="kpi-val">${TEAMS.length}</span><span class="kpi-note">${TEAMS.reduce((a,t)=>a+(t.roster_size||0),0)} athletes</span></div>
@@ -1083,6 +1224,7 @@ async function markContacted(brand, teamId, draftId, channel){
   await fetch("/api/university/market/business/touch", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" },
     body: JSON.stringify({ brand, channel: ch, direction:"out", summary, stage:"contacted", teamId: teamId || null, draftId: draftId || null }) }).catch(() => {});
   const d = CARDS.find(x => x.id === draftId); if (d){ d.stage = "contacted"; d.sent_at = new Date().toISOString(); }
+  TD.loaded = false; PG.loaded = false;
 }
 
 /* ===================== INVENTORY ===================== */
@@ -1150,9 +1292,9 @@ function exportCsv(){
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-const VIEWS = { home:vHome, athletes:vAthletes, sponsors:vSponsors, teams:vTeams, inventory:vInventory };
+const VIEWS = { today:vToday, home:vHome, athletes:vAthletes, progress:vProgress, sponsors:vSponsors, teams:vTeams, inventory:vInventory };
 function paint(){
-  $("view").innerHTML = (VIEWS[view] || vHome)();
+  $("view").innerHTML = (VIEWS[view] || vToday)();
   paintNav();
   window.scrollTo({ top:0 });
 }
@@ -1192,8 +1334,10 @@ async function findOwnerFor(id, btn){
   paint();
 }
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore]");
+  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore],[data-tdretry],[data-pgmove]");
   if (!t) return;
+  if (t.dataset.tdretry !== undefined){ TD.loaded = false; tdLoad(); return }
+  if (t.dataset.pgmove !== undefined){ pgMove(t.dataset.pgmove, t.dataset.pgto, t); return }
   if (t.dataset.atrefresh !== undefined){ atRefresh(t); return }
   if (t.dataset.atmore !== undefined){ AT.show += 40; paint(); return }
   if (t.dataset.atset !== undefined){ atSet(t.dataset.atid, t.dataset.atset); return }

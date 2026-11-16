@@ -235,10 +235,12 @@ async function main() {
     .every((s) => page.includes(s) && html.includes(s)));
   // ONLY SCREENS THAT WORK (2026-10-07): the demo's eight "Coming soon" items
   // are gone from the nav until they ship; Sponsor Scan is the business list.
-  // Athlete Deals (2026-11-15, services/universityApply) joined them.
-  ok('  the nav lists only the screens that work: Home, Athlete Deals, Sponsor Scan, My Teams, Inventory', /const NAV1 = \[\s*\["home","Home"\], \["athletes","Athlete Deals"\], \["sponsors","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
+  // Athlete Deals (2026-11-15, services/universityApply) joined them; Today
+  // and In progress (2026-11-16, services/universityToday) too, and the
+  // morning leads screen ("home") is now called Approve.
+  ok('  the nav lists only the screens that work: Today, Approve, Athlete Deals, In progress, Sponsor Scan, My Teams, Inventory', /const NAV1 = \[\s*\["today","Today"\], \["home","Approve"\], \["athletes","Athlete Deals"\], \["progress","In progress"\],\s*\["sponsors","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
     && /const NAV2 = \[\];/.test(page));
-  ok('  every item does something; nothing says "coming soon"', /const LIVE = \{ home:true, athletes:true, sponsors:true, teams:true, inventory:true \}/.test(page) && !/coming soon/i.test(page)
+  ok('  every item does something; nothing says "coming soon"', /const LIVE = \{ today:true, home:true, athletes:true, progress:true, sponsors:true, teams:true, inventory:true \}/.test(page) && !/coming soon/i.test(page)
     && !/aria-disabled="true"/.test(page.slice(page.indexOf('function paintNav'), page.indexOf('function paintNav') + 600)));
   // The one exception on both counts is the admin's read-only view bar
   // (shown only when viewingAsAdmin): its "Back to admin" ends the view and
@@ -283,7 +285,9 @@ async function main() {
             if (state.signedIn === 'agent') return r.fulfill({ status: 403, contentType: 'application/json', body: '{"code":"UNIVERSITY_ROLE_REQUIRED"}' });
             // The market tool answers as a department with no leads and no
             // businesses yet (tests/universityleads.js covers it with data).
-            const market = { '/api/university/market/me': { teams: [], stages: [] }, '/api/university/market/cards': { cards: [] }, '/api/university/market/search': { ok: true, rows: [], total: 0 } };
+            const market = { '/api/university/market/me': { teams: [], stages: [] }, '/api/university/market/cards': { cards: [] }, '/api/university/market/search': { ok: true, rows: [], total: 0 },
+              '/api/university/market/today': { university: fixture.university, leads: { night: null, total: 0, waiting: 0, teams: 0 }, pipeline: {}, replies: [], deals: { count: 0, cents: 0, monthCount: 0, monthCents: 0, athletes: 0 }, teams: [], athletes: null },
+              '/api/university/market/progress': { stages: [], deals: [] } };
             if (market[u.pathname]) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(market[u.pathname]) });
             return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(u.pathname.endsWith('teams') ? T2 : I2) });
           }
@@ -297,7 +301,9 @@ async function main() {
       ok('logged out: the sign-in screen, not a blank page and not the agent app',
         !!(await p.$('#loginForm')) && !(await p.$('.shell')) && p.url().endsWith('/university'));
       await p.fill('#lemail', 'ad@cypress.test'); await p.fill('#lpass', 'x'); await p.click('#lgo'); await p.waitForTimeout(400);
-      ok('signed in: Home first (the sponsor leads), saying none are written yet', (await p.textContent('#crumbNow')) === 'Home' && /No leads written yet/.test(await p.textContent('#view')), [await p.textContent('#crumbNow'), errs]);
+      ok('signed in: Today first, saying nothing waits yet', (await p.textContent('#crumbNow')) === 'Today' && /The first pitches arrive after your department's first nightly run/.test(await p.textContent('#view')), [await p.textContent('#crumbNow'), await p.textContent('#view'), errs]);
+      await p.click('[data-goto="home"]'); await p.waitForTimeout(150);
+      ok('  Approve (the sponsor leads) says none are written yet', (await p.textContent('#crumbNow')) === 'Approve' && /No leads written yet/.test(await p.textContent('#view')), [await p.textContent('#crumbNow'), errs]);
       await p.click('[data-goto="teams"]'); await p.waitForTimeout(150);
       ok('  My Teams, from the API', (await p.textContent('#crumbNow')) === 'My Teams' && (await p.$$('.tablewrap tbody tr')).length === 15, [await p.textContent('#crumbNow'), (await p.$$('.tablewrap tbody tr')).length, errs]);
       ok('  the KPIs say 15 teams, 274 athletes, 131 home dates, $38,525 (and no "no football": flag football is a team)',
@@ -311,7 +317,7 @@ async function main() {
       // from the rendered nav too, not just from NAV1. Each item there opens
       // its screen.
       const navItems = await p.$$eval('#nav1 button', (bs) => bs.map((b) => ({ text: b.textContent.trim(), disabled: b.getAttribute('aria-disabled') })));
-      ok('the nav shows the five working screens and nothing disabled', navItems.length === 5 && navItems.every((n) => n.disabled !== 'true')
+      ok('the nav shows the seven working screens and nothing disabled', navItems.length === 7 && navItems.every((n) => n.disabled !== 'true')
         && (await p.$$('[aria-disabled="true"]')).length === 0 && (await p.textContent('#crumbNow')) === 'Inventory', navItems);
       ok('  and nothing threw', errs.length === 0, errs);
       const s2 = { loginAs: 'agent' };

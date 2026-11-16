@@ -1529,7 +1529,7 @@
     },
     "universityleads.js": {
       "failed": 0,
-      "total": 19,
+      "total": 21,
       "fault": null
     },
     "universitiespage.js": {
@@ -1539,7 +1539,12 @@
     },
     "universityportal.js": {
       "failed": 0,
-      "total": 53,
+      "total": 54,
+      "fault": null
+    },
+    "universitytoday.js": {
+      "failed": 0,
+      "total": 27,
       "fault": null
     },
     "universitywall.js": {
