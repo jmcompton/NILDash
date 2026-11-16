@@ -207,6 +207,9 @@ async function ensureTables(pool) {
   await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS dm_text TEXT`).catch(() => {});
   // The address is a shared inbox (info@): a send path, not the person's own.
   await pool.query(`ALTER TABLE university_drafts ADD COLUMN IF NOT EXISTS email_is_shared BOOLEAN`).catch(() => {});
+  // The team's NIL deal rate, set by the office on My Teams (teamWriter.rateFor).
+  await pool.query(`ALTER TABLE university_teams ADD COLUMN IF NOT EXISTS nil_rate_cents INTEGER`).catch(() => {});
+  await pool.query(`ALTER TABLE university_teams ADD COLUMN IF NOT EXISTS nil_rate_what TEXT`).catch(() => {});
   await require('./campusQuality').ensureColumns(pool).catch(() => {});
 }
 
@@ -474,8 +477,9 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
   const university = (await pool.query(`SELECT id, name, short_name, location FROM universities WHERE id = $1`, [universityId])).rows[0];
   if (!university) return { ok: false, error: `No university with id "${universityId}".` };
   const team = (await pool.query(
-    `SELECT id, university_id, name, sport, season, roster_size, venue, home_dates, market_key
-       FROM university_teams WHERE id = $1 AND university_id = $2`, [teamId, universityId])).rows[0];
+    `SELECT t.id, t.university_id, t.name, t.sport, t.season, t.roster_size, t.venue, t.home_dates, t.market_key,
+            (to_jsonb(t)->>'nil_rate_cents')::int AS nil_rate_cents, to_jsonb(t)->>'nil_rate_what' AS nil_rate_what
+       FROM university_teams t WHERE t.id = $1 AND t.university_id = $2`, [teamId, universityId])).rows[0];
   if (!team) return { ok: false, error: `No team "${teamId}" at ${university.name}.` };
   const items = (await pool.query(
     `SELECT id, team_id, name, price_cents, status FROM university_inventory
@@ -628,13 +632,14 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     let w, points = null, best = null;
     if (channel === 'call') {
       best = CHN.bestTime([c.deal_bucket, c.primary_type, c.category].filter(Boolean).join(' '));
-      points = CHN.talkingPoints({ who: [sender && sender.name, `${university.name} Athletics`].filter(Boolean).join(', '), subject: `the ${team.name} program`,
-        business: c.brand_name, why: c.fit_why, miles: c.distance_m != null ? Number(c.distance_m) / 1609.34 : null });
+      points = CHN.talkingPoints({ who: [sender && sender.name, `${university.name} Athletics`].filter(Boolean).join(', '), subject: `a paid NIL deal with the ${team.name} team`,
+        business: c.brand_name, why: c.fit_why, miles: c.distance_m != null ? Number(c.distance_m) / 1609.34 : null, ask: TeamWriter.dealAsk(team, c.brand_name) });
       w = { ok: true, subject: `Call ${c.brand_name}`, body: CHN.callText({ contactName: c.contact_name, phone: c.phone, best, points }), model: null };
     } else {
       asks++;
-      w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: channel === 'dm',
+      w = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: channel === 'dm', bookUrl: require('./universityBook').bookUrl(university.id, team.id),
         ...(c.social ? { program: { url: c.program_url, offer: c.offer } } : {}) }, { ai: deps.ai });
+      asks += w.reviews || 0;   // the reviewer's calls count against the night's cap too
     }
     // EVERY WAY TO REACH THEM: a card with a handle carries the DM too, as the
     // second action beside the email or the call (or the card itself, if a DM
@@ -644,7 +649,8 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
       if (channel === 'dm') dmText = w.body;
       else {
         asks++;
-        const d = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: true }, { ai: deps.ai });
+        const d = await TeamWriter.writeAsk({ university, team, business: pick, contactName: c.contact_name, sender, dm: true, bookUrl: require('./universityBook').bookUrl(university.id, team.id) }, { ai: deps.ai });
+        asks += d.reviews || 0;
         if (d.ok) dmText = d.body;
       }
     }

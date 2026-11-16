@@ -19,7 +19,7 @@ const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 delete process.env.GOOGLE_PLACES_API_KEY;
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g).slice(0, 600) : '')); } };
-const ai = { oneShot: async (prompt) => { const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is close to campus and our fans live around you. Could we set up a short call?`; } };
+const ai = { oneShot: async (prompt) => { if (/You are reviewing an email/.test(prompt)) return '{"pass": true, "problems": []}'; if (/paid NIL deal/.test(prompt)) { const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; return `SUBJECT: Players for ${biz}\nBODY:\n${biz} is close to campus and home games bring families past you. Players on the team would do an appearance at ${biz} and post about it on their own accounts, paid by you. The office will send a few options with prices, and it is set up and paid through our NIL marketplace. Could we set up a short call?`; } const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is close to campus and our fans live around you. Could we set up a short call?`; } };
 
 async function main() {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));

@@ -277,8 +277,8 @@ function cardForPortal(d, universityName) {
   if (d.contact_title) out.contact_title = require('./cardTitle').displayTitle(d.contact_title);
   if (channel === 'call' && !d.talking_points) {
     out.best_time = d.best_time || CHN.bestTime(String(d.why || '') + ' ' + String(d.brand_name || ''));
-    out.talking_points = CHN.talkingPoints({ who: `${universityName} Athletics`, subject: d.team_label ? `the ${d.team_label} program` : 'the athletics program',
-      business: d.brand_name, why: d.why });
+    out.talking_points = CHN.talkingPoints({ who: `${universityName} Athletics`, subject: d.team_label ? `a paid NIL deal with the ${d.team_label} team` : 'a paid NIL deal with our athletes',
+      business: d.brand_name, why: d.why, ask: require('./teamWriter').dealAsk({ name: d.team_label || 'athletics' }, d.brand_name) });
   }
   // A call card has no email in it; its body is what to say.
   if (channel === 'call') { out.subject = null; out.body = CHN.callText({ contactName: d.contact_name, phone: d.contact_phone, best: out.best_time, points: out.talking_points }); }
@@ -304,13 +304,13 @@ async function pitch(pool, universityId, userId, opts) {
   // A TEAM WITH NOTHING TO SELL IS NOT PITCHED (campusNightly.sellableTeams):
   // inventory still available, roster or home dates or not.
   if (team && !((await require('./campusNightly').sellableTeams(pool, universityId)).get(team.id) || {}).sellable) {
-    return { ok: false, status: 422, error: `${team.name} has no inventory left to sell, so there is nothing to pitch for it yet.` };
+    return { ok: false, status: 422, error: `${team.name} has no players on file, no NIL deal rate and no inventory yet, so there is nothing to pitch for it.` };
   }
   if (opts.teamId && !team) return { ok: false, status: 404, error: 'team not found' };
   if (!team && !(opts.athlete && opts.athlete.name)) return { ok: false, status: 400, error: 'pick a team or name an athlete' };
   const sender = await senderFor(pool, userId);
   const TW = require('./teamWriter');
-  const ctx = { university: u, team: team || { name: `${u.name} Athletics` },
+  const ctx = { university: u, team: team || { name: `${u.name} Athletics` }, bookUrl: team ? require('./universityBook').bookUrl(universityId, team.id) : null,
     business: { brand_name: biz.brand, kindLabel: biz.kind, category: biz.category, address: biz.address, distance_m: biz.miles === null ? null : biz.miles * MI,
       rating: biz.rating, user_ratings_total: biz.reviews, evidence: biz.athleteHistoryNote },
     athlete: opts.athlete && opts.athlete.name ? { name: String(opts.athlete.name).slice(0, 80), facts: String(opts.athlete.facts || '').slice(0, 400) } : null,
@@ -333,8 +333,8 @@ async function pitch(pool, universityId, userId, opts) {
   if (channel === 'call') {
     best = CHN.bestTime([biz.category, biz.kind].filter(Boolean).join(' '));
     points = CHN.talkingPoints({ who: [sender && sender.name, `${u.name} Athletics`].filter(Boolean).join(', '),
-      subject: ctx.athlete ? ctx.athlete.name : `the ${ctx.team.name} program`, business: biz.brand, why: biz.fit && biz.fit.why, miles: biz.miles,
-      ask: ctx.athlete ? `would ${biz.brand} like to work with ${ctx.athlete.name} on a few posts or an appearance? If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.` : null });
+      subject: ctx.athlete ? ctx.athlete.name : `a paid NIL deal with the ${ctx.team.name} team`, business: biz.brand, why: biz.fit && biz.fit.why, miles: biz.miles,
+      ask: ctx.athlete ? `would ${biz.brand} like to work with ${ctx.athlete.name} on a few posts or an appearance? If yes, set a 15-minute call; if this is not the right person, ask who decides on marketing.` : TW.dealAsk(ctx.team, biz.brand) });
     w = { ok: true, subject: `Call ${biz.brand}`, body: CHN.callText({ contactName: biz.contact.name, phone: biz.contact.phone, best, points }), model: null };
   } else {
     w = await TW.writeAsk({ ...ctx, dm: channel === 'dm' }, { ai: opts.ai });

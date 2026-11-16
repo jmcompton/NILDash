@@ -65,7 +65,7 @@ async function main() {
   const teamCols = await cols('university_teams');
   ok('university_teams has the specified columns',
     JSON.stringify(teamCols.slice(0, TEAM_SPEC.length)) === JSON.stringify(TEAM_SPEC)
-    && teamCols.slice(TEAM_SPEC.length).every((c) => ['source', 'roster_url', 'roster_imported_at'].includes(c)), teamCols);
+    && teamCols.slice(TEAM_SPEC.length).every((c) => ['source', 'roster_url', 'roster_imported_at', 'nil_rate_cents', 'nil_rate_what'].includes(c)), teamCols);
   ok('university_inventory has the specified columns',
     JSON.stringify(await cols('university_inventory')) === JSON.stringify(['id', 'university_id', 'team_id', 'name', 'price_cents', 'status', 'created_at', 'updated_at']),
     await cols('university_inventory'));
@@ -238,7 +238,7 @@ async function main() {
   // Athlete Deals (2026-11-15, services/universityApply) joined them; Today
   // and In progress (2026-11-16, services/universityToday) too, and the
   // morning leads screen ("home") is now called Approve.
-  ok('  the nav lists only the screens that work: Today, Approve, Athlete Deals, In progress, Sponsor Scan, My Teams, Inventory', /const NAV1 = \[\s*\["today","Today"\], \["home","Approve"\], \["athletes","Athlete Deals"\], \["progress","In progress"\],\s*\["sponsors","Sponsor Scan"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
+  ok('  the nav lists only the screens that work: Today, Approve, Athlete Deals, In progress, Find Businesses, My Teams, Inventory', /const NAV1 = \[\s*\["today","Today"\], \["home","Approve"\], \["athletes","Athlete Deals"\], \["progress","In progress"\],\s*\["sponsors","Find Businesses"\], \["teams","My Teams"\], \["inventory","Inventory"\]\s*\];/.test(page)
     && /const NAV2 = \[\];/.test(page));
   ok('  every item does something; nothing says "coming soon"', /const LIVE = \{ today:true, home:true, athletes:true, progress:true, sponsors:true, teams:true, inventory:true \}/.test(page) && !/coming soon/i.test(page)
     && !/aria-disabled="true"/.test(page.slice(page.indexOf('function paintNav'), page.indexOf('function paintNav') + 600)));

@@ -58,11 +58,12 @@ async function freePort() {
 const calls = { n: 0 };
 const ai = {
   oneShot: async (prompt) => {
+    if (/You are reviewing an email/.test(prompt)) return '{"pass": true, "problems": []}';
     calls.n++;
     const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1];
     const ath = (prompt.match(/ATHLETE \(the only person you may name\): ([^\n-]+)/) || [])[1];
     if (ath) return `SUBJECT: ${ath.trim()} and ${biz}\nBODY:\n${ath.trim()} plays for us and lives near ${biz}. Would you be open to a few posts together this season? A short call would be great.`;
-    return `SUBJECT: Backing the team this season\nBODY:\n${biz} is close to campus and home games bring students and families past you. Would you like to support the program this season as a local partner? Could we set up a short call?`;
+    return `SUBJECT: Players for ${biz}\nBODY:\n${biz} is close to campus and home games bring families past you. Players on the team would do an appearance at ${biz} and post about it on their own accounts, paid by you. The office will send a few options with prices, and it is set up and paid through our NIL marketplace. Could we set up a short call?`;
   },
 };
 
@@ -312,9 +313,9 @@ async function main() {
   ok('kinds: an item is an ask, an athlete is an athlete pitch, else a team pitch',
     TW.kindOf({ ...base, item: { name: 'x', price_cents: 1 } }) === 'ask' && TW.kindOf({ ...base, athlete: { name: 'A B' } }) === 'athlete' && TW.kindOf(base) === 'pitch');
   ok('a team pitch with a price is refused', !TW.checkAsk({ subject: 's', body: 'It is $500 for a banner.' }, base).ok);
-  ok('  so is one using NIL', !TW.checkAsk({ subject: 'NIL deal', body: 'A partnership.' }, base).ok);
+  ok('  so is one that reads as sponsorship', /sponsorship/.test(TW.checkAsk({ subject: 's', body: 'Players on the team would love it if you would support the volleyball program this season.' }, base).why || ''));
   ok('  an athlete pitch must name the athlete', !TW.checkAsk({ subject: 's', body: 'One of our players would love to work with you.' }, { ...base, athlete: { name: 'Maya Lopez' } }).ok);
-  ok('  a team pitch prompt carries no ASK line and says no prices', !/THE ASK:/.test(TW.buildPrompt(base)) && /No prices/.test(TW.buildPrompt(base)));
+  ok('  a team pitch prompt carries no ASK line and, with no rate set, names no price', !/THE ASK:/.test(TW.buildPrompt(base)) && /Name no price/.test(TW.buildPrompt(base)));
 
   // ── 6. THE WALL ───────────────────────────────────────────────────────────
   OUT.push('', '-- the wall --');

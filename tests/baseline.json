@@ -1502,6 +1502,11 @@
       "total": 42,
       "fault": null
     },
+    "teamdeal.js": {
+      "failed": 0,
+      "total": 35,
+      "fault": null
+    },
     "teamfloor.js": {
       "failed": 0,
       "total": 8,
@@ -1530,6 +1535,11 @@
     "universities.js": {
       "failed": 0,
       "total": 78,
+      "fault": null
+    },
+    "universitybook.js": {
+      "failed": 0,
+      "total": 46,
       "fault": null
     },
     "universityleads.js": {

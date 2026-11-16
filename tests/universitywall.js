@@ -115,8 +115,8 @@ async function main() {
   ok('  the page\'s admin call is the admin view bar\'s, and the wall never lets a university session reach /api/admin',
     adminOnly.every((f) => f === 'POST /api/admin/view-university') && /viewingAsAdmin[\s\S]{0,1200}fetch\("\/api\/admin\/view-university"/.test(page)
     && ![...MG.UNIVERSITY_ALLOWED].some((f) => / \/api\/admin\//.test(f)), adminOnly);
-  ok('  the only prefixes are the department market tool and Athlete Deals\' actions',
-    JSON.stringify(MG.UNIVERSITY_ALLOWED_PREFIXES) === JSON.stringify([['GET', '/api/university/market/'], ['POST', '/api/university/market/'], ['POST', '/api/university/applications/']]));
+  ok('  the only prefixes are the department market tool, Athlete Deals\' actions and the public booking page',
+    JSON.stringify(MG.UNIVERSITY_ALLOWED_PREFIXES) === JSON.stringify([['GET', '/api/university/market/'], ['POST', '/api/university/market/'], ['POST', '/api/university/applications/'], ['GET', '/api/book/'], ['POST', '/api/book/']]));
   ok('admin is not a confined role', !MG.UNIVERSITY_ONLY_ROLES.has('admin') && !MG.UNIVERSITY_ONLY_ROLES.has('agent'));
 
   // ── 3. MOUNTED ONCE, BEFORE EVERY SESSION ROUTE; requireAgentMode GONE ─────

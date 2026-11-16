@@ -22,6 +22,7 @@ async function listTeams(pool, universityId) {
   const university = await universityOf(pool, universityId);
   const teams = (await pool.query(
     `SELECT t.id, t.name, t.sport, t.season, t.roster_size, t.venue, t.home_dates, t.market_key,
+            (to_jsonb(t)->>'nil_rate_cents')::int AS nil_rate_cents, to_jsonb(t)->>'nil_rate_what' AS nil_rate_what,
             COALESCE(SUM(i.price_cents), 0)::bigint AS inventory_cents,
             COUNT(i.id)::int AS inventory_items
        FROM university_teams t

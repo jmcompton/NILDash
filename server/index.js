@@ -7529,6 +7529,13 @@ app.get('/api/admin/universities', requireAuth, requireCampusAdmin, async (req, 
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // The admin's university switcher (services/adminView): session only, read-only.
+// THE DEMO SCHOOL for sales calls (services/demoSchool): Pinecrest State
+// University, made up, rewritten with this morning's dates. Then
+// POST /api/admin/view-university {universityId:'univ-pinecrest-demo'} shows it.
+app.post('/api/admin/demo-school/seed', requireAuth, requireCampusAdmin, async (req, res) => {
+  try { res.json(await require('./services/demoSchool').seed(store.pool)); }
+  catch (e) { console.error('[admin/demo-school]', e.message); res.status(500).json({ ok: false, error: e.message }); }
+});
 app.post('/api/admin/view-university', requireAuth, requireCampusAdmin, async (req, res) => {
   try {
     const r = await require('./services/adminView').set(store.pool, req, (req.body || {}).universityId || null);
@@ -16293,6 +16300,42 @@ app.get('/athletics', (req, res) => {
 app.get(['/universities', '/universities/'], (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'universities.html'),
     { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
+});
+
+// ── The booking page ────────────────────────────────────────────────────
+// PUBLIC. https://mynildash.com/book/<school> is where a business says yes:
+// it picks a team, sees the school's own price (or asks for options) and
+// books. Every nightly pitch links to it; the office can put its QR code on a
+// game-day sign. services/universityBook; the booking lands in the school's
+// own university tables. Teams and prices only, never an athlete.
+app.get(['/book/:slug', '/book/:slug/'], (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'book.html'),
+    { cacheControl: false, headers: { 'Cache-Control': DEMO_NO_CACHE } });
+});
+app.get('/api/book/:slug', async (req, res) => {
+  try {
+    const UB = require('./services/universityBook');
+    await UB.ensureTables(store.pool);
+    const p = await UB.page(store.pool, String(req.params.slug || '').toLowerCase());
+    if (!p) return res.status(404).json({ error: 'No such school.' });
+    res.json(p);
+  } catch (e) {
+    console.error('[book/page]', e.message);
+    res.status(500).json({ error: 'Could not load this page. Try again in a minute.' });
+  }
+});
+app.post('/api/book/:slug', async (req, res) => {
+  try {
+    const UB = require('./services/universityBook');
+    if (!UB.allow(req.ip)) return res.status(429).json({ error: 'Too many requests. Try again in a few minutes.' });
+    await UB.ensureTables(store.pool);
+    const r = await UB.book(store.pool, String(req.params.slug || '').toLowerCase(), req.body || {});
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[book/post]', e.message);
+    res.status(500).json({ error: 'Could not send that. Try again in a minute.' });
+  }
 });
 
 // ── The university portal ───────────────────────────────────────────────

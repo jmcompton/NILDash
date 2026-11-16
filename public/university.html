@@ -489,7 +489,7 @@ const word = n => WORDS[n] || String(n);
    best fit, distance, Write a pitch, the spreadsheet). */
 const NAV1 = [
   ["today","Today"], ["home","Approve"], ["athletes","Athlete Deals"], ["progress","In progress"],
-  ["sponsors","Sponsor Scan"], ["teams","My Teams"], ["inventory","Inventory"]
+  ["sponsors","Find Businesses"], ["teams","My Teams"], ["inventory","Inventory"]
 ];
 const NAV2 = [];
 const LIVE = { today:true, home:true, athletes:true, progress:true, sponsors:true, teams:true, inventory:true };
@@ -669,7 +669,10 @@ function paintNav(){
   const waiting = CARDS.filter(d => !d.sent_at && (!d.stage || d.stage === "not_contacted")).length;
   const pill = id => id === "home" && waiting ? `<span class="pill">${waiting}</span>` : "";
   const row = ([id,label]) => `<button type="button" class="${id===view?"on active":""}" data-goto="${id}"><i></i>${esc(label)}${pill(id)}</button>`;
-  $("nav1").innerHTML = NAV1.filter(([id]) => LIVE[id]).map(row).join("");
+  /* Inventory is the sponsorship tool: shown only to a department that has
+     inventory loaded. Everything else is the NIL deal work. */
+  const sponsorship = id => id !== "inventory" || ITEMS.length > 0;
+  $("nav1").innerHTML = NAV1.filter(([id]) => LIVE[id] && sponsorship(id)).map(row).join("");
   if ($("nav2")) $("nav2").innerHTML = NAV2.filter(([id]) => LIVE[id]).map(row).join("");
   $("crumbNow").textContent = (NAV1.concat(NAV2).find(x => x[0] === view) || ["","Today"])[1];
 }
@@ -679,10 +682,17 @@ function paintNav(){
    need deals most, and Athlete Deals. One read (/api/university/market/today,
    services/universityToday), scoped to this university. */
 const TD = { loaded:false, loading:false, failed:false, data:null };
+async function bookSeen(id, btn){
+  if (btn) btn.disabled = true;
+  const r = await fetch("/api/university/market/booking/status", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ id, status:"seen" }) });
+  toast(r.ok ? "Marked. It stays on In progress." : "Could not save that. Try again.");
+  TD.loaded = false; tdLoad();
+}
 async function tdLoad(){
   TD.loading = true;
-  const r = await getJson("/api/university/market/today");
+  const [r, bk] = await Promise.all([getJson("/api/university/market/today"), getJson("/api/university/market/bookings")]);
   TD.loading = false; TD.loaded = true; TD.failed = r.status !== 200; TD.data = r.status === 200 ? r.body : null;
+  TD.book = bk.status === 200 ? bk.body : null;
   if (view === "today") paint();
 }
 const ago = iso => {
@@ -694,7 +704,9 @@ const dollars = cents => "$" + Math.round((Number(cents) || 0) / 100).toLocaleSt
 function vToday(){
   if (!TD.loaded && !TD.loading) { setTimeout(tdLoad, 0); }
   const name = university.name || "Your university";
-  const first = String((ME && ME.me && ME.me.name) || "").split(/\s+/)[0];
+  // Viewing as admin is not the staff member: no greeting by name.
+  const first = ME && ME.me && ME.me.viewingAsAdmin ? "" : String((ME && ME.me && ME.me.name) || "").split(/\s+/)[0];
+  const hr = new Date().getHours(), hello = hr < 12 ? "Morning" : hr < 17 ? "Afternoon" : "Evening";
   const dateLine = new Date().toLocaleDateString("en-US", { weekday:"long", month:"short", day:"numeric" }).toUpperCase();
   if (!TD.loaded || TD.loading) return `<div class="board"><div class="head"><h1>Today</h1><p>Loading…</p></div></div>`;
   if (TD.failed || !TD.data) return `<div class="board"><div class="head"><h1>Today</h1></div>
@@ -703,8 +715,8 @@ function vToday(){
   const D = TD.data, L = D.leads || {}, P = D.pipeline || {}, DL = D.deals || {}, A = D.athletes;
   const waiting = L.waiting || 0;
   const headline = waiting
-    ? `${first ? "Morning, " + esc(first) + ". " : ""}${waiting} deal${waiting === 1 ? "" : "s"} ${waiting === 1 ? "is" : "are"} written and waiting on you.`
-    : `${first ? "Morning, " + esc(first) + ". " : ""}Nothing is waiting on you right now.`;
+    ? `${first ? hello + ", " + esc(first) + ". " : ""}${waiting} pitch${waiting === 1 ? " is" : "es are"} written and waiting on you.`
+    : `${first ? hello + ", " + esc(first) + ". " : ""}Nothing is waiting on you right now.`;
   const sub = waiting
     ? `Last night NILDash picked businesses near campus for ${word(L.teams || 0).toLowerCase()} of your teams and wrote the first email to each. Read them, send the ones you like from your own email, and mark them sent.`
     : (L.night ? "Every pitch from last night has been handled. New ones arrive after tonight's run." : "The first pitches arrive after your department's first nightly run.");
@@ -712,6 +724,8 @@ function vToday(){
   const fewest = teams.filter(t => t.athletes > 0).slice(0, 5);
   const maxA = Math.max(1, ...fewest.map(t => t.athletes));
   const replies = D.replies || [];
+  const BK = TD.book || {}, fresh = (BK.bookings || []).filter(b => b.status === "new");
+  const ro = ME && ME.me && ME.me.viewingAsAdmin;
   return `<div class="board">
     <div class="head">
       <span class="kpi-label">${esc(dateLine)}</span>
@@ -719,10 +733,21 @@ function vToday(){
       <p>${esc(sub)}</p>
     </div>
     ${waiting ? `<div class="toolrow"><button type="button" class="btn go" data-goto="home">Review and send (${waiting})</button><span class="kpi-note">About a minute each.</span></div>` : ""}
+    ${fresh.length ? `<div class="panel" style="border-color:var(--lime)">
+      <h3>New bookings (${fresh.length})</h3>
+      <p class="lede" style="font-size:13px">These businesses booked from your link. Reach out, set the terms in your NIL marketplace, then log the deal on In progress.</p>
+      <div class="follow">${fresh.map(b => `
+        <div class="followrow"><span class="b">${esc(b.business)}</span>
+          ${b.team ? `<span class="chip lime">${esc(b.team)}</span>` : ""}
+          <span class="ago">${esc(ago(b.at))}</span>
+          <span class="st" style="flex:1 1 100%">${b.cents ? esc(b.deal || "") + " · " + dollars(b.cents) : "Asked for options with prices"}${b.dates ? " · When: " + esc(b.dates) : ""}</span>
+          <span class="st" style="flex:1 1 100%">${esc(b.contact || "")}${b.email ? ` · <a href="mailto:${esc(b.email)}">${esc(b.email)}</a>` : ""}${b.phone ? ` · <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>` : ""}${b.note ? " · " + esc(b.note) : ""}</span>
+          ${ro ? "" : `<button type="button" class="btn ghost xs" data-bookseen="${b.id}">Got it</button>`}</div>`).join("")}</div>
+    </div>` : ""}
     <div class="kpi-grid">
       <div class="kpi"><span class="kpi-label">PAID TO ATHLETES</span><span class="kpi-val lime">${dollars(DL.cents)}</span><span class="kpi-note">${DL.count} deal${DL.count === 1 ? "" : "s"} logged${DL.monthCount ? `, ${DL.monthCount} this month` : ""}</span></div>
       <div class="kpi"><span class="kpi-label">BUSINESSES PITCHED</span><span class="kpi-val">${(P.contacted || 0) + (P.replied || 0) + (P.inTalks || 0) + (P.dealSigned || 0) + (P.declined || 0)}</span><span class="kpi-note">${(P.replied || 0) + (P.inTalks || 0) + (P.dealSigned || 0) + (P.declined || 0)} answered, ${P.dealSigned || 0} said yes</span></div>
-      <div class="kpi"><span class="kpi-label">ATHLETE DEALS</span><span class="kpi-val">${A ? A.covered : 0}${A && A.roster ? `<span style="font-size:15px;color:var(--dim)"> of ${A.roster}</span>` : ""}</span><span class="kpi-note">${A ? `athletes with applications, ${A.applied} applied` : "athletes with applications"}</span></div>
+      ${!(A && A.total) && BK.url ? `<div class="kpi"><span class="kpi-label">BOOKED FROM YOUR LINK</span><span class="kpi-val">${(BK.bookings || []).length}</span><span class="kpi-note">${fresh.length} new</span></div>` : `<div class="kpi"><span class="kpi-label">ATHLETE DEALS</span><span class="kpi-val">${A ? A.covered : 0}${A && A.roster ? `<span style="font-size:15px;color:var(--dim)"> of ${A.roster}</span>` : ""}</span><span class="kpi-note">${A ? `athletes with applications, ${A.applied} applied` : "athletes with applications"}</span></div>`}
       <div class="kpi"><span class="kpi-label">YOUR TEAMS</span><span class="kpi-val">${teams.length}</span><span class="kpi-note">${teams.reduce((a, t) => a + (t.athletes || 0), 0)} athletes</span></div>
     </div>
     <div class="grid g2">
@@ -747,6 +772,16 @@ function vToday(){
         : `<p class="lede">Add your teams under My Teams and they show here.</p>`}
       </div>
     </div>
+    ${BK.url ? `<div class="panel">
+      <h3>Your booking link</h3>
+      <p class="lede" style="font-size:13px">Every pitch ends with this link. Businesses pick a team, see your price and book. Put it on your athletics site, and print the QR code for game-day signs and the PA read.</p>
+      <div class="toolrow" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+        <code style="padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.12);word-break:break-all">${esc(BK.url)}</code>
+        <button type="button" class="btn ghost sm" data-copytext="${esc(BK.url)}">Copy link</button>
+        <a class="btn ghost sm" style="text-decoration:none" href="${esc(BK.url)}" target="_blank" rel="noopener">Open it</a>
+        <a class="btn ghost sm" style="text-decoration:none" href="/api/university/market/booking-qr.svg?download=1">Download QR code</a>
+      </div>
+    </div>` : ""}
     <div class="howto">
       <div><b>NILDash finds the business</b>Every night, near campus, matched to each team.</div>
       <div><b>You approve and send</b>From your own email. Nothing goes out without you.</div>
@@ -790,7 +825,7 @@ function vProgress(){
   const board = total ? `<div class="kan" style="grid-template-columns:repeat(4,minmax(205px,1fr))">${stages.map(st => `
       <div class="kancol"><div class="kanhead">${esc(st.label.toUpperCase())}<b>${st.total}</b></div>
         ${st.rows.length ? st.rows.map(r => card(r, st)).join("") : `<span class="kpi-note">None yet</span>`}
-        ${st.total > st.rows.length ? `<span class="kpi-note">+ ${st.total - st.rows.length} more in Sponsor Scan</span>` : ""}
+        ${st.total > st.rows.length ? `<span class="kpi-note">+ ${st.total - st.rows.length} more in Find Businesses</span>` : ""}
       </div>`).join("")}</div>`
     : `<div class="empty"><b>Nothing pitched yet</b>When you send a pitch from Approve and mark it sent, the business shows up here.</div>`;
   const deals = PG.data.deals || [];
@@ -800,7 +835,7 @@ function vProgress(){
         <td data-l="WHAT"><span class="s">${esc(d.what || "")}</span></td>
         <td data-l="VALUE">${d.cents == null ? "" : esc(dollars(d.cents))}</td>
         <td data-l="DATE"><span class="s">${d.on ? esc(new Date(String(d.on).slice(0,10) + "T12:00:00").toLocaleDateString("en-US", { month:"short", day:"numeric" })) : ""}</span></td></tr>`).join("")}
-    </tbody></table></div>` : `<p class="lede">No deals logged yet. Log one from a business's page in Sponsor Scan once terms are set.</p>`;
+    </tbody></table></div>` : `<p class="lede">No deals logged yet. Log one from a business's page in Find Businesses once terms are set.</p>`;
   return `<div class="board">${head}${board}
     <div class="teamhead"><h3>Deals done</h3><span>${deals.length}</span></div>${dealTable}</div>`;
 }
@@ -894,6 +929,29 @@ function vAthletes(){
 }
 
 /* ===================== MY TEAMS ===================== */
+/* The team's NIL deal rate (POST /api/university/market/team/rate). The school
+   sets it; the nightly pitch quotes it (services/teamWriter.rateFor). */
+const RATE = { open:"" };
+function rateCell(t){
+  const ro = ME && ME.me && ME.me.viewingAsAdmin;
+  const shown = t.nil_rate_cents ? `<span class="b" style="color:var(--lime)">${money(t.nil_rate_cents)}</span><br><span class="s">${esc(t.nil_rate_what || "")}</span>` : `<span class="s">Not set</span>`;
+  if (ro) return shown;
+  if (RATE.open !== t.id) return `${shown}<br><button type="button" class="btn ghost xs" style="margin-top:4px" data-rateedit="${esc(t.id)}">${t.nil_rate_cents ? "Change" : "Set rate"}</button>`;
+  return `<div style="display:flex;flex-direction:column;gap:6px;min-width:220px">
+    <input id="rateDollars" inputmode="decimal" placeholder="Price in dollars, e.g. 1000" value="${t.nil_rate_cents ? t.nil_rate_cents / 100 : ""}" style="padding:7px 9px;border-radius:8px">
+    <input id="rateWhat" maxlength="240" placeholder="What they get, e.g. 10 players: a two-hour appearance and one post each" value="${esc(t.nil_rate_what || "")}" style="padding:7px 9px;border-radius:8px">
+    <div style="display:flex;gap:6px"><button type="button" class="btn go xs" data-ratesave="${esc(t.id)}">Save</button><button type="button" class="btn ghost xs" data-rateedit="">Cancel</button></div>
+  </div>`;
+}
+async function rateSave(teamId, btn){
+  if (btn) btn.disabled = true;
+  const dollars = ($("rateDollars") || {}).value || "", what = ($("rateWhat") || {}).value || "";
+  const r = await fetch("/api/university/market/team/rate", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ teamId, dollars, what }) });
+  let b = {}; try { b = await r.json() } catch (_) {}
+  if (!r.ok){ toast(b.error || "Could not save that. Try again."); if (btn) btn.disabled = false; return }
+  const t = TEAMS.find(x => x.id === teamId); if (t){ t.nil_rate_cents = b.nil_rate_cents; t.nil_rate_what = b.nil_rate_what; }
+  RATE.open = ""; toast(b.nil_rate_cents ? "Saved. Tonight's pitches for this team quote it." : "Rate cleared."); paint();
+}
 function vTeams(){
   // A team whose season is not set yet is listed under "Season not set",
   // never left off the page.
@@ -910,14 +968,14 @@ function vTeams(){
          ${dates(bySeason(s))} home dates</p>
       <div class="tablewrap" style="margin-top:12px">
         <table><thead><tr>
-          <th>Team</th><th>Roster</th><th>Home dates</th><th>Venue</th><th>Crowd</th><th>Inventory</th>
+          <th>Team</th><th>Roster</th><th>Home dates</th><th>Venue</th><th>NIL deal rate</th><th>Inventory</th>
         </tr></thead><tbody>
         ${bySeason(s).map(t => `<tr>
             <td data-l="TEAM"><span class="b">${esc(t.name)}</span></td>
             <td data-l="ROSTER">${t.roster_published === false || t.roster_size == null ? `<span class="s">Roster not published yet</span>` : t.roster_size}</td>
             <td data-l="HOME DATES">${t.home_dates == null ? "" : t.home_dates}</td>
             <td data-l="VENUE"><span class="s">${esc(String(t.venue || "").replace((university.name || "") + " ",""))}</span></td>
-            <td data-l="CROWD"><span class="s">—</span></td>
+            <td data-l="NIL DEAL RATE">${rateCell(t)}</td>
             <td data-l="INVENTORY"><span style="color:var(--lime)">${money(t.inventory_cents)}</span></td>
           </tr>`).join("")}
         </tbody></table>
@@ -935,8 +993,9 @@ function vTeams(){
     <div class="head">
       <h1>My Teams</h1>
       <p>${word(TEAMS.length)} teams, ${roster(TEAMS)} athletes, ${dates(TEAMS)} home dates a year.
-         On the university side NILDash works a team at a time, not an athlete at a time. Nothing here
-         touches an individual student athlete or their name, image or likeness.</p>
+         You set each team's NIL deal rate: what a business gets and what it pays the players. Every
+         nightly pitch for that team quotes your rate exactly. With no rate set, the pitch offers a paid
+         deal and says your office will send options. NILDash never sets the price.</p>
     </div>
     <div class="kpi-grid">
       <div class="kpi"><span class="kpi-label">TEAMS</span><span class="kpi-val">${TEAMS.length}</span><span class="kpi-note">${noFootball ? "no football" : ""}</span></div>
@@ -1045,18 +1104,21 @@ function vHome(){
   const byTeam = {};
   for (const d of CARDS) (byTeam[d.team_name || "Department"] = byTeam[d.team_name || "Department"] || []).push(d);
   const teamsWithLeads = Object.keys(byTeam).sort();
+  const cardsWaiting = CARDS.filter(d => !d.sent_at && (!d.stage || d.stage === "not_contacted")).length;
   const night = CARDS.length && CARDS[0].night ? new Date(String(CARDS[0].night).slice(0,10) + "T12:00:00").toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" }) : "";
   const intro = `
     <div class="head">
-      <h1>Approve: deals for ${esc(name)} Athletics</h1>
+      <h1>Approve: pitches for ${esc(name)} Athletics</h1>
       <p>Every night NILDash looks at the businesses around campus, picks the ones that fit each of your teams,
          finds the person who decides, and writes the first email for you. You read it, open it in your own email, and send it.
          Nothing goes out without you.</p>
     </div>
     <div class="kpi-grid">
-      <div class="kpi"><span class="kpi-label">WAITING ON YOU</span><span class="kpi-val lime">${CARDS.length}</span><span class="kpi-note">${CARDS.length ? `for ${word(teamsWithLeads.length).toLowerCase()} team${teamsWithLeads.length === 1 ? "" : "s"}` : "the first arrive after a nightly run"}</span></div>
-      <div class="kpi"><span class="kpi-label">BUSINESSES NEAR CAMPUS</span><span class="kpi-val">${NEAR.total.toLocaleString("en-US")}</span><span class="kpi-note">looked at for your teams</span></div>
-      <div class="kpi"><span class="kpi-label">WITH A NAMED PERSON</span><span class="kpi-val">${NEAR.withContact.toLocaleString("en-US")}</span><span class="kpi-note">who to ask for, and how</span></div>
+      <div class="kpi"><span class="kpi-label">WAITING ON YOU</span><span class="kpi-val lime">${cardsWaiting}</span><span class="kpi-note">${CARDS.length ? `for ${word(teamsWithLeads.length).toLowerCase()} team${teamsWithLeads.length === 1 ? "" : "s"}` : "the first arrive after a nightly run"}</span></div>
+      ${NEAR.total ? `<div class="kpi"><span class="kpi-label">BUSINESSES NEAR CAMPUS</span><span class="kpi-val">${NEAR.total.toLocaleString("en-US")}</span><span class="kpi-note">looked at for your teams</span></div>
+      <div class="kpi"><span class="kpi-label">WITH A NAMED PERSON</span><span class="kpi-val">${NEAR.withContact.toLocaleString("en-US")}</span><span class="kpi-note">who to ask for, and how</span></div>`
+      : `<div class="kpi"><span class="kpi-label">ALREADY SENT</span><span class="kpi-val">${CARDS.length - cardsWaiting}</span><span class="kpi-note">from this batch</span></div>
+      <div class="kpi"><span class="kpi-label">WITH A NAMED PERSON</span><span class="kpi-val">${CARDS.filter(d => d.contact_name).length}</span><span class="kpi-note">of this batch, who to ask for</span></div>`}
       <div class="kpi"><span class="kpi-label">YOUR TEAMS</span><span class="kpi-val">${TEAMS.length}</span><span class="kpi-note">${TEAMS.reduce((a,t)=>a+(t.roster_size||0),0)} athletes</span></div>
     </div>
     <div class="howto">
@@ -1073,7 +1135,7 @@ function vHome(){
     return `<div class="board">${intro}
       <div class="panel" style="margin-top:18px">
         <h3>No leads written yet</h3>
-        <p class="lede">The nightly run writes a few leads for every team once your department is set up. Until then, these are the closest businesses where we already know who to ask for. The full list is under Sponsor Scan, and downloads as a spreadsheet.</p>
+        <p class="lede">The nightly run writes a few leads for every team once your department is set up. Until then, these are the closest businesses where we already know who to ask for. The full list is under Find Businesses, and downloads as a spreadsheet.</p>
         ${NEAR.rows.length ? `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Business</th><th>Kind</th><th>Who to ask for</th><th>Reach</th><th>Miles</th></tr></thead><tbody>
           ${NEAR.rows.map(r => `<tr><td data-l="BUSINESS"><span class="b">${esc(r.brand)}</span></td><td data-l="KIND"><span class="s">${esc(r.kind || "")}</span></td>
             <td data-l="WHO">${esc(r.contact.name || "")}${r.contact.title ? `<span class="s"> · ${esc(r.contact.title)}</span>` : ""}</td>
@@ -1133,7 +1195,7 @@ function vSponsors(){
   const stages = (ME && ME.stages) || Object.keys(STAGE_TXT).map(k => ({ key:k, label:STAGE_TXT[k] }));
   return `<div class="board">
     <div class="head">
-      <h1>Sponsor Scan</h1>
+      <h1>Find Businesses</h1>
       <p>Every business near campus NILDash has looked at, nearest first, or best fit first when you pick a team.
          Set where each one stands, write a pitch for a team, or download the list as a spreadsheet.</p>
     </div>
@@ -1334,8 +1396,11 @@ async function findOwnerFor(id, btn){
   paint();
 }
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore],[data-tdretry],[data-pgmove]");
+  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore],[data-tdretry],[data-pgmove],[data-rateedit],[data-ratesave],[data-bookseen]");
   if (!t) return;
+  if (t.dataset.bookseen !== undefined){ bookSeen(t.dataset.bookseen, t); return }
+  if (t.dataset.rateedit !== undefined){ RATE.open = t.dataset.rateedit; paint(); return }
+  if (t.dataset.ratesave !== undefined){ rateSave(t.dataset.ratesave, t); return }
   if (t.dataset.tdretry !== undefined){ TD.loaded = false; tdLoad(); return }
   if (t.dataset.pgmove !== undefined){ pgMove(t.dataset.pgmove, t.dataset.pgto, t); return }
   if (t.dataset.atrefresh !== undefined){ atRefresh(t); return }

@@ -47,9 +47,9 @@ const contactsAi = {
   webSearchJson: async () => ({ text: '{"name": null}', citations: [] }),
 };
 const prompts = [];
-const ai = { oneShot: async (p) => { prompts.push(p); const biz = (p.match(/BUSINESS: (.+)/) || [])[1];
-  return /INSTAGRAM DIRECT MESSAGE/.test(p) ? `SUBJECT: DM\nBODY:\nThe team trains near ${biz}. Would you back our season? Happy to talk.`
-    : `SUBJECT: The team and ${biz}\nBODY:\n${biz} is close to campus and home games bring families past you. Would you like to support the program this season? Could we set up a short call?`; } };
+const ai = { oneShot: async (p) => { if (/You are reviewing an email/.test(p)) return '{"pass": true, "problems": []}'; prompts.push(p); const biz = (p.match(/BUSINESS: (.+)/) || [])[1];
+  return /INSTAGRAM DIRECT MESSAGE/.test(p) ? `SUBJECT: DM\nBODY:\nPlayers on the team would do an appearance at ${biz} and post about it, paid through our NIL marketplace. Want a few options with prices?`
+    : `SUBJECT: Players for ${biz}\nBODY:\n${biz} is close to campus and home games bring families past you. Players on the team would do an appearance at ${biz} and post about it on their own accounts, paid by you. The office will send a few options with prices, and it is set up and paid through our NIL marketplace. Could we set up a short call?`; } };
 
 async function main() {
   await new Promise((r) => setTimeout(r, TEST_INIT_WAIT_MS));

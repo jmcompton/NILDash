@@ -116,6 +116,10 @@ const UNIVERSITY_ALLOWED_PREFIXES = [
   ['GET', '/api/university/market/'],
   ['POST', '/api/university/market/'],
   ['POST', '/api/university/applications/'],
+  // The public booking page's own reads and writes (services/universityBook):
+  // staff open their own link while signed in.
+  ['GET', '/api/book/'],
+  ['POST', '/api/book/'],
 ];
 function allowedForUniversity(key) {
   if (UNIVERSITY_ALLOWED.has(key)) return true;

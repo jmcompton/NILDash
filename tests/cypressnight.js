@@ -42,7 +42,7 @@ const roster = async (P, uid) => {
 };
 const U = 'univ-cyptest', MK = 'cyptown, ca';
 const prompts = [];
-const ai = { oneShot: async (prompt) => { prompts.push(prompt); const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`; } };
+const ai = { oneShot: async (prompt) => { if (/You are reviewing an email/.test(prompt)) return '{"pass": true, "problems": []}'; prompts.push(prompt); const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1]; if (/paid NIL deal/.test(prompt)) return `SUBJECT: Players for ${biz}\nBODY:\n${biz} is close to campus and home games bring families past you. Players on the team would do an appearance at ${biz} and post about it on their own accounts, paid by you. The office will send a few options with prices, and it is set up and paid through our NIL marketplace. Could we set up a short call?`; return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`; } };
 let n = 0;
 const contactsAi = {
   deepContactCtx: (o) => ({ ...o }),
@@ -121,9 +121,9 @@ async function main() {
   ok('NO ROSTER IS NOT NO PITCH: Men\'s Basketball, 0 athletes on file, gets its cards', bb && bb.cards > 0
     && (await P.query(`SELECT COUNT(*)::int n FROM university_athletes WHERE university_id = $1`, [U])).rows[0].n === 0, bb);
   ok('  Women\'s Tennis, no roster published, 9 home dates and $775: pitched', wten && wten.cards > 0, wten);
-  ok('NOTHING TO SELL, NO PITCH: a row with no home dates and no inventory gets no cards, listed as not pitched', dup && dup.cards === 0 && dup.stop === 'nothing-to-sell'
+  ok('NOTHING TO SELL, NO PITCH: a second roster row for a team already on file, no inventory, gets no cards, listed as not pitched', dup && dup.cards === 0 && dup.stop === 'nothing-to-sell'
     && r.notSellable.some((x) => x.team.startsWith("Men's Swimming & Diving")) && !r.short.some((x) => x.team.startsWith("Men's Swimming & Diving")), { dup, notSellable: r.notSellable });
-  ok('  printed', /NOT PITCHED, no inventory to sell: Men's Swimming & Diving \(roster row\) \(0 items\)/.test(CN.formatNight(r)), CN.formatNight(r));
+  ok('  printed', /NOT PITCHED, nothing to sell \(no players, rate or inventory, or a second row for the same team\): Men's Swimming & Diving \(roster row\) \(0 items\)/.test(CN.formatNight(r)), CN.formatNight(r));
   ok('  and left out of the estimate (17 teams with something to sell, not 18)', est.teams === 17, est.teams);
   const bvb = r.perTeam.find((t) => t.teamId === 'cy:bvb');
   ok('NO HOME DATES KNOWN IS NOT NO PITCH: a team with inventory and no dates gets its cards', bvb && bvb.cards > 0, bvb);

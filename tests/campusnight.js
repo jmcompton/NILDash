@@ -46,8 +46,10 @@ const U = 'univ-nighttest', MK = 'nighttown, ca';
 const prompts = [];
 const ai = {
   oneShot: async (prompt) => {
+    if (/You are reviewing an email/.test(prompt)) return '{"pass": true, "problems": []}';
     prompts.push(prompt);
     const biz = (prompt.match(/BUSINESS: (.+)/) || [])[1];
+    if (/paid NIL deal/.test(prompt)) return `SUBJECT: Players for ${biz}\nBODY:\n${biz} is close to campus and home games bring families past you. Players on the team would do an appearance at ${biz} and post about it on their own accounts, paid by you. The office will send a few options with prices, and it is set up and paid through our NIL marketplace. Could we set up a short call?`;
     return `SUBJECT: The team and ${biz}\nBODY:\n${biz} is a good partner for the program this season. Could we set up a short call?`;
   },
 };
@@ -193,7 +195,7 @@ async function main() {
   const legacy = CM.cardForPortal({ id: 'x', brand_name: 'Old Pizza', contact_name: 'Lee Wu', contact_phone: '(714) 555-0100', contact_email: null,
     subject: 'Backing the team', body: 'Hi Lee,\n\nan email with nowhere to go', why: 'a restaurant near campus', team_label: 'Softball' }, 'Night Test College');
   ok('A CARD WRITTEN BEFORE THIS, phone only, is shown as a call card, its email body gone', legacy.channel === 'call' && legacy.subject === null
-    && !/nowhere to go/.test(legacy.body) && legacy.talking_points.length === 3 && /Night Test College Athletics, calling about the Softball program/.test(legacy.talking_points[0]) && legacy.sendable === false, legacy);
+    && !/nowhere to go/.test(legacy.body) && legacy.talking_points.length === 3 && /Night Test College Athletics, calling about a paid NIL deal with the Softball team/.test(legacy.talking_points[0]) && legacy.sendable === false, legacy);
   const vc = await CB.verify(P, U);
   const nEmail = Object.values(byBrand).filter((d) => d.channel === 'email').length;
   ok('STATUS COUNTS THE LATEST NIGHT BY HOW IT REACHES SOMEONE', nEmail >= 1 && vc.cardsByChannel.email === nEmail && vc.cardsByChannel.call === 1 && vc.cardsByChannel.dm === 1
