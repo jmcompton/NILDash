@@ -6077,6 +6077,28 @@ app.post('/api/admin/create-comped-agent', async (req, res) => {
   } catch (e) { console.error('[create-comped-agent]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// Admin-only: a fresh set-password link for an existing agent, returned here
+// and NOT emailed, so JohnMark can text it (2026-11-16: an invited agent wanted
+// his link by text). Issuing it retires any earlier unused link for that
+// address (passwordReset.issueResetToken), so only the newest one works. Same
+// lifetime as the invite link.
+app.post('/api/admin/set-password-link', async (req, res) => {
+  try {
+    const admin = await store.getUser(req.session.userId);
+    if (!admin || admin.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const user = await store.getUserByEmail(email);
+    if (!user) return res.status(404).json({ error: 'No account with that email' });
+    if (user.role === 'admin') return res.status(400).json({ error: 'Not for an admin account' });
+    const ttl = pwReset.agentInviteTtlMs();
+    const { token, expiresAt } = await pwReset.issueResetToken(store.pool, { email, ttlMs: ttl });
+    await store.pool.query('UPDATE users SET password_reset_required=TRUE WHERE id=$1', [user.id]).catch(() => {});
+    console.log('[admin] set-password link issued (not emailed) for', user.id);
+    res.json({ ok: true, userId: user.id, name: user.name || null, email, resetUrl: pwReset.resetUrl(process.env.APP_URL, token), expiresAt });
+  } catch (e) { console.error('[admin/set-password-link]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // Admin-only: create a comped ATHLETE account, the mirror of the route above.
 // For handing someone free access BEFORE they sign up -- comping an existing
 // athlete cannot help if there is no athlete yet.
