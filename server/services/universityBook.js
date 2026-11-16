@@ -48,6 +48,11 @@ async function ensureTables(pool) {
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS university_bookings_university_idx ON university_bookings (university_id, created_at DESC)`);
+  // THE SCHOOL'S OWN NIL MARKETPLACE (Opendorse, INFLCR, its own page): where
+  // a booked business goes to set up and pay the deal. NILDash brings the
+  // business; the deal runs in the system the school already uses.
+  await pool.query(`ALTER TABLE universities ADD COLUMN IF NOT EXISTS nil_marketplace_name TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE universities ADD COLUMN IF NOT EXISTS nil_marketplace_url TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE university_teams ADD COLUMN IF NOT EXISTS nil_rate_cents INTEGER`).catch(() => {});
   await pool.query(`ALTER TABLE university_teams ADD COLUMN IF NOT EXISTS nil_rate_what TEXT`).catch(() => {});
 }
@@ -60,7 +65,9 @@ const SEASON_ORDER = { Fall: 1, Winter: 2, Spring: 3 };
 async function page(pool, slug) {
   const id = idOf(slug);
   if (!id) return null;
-  const u = (await pool.query(`SELECT id, name, short_name, location FROM universities WHERE id = $1`, [id])).rows[0];
+  const u = (await pool.query(`SELECT id, name, short_name, location,
+      to_jsonb(universities)->>'nil_marketplace_name' AS mp_name, to_jsonb(universities)->>'nil_marketplace_url' AS mp_url
+      FROM universities WHERE id = $1`, [id])).rows[0];
   if (!u) return null;
   const teams = (await pool.query(
     `SELECT t.id, t.name, t.sport, t.season,
@@ -69,7 +76,8 @@ async function page(pool, slug) {
     .sort((a, b) => (SEASON_ORDER[a.season] || 4) - (SEASON_ORDER[b.season] || 4) || a.name.localeCompare(b.name))
     .map((t) => ({ id: t.id, name: t.name, season: t.season || null,
       rate: t.nil_rate_cents > 0 ? { cents: t.nil_rate_cents, price: money(t.nil_rate_cents), what: t.nil_rate_what || '' } : null }));
-  return { school: { name: u.name, short: u.short_name || u.name, location: u.location || null }, teams };
+  return { school: { name: u.name, short: u.short_name || u.name, location: u.location || null }, teams,
+    marketplace: u.mp_url ? { name: u.mp_name || 'our NIL marketplace', url: u.mp_url } : null };
 }
 
 // A business books. -> { ok, id } or { ok:false, status, error }.
@@ -140,6 +148,69 @@ async function setStatus(pool, universityId, bookingId, status) {
   return r.rowCount ? { ok: true } : { ok: false, error: 'no such booking' };
 }
 
+// ── WORKING ALONGSIDE THE SCHOOL'S TOOLS ────────────────────────────────────
+// The marketplace link, set by staff. Only an https address is kept.
+async function marketplace(pool, universityId) {
+  const r = (await pool.query(`SELECT to_jsonb(universities)->>'nil_marketplace_name' AS name, to_jsonb(universities)->>'nil_marketplace_url' AS url
+                                 FROM universities WHERE id = $1`, [universityId])).rows[0] || {};
+  return r.url ? { name: r.name || null, url: r.url } : null;
+}
+async function setMarketplace(pool, universityId, { name, url }) {
+  const n = clean(name, 60);
+  let u = clean(url, 500);
+  if (!u) {
+    await pool.query(`UPDATE universities SET nil_marketplace_name = NULL, nil_marketplace_url = NULL WHERE id = $1`, [universityId]);
+    return { ok: true, marketplace: null };
+  }
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  let parsed;
+  try { parsed = new URL(u); } catch (_) { return { ok: false, error: 'That link does not look right.' }; }
+  if (parsed.protocol !== 'https:' || !/\./.test(parsed.hostname)) return { ok: false, error: 'Use the https link to your marketplace page.' };
+  await pool.query(`UPDATE universities SET nil_marketplace_name = $1, nil_marketplace_url = $2 WHERE id = $3`, [n || null, parsed.href, universityId]);
+  return { ok: true, marketplace: { name: n || null, url: parsed.href } };
+}
+
+// The deal, written the way a marketplace and NIL Go ask for it: who pays,
+// who does the work, what they do, for how much, and when. The office pastes
+// it in instead of typing it. Plain text; no athlete is named here, the office
+// adds the players who said yes.
+function summary(b, school) {
+  return [
+    `NIL deal request: ${school || 'our athletes'}`,
+    `Business (pays the athletes): ${b.business}`,
+    `Contact: ${[b.contact, b.email, b.phone].filter(Boolean).join(', ') || 'none given'}`,
+    `Team: ${b.team || 'not chosen'}`,
+    `What the athletes do: ${b.deal || 'to be agreed (the business asked for options)'}`,
+    `Total paid to the athletes: ${b.cents ? money(b.cents) : 'to be agreed'}`,
+    `When: ${b.dates || 'to be agreed'}`,
+    b.note ? `Note from the business: ${b.note}` : null,
+    `Booked: ${new Date(b.at).toISOString().slice(0, 10)} through the NILDash booking page`,
+    `Athletes: the players who opt in (added by the NIL office)`,
+  ].filter(Boolean).join('\n');
+}
+
+// Every deal and every booking, one row each, for Teamworks, a spreadsheet or
+// the AD's report. CSV, Excel-safe (a cell starting = + - @ is quoted with a
+// leading apostrophe so it never runs as a formula).
+async function exportRows(pool, universityId) {
+  const deals = (await pool.query(
+    `SELECT d.signed_on, d.created_at, d.brand, t.name AS team, d.athlete_name, d.value_cents, d.description
+       FROM university_deals d LEFT JOIN university_teams t ON t.id = d.team_id
+      WHERE d.university_id = $1 ORDER BY COALESCE(d.signed_on, d.created_at::date) DESC`, [universityId]).catch(() => ({ rows: [] }))).rows
+    .map((d) => ({ date: String(d.signed_on ? new Date(d.signed_on).toISOString() : new Date(d.created_at).toISOString()).slice(0, 10), kind: 'Deal done', business: d.brand,
+      team: d.team || '', athlete: d.athlete_name || '', amount: d.value_cents == null ? '' : (d.value_cents / 100).toFixed(2), what: d.description || '', when: '', contact: '' }));
+  const bookings = (await list(pool, universityId)).map((b) => ({ date: new Date(b.at).toISOString().slice(0, 10), kind: 'Booked from link', business: b.business,
+    team: b.team || '', athlete: '', amount: b.cents ? (b.cents / 100).toFixed(2) : '', what: b.deal || 'Asked for options', when: b.dates || '',
+    contact: [b.contact, b.email, b.phone].filter(Boolean).join(', ') }));
+  return deals.concat(bookings).sort((a, z) => z.date.localeCompare(a.date));
+}
+function toCsv(rows) {
+  const head = ['Date', 'Type', 'Business', 'Team', 'Athlete', 'Amount (USD)', 'What the athletes do', 'When', 'Contact'];
+  const keys = ['date', 'kind', 'business', 'team', 'athlete', 'amount', 'what', 'when', 'contact'];
+  const cell = (v) => { let s = String(v == null ? '' : v); if (/^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  return [head.join(',')].concat(rows.map((r) => keys.map((k) => cell(r[k])).join(','))).join('\r\n') + '\r\n';
+}
+
 // Five bookings from one address in ten minutes is plenty for a person.
 const HITS = new Map();
 function allow(ip, now = Date.now()) {
@@ -151,4 +222,4 @@ function allow(ip, now = Date.now()) {
   return true;
 }
 
-module.exports = { ensureTables, page, book, list, setStatus, bookUrl, slugOf, idOf, allow, money };
+module.exports = { ensureTables, page, book, list, setStatus, bookUrl, slugOf, idOf, allow, money, marketplace, setMarketplace, summary, exportRows, toCsv };

@@ -33,7 +33,7 @@ input.t,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);borde
 textarea{min-height:80px;resize:vertical}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
 @media (max-width:560px){.row{grid-template-columns:1fr}h1{font-size:32px}}
-button.go{margin-top:18px;width:100%;background:var(--accent);color:var(--accent-ink);border:0;border-radius:12px;padding:15px;font:inherit;font-weight:700;font-size:17px;cursor:pointer}
+button.go,a.go{margin-top:18px;width:100%;background:var(--accent);color:var(--accent-ink);border:0;border-radius:12px;padding:15px;font:inherit;font-weight:700;font-size:17px;cursor:pointer}
 button.go:disabled{opacity:.6;cursor:default}
 .err{color:var(--err);font-size:14px;margin-top:10px;min-height:1em}
 .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
@@ -59,8 +59,11 @@ footer b{color:var(--ink)}
     const d = S.data, sch = d.school;
     document.title = `Book ${sch.short} athletes`;
     if (S.done) {
+      const mp = d.marketplace;
       app.innerHTML = `<div class="card done"><h2>Sent.</h2><p>The ${esc(sch.name)} NIL office has your request and will get back to you to set the terms.</p>
-        <p class="muted">The deal is set up and paid through the school's NIL marketplace.</p></div>${foot(sch)}`;
+        ${mp ? `<p><b>One step now:</b> set up your business on ${esc(mp.name)}, where ${esc(sch.short)} sets up and pays every NIL deal. The office will send your deal there.</p>
+          <a class="go" style="display:block;text-decoration:none;text-align:center;line-height:1.2" href="${esc(mp.url)}" target="_blank" rel="noopener">Open ${esc(mp.name)}</a>`
+          : `<p class="muted">The deal is set up and paid through the school's NIL marketplace.</p>`}</div>${foot(sch)}`;
       return;
     }
     const t = teamOf(S.team);

@@ -682,6 +682,15 @@ function paintNav(){
    need deals most, and Athlete Deals. One read (/api/university/market/today,
    services/universityToday), scoped to this university. */
 const TD = { loaded:false, loading:false, failed:false, data:null };
+const MP = { edit:false };
+async function mpSave(btn){
+  if (btn) btn.disabled = true;
+  const r = await fetch("/api/university/market/marketplace", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ name: ($("mpName") || {}).value || "", url: ($("mpUrl") || {}).value || "" }) });
+  let b = {}; try { b = await r.json() } catch (_) {}
+  if (!r.ok){ toast(b.error || "Could not save that. Try again."); if (btn) btn.disabled = false; return }
+  MP.edit = false; toast(b.marketplace ? "Saved. Booked businesses are sent there next." : "Cleared."); TD.loaded = false; tdLoad();
+}
 async function bookSeen(id, btn){
   if (btn) btn.disabled = true;
   const r = await fetch("/api/university/market/booking/status", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ id, status:"seen" }) });
@@ -742,7 +751,8 @@ function vToday(){
           <span class="ago">${esc(ago(b.at))}</span>
           <span class="st" style="flex:1 1 100%">${b.cents ? esc(b.deal || "") + " · " + dollars(b.cents) : "Asked for options with prices"}${b.dates ? " · When: " + esc(b.dates) : ""}</span>
           <span class="st" style="flex:1 1 100%">${esc(b.contact || "")}${b.email ? ` · <a href="mailto:${esc(b.email)}">${esc(b.email)}</a>` : ""}${b.phone ? ` · <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>` : ""}${b.note ? " · " + esc(b.note) : ""}</span>
-          ${ro ? "" : `<button type="button" class="btn ghost xs" data-bookseen="${b.id}">Got it</button>`}</div>`).join("")}</div>
+          <span style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn ghost xs" data-copytext="${esc(b.summary || "")}">Copy deal summary</button>
+          ${ro ? "" : `<button type="button" class="btn ghost xs" data-bookseen="${b.id}">Got it</button>`}</span></div>`).join("")}</div>
     </div>` : ""}
     <div class="kpi-grid">
       <div class="kpi"><span class="kpi-label">PAID TO ATHLETES</span><span class="kpi-val lime">${dollars(DL.cents)}</span><span class="kpi-note">${DL.count} deal${DL.count === 1 ? "" : "s"} logged${DL.monthCount ? `, ${DL.monthCount} this month` : ""}</span></div>
@@ -781,6 +791,20 @@ function vToday(){
         <a class="btn ghost sm" style="text-decoration:none" href="${esc(BK.url)}" target="_blank" rel="noopener">Open it</a>
         <a class="btn ghost sm" style="text-decoration:none" href="/api/university/market/booking-qr.svg?download=1">Download QR code</a>
       </div>
+    </div>
+    <div class="panel">
+      <h3>Your NIL marketplace</h3>
+      <p class="lede" style="font-size:13px">NILDash brings the business. The deal runs in the marketplace you already use. When a business books, it is sent to this page next to set up and pay the deal, and every booking comes with a deal summary you can paste in.</p>
+      ${BK.marketplace && !MP.edit ? `<div class="toolrow" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+          <span class="b">${esc(BK.marketplace.name || "Your marketplace")}</span>
+          <a href="${esc(BK.marketplace.url)}" target="_blank" rel="noopener" style="word-break:break-all">${esc(BK.marketplace.url)}</a>
+          ${ro ? "" : `<button type="button" class="btn ghost xs" data-mpedit>Change</button>`}</div>`
+        : ro ? `<p class="lede">Not set yet.</p>` : `<div class="toolrow" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+          <input class="inp sm" id="mpName" placeholder="Name, e.g. Opendorse" value="${esc((BK.marketplace && BK.marketplace.name) || "")}" style="max-width:200px">
+          <input class="inp sm" id="mpUrl" placeholder="Link to your marketplace page" value="${esc((BK.marketplace && BK.marketplace.url) || "")}" style="min-width:280px;flex:1">
+          <button type="button" class="btn go sm" data-mpsave>Save</button></div>`}
+      <div class="toolrow" style="margin-top:12px"><a class="btn ghost sm" style="text-decoration:none" href="/api/university/market/deals-export.csv">Download every deal and booking (CSV)</a>
+        <span class="kpi-note">For Teamworks, a spreadsheet or your AD report.</span></div>
     </div>` : ""}
     <div class="howto">
       <div><b>NILDash finds the business</b>Every night, near campus, matched to each team.</div>
@@ -1396,8 +1420,10 @@ async function findOwnerFor(id, btn){
   paint();
 }
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore],[data-tdretry],[data-pgmove],[data-rateedit],[data-ratesave],[data-bookseen]");
+  const t = e.target.closest("[data-goto],[data-inv],[data-do],[data-signout],[data-retry],[data-copy],[data-copytext],[data-mark],[data-sent],[data-pitch],[data-pickteam],[data-close],[data-findowner],[data-hometeam],[data-homeall],[data-atrefresh],[data-atset],[data-atcopy],[data-atsent],[data-atsport],[data-atmore],[data-tdretry],[data-pgmove],[data-rateedit],[data-ratesave],[data-bookseen],[data-mpedit],[data-mpsave]");
   if (!t) return;
+  if (t.dataset.mpedit !== undefined){ MP.edit = true; paint(); return }
+  if (t.dataset.mpsave !== undefined){ mpSave(t); return }
   if (t.dataset.bookseen !== undefined){ bookSeen(t.dataset.bookseen, t); return }
   if (t.dataset.rateedit !== undefined){ RATE.open = t.dataset.rateedit; paint(); return }
   if (t.dataset.ratesave !== undefined){ rateSave(t.dataset.ratesave, t); return }
