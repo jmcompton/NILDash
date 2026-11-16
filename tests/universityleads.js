@@ -107,16 +107,23 @@ async function main() {
     // ── 1. HOME WITH LEADS ──────────────────────────────────────────────────
     OUT.push('-- Home: this morning\'s leads --');
     const { page, errors } = await signIn('ul-xavier@ul.test');
+    // TODAY (2026-11-16, services/universityToday) is where the office lands;
+    // the leads moved one click over, to Approve.
+    const today = await page.evaluate(() => ({ crumb: document.getElementById('crumbNow').textContent, text: document.getElementById('view').innerText,
+      pill: ((document.querySelector('#nav1 [data-goto="home"] .pill') || {}).textContent || '') }));
+    ok('Today first: the leads waiting, counted, with a button to them', today.crumb === 'Today' && /3 deals are written and waiting on you/.test(today.text)
+      && /Review and send \(3\)/.test(today.text) && today.pill === '3', today);
+    await page.click('#nav1 [data-goto="home"]'); await page.waitForTimeout(300);
     const home = await page.evaluate(() => ({
       crumb: document.getElementById('crumbNow').textContent, h1: (document.querySelector('.head h1') || {}).textContent || '',
       teams: [...document.querySelectorAll('.teamhead h3')].map((h) => h.textContent), leads: document.querySelectorAll('.lead').length,
       kpi: [...document.querySelectorAll('.kpi')].map((k) => k.innerText.replace(/\s+/g, ' ')), text: document.getElementById('view').innerText,
       mailto: (document.querySelector('.lead a[href^="mailto:"][data-sent]') || {}).href || '',
     }));
-    ok('Home is where Xavier lands, and it says what NILDash does in one sentence', home.crumb === 'Home' && /Sponsor leads for Lead Test College Athletics/.test(home.h1)
+    ok('Home is where Xavier lands, and it says what NILDash does in one sentence', home.crumb === 'Approve' && /Approve: deals for Lead Test College Athletics/.test(home.h1)
       && /finds the person who decides, and writes the first email for you/.test(home.text) && /Nothing goes out without you/.test(home.text), home.h1);
     ok('  the numbers: 3 leads this morning for two teams, 12 businesses near campus, 8 with a named person, 2 teams',
-      /LEADS THIS MORNING 3 for two teams/.test(home.kpi[0]) && /BUSINESSES NEAR CAMPUS 12/.test(home.kpi[1]) && /WITH A NAMED PERSON 8/.test(home.kpi[2]) && /YOUR TEAMS 2/.test(home.kpi[3]), home.kpi);
+      /WAITING ON YOU 3 for two teams/.test(home.kpi[0]) && /BUSINESSES NEAR CAMPUS 12/.test(home.kpi[1]) && /WITH A NAMED PERSON 8/.test(home.kpi[2]) && /YOUR TEAMS 2/.test(home.kpi[3]), home.kpi);
     ok('  three steps, in plain words', /1\. Read the lead/.test(home.text) && /2\. Send the email/.test(home.text) && /3\. Mark it contacted/.test(home.text));
     // THE TEAM PICKER (since cd3761b): Home opens on the best leads across
     // every team, and each team's own leads are one click away.
@@ -178,6 +185,9 @@ async function main() {
     // ── 3. A DEPARTMENT WITH NO LEADS YET ──────────────────────────────────
     OUT.push('', '-- a department with no leads yet --');
     const q = await signIn('ul-b@ul.test');
+    const qToday = await q.page.evaluate(() => document.getElementById('view').innerText);
+    ok('Today says nothing waits yet and when pitches come', /Nothing is waiting on you right now/.test(qToday) && /The first pitches arrive after your department's first nightly run/.test(qToday), qToday.slice(0, 300));
+    await q.page.click('#nav1 [data-goto="home"]'); await q.page.waitForTimeout(300);
     const qt = await q.page.evaluate(() => document.getElementById('view').innerText);
     ok('it says no leads yet and when they come, and shows the nearest businesses with a named person',
       /No leads written yet/.test(qt) && /nightly run writes a few leads for every team/.test(qt) && /Quiet Cafe 0/.test(qt) && /Sam Hill/.test(qt), qt.slice(0, 500));
