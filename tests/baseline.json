@@ -37,6 +37,11 @@
       "total": 10,
       "fault": null
     },
+    "adminlink.js": {
+      "failed": 0,
+      "total": 6,
+      "fault": null
+    },
     "adminscripts.js": {
       "failed": 0,
       "total": 104,
