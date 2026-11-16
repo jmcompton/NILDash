@@ -1982,6 +1982,18 @@ app.get('/api/onboarding/check-school', requireAuth, async (req, res) => {
 // belongs beside the button, not on a separate fetch that can arrive late.
 // Measured: Home reloads after every approve, and a slow reload reads as a
 // frozen card (services/sendTimings). Only loads over 1.5s are kept.
+// ── THE INBOX (services/inbox) ──────────────────────────────────────────────
+// Every reply a business sent this agent, with the pitch it answered. Read
+// only: answering opens the thread in the agent's own mailbox.
+app.get('/api/agent/inbox', requireAuth, async (req, res) => {
+  try {
+    res.json(await require('./services/inbox').list(store.pool, req.session.userId));
+  } catch (e) {
+    console.error('[inbox]', e.message);
+    res.status(500).json({ error: 'Could not load your replies. Try again in a minute.' });
+  }
+});
+
 app.get('/api/agent/home', requireAuth, require('./services/sendTimings').middleware('agent/home', { minMs: 1500 }), async (req, res) => {
   try {
     const Home = require('./services/homeQueue');
