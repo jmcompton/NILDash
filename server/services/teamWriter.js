@@ -316,6 +316,7 @@ function reviewPrompt(parsed, ctx) {
 
 FACTS:
 ${facts(ctx)}${rate ? `\nTHE DEAL THE SCHOOL OFFERS: ${rate.what}\nPRICE SET BY THE SCHOOL: ${money(rate.priceCents)}` : ''}
+${officeFacts(kind, rate)}
 
 EMAIL:
 SUBJECT: ${parsed.subject}
@@ -325,6 +326,23 @@ RULES:
 ${rules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 Reply with JSON only, no other text: {"pass": true or false, "problems": ["the rule number and what is wrong, in one short sentence", ...]}`;
+}
+// WHAT THE WRITER WAS TOLD TO SAY (2026-11-17). The writer's prompt tells it
+// to say the deal is set up and paid through the school's NIL marketplace, that
+// the office sends options when no price is set, and that it may give the
+// general reasons (near campus, home games bring students and families by).
+// The reviewer was never told those were true, so a strict reviewer failed them
+// as invented: Cypress, Nov 17, 8 of 30 cards, six teams with none. These are
+// the office's own facts, given to the reviewer so it judges the same email the
+// writer was asked for. Claims about THE BUSINESS still need the FACTS.
+function officeFacts(kind, rate) {
+  const L = ['FROM THE OFFICE (true, not invented; the writer was told to say these):',
+    '- Saying the business is close to campus, or that home games bring students and families nearby, is a general reason the office gave. It is not an invented fact about the business.'];
+  if (kind === 'pitch') {
+    L.push("- The deal is set up and paid through the school's NIL marketplace.");
+    if (!rate) L.push('- The office sends a few options with prices when the business replies.');
+  }
+  return L.join('\n');
 }
 function parseReview(raw) {
   const m = String(raw || '').match(/\{[\s\S]*\}/);
@@ -374,4 +392,4 @@ async function writeAsk(ctx, opts = {}) {
   return { ok: false, error: 'refused after retry: ' + lastWhy, reviews };
 }
 
-module.exports = { writeAsk, buildPrompt, checkAsk, parse, compose, money, facts, kindOf, rateFor, dealAsk, reviewPrompt, parseReview, SPONSORSHIP, MODEL, REVIEW_MODEL, SYSTEM, SYSTEM_PITCH, COINCIDENCE };
+module.exports = { writeAsk, buildPrompt, checkAsk, parse, compose, money, facts, kindOf, rateFor, dealAsk, reviewPrompt, parseReview, officeFacts, SPONSORSHIP, MODEL, REVIEW_MODEL, SYSTEM, SYSTEM_PITCH, COINCIDENCE };
