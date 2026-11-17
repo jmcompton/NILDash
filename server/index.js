@@ -1273,6 +1273,25 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true, home: require('./services/publicHome').ON() ? '/' : null });
 });
 
+// ── NIL GO, MADE EASY (services/nilGo) ──────────────────────────────────────
+// The agent's signed deals with their 5-business-day deadline, the facts NIL Go
+// asks for, and where each one stands. NIL Go takes no outside submissions;
+// this prepares and tracks.
+app.get('/api/nilgo', requireAuth, async (req, res) => {
+  try {
+    const NG = require('./services/nilGo');
+    const deals = await NG.list(store.pool, req.session.userId);
+    res.set('Cache-Control', 'no-store').json({ deals, summary: NG.summary(deals), threshold: NG.THRESHOLD });
+  } catch (e) { console.error('[nilgo]', e.message); res.status(500).json({ error: 'Could not load NIL Go deals.' }); }
+});
+app.post('/api/nilgo/:dealId', requireAuth, async (req, res) => {
+  try {
+    const out = await require('./services/nilGo').update(store.pool, req.session.userId, req.params.dealId, req.body || {});
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    res.json(out);
+  } catch (e) { console.error('[nilgo/update]', e.message); res.status(500).json({ error: 'Could not save that.' }); }
+});
+
 // ── YOUR TEAM (services/teamSeats) ──────────────────────────────────────────
 // Staff logins on one agent account. Priced by athletes, never by people.
 // Invite and remove are owner-only (the guard above refuses a member).

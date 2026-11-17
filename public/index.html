@@ -1877,6 +1877,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('pipeline',this)">
         <span class="nav-dot-item"></span>Pipeline
       </button>
+      <button class="nav-item" id="nilgoNavBtn" onclick="showView('nilgo',this)">
+        <span class="nav-dot-item"></span>NIL Go
+        <span id="nilgo-badge" style="display:none;margin-left:6px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:9999px;padding:1px 6px;line-height:1.6;vertical-align:middle"></span>
+      </button>
       <button class="nav-item" onclick="showView('roster',this)">
         <span class="nav-dot-item"></span>My Roster
       </button>
@@ -3406,6 +3410,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- ══ NIL GO (services/nilGo) ══ Every signed deal, its 5-business-day
+           deadline, the facts NIL Go asks for ready to copy, and where it stands. -->
+      <div id="view-nilgo" class="view">
+        <div style="max-width:880px">
+          <div style="font-size:14px;color:#9CA3AF;line-height:1.55;margin-bottom:14px">Every Division I athlete reports each outside NIL deal worth $600 or more to NIL Go within 5 business days of signing. The athlete files it, or one representative they name. Everything NIL Go asks for is laid out here to copy, with the deadline and where each deal stands. Weekends are not counted; holidays are, so file early around them.
+            <a href="https://nilgo.com" target="_blank" rel="noopener" style="color:#84CC16;font-weight:600;margin-left:4px">Open NIL Go</a></div>
+          <div id="nilgo-list"><div style="color:#6B7280;font-size:13px">Loading...</div></div>
         </div>
       </div>
 
@@ -8468,6 +8482,92 @@ if (document.readyState === 'loading') {
   applyProgramsFlag();
 }
 
+// ── NIL GO TAB (services/nilGo) ──────────────────────────────────────────────
+var NILGO = { deals: [] };
+function ngEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+function ngDue(d) {
+  var day = new Date(d.deadline).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if (d.status !== 'to_file') return 'Deadline was ' + day;
+  if (d.overdue) return '<span style="color:#F87171;font-weight:700">Overdue by ' + Math.abs(d.daysLeft) + ' day' + (Math.abs(d.daysLeft) === 1 ? '' : 's') + ' (due ' + day + ')</span>';
+  if (d.daysLeft === 0) return '<span style="color:#FBBF24;font-weight:700">Due today</span>';
+  return '<span style="color:' + (d.dueSoon ? '#FBBF24' : '#9CA3AF') + '">Due ' + day + ', ' + d.daysLeft + ' day' + (d.daysLeft === 1 ? '' : 's') + ' left</span>';
+}
+function ngBadge(sum) {
+  var b = document.getElementById('nilgo-badge'); if (!b) return;
+  var n = (sum && sum.toFile) || 0;
+  b.style.display = n ? 'inline-block' : 'none'; b.textContent = n;
+  b.style.background = sum && sum.overdue ? '#ef4444' : '#d97706';
+}
+async function loadNilGo() {
+  var el = document.getElementById('nilgo-list'); if (!el) return;
+  try {
+    var r = await fetch('/api/nilgo', { credentials: 'same-origin' });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'could not load');
+    NILGO.deals = d.deals || []; ngBadge(d.summary); ngRender();
+  } catch (e) { el.innerHTML = '<div style="color:#F87171;font-size:13px">Could not load NIL Go deals: ' + ngEsc(e.message) + ' <button onclick="loadNilGo()" style="margin-left:8px">Try again</button></div>'; }
+}
+function ngRender() {
+  var el = document.getElementById('nilgo-list'); if (!el) return;
+  var deals = NILGO.deals;
+  if (!deals.length) { el.innerHTML = '<div style="padding:18px;border:1px solid #1e2a3a;border-radius:10px;color:#9CA3AF;font-size:13.5px">No signed deals yet. When a deal is marked signed in the Pipeline, it shows up here with its NIL Go deadline.</div>'; return; }
+  var order = { to_file: 0, returned: 1, filed: 2, not_cleared: 3, cleared: 4, not_needed: 5 };
+  deals = deals.slice().sort(function (a, b) { return (order[a.status] - order[b.status]) || (a.daysLeft - b.daysLeft); });
+  el.innerHTML = deals.map(function (d) {
+    var pillColor = { to_file: '#d97706', filed: '#3B82F6', cleared: '#22C55E', returned: '#F59E0B', not_cleared: '#EF4444', not_needed: '#6B7280' }[d.status];
+    var assoc = '<div style="margin-top:12px;font-size:13px;color:#E5E7EB">Is this business tied to the school, a booster or a collective? NIL Go reviews those deals more closely.'
+      + '<div style="margin-top:6px">' + [['no', 'No'], ['yes', 'Yes'], ['unsure', 'Not sure']].map(function (o) {
+        var on = d.associated === o[0];
+        return '<button onclick="ngSave(' + d.id + ',{associated:\'' + o[0] + '\'})" style="margin-right:6px;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ' + (on ? '#84CC16' : '#374151') + ';background:' + (on ? 'rgba(132,204,22,.15)' : 'transparent') + ';color:' + (on ? '#84CC16' : '#D1D5DB') + '">' + o[1] + '</button>';
+      }).join('') + '</div></div>';
+    var amount = d.needsAmount ? '<div style="margin-top:12px;font-size:13px;color:#FBBF24">Add the total amount (bonuses and royalties included) to know if NIL Go applies: '
+      + '<input id="ng-amt-' + d.id + '" placeholder="$" style="width:110px;margin:0 6px;padding:5px 8px;border-radius:6px;border:1px solid #374151;background:#0b1220;color:#fff">'
+      + '<button onclick="ngSave(' + d.id + ',{value:document.getElementById(\'ng-amt-' + d.id + '\').value})" style="padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer">Save</button></div>' : '';
+    var fields = '<div style="margin-top:12px;border-top:1px solid #1e2a3a">' + d.fields.map(function (f, i) {
+      return '<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #1e2a3a;font-size:13px">'
+        + '<div style="width:230px;flex-shrink:0;color:#9CA3AF">' + ngEsc(f.label) + '</div>'
+        + '<div style="flex:1;min-width:0;color:' + (f.value ? '#F3F4F6' : '#6B7280') + '">' + (f.value ? ngEsc(f.value) : 'Not on file') + '</div>'
+        + (f.value ? '<button onclick="ngCopy(' + d.id + ',' + i + ',this)" style="flex-shrink:0;padding:3px 9px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid #374151;background:transparent;color:#D1D5DB">Copy</button>' : '')
+        + '</div>';
+    }).join('') + '</div>'
+      + '<div style="font-size:12px;color:#9CA3AF;margin-top:8px">' + (d.hasContract ? 'A contract was drafted in NILDash; upload the signed copy to NIL Go.' : 'Upload the signed contract to NIL Go.') + ' Proof the athlete delivered (posts, appearances) helps if NIL Go asks.</div>';
+    var acts = [['filed', 'I filed it'], ['cleared', 'Cleared'], ['returned', 'Sent back'], ['not_cleared', 'Not cleared'], ['not_needed', 'Not needed']].map(function (o) {
+      var on = d.status === o[0];
+      return '<button onclick="ngSave(' + d.id + ',{status:\'' + o[0] + '\'})" style="margin:0 6px 6px 0;padding:6px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ' + (on ? pillColor : '#374151') + ';background:' + (on ? 'rgba(255,255,255,.06)' : 'transparent') + ';color:' + (on ? '#fff' : '#D1D5DB') + '">' + o[1] + '</button>';
+    }).join('');
+    var help = d.status === 'not_cleared' ? '<div style="font-size:12.5px;color:#FCA5A5;margin-top:6px">Options: revise and resubmit with the business, cancel and refund any money received, or appeal to neutral arbitration.</div>'
+      : d.status === 'returned' ? '<div style="font-size:12.5px;color:#FCD34D;margin-top:6px">NIL Go sent guidance. Make the changes with the business and resubmit.</div>' : '';
+    return '<div style="border:1px solid #1e2a3a;border-radius:12px;padding:16px 18px;margin-bottom:14px;background:#0b1220">'
+      + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="font-size:16px;font-weight:700;color:#fff">' + ngEsc(d.athlete) + ' &middot; ' + ngEsc(d.brand) + '</div>'
+      + (d.value != null ? '<div style="color:#D1D5DB;font-size:14px">$' + Number(d.value).toLocaleString('en-US') + '</div>' : '')
+      + '<span style="margin-left:auto;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:' + pillColor + '22;color:' + pillColor + '">' + ngEsc(d.statusLabel) + '</span></div>'
+      + '<div style="font-size:13px;margin-top:4px">' + ngDue(d) + '</div>'
+      + amount + assoc + fields
+      + '<div style="margin-top:12px">' + acts + '</div>' + help
+      + '</div>';
+  }).join('');
+}
+function ngCopy(id, i, btn) {
+  var d = NILGO.deals.find(function (x) { return x.id === id; }); if (!d) return;
+  var v = d.fields[i] && d.fields[i].value; if (!v) return;
+  try { navigator.clipboard.writeText(v).then(function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1200); }); } catch (e) {}
+}
+async function ngSave(id, body) {
+  try {
+    var r = await fetch('/api/nilgo/' + id, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'could not save');
+    await loadNilGo();
+  } catch (e) {
+    var el = document.getElementById('nilgo-list');
+    if (el) el.insertAdjacentHTML('afterbegin', '<div style="color:#F87171;font-size:13px;margin-bottom:10px">Not saved: ' + ngEsc(e.message) + '</div>');
+  }
+}
+// The tab's badge (deals to file; red when one is late), refreshed with Home.
+async function ngRefreshBadge() {
+  try { var r = await fetch('/api/nilgo', { credentials: 'same-origin' }); if (!r.ok) return; var d = await r.json(); ngBadge(d.summary); } catch (e) {}
+}
+
 async function showView(id, btn) {
   // The button is hidden, so this is the direct-hit case: a bookmark, a stale
   // link, or anything else still calling showView('programs'). Home, not a dead
@@ -8499,7 +8599,7 @@ async function showView(id, btn) {
   if (btn) btn.classList.add('active');
   const labels = { home:'Home', command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
     marketing:'Media Kit',
-    negotiate:'Negotiation Intel', brands:'My Brands', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', 'shift-detail':'What your team did', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
+    negotiate:'Negotiation Intel', brands:'My Brands', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', nilgo:'NIL Go', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', 'shift-detail':'What your team did', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   // An athlete has one client -- herself -- so the ACTIVE CLIENT bar never applies.
   // Checked HERE as well as at boot because this line runs on every view change and
@@ -8508,6 +8608,7 @@ async function showView(id, btn) {
     && !(typeof isAthleteMode === 'function' && isAthleteMode());
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
+  if (id === 'nilgo') loadNilGo();
   if (id === 'brands') { try { mbLoad(); } catch (e) {} }
   if (id === 'calendar') { if (window.NILCal) NILCal.initLabel(); loadCalendar(); initAgentGCalStatus(); }
   if (id === 'analytics') loadAnalytics();
@@ -22129,6 +22230,7 @@ async function hqLoad(athleteId) {
     HQ.data = d; HQ.selected = d.selected;
     hqRender();
     loadHomeResults();
+    ngRefreshBadge();
   } catch (e) {
     // Says what broke and offers the retry. Never an empty page, which reads
     // as "no work today" when it means "the request failed".
