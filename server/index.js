@@ -7410,6 +7410,38 @@ app.get('/api/athlete/stripe-complete', async (req, res) => {
 // engagement numbers from then on. Athlete page, OAuth, Meta's deauthorize and
 // data-deletion callbacks, and the agent's invite/status/sync endpoints.
 require('./routes/instagram').mount(app, { store, requireAuth });
+// The admin makes an athlete's Instagram connect link for their agent, when
+// NILDash promised the agent the links (the agent still owns the athlete; the
+// invite is recorded under that agent). Body: { agentEmail, athletes: [names] }
+// or { athleteId }. -> { links: [{ athlete, url, expiresAt }] }
+app.post('/api/admin/instagram-invites', async (req, res) => {
+  try {
+    const admin = await store.getUser(req.session.userId);
+    if (!admin || admin.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const IG = require('./services/instagramConnect');
+    const b = req.body || {};
+    let rows = [];
+    if (b.athleteId) {
+      rows = (await store.pool.query(`SELECT id, agent_id, data->>'name' AS name FROM athletes WHERE id = $1`, [String(b.athleteId)])).rows;
+    } else {
+      const agent = (await store.pool.query(`SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND role = 'agent'`, [String(b.agentEmail || '').trim()])).rows[0];
+      if (!agent) return res.status(404).json({ error: 'No agent with that email' });
+      const names = (Array.isArray(b.athletes) ? b.athletes : []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean).slice(0, 30);
+      if (!names.length) return res.status(400).json({ error: 'athletes (names) required' });
+      rows = (await store.pool.query(`SELECT id, agent_id, data->>'name' AS name FROM athletes WHERE agent_id = $1 AND LOWER(TRIM(data->>'name')) = ANY($2::text[])`, [agent.id, names])).rows;
+      const found = new Set(rows.map((r) => String(r.name || '').trim().toLowerCase()));
+      var missing = names.filter((n) => !found.has(n));
+    }
+    if (!rows.length) return res.status(404).json({ error: 'No matching athletes', missing: missing || [] });
+    const links = [];
+    for (const r of rows) {
+      const inv = await IG.createInvite(store.pool, { athleteId: r.id, agentId: r.agent_id });
+      links.push({ athlete: r.name, athleteId: r.id, url: inv.url, expiresAt: inv.expiresAt });
+    }
+    console.log('[admin] instagram invites made for', links.map((l) => l.athleteId).join(', '));
+    res.json({ ok: true, links, missing: missing || [] });
+  } catch (e) { console.error('[admin/instagram-invites]', e.message); res.status(500).json({ error: e.message }); }
+});
 
 // ── A DEPARTMENT'S MARKET: SEARCH, CRM, DEALS, PITCHES (routes/campus) ──────
 // Department staff only, scoped to the session's own university.
