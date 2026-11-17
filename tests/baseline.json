@@ -1357,6 +1357,11 @@
       "total": 59,
       "fault": null
     },
+    "schoolsponsors.js": {
+      "failed": 0,
+      "total": 17,
+      "fault": null
+    },
     "scout.js": {
       "failed": 0,
       "total": 61,

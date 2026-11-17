@@ -13943,6 +13943,21 @@ app.get('/admin/results', async (req, res) => {
   } catch (e) { console.error('[admin/results]', e.message); res.status(500).type('text').send('results page failed: ' + e.message); }
 });
 
+// ── WHO ALREADY PAYS EACH PROGRAM (services/schoolSponsors) ─────────────────
+app.get('/admin/school-sponsors', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
+  try { const SS = require('./services/schoolSponsors'); res.set('Cache-Control', 'no-store').type('html').send(SS.renderHtml(await SS.overview(store.pool))); }
+  catch (e) { res.status(500).type('text').send('school sponsors page failed: ' + e.message); }
+});
+// One school now, by hand: POST {school}. Spends two searches and one fast call.
+app.post('/api/admin/school-sponsors/refresh', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const school = String((req.body || {}).school || '').trim().slice(0, 160);
+  if (!school) return res.status(400).json({ error: 'school is required' });
+  try { res.json(await require('./services/schoolSponsors').refresh(store.pool, school, { force: true })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/status', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
   const SP = require('./services/statusPage');
@@ -16995,6 +17010,8 @@ try {
   require('./services/prospector/customerSend').start(store.pool);
   // Done-for-you sending: idle unless AUTO_SEND_ON (services/autoSend).
   require('./services/autoSend').start(store.pool);
+  // Each school's athletics partners page, a few schools a day (services/schoolSponsors).
+  require('./services/schoolSponsors').start(store.pool);
 } catch (e) {
   console.error('[cold-agent] failed to start:', e.message);
 }
