@@ -962,6 +962,11 @@
       "total": 15,
       "fault": null
     },
+    "nilgo.js": {
+      "failed": 0,
+      "total": 25,
+      "fault": null
+    },
     "noagentname.js": {
       "failed": 0,
       "total": 50,
