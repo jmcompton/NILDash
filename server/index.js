@@ -13958,6 +13958,18 @@ app.post('/api/admin/school-sponsors/refresh', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── LAST NIGHT, ATHLETE BY ATHLETE (services/nightReport) ──────────────────
+app.get('/admin/night-report', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
+  try { const NR = require('./services/nightReport'); res.set('Cache-Control', 'no-store').type('html').send(NR.renderHtml(await NR.nights(store.pool, { days: parseInt(req.query.days, 10) || 3 }))); }
+  catch (e) { res.status(500).type('text').send('night report failed: ' + e.message); }
+});
+app.get('/api/admin/night-report', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { const NR = require('./services/nightReport'); const list = await NR.nights(store.pool, { days: parseInt(req.query.days, 10) || 3 }); res.set('Cache-Control', 'no-store').json({ tally: NR.tally(list), nights: list }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/status', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
   const SP = require('./services/statusPage');
