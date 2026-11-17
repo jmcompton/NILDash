@@ -14080,6 +14080,40 @@ app.post('/api/admin/school-sponsors/refresh', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── BRANDS ALREADY PAYING ATHLETES (services/payingBrands) ──────────────────
+app.get('/admin/paying-brands', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
+  try { const PB = require('./services/payingBrands'); res.set('Cache-Control', 'no-store').type('html').send(PB.renderHtml(await PB.overview(store.pool))); }
+  catch (e) { res.status(500).type('text').send('paying brands page failed: ' + e.message); }
+});
+// One school now, by hand: POST {school}. Spends two searches and one fast call.
+app.post('/api/admin/paying-brands/refresh', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const school = String((req.body || {}).school || '').trim().slice(0, 160);
+  if (!school) return res.status(400).json({ error: 'school is required' });
+  try { res.json(await require('./services/payingBrands').refresh(store.pool, school, { force: true })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// What a school would see: brands paying athletes at other schools in its state.
+app.get('/api/admin/paying-brands/school', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const school = String(req.query.school || '').trim().slice(0, 160);
+  if (!school) return res.status(400).json({ error: 'school is required' });
+  try { res.set('Cache-Control', 'no-store').json(await require('./services/payingBrands').forSchool(store.pool, school)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// The agent: brands that paid athletes like this one (same sport, same state first).
+app.get('/api/paying-brands', requireAuth, async (req, res) => {
+  try {
+    const id = String(req.query.athleteId || '').trim();
+    if (!id) return res.status(400).json({ error: 'athleteId is required' });
+    const a = (await store.pool.query(`SELECT data FROM athletes WHERE id = $1 AND agent_id = $2`, [id, req.session.userId])).rows[0];
+    if (!a) return res.status(404).json({ error: 'Athlete not found.' });
+    const d = a.data || {};
+    res.set('Cache-Control', 'no-store').json(await require('./services/payingBrands').forAthlete(store.pool, { school: d.school, sport: d.sport }));
+  } catch (e) { console.error('[paying-brands]', e.message); res.status(500).json({ error: 'Could not load paying brands.' }); }
+});
+
 // ── LAST NIGHT, ATHLETE BY ATHLETE (services/nightReport) ──────────────────
 app.get('/admin/night-report', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
@@ -17146,6 +17180,7 @@ try {
   require('./services/autoSend').start(store.pool);
   // Each school's athletics partners page, a few schools a day (services/schoolSponsors).
   require('./services/schoolSponsors').start(store.pool);
+  require('./services/payingBrands').start(store.pool);
 } catch (e) {
   console.error('[cold-agent] failed to start:', e.message);
 }

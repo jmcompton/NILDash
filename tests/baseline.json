@@ -1072,6 +1072,11 @@
       "total": 42,
       "fault": null
     },
+    "payingbrands.js": {
+      "failed": 0,
+      "total": 22,
+      "fault": null
+    },
     "phonefix.js": {
       "failed": 0,
       "total": 9,
