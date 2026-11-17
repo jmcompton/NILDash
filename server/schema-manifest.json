@@ -514,6 +514,14 @@
       "places": "INTEGER",
       "state": "TEXT"
     },
+    "client_report_offers": {
+      "agent_id": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "result": "JSONB",
+      "sent_at": "TIMESTAMPTZ",
+      "token": "TEXT",
+      "week_start": "DATE"
+    },
     "cold_agent_settings": {
       "id": "INTEGER DEFAULT 1",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
@@ -863,6 +871,20 @@
       "person": "TEXT",
       "verdict": "TEXT",
       "why": "TEXT"
+    },
+    "gifted_deals": {
+      "agent_id": "TEXT",
+      "athlete_id": "TEXT",
+      "brand": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "id": "SERIAL",
+      "notes": "TEXT",
+      "platform": "TEXT",
+      "post_url": "TEXT",
+      "posted": "TEXT",
+      "product": "TEXT",
+      "received_on": "DATE DEFAULT CURRENT_DATE",
+      "retail_value": "NUMERIC"
     },
     "growth_outreach_log": {
       "id": "SERIAL",
@@ -2037,6 +2059,22 @@
       "dismissed_at": "TIMESTAMPTZ DEFAULT NOW()",
       "school": "TEXT"
     },
+    "school_sponsor_runs": {
+      "found": "INTEGER DEFAULT 0",
+      "note": "TEXT",
+      "ran_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "school": "TEXT",
+      "school_key": "TEXT",
+      "url": "TEXT"
+    },
+    "school_sponsors": {
+      "business": "TEXT",
+      "business_key": "TEXT",
+      "found_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "school": "TEXT",
+      "school_key": "TEXT",
+      "source_url": "TEXT"
+    },
     "send_request_timings": {
       "agent_id": "TEXT",
       "at": "TIMESTAMPTZ DEFAULT NOW()",
@@ -2177,12 +2215,41 @@
       "short_name": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "university_applications": {
+      "acted_at": "TIMESTAMPTZ",
+      "acted_by": "TEXT",
+      "athlete_id": "TEXT",
+      "brand": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "id": "SERIAL",
+      "program_url": "TEXT",
+      "state": "TEXT DEFAULT 'open'",
+      "university_id": "TEXT",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "university_athlete_links": {
       "athlete_id": "TEXT REFERENCES athletes(id) ON DELETE CASCADE",
       "id": "TEXT DEFAULT gen_random_uuid()::TEXT",
       "linked_at": "TIMESTAMPTZ DEFAULT NOW()",
       "status": "TEXT DEFAULT 'pending'",
       "university_id": "TEXT REFERENCES universities(id) ON DELETE CASCADE"
+    },
+    "university_bookings": {
+      "business": "TEXT",
+      "contact_name": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "dates": "TEXT",
+      "deal": "TEXT",
+      "draft_id": "TEXT",
+      "email": "TEXT",
+      "id": "SERIAL",
+      "note": "TEXT",
+      "phone": "TEXT",
+      "price_cents": "INTEGER",
+      "status": "TEXT DEFAULT 'new'",
+      "team_id": "TEXT",
+      "university_id": "TEXT",
+      "wants_options": "BOOLEAN DEFAULT FALSE"
     },
     "university_deal_flags": {
       "ai_summary": "TEXT",

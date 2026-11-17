@@ -1881,6 +1881,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <span class="nav-dot-item"></span>NIL Go
         <span id="nilgo-badge" style="display:none;margin-left:6px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:9999px;padding:1px 6px;line-height:1.6;vertical-align:middle"></span>
       </button>
+      <button class="nav-item" onclick="showView('gifts',this)">
+        <span class="nav-dot-item"></span>Gifts &amp; Reports
+      </button>
       <button class="nav-item" onclick="showView('roster',this)">
         <span class="nav-dot-item"></span>My Roster
       </button>
@@ -3422,6 +3425,35 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div id="nilgo-list"><div style="color:#6B7280;font-size:13px">Loading...</div></div>
         </div>
       </div>
+
+      <!-- ══ GIFTS & REPORTS (services/giftedDeals) ══ Log product an athlete was
+           sent to post, and print a monthly or yearly NIL report per athlete. -->
+      <div id="view-gifts" class="view">
+        <div style="max-width:880px">
+          <div style="font-size:14px;color:#9CA3AF;line-height:1.55;margin-bottom:14px">Log the product brands send your athletes to post, then print a monthly or yearly report per athlete with every cash deal and gift. Families can hand it to their tax preparer.</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+            <select id="gf-athlete" onchange="gfLoad()" style="padding:8px 10px;border-radius:8px;border:1px solid #374151;background:#0b1220;color:#fff;min-width:220px"></select>
+            <select id="gf-period-kind" onchange="gfPeriodUi()" style="padding:8px 10px;border-radius:8px;border:1px solid #374151;background:#0b1220;color:#fff"><option value="year">Year</option><option value="month">Month</option></select>
+            <input id="gf-period" style="padding:8px 10px;border-radius:8px;border:1px solid #374151;background:#0b1220;color:#fff;width:120px">
+            <button onclick="gfOpenReport()" style="padding:8px 14px;border-radius:8px;border:0;background:#84CC16;color:#0b1220;font-weight:700;cursor:pointer">Open report</button>
+          </div>
+          <div style="border:1px solid #1e2a3a;border-radius:12px;padding:16px 18px;background:#0b1220;margin-bottom:16px">
+            <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:10px">Log a gift</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+              <input id="gf-brand" placeholder="Brand (e.g. Lola Blankets)" class="gf-in">
+              <input id="gf-product" placeholder="Product" class="gf-in">
+              <input id="gf-value" placeholder="Retail value ($)" class="gf-in">
+              <input id="gf-date" type="date" class="gf-in">
+              <select id="gf-platform" class="gf-in"><option value="">Where it was posted</option><option>instagram story</option><option>instagram post</option><option>tiktok</option><option>x</option><option>youtube</option><option>facebook</option><option>other</option><option>not posted yet</option></select>
+              <input id="gf-url" placeholder="Link to the post (optional)" class="gf-in">
+            </div>
+            <input id="gf-posted" placeholder="What they posted (optional)" class="gf-in" style="margin-top:10px;width:100%;box-sizing:border-box">
+            <div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button onclick="gfAdd()" style="padding:8px 14px;border-radius:8px;border:0;background:#84CC16;color:#0b1220;font-weight:700;cursor:pointer">Save gift</button><span id="gf-status" style="font-size:13px;color:#9CA3AF"></span></div>
+          </div>
+          <div id="gf-list"></div>
+        </div>
+      </div>
+      <style>.gf-in{padding:8px 10px;border-radius:8px;border:1px solid #374151;background:#0f172a;color:#fff;font-size:13px}</style>
 
       <div id="view-pipeline" class="view">
 
@@ -8482,6 +8514,63 @@ if (document.readyState === 'loading') {
   applyProgramsFlag();
 }
 
+// ── GIFTS & REPORTS (services/giftedDeals) ───────────────────────────────────
+var GF = { athletes: [] };
+function gfEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+function gfPeriodUi() {
+  var k = document.getElementById('gf-period-kind').value, p = document.getElementById('gf-period'), d = new Date();
+  p.value = k === 'year' ? String(d.getFullYear()) : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  p.placeholder = k === 'year' ? '2026' : '2026-11';
+}
+async function gfInit() {
+  var sel = document.getElementById('gf-athlete'); if (!sel) return;
+  var dt = document.getElementById('gf-date'); if (dt && !dt.value) dt.value = new Date().toISOString().slice(0, 10);
+  if (!document.getElementById('gf-period').value) gfPeriodUi();
+  try {
+    var r = await fetch('/api/athletes', { credentials: 'same-origin' }); var list = await r.json();
+    GF.athletes = (Array.isArray(list) ? list : (list.athletes || [])).map(function (a) { return { id: a.id, name: a.name || (a.data && a.data.name) || 'Athlete' }; });
+  } catch (e) { GF.athletes = []; }
+  var cur = sel.value;
+  sel.innerHTML = GF.athletes.length ? GF.athletes.map(function (a) { return '<option value="' + gfEsc(a.id) + '">' + gfEsc(a.name) + '</option>'; }).join('') : '<option value="">Add a client first</option>';
+  if (cur) sel.value = cur;
+  gfLoad();
+}
+async function gfLoad() {
+  var el = document.getElementById('gf-list'), id = document.getElementById('gf-athlete').value;
+  if (!el) return; if (!id) { el.innerHTML = ''; return; }
+  try {
+    var r = await fetch('/api/gifts?athleteId=' + encodeURIComponent(id), { credentials: 'same-origin' }); var d = await r.json();
+    var g = d.gifts || [];
+    el.innerHTML = g.length ? '<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:8px">Gifts logged</div>' + g.map(function (x) {
+      return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #1e2a3a;font-size:13px;color:#E5E7EB">'
+        + '<div style="width:92px;color:#9CA3AF">' + gfEsc(x.receivedOn) + '</div>'
+        + '<div style="flex:1"><b>' + gfEsc(x.brand) + '</b>' + (x.product ? ': ' + gfEsc(x.product) : '') + (x.retailValue != null ? ' &middot; $' + Number(x.retailValue).toLocaleString('en-US') : ' &middot; <span style="color:#FBBF24">no value</span>')
+        + (x.platform || x.posted ? '<div style="color:#9CA3AF">' + gfEsc([x.platform, x.posted].filter(Boolean).join(': ')) + (x.postUrl ? ' <a href="' + gfEsc(x.postUrl) + '" target="_blank" rel="noopener" style="color:#84CC16">post</a>' : '') + '</div>' : '') + '</div>'
+        + '<button onclick="gfDelete(' + x.id + ')" style="background:transparent;border:1px solid #374151;color:#9CA3AF;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">Remove</button></div>';
+    }).join('') : '<div style="color:#6B7280;font-size:13px">No gifts logged for this athlete yet.</div>';
+  } catch (e) { el.innerHTML = '<div style="color:#F87171;font-size:13px">Could not load gifts.</div>'; }
+}
+async function gfAdd() {
+  var st = document.getElementById('gf-status'); var v = function (id) { return (document.getElementById(id) || {}).value || ''; };
+  var body = { athleteId: v('gf-athlete'), brand: v('gf-brand'), product: v('gf-product'), retailValue: v('gf-value'), receivedOn: v('gf-date'), platform: v('gf-platform'), postUrl: v('gf-url'), posted: v('gf-posted') };
+  st.style.color = '#9CA3AF'; st.textContent = 'Saving...';
+  try {
+    var r = await fetch('/api/gifts', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var d = await r.json(); if (!r.ok) throw new Error(d.error || 'not saved');
+    ['gf-brand', 'gf-product', 'gf-value', 'gf-url', 'gf-posted'].forEach(function (id) { document.getElementById(id).value = ''; }); document.getElementById('gf-platform').value = '';
+    st.style.color = '#84CC16'; st.textContent = 'Saved.'; gfLoad();
+  } catch (e) { st.style.color = '#F87171'; st.textContent = e.message; }
+}
+async function gfDelete(id) {
+  try { await fetch('/api/gifts/' + id, { method: 'DELETE', credentials: 'same-origin' }); } catch (e) {}
+  gfLoad();
+}
+function gfOpenReport() {
+  var id = document.getElementById('gf-athlete').value, p = document.getElementById('gf-period').value.trim();
+  if (!id) return;
+  window.open('/api/nil-report/' + encodeURIComponent(id) + '?format=html&period=' + encodeURIComponent(p), '_blank', 'noopener');
+}
+
 // ── NIL GO TAB (services/nilGo) ──────────────────────────────────────────────
 var NILGO = { deals: [] };
 function ngEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
@@ -8599,7 +8688,7 @@ async function showView(id, btn) {
   if (btn) btn.classList.add('active');
   const labels = { home:'Home', command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
     marketing:'Media Kit',
-    negotiate:'Negotiation Intel', brands:'My Brands', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', nilgo:'NIL Go', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', 'shift-detail':'What your team did', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
+    negotiate:'Negotiation Intel', brands:'My Brands', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', nilgo:'NIL Go', gifts:'Gifts & Reports', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', 'shift-detail':'What your team did', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   // An athlete has one client -- herself -- so the ACTIVE CLIENT bar never applies.
   // Checked HERE as well as at boot because this line runs on every view change and
@@ -8609,6 +8698,7 @@ async function showView(id, btn) {
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
   if (id === 'nilgo') loadNilGo();
+  if (id === 'gifts') gfInit();
   if (id === 'brands') { try { mbLoad(); } catch (e) {} }
   if (id === 'calendar') { if (window.NILCal) NILCal.initLabel(); loadCalendar(); initAgentGCalStatus(); }
   if (id === 'analytics') loadAnalytics();
