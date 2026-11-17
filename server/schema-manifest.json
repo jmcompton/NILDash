@@ -1355,6 +1355,33 @@
       "token": "TEXT",
       "used": "BOOLEAN DEFAULT FALSE"
     },
+    "paying_brand_proof": {
+      "athlete": "TEXT",
+      "brand_key": "TEXT",
+      "found_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "id": "SERIAL",
+      "kind": "TEXT",
+      "school": "TEXT",
+      "school_key": "TEXT",
+      "school_state": "TEXT",
+      "source_url": "TEXT",
+      "sport": "TEXT",
+      "title": "TEXT"
+    },
+    "paying_brand_runs": {
+      "found": "INTEGER DEFAULT 0",
+      "note": "TEXT",
+      "ran_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "school": "TEXT",
+      "school_key": "TEXT"
+    },
+    "paying_brands": {
+      "brand": "TEXT",
+      "brand_key": "TEXT",
+      "first_seen": "TIMESTAMPTZ DEFAULT NOW()",
+      "handle": "TEXT",
+      "last_seen": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "pcsa_agent_profiles": {
       "association_certified": "BOOLEAN DEFAULT FALSE",
       "pro_association": "TEXT",
