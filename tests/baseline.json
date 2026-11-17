@@ -32,6 +32,11 @@
       "total": 37,
       "fault": null
     },
+    "admininvites.js": {
+      "failed": 0,
+      "total": 6,
+      "fault": null
+    },
     "adminjs.js": {
       "failed": 0,
       "total": 10,
