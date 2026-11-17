@@ -69,6 +69,31 @@ async function main() {
   await TW.writeAsk(ctx(rated), { ai: f });
   ok('  with a rate, it checks the school\'s price', /PRICE SET BY THE SCHOOL: \$1,500/.test(f.seen.reviewPrompts[0]));
 
+  // THE REVIEWER KNOWS WHAT THE WRITER WAS TOLD TO SAY (2026-11-17, Cypress 8 of 30).
+  {
+    const rp = TW.reviewPrompt({ subject: 'Players for Harbor Lane Dental', body: NIL_BODY('Harbor Lane Dental') }, ctx(team));
+    ok('the reviewer is told the NIL marketplace line is the office\'s fact, not invented', /set up and paid through the school's NIL marketplace/.test(rp) && /FROM THE OFFICE \(true, not invented/.test(rp));
+    ok('  and that near campus and home games are reasons the office gave', /home games bring students and families nearby/.test(rp));
+    ok('  no rate: the office sends options', /sends a few options with prices/.test(rp));
+    const rr = TW.reviewPrompt({ subject: 'x', body: NIL_BODY('Harbor Lane Dental', '$1,500') }, ctx(rated));
+    ok('  a rate: no "options" line, the price still checked', !/sends a few options/.test(rr) && /PRICE SET BY THE SCHOOL: \$1,500/.test(rr));
+    ok('  claims about the business still need the FACTS (rule 3 unchanged)', /Every claim about the business is supported by the FACTS/.test(rp) && /\n7\. /.test(rp));
+    const pr = TW.reviewPrompt({ subject: 'x', body: 'y' }, { ...ctx(team), program: { offer: 'Ambassador program' } });
+    ok('  a brand program card is not told about the marketplace', !/NIL marketplace/.test(pr) && /FROM THE OFFICE/.test(pr));
+  }
+  {
+    const TS = require(REPO + 'server/services/teamScan.js');
+    const note = TS.refusalNote([
+      { brand: 'A', why: 'refused after retry: the reviewer failed it: 3. invented' },
+      { brand: 'B', why: 'refused after retry: the reviewer failed it: 3. invented' },
+      { brand: 'C', why: 'refused after retry: it names a price' },
+      { brand: 'D', why: 'no named person to write to', stage: 'owner' },
+      { brand: 'E', why: 'model: overloaded', fault: true },
+    ]);
+    ok('the floor alert names how many the writer refused and the top reason', note === '; writer refused 3 (2x: the reviewer failed it: 3. invented)', note);
+    ok('  nothing refused: nothing added', TS.refusalNote([{ why: 'no named person to write to', stage: 'owner' }]) === '' && TS.refusalNote(undefined) === '');
+  }
+
   f = fake([draft('Harbor Lane Dental')], ['{"pass": false, "problems": ["3. it claims a dental award not in the facts"]}', PASS]);
   w = await TW.writeAsk(ctx(team), { ai: f });
   ok('a failed review is rewritten once with the reasons, then goes out if it passes', w.ok && w.retried && w.reviews === 2 && f.seen.write === 2, { w, seen: f.seen });

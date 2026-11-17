@@ -892,10 +892,26 @@ async function runTeamScan(pool, { universityId, teamId, limit = 5, write = true
     contactsResolved, contactsReachable };
   if (held < limit && write) {
     require('./ourFault').record('nightly-floor', `${university.name} ${team.name}: ${held} of ${limit} ${pitchMode ? 'cards' : 'asks'} after ${candidates} candidate(s); `
-      + `stopped by ${out.loop.stop}; rungs tried: ${rungs.join(', ')}`, 'teamScan ' + team.id).catch(() => {});
+      + `stopped by ${out.loop.stop}; rungs tried: ${rungs.join(', ')}` + refusalNote(out.skipped), 'teamScan ' + team.id).catch(() => {});
   }
   return out;
 }
 
-module.exports = { runTeamScan, pitchSlate, PAID_CONTACTS_AT_NIGHT, socialSlate, SOCIAL_PER_TEAM, SOCIAL_BRAND_NIGHTLY_MAX, PITCH_REST_DAYS, discover, storeCandidates, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
+// WHY THE WRITER SAID NO (2026-11-17). A team short of its cards named only
+// the rungs; the writer's and reviewer's refusals stayed in memory, so the
+// morning alert could not say why Cypress got 8 of 30. Now the floor fault
+// carries how many the writer refused and the most common reason.
+function refusalNote(skipped) {
+  const refused = (skipped || []).filter((x) => !x.fault && !x.stage && /^refused after retry: /.test(String(x.why || '')));
+  if (!refused.length) return '';
+  const count = new Map();
+  for (const x of refused) {
+    const k = String(x.why).replace(/^refused after retry: /, '').replace(/\s+/g, ' ').slice(0, 160);
+    count.set(k, (count.get(k) || 0) + 1);
+  }
+  const [top, n] = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
+  return `; writer refused ${refused.length} (${n}x: ${top})`;
+}
+
+module.exports = { refusalNote, runTeamScan, pitchSlate, PAID_CONTACTS_AT_NIGHT, socialSlate, SOCIAL_PER_TEAM, SOCIAL_BRAND_NIGHTLY_MAX, PITCH_REST_DAYS, discover, storeCandidates, recheckPool, ensureTables, blockedFor, fitFor, pickItem, distanceM, cityOf,
   BLOCKED_KEYS, PAYDAY_MARKERS, CATEGORY_FIT, MIGRATION };
