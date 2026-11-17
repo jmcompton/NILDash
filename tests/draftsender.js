@@ -112,7 +112,7 @@ async function main() {
   ok('a parent\'s reply goes to the mailbox the agent sends from, not the signup email', rA && rA.agent && rA.agent.email === WORK, rA && rA.agent);
   const rB = await RPT.collectReportData('ds-ath-b', B, since, until);
   ok('  and to the signup email only when no mailbox is connected', rB && rB.agent && rB.agent.email === 'nomail@x.test', rB && rB.agent);
-  ok('  the send uses it as the reply-to', /replyTo: data\.agent\.email \|\| undefined/.test(read('server/index.js')));
+  ok('  the send uses it as the reply-to', /replyTo: data\.agent\.email \|\| undefined/.test(read('server/services/clientReports.js')));
   ok('the contract\'s agent party email falls back to the brand contact, not the login',
     /\(_contact && _contact\.contactEmail\) \|\| \(_me && _me\.email\) \|\| null/.test(read('server/index.js'))
     && /const _contact = _me \? \(await require\('\.\/services\/agencyBrand'\)\.brandForUser\(_me\)/.test(read('server/index.js')));

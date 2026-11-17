@@ -2949,77 +2949,55 @@ app.get('/api/athlete-report/preview/:athleteId', requireAuth, async (req, res) 
   }
 });
 
+// The athlete report's one provider call, for the app's Send and the one-tap page.
+const _reportSend = (m) => resend.emails.send(m);
 app.post('/api/athlete-report/send', requireAuth, async (req, res) => {
   try {
     const { athleteId, recipients, weeksBack } = req.body || {};
     if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
-
     // Recipients come from the request so the agent can add a parent, a family
-    // advisor, or drop someone before sending.
-    const wanted = (Array.isArray(recipients) ? recipients : [])
-      .map(e => String(e || '').trim())
-      .filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
-    if (!wanted.length) return res.status(400).json({ error: 'No valid recipients' });
-    // The suppression list stops everything, this included.
-    const to = [];
-    for (const e of wanted) {
-      const rule = await require('./services/sendRules').check(store.pool, { email: e, system: 'report' });
-      if (rule.ok) to.push(e);
-    }
-    if (!to.length) return res.status(409).json({ error: 'Every recipient is on the suppression list, so nothing was sent.' });
-    if (to.length > 6) return res.status(400).json({ error: 'Too many recipients' });
-
+    // advisor, or drop someone before sending. One send path with the one-tap
+    // page (services/clientReports.sendOne): suppression, the empty-week rule,
+    // the reply-to and the log are the same either way.
     const { since, until } = _reportWindow(weeksBack);
-    const data = await athleteReport.collectReportData(athleteId, req.session.userId, since, until);
-    if (!data) return res.status(404).json({ error: 'Athlete not found' });
-    if (data.missingName) return res.status(400).json({ error: 'Not sent: ' + data.missingName + '.' });
-    if (data.activityScore < athleteReport.MIN_ACTIVITY_TO_SEND) {
-      return res.status(400).json({ error: 'Nothing happened this week. Sending an empty report does more harm than good.' });
-    }
-
-    await resend.emails.send({
-      from: 'NILDash <hello@mynildash.com>',
-      to,
-      replyTo: data.agent.email || undefined,   // questions go to the agent, not to us
-      subject: athleteReport.renderSubject(data),
-      html: athleteReport.renderReportHtml(data),
-    });
-
-    // ── athlete_report_sends, NOT athlete_reports ─────────────────────────────
-    // This CREATE and store.js's both claimed the name `athlete_reports`, for two
-    // entirely different tables: store.js's is the SHARE LINK an agent sends an
-    // athlete (id TEXT, agent_message, expires_at) and this one is a LOG OF
-    // REPORTS SENT (id SERIAL, period_start/end, recipients, summary, sent_at).
-    //
-    // store.js's runs at boot, so it always won. This CREATE has therefore been
-    // a no-op on every deployment, and the INSERT under it named six columns of
-    // which four do not exist -- caught, logged, and dropped. Every athlete
-    // report ever sent went unlogged, and /api/athlete-report/status, which
-    // reads MAX(sent_at), threw on every call and returned an empty list, so
-    // the "overdue for an update" nudge has never shown anything.
-    //
-    // NOTHING TO MIGRATE. The insert never once succeeded, so the log starts
-    // empty either way. Named to match shift_report_sends, which is the same
-    // idea for the other report.
-    await store.pool.query(`
-      CREATE TABLE IF NOT EXISTS athlete_report_sends (
-        id SERIAL PRIMARY KEY, athlete_id TEXT, agent_id TEXT,
-        period_start TIMESTAMPTZ, period_end TIMESTAMPTZ,
-        recipients TEXT, summary JSONB, sent_at TIMESTAMPTZ DEFAULT NOW()
-      )`).catch(() => {});
-    await store.pool.query(
-      `INSERT INTO athlete_report_sends (athlete_id, agent_id, period_start, period_end, recipients, summary)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [athleteId, req.session.userId, since, until, to.join(', '),
-       JSON.stringify({ pitched: data.pitched.length, replies: data.replies.length, earned: data.earned.period })]
-    ).catch(e => console.error('[athlete-report] log failed:', e.message));
-
-    console.log(`[athlete-report] sent for ${data.athlete.name} to ${to.join(', ')}`);
-    res.json({ ok: true, sentTo: to });
+    const r = await require('./services/clientReports').sendOne(store.pool, {
+      agentId: req.session.userId, athleteId, recipients, since, until, send: _reportSend });
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    res.json({ ok: true, sentTo: r.to });
   } catch (e) {
     console.error('[athlete-report/send]', e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── THIS WEEK'S CLIENT REPORTS, ONE TAP (services/clientReports) ────────────
+// The link rides the nightly digest. GET shows what would go and to whom and
+// changes nothing; POST sends every ready report once.
+app.get('/client-reports/:token', async (req, res) => {
+  const CR = require('./services/clientReports');
+  res.set('Cache-Control', 'no-store');
+  try {
+    const offer = await CR.byToken(store.pool, req.params.token);
+    if (!offer) return res.status(404).type('html').send(CR.page('Not found', '<p>This link is not valid.</p>'));
+    if (offer.sent_at) return res.type('html').send(CR.page('Already sent', `<p style="font-size:15px">This week's reports already went out.</p>`));
+    if (offer.expired) return res.status(410).type('html').send(CR.page('Expired', '<p>This link has expired. Send reports from NILDash instead.</p>'));
+    const list = await CR.ready(store.pool, offer.agent_id);
+    if (!list.length) return res.type('html').send(CR.page('Nothing to send', '<p style="font-size:15px">Nothing to send right now: every athlete with a report this week already got one.</p>'));
+    res.type('html').send(CR.renderOffer(offer.token, list));
+  } catch (e) { console.error('[client-reports]', e.message); res.status(500).type('html').send(CR.page('Error', '<p>Something went wrong. Try again from NILDash.</p>')); }
+});
+app.post('/client-reports/:token', async (req, res) => {
+  const CR = require('./services/clientReports');
+  res.set('Cache-Control', 'no-store');
+  try {
+    const r = await CR.sendAll(store.pool, req.params.token, { send: _reportSend });
+    if (!r.ok) return res.status(r.status || 400).type('html').send(CR.page('Not sent', `<p>${CR.esc(r.error)}</p>`));
+    if (r.already) return res.type('html').send(CR.page('Already sent', `<p style="font-size:15px">This week's reports already went out.</p>`));
+    const line = (x) => `<div style="padding:8px 0;border-top:1px solid #f3f4f6;font-size:14px">${CR.esc(x.name)}: ${x.error ? 'not sent, ' + CR.esc(x.error) : 'sent to ' + x.to.map(CR.esc).join(', ')}</div>`;
+    res.type('html').send(CR.page('Sent', `<div style="font-size:18px;font-weight:700">${r.sent.length} ${r.sent.length === 1 ? 'report' : 'reports'} sent</div>
+      <div style="margin-top:10px">${r.sent.concat(r.failed).map(line).join('')}</div>
+      <div style="font-size:13px;color:#6b7280;margin-top:12px">Replies from families come to you.</div>`));
+  } catch (e) { console.error('[client-reports] send:', e.message); res.status(500).type('html').send(CR.page('Error', '<p>Something went wrong. Nothing more will be sent from this link; send from NILDash instead.</p>')); }
 });
 
 // When was each athlete last reported on. Drives the "overdue for an update"

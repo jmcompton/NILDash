@@ -64,7 +64,8 @@ async function collectReportData(athleteId, agentId, since, until) {
     `SELECT brand_name,
             MIN(sent_at)     AS first_sent,
             BOOL_OR(opened_at  IS NOT NULL) AS opened,
-            BOOL_OR(replied_at IS NOT NULL) AS replied
+            BOOL_OR(replied_at IS NOT NULL) AS replied,
+            BOOL_OR(COALESCE(touch_no, 1) > 1) AS followed_up
        FROM outreach_logs
       WHERE athlete_id = $1 AND agent_id = $2
         AND sent_at >= $3 AND sent_at < $4
@@ -156,6 +157,8 @@ async function collectReportData(athleteId, agentId, since, until) {
     pitched,
     replies: pitched.filter(p => p.replied),
     opens: pitched.filter(p => p.opened && !p.replied),
+    // A second or third email to a business that had not answered (services/followUps).
+    followedUp: pitched.filter(p => p.followed_up),
     namedKitViews,
     anonKitViews,
     pipeline,
@@ -217,6 +220,13 @@ function renderReportHtml(d) {
       ${stat(money(d.earned.period), 'earned this week', P)}
     </tr></table></td></tr>`;
 
+  // FOLLOW-UPS. Most replies come after the second or third email, so a family
+  // should see that nobody gave up after one.
+  const fu = (d.followedUp || []).length;
+  if (fu) {
+    body += `<tr><td style="padding:12px 2px 0;font-size:14px;color:${TXT}">We followed up with ${fu} ${fu === 1 ? 'business' : 'businesses'} that had not answered yet.</td></tr>`;
+  }
+
   // Named brands. "Nine businesses" is a claim; the list is evidence. This is
   // the single most important block in the email for a skeptical parent.
   if (d.pitched.length) {
@@ -227,6 +237,8 @@ function renderReportHtml(d) {
         ? `<span style="font-size:10px;font-weight:700;color:#166534;background:#dcfce7;padding:3px 8px;border-radius:99px">Replied</span>`
         : p.opened
         ? `<span style="font-size:10px;font-weight:700;color:#854d0e;background:#fef9c3;padding:3px 8px;border-radius:99px">Opened it</span>`
+        : p.followed_up
+        ? `<span style="font-size:10px;font-weight:700;color:#1e3a8a;background:#dbeafe;padding:3px 8px;border-radius:99px">Followed up</span>`
         : `<span style="font-size:10px;color:${MUT}">Sent ${shortDate(p.first_sent)}</span>`;
       body += `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
         <td style="padding:9px 0;border-top:1px solid ${LINE};font-size:14px;color:${TXT}">${esc(p.brand_name)}</td>

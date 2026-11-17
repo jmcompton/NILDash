@@ -257,6 +257,11 @@
       "total": 4,
       "fault": null
     },
+    "clientreports.js": {
+      "failed": 0,
+      "total": 23,
+      "fault": null
+    },
     "clientsmig.js": {
       "failed": 0,
       "total": 22,

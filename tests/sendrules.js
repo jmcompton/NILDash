@@ -235,7 +235,7 @@ const TUE = Date.parse('2026-08-25T15:00:00Z');
   ok('the nightly digest, weekly digest, shift report and deliverable reminders check the suppression list',
     /system: 'nightly-digest'/.test(src('server/services/nightlyDigest.js')) && /system: 'weekly-digest'/.test(src('server/jobs/weeklyDigest.js'))
     && /system: 'shift-report'/.test(idx) && /system: 'deliverable-digest'/.test(idx));
-  ok('  as do the athlete report, the media-kit alert and the brand-inquiry forward', /system: 'report'/.test(idx) && /system: 'media-kit'/.test(idx) && /system: 'inquiry'/.test(idx));
+  ok('  as do the athlete report, the media-kit alert and the brand-inquiry forward', /system: 'report'/.test(src('server/services/clientReports.js')) && /system: 'media-kit'/.test(idx) && /system: 'inquiry'/.test(idx));
   ok('the old follow-up poller writes no inbox drafts any more: the Closer cadence is the only follow-up sequence',
     !/INSERT INTO email_drafts/.test(src('server/services/followUpAutomation.js')) && /NO SECOND FOLLOW-UP SYSTEM/.test(src('server/services/followUpAutomation.js')));
   ok('the send log table is created at boot', /sendRules'\)\.ensureTable\(store\.pool\)/.test(idx));
