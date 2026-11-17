@@ -13938,6 +13938,33 @@ app.post('/api/lab/prospector/customers/:id/deliver', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── RESULTS: WHAT THE WORK TURNED INTO (services/results) ───────────────────
+// The agent's own counts for Home, and the whole platform for the admin.
+app.get('/api/results', requireAuth, async (req, res) => {
+  try {
+    const R = require('./services/results');
+    let athleteId = null;
+    if (req.query.athleteId) {
+      const a = (await store.pool.query(`SELECT id FROM athletes WHERE id = $1 AND agent_id = $2`, [String(req.query.athleteId), req.session.userId])).rows[0];
+      if (!a) return res.status(404).json({ error: 'Not found' });
+      athleteId = a.id;
+    }
+    res.set('Cache-Control', 'no-store').json(await R.forAgent(store.pool, req.session.userId, { athleteId, days: 30 }));
+  } catch (e) { console.error('[results]', e.message); res.status(500).json({ error: 'Could not load results.' }); }
+});
+app.get('/api/admin/results', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.set('Cache-Control', 'no-store').json(await require('./services/results').platform(store.pool, { days: Math.min(365, parseInt(req.query.days, 10) || 30) })); }
+  catch (e) { console.error('[admin/results]', e.message); res.status(500).json({ error: e.message }); }
+});
+app.get('/admin/results', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
+  try {
+    const R = require('./services/results');
+    res.set('Cache-Control', 'no-store').type('html').send(R.renderHtml(await R.platform(store.pool, { days: Math.min(365, parseInt(req.query.days, 10) || 30) })));
+  } catch (e) { console.error('[admin/results]', e.message); res.status(500).type('text').send('results page failed: ' + e.message); }
+});
+
 app.get('/admin/status', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).send('Forbidden');
   const SP = require('./services/statusPage');

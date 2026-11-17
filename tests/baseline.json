@@ -1287,6 +1287,11 @@
       "total": 22,
       "fault": null
     },
+    "results.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
     "retire.js": {
       "failed": 0,
       "total": 16,

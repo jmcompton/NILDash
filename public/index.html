@@ -870,6 +870,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
 /* ── morning outreach queue ── */
 .hq-wrap{margin-bottom:10px}
+.hq-results{margin:0 0 14px;padding:10px 14px;border:1px solid rgba(200,241,53,.22);border-radius:10px;background:rgba(200,241,53,.05);font-size:13px;color:#E5E7EB}
+.hq-results-wait{color:#C8F135;font-weight:600}
 .hq-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 14px}
 .hq-tab{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:7px 12px;
   border-radius:20px;background:#0D1520;border:.5px solid #1e2a3a;color:#9CA3AF;
@@ -2207,6 +2209,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
              Stays until the item is marked done -- by either side. -->
         <div id="home-pinned" hidden style="margin-bottom:14px"></div>
         <div id="home-needs-fix" hidden style="margin-bottom:14px"></div>
+        <!-- What the work turned into, last 30 days (services/results). One line;
+             hidden until the agent has sent anything. -->
+        <div id="home-results" class="hq-results" hidden></div>
         <div id="home-news"></div>
         <div id="home-tabs" class="hq-tabs" role="tablist" aria-label="Athletes"></div>
         <div id="home-panel"></div>
@@ -22123,6 +22128,7 @@ async function hqLoad(athleteId) {
     if (!r.ok) throw new Error(d.error || 'could not load');
     HQ.data = d; HQ.selected = d.selected;
     hqRender();
+    loadHomeResults();
   } catch (e) {
     // Says what broke and offers the retry. Never an empty page, which reads
     // as "no work today" when it means "the request failed".
@@ -22133,6 +22139,27 @@ async function hqLoad(athleteId) {
     }
     var bar = document.getElementById('home-bar'); if (bar) bar.hidden = true;
   }
+}
+
+// ── RESULTS LINE (services/results) ──────────────────────────────────────────
+// Last 30 days in one sentence: what went out, the follow-ups, the replies,
+// the deals. Hidden for an account that has never sent anything.
+async function loadHomeResults() {
+  var el = document.getElementById('home-results'); if (!el) return;
+  try {
+    var r = await fetch('/api/results', { credentials: 'same-origin' });
+    if (!r.ok) { el.hidden = true; return; }
+    var d = await r.json(), c = d.recent || {}, a = d.allTime || {};
+    if (!(a.pitched > 0)) { el.hidden = true; return; }
+    var n = function (x) { return Number(x || 0).toLocaleString('en-US'); };
+    var pl = function (x, one, many) { return n(x) + ' ' + (Number(x) === 1 ? one : many); };
+    var line = 'Last 30 days: ' + pl(c.businesses, 'business pitched', 'businesses pitched') + ', '
+      + pl(c.followUps, 'follow-up', 'follow-ups') + ', ' + pl(c.replies, 'reply', 'replies') + ', '
+      + pl(c.deals, 'deal signed', 'deals signed') + (c.dollars > 0 ? ' ($' + n(c.dollars) + ')' : '') + '.';
+    var more = a.waiting > 0 ? ' <span class="hq-results-wait">' + pl(a.waiting, 'follow-up is', 'follow-ups are') + ' waiting for your OK below.</span>' : '';
+    el.innerHTML = hqEscape(line) + more;
+    el.hidden = false;
+  } catch (e) { el.hidden = true; }
 }
 
 function hqRender() {
