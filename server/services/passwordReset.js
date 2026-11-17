@@ -266,7 +266,8 @@ async function landingFor(pool, out) {
 
 async function endOtherSessions(pool, userId) {
   try {
-    const r = await pool.query(`DELETE FROM session WHERE sess->>'userId' = $1`, [String(userId)]);
+    // A team member's sessions carry their id as memberId (services/teamSeats).
+    const r = await pool.query(`DELETE FROM session WHERE sess->>'userId' = $1 OR sess->>'memberId' = $1`, [String(userId)]);
     if (r.rowCount) console.log(`[reset-password] ended ${r.rowCount} session(s) for ${userId}`);
     return r.rowCount || 0;
   } catch (e) {

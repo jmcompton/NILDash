@@ -555,6 +555,21 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'Not authenticated' });
 }
 
+// ── TEAM SEATS (services/teamSeats) ─────────────────────────────────────────
+// A staff member signed in on an agent's team acts as the owner's account
+// (session.userId = owner, session.memberId = them). Billing, the team itself
+// and the account's mailbox connection stay with the owner.
+app.use(async (req, res, next) => {
+  if (!req.session || !req.session.memberId) return next();
+  const TS = require('./services/teamSeats');
+  // Removed from the team: the session ends here, wherever it is stored.
+  if (!(await TS.stillActive(store.pool, req.session.memberId))) {
+    return req.session.destroy(() => res.status(401).json({ error: 'This team login was removed by the account owner.' }));
+  }
+  if (TS.ownerOnly(req.method, req.path)) return res.status(403).json({ error: 'Only the account owner can do that.', ownerOnly: true });
+  next();
+});
+
 // ── Agent subscription gate ──────────────────────────────────
 // Comp/demo accounts (admin role, or beta/comp plan) always have access.
 // Everyone else must have an active subscription to use token-spending tools.
@@ -1173,7 +1188,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
-  const user = await store.getUserByEmailWithPassword(email);
+  let user = await store.getUserByEmailWithPassword(email);
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
   // Inactive athlete accounts (removed by agent)
@@ -1184,6 +1199,16 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
   const ok = await bcrypt.compare(password, user.password);
   if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
+
+  // A team member signs in to their owner's account (services/teamSeats).
+  const _team = await require('./services/teamSeats').resolve(store.pool, user);
+  if (!_team.ok) return res.status(_team.status || 403).json({ error: _team.error });
+  const _member = _team.member;
+  if (_member) {
+    store.pool.query('UPDATE users SET last_login = NOW(), first_login_at = COALESCE(first_login_at, NOW()), password_reset_required = FALSE WHERE id = $1', [_member.id]).catch(() => {});
+    user = _team.account;
+    req.session.memberId = _member.id;
+  } else if (req.session.memberId) delete req.session.memberId;
 
   req.session.userId = user.id;
   // ── A DORMANT AGENT IS BACK ─────────────────────────────────────────────
@@ -1208,9 +1233,10 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   req.session.role   = user.role;
   res.json({
     id: user.id, name: user.name, email: user.email, role: user.role,
-    passwordResetRequired: user.password_reset_required || false,
+    passwordResetRequired: _member ? false : (user.password_reset_required || false),
     athleteId: user.athlete_id || null,
     agentId: user.agent_id || null,
+    member: _member ? { id: _member.id, name: _member.name, email: _member.email } : null,
   });
 });
 
@@ -1220,7 +1246,9 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     if (!newPassword || newPassword.length < 6)
       return res.status(400).json({ error: 'New password must be at least 6 characters' });
-    const user = await store.getUserWithPassword(req.session.userId);
+    // A team member changes their own password, never the owner's.
+    const _who = req.session.memberId || req.session.userId;
+    const user = await store.getUserWithPassword(_who);
     if (!user) return res.status(404).json({ error: 'User not found' });
     // If currentPassword provided, verify it (skip check for forced-reset flow)
     if (currentPassword) {
@@ -1230,7 +1258,7 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
     const hash = await bcrypt.hash(newPassword, 10);
     await store.pool.query(
       'UPDATE users SET password=$1, password_reset_required=FALSE, updated_at=NOW() WHERE id=$2',
-      [hash, req.session.userId]
+      [hash, _who]
     );
     res.json({ ok: true });
   } catch(e) {
@@ -1243,6 +1271,40 @@ app.post('/api/auth/logout', (req, res) => {
   // With the public homepage on, the page reloads to it (public/index.html
   // doLogout) rather than showing the old landing built into the app.
   res.json({ ok: true, home: require('./services/publicHome').ON() ? '/' : null });
+});
+
+// ── YOUR TEAM (services/teamSeats) ──────────────────────────────────────────
+// Staff logins on one agent account. Priced by athletes, never by people.
+// Invite and remove are owner-only (the guard above refuses a member).
+app.get('/api/team', requireAuth, async (req, res) => {
+  const TS = require('./services/teamSeats');
+  await TS.ensureColumns(store.pool);
+  const owner = await store.getUser(req.session.userId);
+  res.json({ members: await TS.list(store.pool, req.session.userId), isOwner: !req.session.memberId,
+    canHaveTeam: !!owner && TS.OWNER_ROLES.includes(owner.role) && owner.email !== ADMIN_EMAIL, max: TS.MAX_MEMBERS });
+});
+app.post('/api/team/invite', requireAuth, async (req, res) => {
+  try {
+    const TS = require('./services/teamSeats');
+    await TS.ensureColumns(store.pool);
+    const owner = await store.getUser(req.session.userId);
+    if (!owner || owner.email === ADMIN_EMAIL) return res.status(403).json({ error: 'Teams are for agent accounts.' });
+    const out = await TS.invite(store.pool, owner, req.body || {}, {
+      send: ({ to, name, ownerName, url, ttlWords }) => resend.emails.send({ from: 'NILDash <noreply@mynildash.com>', to,
+        subject: `${ownerName} added you to their NILDash team`, html: TS.inviteEmailHtml({ name, ownerName, url, ttlWords }) }),
+    });
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    console.log(`[team] ${owner.id} invited ${out.member.email} (emailed=${out.emailed})`);
+    res.json(out);
+  } catch (e) { console.error('[team/invite]', e.message); res.status(500).json({ error: 'Could not add them. Try again.' }); }
+});
+app.post('/api/team/remove', requireAuth, async (req, res) => {
+  const TS = require('./services/teamSeats');
+  await TS.ensureColumns(store.pool);
+  const out = await TS.remove(store.pool, req.session.userId, (req.body || {}).id);
+  if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+  console.log(`[team] ${req.session.userId} removed ${req.body.id}`);
+  res.json({ ok: true });
 });
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
@@ -1274,6 +1336,10 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
       .then((r) => (r.rows[0] && r.rows[0].n) || 0).catch(() => 0),
     // The athlete profile for pitches (services/athleteProfile), on or off.
     athleteProfileOn: require('./services/athleteProfile').ON(),
+    // A team member signed in to this account (services/teamSeats), or null.
+    member: req.session.memberId ? await store.pool.query(`SELECT id, name, email FROM users WHERE id = $1`, [req.session.memberId])
+      .then((r) => r.rows[0] || null).catch(() => null) : null,
+    isTeamOwner: !req.session.memberId,
   });
 
 // ── Admin seed + university link endpoint ─────────────────────────
@@ -5419,7 +5485,7 @@ async function _sendDueShiftReports() {
       `SELECT id, email, name, COALESCE(report_hour,7) AS hour, report_tz
          FROM users
         WHERE COALESCE(report_enabled,true) = true
-          AND role <> 'athlete' AND COALESCE(archived,false) = false
+          AND role <> 'athlete' AND role <> 'team_member' AND COALESCE(archived,false) = false
           AND email IS NOT NULL`)).rows;
   } catch (e) { console.error('[shift-report/send] roster query failed:', e.message); return; }
 
@@ -5535,7 +5601,7 @@ async function _sendDueDeliverableDigests() {
       `SELECT id, email, name, COALESCE(report_hour,7) AS hour, report_tz
          FROM users
         WHERE COALESCE(report_enabled,true) = true
-          AND role <> 'athlete' AND COALESCE(archived,false) = false
+          AND role <> 'athlete' AND role <> 'team_member' AND COALESCE(archived,false) = false
           AND email IS NOT NULL`)).rows;
   } catch (e) { console.error('[deliverable-digest] roster query failed:', e.message); return; }
 
@@ -13309,7 +13375,7 @@ app.get('/api/admin/empty-reports', requireAuth, async (req, res) => {
               (SELECT COUNT(*)::int FROM shift_report_sends s WHERE s.agent_id = u.id AND s.local_date >= CURRENT_DATE - 30 AND COALESCE(s.items,0) = 0) AS empty30,
               (SELECT MAX(s.local_date) FROM shift_report_sends s WHERE s.agent_id = u.id) AS last_sent
          FROM users u
-        WHERE COALESCE(u.report_enabled,true) = true AND u.role <> 'athlete'
+        WHERE COALESCE(u.report_enabled,true) = true AND u.role <> 'athlete' AND u.role <> 'team_member'
           AND COALESCE(u.archived,false) = false AND u.email IS NOT NULL
         ORDER BY empty30 DESC, u.email`)).rows;
     const SE = require('./services/shiftEmail');
