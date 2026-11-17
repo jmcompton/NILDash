@@ -12617,6 +12617,45 @@ app.get('/auto-send/on', pitchActionLimiter, async (req, res) => {
     res.send(AS.page('ask', { user: u, token: String(req.query.t) }));
   } catch (e) { console.error('[auto-send/on]', e.message); res.status(500).send(AS.page('bad')); }
 });
+// ── THE ATHLETE'S UPDATE LINK (services/athleteLink) ────────────────────────
+// No login. GET shows what is due and two forms; POSTs mark a deliverable
+// posted, log a gift, or report a brand that reached out. Each POST redirects
+// back to the page with a one-line result.
+app.get('/me/:token', async (req, res) => {
+  const AL = require('./services/athleteLink');
+  res.set('Cache-Control', 'no-store');
+  try {
+    const ath = await AL.byToken(store.pool, req.params.token);
+    if (!ath) return res.status(404).type('html').send(AL.shell('Link not found', '<h1>This link is not active</h1><p>Ask your agent for a new one.</p>'));
+    const flashes = { posted: [true, 'Marked as posted. Thanks!'], gift: [true, 'Gift logged.'], deal: [true, 'Sent to your agent.'] };
+    const f = flashes[req.query.ok] ? { ok: true, text: flashes[req.query.ok][1] } : (req.query.err ? { ok: false, text: String(req.query.err).slice(0, 160) } : null);
+    res.type('html').send(AL.renderPage(ath, await AL.due(store.pool, ath), req.params.token, f));
+  } catch (e) { console.error('[me]', e.message); res.status(500).type('html').send(require('./services/athleteLink').shell('Error', '<p>Something went wrong. Try again in a minute.</p>')); }
+});
+for (const [path, fn] of [['/me/:token/posted/:eventId', 'posted'], ['/me/:token/gift', 'gift'], ['/me/:token/deal', 'deal']]) {
+  app.post(path, pitchActionLimiter, express.urlencoded({ extended: false, limit: '8kb' }), async (req, res) => {
+    const AL = require('./services/athleteLink');
+    const back = (q) => res.redirect(303, `/me/${encodeURIComponent(req.params.token)}?${q}`);
+    try {
+      const ath = await AL.byToken(store.pool, req.params.token);
+      if (!ath) return res.status(404).type('html').send(AL.shell('Link not found', '<h1>This link is not active</h1>'));
+      const b = req.body || {};
+      const r = fn === 'posted' ? await AL.markPosted(store.pool, ath, req.params.eventId, b.proofUrl)
+        : fn === 'gift' ? await AL.addGift(store.pool, ath, b) : await AL.addDeal(store.pool, ath, b);
+      return r.ok ? back('ok=' + fn) : back('err=' + encodeURIComponent(r.error || 'Not saved.'));
+    } catch (e) { console.error('[me/' + fn + ']', e.message); return back('err=' + encodeURIComponent('Something went wrong. Try again.')); }
+  });
+}
+// The agent's copy of an athlete's link (made on first ask); POST replaces it.
+app.get('/api/athletes/:id/update-link', requireAuth, async (req, res) => {
+  try { const r = await require('./services/athleteLink').linkFor(store.pool, req.session.userId, req.params.id); if (!r) return res.status(404).json({ error: 'Athlete not found.' }); res.json(r); }
+  catch (e) { res.status(500).json({ error: 'Could not make the link.' }); }
+});
+app.post('/api/athletes/:id/update-link', requireAuth, async (req, res) => {
+  try { const r = await require('./services/athleteLink').linkFor(store.pool, req.session.userId, req.params.id, { rotate: true }); if (!r) return res.status(404).json({ error: 'Athlete not found.' }); res.json(r); }
+  catch (e) { res.status(500).json({ error: 'Could not replace the link.' }); }
+});
+
 app.post('/auto-send/on', pitchActionLimiter, express.urlencoded({ extended: false, limit: '2kb' }), async (req, res) => {
   const AS = require('./services/autoSend');
   res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex');
