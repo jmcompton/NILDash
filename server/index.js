@@ -1273,6 +1273,38 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true, home: require('./services/publicHome').ON() ? '/' : null });
 });
 
+// ── GIFTED DEALS AND THE ATHLETE'S NIL REPORT (services/giftedDeals) ───────
+app.get('/api/gifts', requireAuth, async (req, res) => {
+  try { res.set('Cache-Control', 'no-store').json({ gifts: await require('./services/giftedDeals').list(store.pool, req.session.userId, req.query.athleteId || null) }); }
+  catch (e) { console.error('[gifts]', e.message); res.status(500).json({ error: 'Could not load gifts.' }); }
+});
+app.post('/api/gifts', requireAuth, async (req, res) => {
+  try {
+    const r = await require('./services/giftedDeals').add(store.pool, req.session.userId, req.body || {});
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    res.json(r);
+  } catch (e) { console.error('[gifts/add]', e.message); res.status(500).json({ error: 'Could not save the gift.' }); }
+});
+app.delete('/api/gifts/:id', requireAuth, async (req, res) => {
+  try {
+    const r = await require('./services/giftedDeals').remove(store.pool, req.session.userId, req.params.id);
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: 'Could not delete it.' }); }
+});
+// The report: JSON, or ?format=html for the printable page.
+app.get('/api/nil-report/:athleteId', requireAuth, async (req, res) => {
+  try {
+    const GD = require('./services/giftedDeals');
+    const r = await GD.report(store.pool, req.session.userId, req.params.athleteId, req.query.period || String(new Date().getFullYear()));
+    if (!r) return res.status(404).json({ error: 'Athlete not found.' });
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.set('Cache-Control', 'no-store');
+    if (req.query.format === 'html') return res.type('html').send(GD.renderHtml(r));
+    res.json(r);
+  } catch (e) { console.error('[nil-report]', e.message); res.status(500).json({ error: 'Could not build the report.' }); }
+});
+
 // ── NIL GO, MADE EASY (services/nilGo) ──────────────────────────────────────
 // The agent's signed deals with their 5-business-day deadline, the facts NIL Go
 // asks for, and where each one stands. NIL Go takes no outside submissions;

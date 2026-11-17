@@ -577,6 +577,11 @@
       "total": 88,
       "fault": null
     },
+    "gifteddeals.js": {
+      "failed": 0,
+      "total": 18,
+      "fault": null
+    },
     "greet.js": {
       "failed": 0,
       "total": 50,
