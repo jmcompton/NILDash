@@ -122,6 +122,11 @@
       "total": 20,
       "fault": null
     },
+    "athletelink.js": {
+      "failed": 0,
+      "total": 21,
+      "fault": null
+    },
     "athleteonb.js": {
       "failed": 0,
       "total": 39,

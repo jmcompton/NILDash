@@ -3437,6 +3437,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <input id="gf-period" style="padding:8px 10px;border-radius:8px;border:1px solid #374151;background:#0b1220;color:#fff;width:120px">
             <button onclick="gfOpenReport()" style="padding:8px 14px;border-radius:8px;border:0;background:#84CC16;color:#0b1220;font-weight:700;cursor:pointer">Open report</button>
           </div>
+          <div style="border:1px solid rgba(132,204,22,.35);border-radius:12px;padding:16px 18px;background:rgba(132,204,22,.05);margin-bottom:16px">
+            <div style="font-size:15px;font-weight:700;color:#fff">Let the athlete update this</div>
+            <div style="font-size:13px;color:#9CA3AF;margin-top:4px;line-height:1.5">Text this link once. No login. They mark posts as done (with a link as proof), log gifts, and tell you when a brand reaches out. It all lands here, in the Pipeline and in Deliverables.</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+              <input id="gf-link" readonly class="gf-in" style="flex:1;min-width:240px" placeholder="Pick an athlete">
+              <button onclick="gfCopyLink(this)" style="padding:8px 12px;border-radius:8px;border:1px solid #374151;background:transparent;color:#E5E7EB;cursor:pointer">Copy</button>
+              <a id="gf-text" href="#" style="padding:8px 12px;border-radius:8px;border:1px solid #374151;color:#E5E7EB;text-decoration:none;font-size:13px">Text it</a>
+              <button onclick="gfNewLink()" style="padding:8px 12px;border-radius:8px;border:0;background:transparent;color:#9CA3AF;cursor:pointer;font-size:12px">Replace link</button>
+            </div>
+          </div>
           <div style="border:1px solid #1e2a3a;border-radius:12px;padding:16px 18px;background:#0b1220;margin-bottom:16px">
             <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:10px">Log a gift</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
@@ -8535,8 +8545,22 @@ async function gfInit() {
   if (cur) sel.value = cur;
   gfLoad();
 }
+async function gfLinkLoad(rotate) {
+  var id = document.getElementById('gf-athlete').value, inp = document.getElementById('gf-link'), tx = document.getElementById('gf-text');
+  if (!inp) return; if (!id) { inp.value = ''; return; }
+  try {
+    var r = await fetch('/api/athletes/' + encodeURIComponent(id) + '/update-link', { method: rotate ? 'POST' : 'GET', credentials: 'same-origin' });
+    var d = await r.json(); if (!r.ok) throw new Error(d.error || 'no link');
+    inp.value = d.url;
+    var a = GF.athletes.find(function (x) { return x.id === id; }); var first = a ? String(a.name).split(' ')[0] : '';
+    tx.href = 'sms:?&body=' + encodeURIComponent('Hey ' + first + ', here is your NIL link. Use it to tell me when you post, when a brand sends you something, or when a brand reaches out: ' + d.url);
+  } catch (e) { inp.value = ''; }
+}
+function gfCopyLink(btn) { var v = document.getElementById('gf-link').value; if (!v) return; try { navigator.clipboard.writeText(v).then(function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1200); }); } catch (e) {} }
+function gfNewLink() { gfLinkLoad(true); }
 async function gfLoad() {
   var el = document.getElementById('gf-list'), id = document.getElementById('gf-athlete').value;
+  gfLinkLoad(false);
   if (!el) return; if (!id) { el.innerHTML = ''; return; }
   try {
     var r = await fetch('/api/gifts?athleteId=' + encodeURIComponent(id), { credentials: 'same-origin' }); var d = await r.json();
