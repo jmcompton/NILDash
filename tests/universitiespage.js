@@ -22,12 +22,15 @@ ok('in the sitemap', /<loc>https:\/\/mynildash\.com\/universities<\/loc>/.test(f
 
 const imgs = [...html.matchAll(/src: '([a-z]+)'/g)].map((m) => m[1]).concat([...html.matchAll(/\/images\/universities\/([a-z]+)\.webp/g)].map((m) => m[1]));
 const missing = [...new Set(imgs)].filter((n) => !fs.existsSync(REPO + 'public/images/universities/' + n + '.webp'));
-ok('every screen image exists', imgs.length >= 6 && missing.length === 0, missing);
-ok('six screens, six tabs', (html.match(/class="tab"/g) || []).length === 6 && (html.match(/\{ src: '/g) || []).length === 6);
+ok('every screen image exists', imgs.length >= 5 && missing.length === 0, missing);
+ok('five screens, five tabs, only screens the product has (no AD report or follow-through mockups)', (html.match(/class="tab"/g) || []).length === 5 && (html.match(/\{ src: '/g) || []).length === 5
+  && !/src: '(report|followthrough|requestlink)'/.test(html));
 ok('screens are labeled as a sample', /Sample school and sample data/.test(html));
 
-ok('prices: pilot $1,500, D1 $1,000, D2/NAIA $500, JUCO $300', /\$1,500/.test(text) && /\$1,000 \/ month/.test(text) && /\$500 \/ month/.test(text) && /\$300 \/ month/.test(text));
-ok('guarantee is 5 businesses by day 60', /If 5 local businesses have not said yes to deals for your athletes by day 60, we refund the pilot/.test(text));
+ok('the offer: free until a business pays one of your athletes, then D1 $1,000, D2/NAIA $500, JUCO $300', /Free until your athletes get paid/.test(text) && /\$0/.test(text)
+  && /\$1,000 \/ month/.test(text) && /\$500 \/ month/.test(text) && /\$300 \/ month/.test(text) && !/\$1,500|refund the pilot/.test(text));
+ok('promises only what is built: no NIL Go filing, donor holds, sponsor lists, 30-a-day sending or monthly report', !/prepares the NIL Go report|held for your compliance|sponsor list|30 a day|monthly report|sponsor lead/i.test(text));
+ok('works alongside their marketplace, Teamworks and NIL Go', /sent to your marketplace page/.test(text) && /Teamworks/.test(text) && /deal summary/.test(text));
 ok('says NILDash does not negotiate or represent athletes', /does not sign, negotiate or take a cut/.test(text) && /Does NILDash represent athletes or negotiate deals\?/.test(text) && /No\. NILDash is software for your NIL office/.test(text));
 ok('never claims to negotiate, close or represent', !/we (negotiate|close|represent)|negotiates? (your|the) deal/i.test(text));
 ok('no em dashes or en dashes in the copy', !/[—–]/.test(html) && !/&mdash;|&ndash;/.test(html));

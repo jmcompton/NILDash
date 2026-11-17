@@ -91,7 +91,26 @@ function mount(app, { store, requireAuth }) {
   app.get('/api/university/market/bookings', guard, async (req, res) => {
     const UB = require('../services/universityBook');
     await UB.ensureTables(pool);
-    res.json({ url: UB.bookUrl(req.staff.university_id), bookings: await UB.list(pool, req.staff.university_id, { status: req.query.status || null }) });
+    const uni = (await pool.query(`SELECT name FROM universities WHERE id = $1`, [req.staff.university_id])).rows[0] || {};
+    const bookings = (await UB.list(pool, req.staff.university_id, { status: req.query.status || null }))
+      .map((b) => ({ ...b, summary: UB.summary(b, uni.name ? `${uni.name} Athletics` : null) }));
+    res.json({ url: UB.bookUrl(req.staff.university_id), marketplace: await UB.marketplace(pool, req.staff.university_id), bookings });
+  });
+  // The school's NIL marketplace page: where a booked business is sent next.
+  app.post('/api/university/market/marketplace', guard, async (req, res) => {
+    if (req.staff.viewingAsAdmin) return res.status(403).json({ error: 'Viewing as admin: read only.' });
+    const UB = require('../services/universityBook');
+    await UB.ensureTables(pool);
+    const r = await UB.setMarketplace(pool, req.staff.university_id, req.body || {});
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+  // Every deal and booking as a spreadsheet (Teamworks, the AD's report).
+  app.get('/api/university/market/deals-export.csv', guard, async (req, res) => {
+    const UB = require('../services/universityBook');
+    await UB.ensureTables(pool);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', 'attachment; filename="nildash-deals.csv"');
+    res.send('\ufeff' + UB.toCsv(await UB.exportRows(pool, req.staff.university_id)));
   });
   app.get('/api/university/market/booking-qr.svg', guard, async (req, res) => {
     const UB = require('../services/universityBook');

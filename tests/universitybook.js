@@ -96,6 +96,28 @@ async function main() {
   ok('  a team with nothing at all is not', !(await CN.sellableTeams(P, 'univ-pinecrest')).get('pc:empty').sellable);
   await P.query(`DELETE FROM university_teams WHERE id = 'pc:empty'`);
 
+  // ── WORKING ALONGSIDE THE SCHOOL'S TOOLS ───────────────────────────────
+  ok('no marketplace set: none on the page', (await UB.page(P, 'pinecrest')).marketplace === null && (await UB.marketplace(P, 'univ-pinecrest')) === null);
+  ok('a bad link is refused', !(await UB.setMarketplace(P, 'univ-pinecrest', { name: 'X', url: 'javascript:alert(1)' })).ok
+    && !(await UB.setMarketplace(P, 'univ-pinecrest', { name: 'X', url: 'http://plain.example.com' })).ok);
+  const mp = await UB.setMarketplace(P, 'univ-pinecrest', { name: 'Opendorse', url: 'opendorse.com/pinecrest' });
+  ok('the marketplace link is kept as https and shown on the booking page', mp.ok && mp.marketplace.url === 'https://opendorse.com/pinecrest'
+    && (await UB.page(P, 'pinecrest')).marketplace.name === 'Opendorse' && (await UB.page(P, 'pinecrest')).marketplace.url === 'https://opendorse.com/pinecrest', mp);
+  ok('  only for its own school', (await UB.page(P, 'elsewhere')) === null || (await UB.marketplace(P, 'univ-elsewhere')) === null);
+  const one = (await UB.list(P, 'univ-pinecrest')).find((b) => b.business === 'Harbor Lane Dental');
+  const sum = UB.summary(one, 'Pinecrest State University Athletics');
+  ok('the deal summary: who pays, contact, team, the work, the price, when, and that the office adds the players', /Business \(pays the athletes\): Harbor Lane Dental/.test(sum) && /Contact: Dana Reyes, dana@harbor\.test/.test(sum)
+    && /Team: Women's Volleyball/.test(sum) && /What the athletes do: 8 players/.test(sum) && /Total paid to the athletes: \$1,500/.test(sum) && /When: A Saturday in March/.test(sum)
+    && /Athletes: the players who opt in \(added by the NIL office\)/.test(sum), sum);
+  ok('  an options request says to be agreed, never a made-up price', /Total paid to the athletes: to be agreed/.test(UB.summary((await UB.list(P, 'univ-pinecrest')).find((b) => b.business === 'Riverside Ford'), 'X')));
+  await P.query(`INSERT INTO university_deals (university_id, brand, team_id, value_cents, description, signed_on) VALUES ('univ-pinecrest','=HYPERLINK("x")','pc:vb',150000,'Appearance','2026-11-10')`);
+  const rows = await UB.exportRows(P, 'univ-pinecrest');
+  const csv = UB.toCsv(rows);
+  ok('the export: every deal and booking, one row each, with a header', rows.filter((r) => r.kind === 'Deal done').length === 1 && rows.filter((r) => r.kind === 'Booked from link').length === 3
+    && /^Date,Type,Business,Team,Athlete,Amount \(USD\),What the athletes do,When,Contact\r\n/.test(csv) && /1500\.00/.test(csv), rows);
+  ok('  a cell that starts like a formula never runs as one', /"'=HYPERLINK\(""x""\)"/.test(csv) && !/,=HYPERLINK/.test(csv));
+  ok('  nothing from another school', !UB.toCsv(await UB.exportRows(P, 'univ-elsewhere')).includes('Harbor'));
+
   // ── THE DEMO SCHOOL (services/demoSchool) ──────────────────────────────
   const DS = require(REPO + 'server/services/demoSchool.js');
   const d1 = await DS.seed(P), d2 = await DS.seed(P);
@@ -137,6 +159,14 @@ async function main() {
     const call = (m, p, body) => fetch(base + p, { method: m, headers: Object.assign({ Cookie: cookie }, body ? { 'Content-Type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined });
     const list = await (await call('GET', '/api/university/market/bookings')).json();
     ok('staff see their link and the bookings, Magnolia first', list.url === 'https://mynildash.com/book/pinecrest' && list.bookings[0].business === 'Magnolia Coffee' && list.bookings.length === 4, list);
+    ok('  each booking carries its deal summary, and the marketplace link comes with the list', /Business \(pays the athletes\): Magnolia Coffee/.test(list.bookings[0].summary)
+      && list.marketplace && list.marketplace.name === 'Opendorse');
+    const setMp = await call('POST', '/api/university/market/marketplace', { name: 'INFLCR', url: 'https://inflcr.example.com/pinecrest' });
+    ok('  staff set the marketplace over HTTP', setMp.status === 200 && (await (await fetch(base + '/api/book/pinecrest')).json()).marketplace.name === 'INFLCR');
+    const ex = await call('GET', '/api/university/market/deals-export.csv');
+    const exText = await ex.text();
+    ok('  the CSV downloads', ex.status === 200 && /text\/csv/.test(ex.headers.get('content-type')) && /attachment; filename="nildash-deals\.csv"/.test(ex.headers.get('content-disposition')) && /Magnolia Coffee/.test(exText));
+    ok('  and is not public', [401, 403].includes((await fetch(base + '/api/university/market/deals-export.csv')).status));
     const qr = await call('GET', '/api/university/market/booking-qr.svg');
     ok('  the QR code is an SVG', qr.status === 200 && /image\/svg\+xml/.test(qr.headers.get('content-type')) && /<svg/.test(await qr.text()));
     const seen = await call('POST', '/api/university/market/booking/status', { id: list.bookings[0].id, status: 'seen' });
@@ -151,11 +181,13 @@ async function main() {
   const book = fs.readFileSync(REPO + 'public/book.html', 'utf8');
   ok('the booking page says NILDash never signs or negotiates, and the school pays the players', /NILDash does not sign or negotiate deals/.test(book) && /pays the players/.test(book));
   ok('  a hidden field for bots, no em dashes', /id="website"/.test(book) && !/[—]/.test(book));
+  ok('  after booking, the business is sent to the school\'s marketplace when one is set', /set up your business on \$\{esc\(mp\.name\)\}/.test(book) && /href="\$\{esc\(mp\.url\)\}" target="_blank" rel="noopener"/.test(book));
   const portal = fs.readFileSync(REPO + 'public/university.html', 'utf8');
+  ok('Today: copy a deal summary, set the marketplace, download every deal', /Copy deal summary/.test(portal) && /Your NIL marketplace/.test(portal) && /deals-export\.csv/.test(portal) && /data-mpsave/.test(portal));
   ok('Today shows new bookings, the link and the QR download', /New bookings \(/.test(portal) && /Your booking link/.test(portal) && /booking-qr\.svg\?download=1/.test(portal));
   ok('  and greets by the time of day, never by name when viewing as admin', /hr < 12 \? "Morning" : hr < 17 \? "Afternoon" : "Evening"/.test(portal) && /viewingAsAdmin \? "" :/.test(portal));
   const svc = fs.readFileSync(REPO + 'server/services/universityBook.js', 'utf8').replace(/\/\/.*$/gm, '');
-  const tables = [...svc.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE|TABLE(?: IF NOT EXISTS)?)\s+([a-z_]+)/gi)].map((m) => m[1].toLowerCase()).filter((t) => !['if', 'set', 'your'].includes(t));   // 'DO UPDATE SET', 'from your link'
+  const tables = [...svc.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE|TABLE(?: IF NOT EXISTS)?)\s+([a-z_]+)/gi)].map((m) => m[1].toLowerCase()).filter((t) => !['if', 'set', 'your', 'the', 'link'].includes(t));   // 'DO UPDATE SET', 'from your link'
   ok('only university tables', tables.every((t) => /^university_|^universities$/.test(t)), [...new Set(tables)]);
 
   console.log(OUT.join('\n'));
