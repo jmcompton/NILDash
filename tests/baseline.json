@@ -1522,6 +1522,11 @@
       "total": 64,
       "fault": null
     },
+    "teamseats.js": {
+      "failed": 0,
+      "total": 31,
+      "fault": null
+    },
     "turns.js": {
       "failed": 0,
       "total": 35,

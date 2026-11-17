@@ -4477,6 +4477,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="page-title">Settings</div>
     <div class="page-sub">Manage integrations, connected accounts, and preferences</div>
 
+    <!-- ══ YOUR TEAM (services/teamSeats). Staff logins on this account, priced
+         by athletes not people. GET /api/team, POST /api/team/invite|remove. ══ -->
+    <div id="team-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Your team</div>
+      <div id="team-sub" style="font-size:11px;color:var(--muted);margin-bottom:14px">
+        Give each person on your staff their own login. Everyone works the same athletes, pitches and deals.
+        Your plan is priced by athletes, not people, so adding staff costs nothing extra.
+      </div>
+      <div id="team-list" style="margin-bottom:14px"></div>
+      <div id="team-invite" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:150px"><label class="form-label-sm">Name</label><input id="team-name" class="input-sm" style="width:100%"></div>
+        <div style="flex:1.4;min-width:190px"><label class="form-label-sm">Email</label><input id="team-email" type="email" class="input-sm" style="width:100%"></div>
+        <button class="run-btn" style="padding:8px 18px" onclick="inviteTeammate()">Add to team</button>
+      </div>
+      <div id="team-status" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
+    </div>
+
     <!-- ══ BUSINESS ADDRESS — the postal address CAN-SPAM requires in every
          commercial email, the agent's own (services/canSpam.senderAddress).
          Required before the first send. ══ -->
@@ -8466,7 +8483,7 @@ async function showView(id, btn) {
   }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
-  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); setTimeout(loadAutoSend, 60); setTimeout(loadScript, 60); }
+  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); setTimeout(loadTeam, 60); setTimeout(loadAutoSend, 60); setTimeout(loadScript, 60); }
   // The Outreach tab no longer renders the queue; loadUnifiedOutreach and
   // loadAiOutreachLogs are its own tracking reads, wired to their own buttons.
   if (id === 'outreach') { setTimeout(loadUnifiedOutreach, 60); setTimeout(loadAiOutreachLogs, 80); }
@@ -19645,6 +19662,57 @@ async function useImprovedScript() {
 }
 
 // ── The agent's business address (services/canSpam.senderAddress) ─────────────
+// ── YOUR TEAM (services/teamSeats) ──────────────────────────────────────────
+var _teamEsc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+async function loadTeam() {
+  var card = document.getElementById('team-card');
+  if (!card) return;
+  try {
+    var r = await fetch(API_BASE + '/api/team', { credentials: 'include' });
+    if (!r.ok) return;
+    var d = await r.json();
+    if (!d.canHaveTeam && d.isOwner) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    var inv = document.getElementById('team-invite');
+    if (inv) inv.style.display = d.isOwner ? 'flex' : 'none';
+    if (!d.isOwner) document.getElementById('team-sub').textContent = 'You are signed in as a member of this team. The account owner adds and removes people and manages billing.';
+    var rows = (d.members || []).filter(function (m) { return m.status !== 'removed'; });
+    var list = document.getElementById('team-list');
+    list.innerHTML = rows.length ? rows.map(function (m) {
+      var st = m.status === 'active' ? '<span style="color:var(--accent)">Active</span>' : '<span style="color:#f59e0b">Invite sent</span>';
+      return '<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">'
+        + '<span><b style="color:var(--text)">' + _teamEsc(m.name) + '</b> <span style="color:var(--muted)">' + _teamEsc(m.email) + '</span></span>'
+        + '<span style="display:flex;gap:10px;align-items:center">' + st
+        + (d.isOwner ? '<button class="run-btn" style="padding:4px 10px;font-size:11px;background:transparent;color:var(--muted);border:1px solid var(--border)" onclick="removeTeammate(\'' + _teamEsc(m.id) + '\', \'' + _teamEsc(m.name).replace(/'/g, '') + '\')">Remove</button>' : '')
+        + '</span></div>';
+    }).join('') : '<div style="font-size:12px;color:var(--muted)">Just you so far.</div>';
+  } catch (e) {}
+}
+async function inviteTeammate() {
+  var st = document.getElementById('team-status');
+  var name = (document.getElementById('team-name') || {}).value || '', email = (document.getElementById('team-email') || {}).value || '';
+  st.style.color = 'var(--muted)'; st.textContent = 'Adding...';
+  try {
+    var r = await fetch(API_BASE + '/api/team/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name: name, email: email }) });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not add them');
+    st.style.color = 'var(--accent)';
+    st.textContent = d.emailed ? ('Done. ' + d.member.name + ' got an email to set their password.') : ('Added. The email did not go out, so send them this link: ' + d.setPasswordUrl);
+    document.getElementById('team-name').value = ''; document.getElementById('team-email').value = '';
+    loadTeam();
+  } catch (e) { st.style.color = '#f87171'; st.textContent = e.message; }
+}
+async function removeTeammate(id, name) {
+  if (!window.confirm('Remove ' + name + ' from your team? Their login stops working right away.')) return;
+  var st = document.getElementById('team-status');
+  try {
+    var r = await fetch(API_BASE + '/api/team/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id: id }) });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not remove them');
+    st.style.color = 'var(--muted)'; st.textContent = name + ' was removed.';
+    loadTeam();
+  } catch (e) { st.style.color = '#f87171'; st.textContent = e.message; }
+}
 async function loadBusinessAddress() {
   try {
     var r = await fetch(API_BASE + '/api/agent/business-address', { credentials: 'include' });
