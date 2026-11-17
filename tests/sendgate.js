@@ -66,7 +66,7 @@ function guard() {
     'server/jobs/closerRelease.js': { n: 2, why: 'the provider call releaseDue makes through opts.send, after the gate' },
     'server/routes/outreach.js': { n: 4, extra: true, why: 'sendViaEmailService: the provider call runManualSend makes through router._sendImpl, after the gate' },
     'server/routes/email.js': { n: 2, extra: true, why: 'the outlook / imap branches of the same composer send, after the same gate' },
-    'server/index.js': { n: 15, extra: true, why: 'system mail to NILDash users (welcome, invites, verification, reports, password reset, alerts) and the second branch of _sendAthleteEmail' },
+    'server/index.js': { n: 16, extra: true, why: 'system mail to NILDash users (welcome, invites, team invites, verification, reports, password reset, alerts) and the second branch of _sendAthleteEmail' },
     'server/jobs/weeklyDigest.js': { n: 2, why: "the agent's own digest" },
     'server/routes/growth.js': { n: 1, why: "NILDash's own sales list, admin-sent" },
     'server/services/brandMarket.js': { n: 1, why: 'the brand marketplace: confirmations to the business that filled in the form, and its request to agents' },

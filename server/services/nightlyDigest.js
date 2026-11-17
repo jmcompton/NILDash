@@ -125,7 +125,19 @@ function button(href, label, { primary } = {}) {
 // a link.
 const MAX_ATHLETES = 10;
 
-function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes, autoSendUrl, autoOn }) {
+// THIS WEEK'S CLIENT REPORTS (services/clientReports): one line and one button,
+// from Monday until the agent sends them. -> the sentence, or ''.
+function reportsLine(reports) {
+  if (!reports || !reports.url || !(reports.count > 0)) return '';
+  const names = (reports.names || []).map(firstNameOf);
+  const shown = names.slice(0, 3);
+  const extra = names.length - shown.length;
+  const who = extra > 0 ? `${shown.join(', ')} and ${extra} more`
+    : shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown[0];
+  return `This week's client reports are ready for ${who}. Show their families who you contacted, who you followed up with and who answered.`;
+}
+
+function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes, autoSendUrl, autoOn, reports }) {
   const all = Array.isArray(rows) ? rows : [];
   const shown = all.slice(0, MAX_ATHLETES);
   const hidden = typeof moreAthletes === 'number' ? moreAthletes : Math.max(0, all.length - shown.length);
@@ -189,6 +201,9 @@ function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes, au
         ${autoSendUrl && !autoOn ? `<tr><td style="padding-top:14px"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px">
           <div style="font-size:14px;line-height:1.5;color:#374151">${esc(OFFER_LINE)}</div>
           <div style="margin-top:10px">${button(autoSendUrl, 'Send my pitches every morning', { primary: true })}</div></div></td></tr>` : ''}
+        ${reportsLine(reports) ? `<tr><td style="padding-top:14px"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px">
+          <div style="font-size:14px;line-height:1.5;color:#374151">${esc(reportsLine(reports))}</div>
+          <div style="margin-top:10px">${button(reports.url, reports.count === 1 ? 'Send the client report' : `Send ${reports.count} client reports`)}</div></div></td></tr>` : ''}
         ${shown.map(block).join('')}
         ${more}
         <tr><td style="padding-top:20px;border-top:1px solid #e5e7eb;font-size:13px;line-height:1.5;color:#6b7280">${esc(FOOTER)}</td></tr>
@@ -201,6 +216,7 @@ function render({ rows, reviewUrl, unsubUrl, date, tz, waiting, moreAthletes, au
 
   const lines = [intro, ''];
   if (autoSendUrl && !autoOn) lines.push(OFFER_LINE, `Send my pitches every morning: ${autoSendUrl}`, '');
+  if (reportsLine(reports)) lines.push(reportsLine(reports), `Send them: ${reports.url}`, '');
   for (const r of shown) {
     lines.push(`${r.name}${r.place ? ` (${r.place})` : ''} — ${(r.pitches || []).length} pitch${(r.pitches || []).length === 1 ? '' : 'es'}`);
     for (const p of r.pitches || []) {
@@ -422,7 +438,8 @@ async function _sendClaimed(pool, { id, agentId, runDate, rows, cards, u }, opts
   const token = await unsubToken(pool, u);
   const unsubUrl = `${APP_URL()}/api/digest/unsubscribe?token=${encodeURIComponent(token)}`;
   const auto = await autoSendBits(pool, agentId);
-  const msg = render({ rows: groups, reviewUrl: `${APP_URL()}/`, unsubUrl, date: opts.now || new Date(), tz: u.report_tz, ...auto });
+  const reports = await require('./clientReports').offerFor(pool, agentId, { now: opts.now || new Date() });
+  const msg = render({ rows: groups, reviewUrl: `${APP_URL()}/`, unsubUrl, date: opts.now || new Date(), tz: u.report_tz, ...auto, reports });
   await pool.query(`UPDATE nightly_digest_sends SET subject = $2 WHERE id = $1`, [id, msg.subject]).catch(() => {});
   try {
     const send = opts.send || (async (m) => {
@@ -537,7 +554,8 @@ async function _sendWaitingClaimed(pool, { id, agentId, runDate, groups, cards, 
   const token = await unsubToken(pool, u);
   const unsubUrl = `${APP_URL()}/api/digest/unsubscribe?token=${encodeURIComponent(token)}`;
   const auto = await autoSendBits(pool, agentId);
-  const msg = render({ rows: groups, reviewUrl: `${APP_URL()}/`, unsubUrl, date: now, tz: u.report_tz, waiting: true, ...auto });
+  const reports = await require('./clientReports').offerFor(pool, agentId, { now: now || new Date() });
+  const msg = render({ rows: groups, reviewUrl: `${APP_URL()}/`, unsubUrl, date: now, tz: u.report_tz, waiting: true, ...auto, reports });
   await pool.query(`UPDATE nightly_digest_sends SET subject = $2 WHERE id = $1`, [id, msg.subject]).catch(() => {});
   try {
     const send = opts.send || (async (m) => {
