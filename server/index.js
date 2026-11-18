@@ -2177,6 +2177,33 @@ app.post('/api/agent/settings/auto-send', requireAuth, async (req, res) => {
   }
 });
 
+// The agent's own rules for their cards (services/agentPrefs): a starting
+// price, and kinds of business never to show. Saving applies to waiting cards.
+app.get('/api/agent/settings/cards', requireAuth, async (req, res) => {
+  try { const AP = require('./services/agentPrefs'); res.set('Cache-Control', 'no-store').json(AP.view(await AP.get(store.pool, req.session.userId))); }
+  catch (e) { console.error('[settings/cards]', e.message); res.status(500).json({ error: 'Could not load your card settings.' }); }
+});
+app.post('/api/agent/settings/cards', requireAuth, async (req, res) => {
+  try {
+    const out = await require('./services/agentPrefs').set(store.pool, req.session.userId, req.body || {});
+    if (!out.ok) return res.status(400).json(out);
+    res.json({ ok: true, ...require('./services/agentPrefs').view(out.prefs), skipped: out.skipped, lifted: out.lifted });
+  } catch (e) { console.error('[settings/cards]', e.message); res.status(500).json({ error: 'Could not save your card settings.' }); }
+});
+
+// The same settings, set for an agent who asked us to (admin): {agentEmail, offerFloor, never}.
+app.post('/api/admin/agent-card-settings', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const b = req.body || {};
+    const u = (await store.pool.query(`SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND role = 'agent'`, [String(b.agentEmail || '').trim()])).rows[0];
+    if (!u) return res.status(404).json({ error: 'No agent with that email.' });
+    const body = {}; if ('offerFloor' in b) body.offerFloor = b.offerFloor; if ('never' in b) body.never = b.never;
+    const out = await require('./services/agentPrefs').set(store.pool, u.id, body);
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (e) { console.error('[admin/agent-card-settings]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // The agent's own pitch script (services/agentScript): saved once, followed
 // by the writer for every pitch. "Improve it" returns an edit in their voice.
 app.get('/api/agent/settings/script', requireAuth, async (req, res) => {

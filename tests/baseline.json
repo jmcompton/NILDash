@@ -77,6 +77,11 @@
       "total": 23,
       "fault": null
     },
+    "agentprefs.js": {
+      "failed": 0,
+      "total": 17,
+      "fault": null
+    },
     "agentreach.js": {
       "failed": 0,
       "total": 27,

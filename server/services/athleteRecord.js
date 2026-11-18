@@ -114,6 +114,17 @@ function resolveAthlete(row, opts = {}) {
     if (cs.city) { schoolCity = cs.city; schoolState = cs.state; marketSource = 'school-string'; }
   }
 
+  // ── WHERE THEY LIVE NOW (livesIn) ──────────────────────────────────────────
+  // A college athlete who has graduated or left school, kept on the roster
+  // because they still post: "Readfield, ME". Typed by the agent (or set for
+  // them), never guessed. It anchors the local lane on that town instead of a
+  // campus they have left; the school stays on the record as where they played.
+  const livesIn = isPro ? null : _str(d.livesIn);
+  if (livesIn) {
+    const cs = cityStateFrom(livesIn);
+    if (cs.city) { schoolCity = cs.city; schoolState = cs.state; marketSource = 'lives-in'; schoolMatched = null; }
+  }
+
   const rec = {
     id: (row && row.id) || null,
     name,
@@ -127,6 +138,7 @@ function resolveAthlete(row, opts = {}) {
     city, team,
     schoolCity, schoolState, marketSource, schoolMatched,
     hometown,
+    livesIn: livesIn || null,
     hometownCity: hometown ? cityStateFrom(hometown).city : null,
     hometownState: hometown ? cityStateFrom(hometown).state : null,
     instagramHandle: _handle(d.instagramHandle || d.instagram_handle || (row && row.instagram_handle)),
@@ -166,7 +178,7 @@ function resolveAthlete(row, opts = {}) {
   const notApplicable = isPro ? new Set(['school', 'year', 'schoolMatched']) : new Set(['city', 'team']);
   rec.missing = Object.keys(rec).filter((k) =>
     k !== 'missing' && k !== 'tags' && k !== 'marketSource' && !notApplicable.has(k)
-      && k !== 'contentNiche' && k !== 'causes' && k !== 'marketable'
+      && k !== 'contentNiche' && k !== 'causes' && k !== 'marketable' && k !== 'livesIn'
       && (rec[k] === null || rec[k] === undefined));
   // Does the local lane have a market to work in at all?
   rec.hasLocalMarket = !!rec.schoolCity;
