@@ -4594,6 +4594,21 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div id="auto-send-status" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
     </div>
 
+    <!-- ══ MY CARDS (services/agentPrefs): the starting price on every card and
+         the kinds of business never to show. GET/POST /api/agent/settings/cards. ══ -->
+    <div id="cards-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">My cards</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:12px">Your starting price, and the kinds of business your athletes won't partner with. Saving updates the cards already waiting, too.</div>
+      <label for="cards-floor" style="font-size:12px;color:var(--text);display:block;margin-bottom:6px">Start every offer at</label>
+      <select id="cards-floor" class="input-sm" style="max-width:220px"><option value="">No minimum ($250 or $500 by business)</option></select>
+      <div style="font-size:12px;color:var(--text);margin:14px 0 6px">Never show me</div>
+      <div id="cards-never" style="display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--text)"></div>
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center;flex-wrap:wrap">
+        <button class="run-btn" style="padding:8px 18px" onclick="saveCardPrefs()">Save</button>
+        <span id="cards-status" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+    </div>
+
     <!-- ══ MY PITCH SCRIPT (services/agentScript). The agent's own words;
          every pitch follows it. GET/POST /api/agent/settings/script,
          POST /api/agent/settings/script/improve. ══ -->
@@ -8701,7 +8716,7 @@ async function showView(id, btn) {
   }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
-  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); setTimeout(loadTeam, 60); setTimeout(loadAutoSend, 60); setTimeout(loadScript, 60); }
+  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); setTimeout(loadAgencyBrand, 60); setTimeout(loadBusinessAddress, 60); setTimeout(loadTeam, 60); setTimeout(loadAutoSend, 60); setTimeout(loadScript, 60); setTimeout(loadCardPrefs, 60); }
   // The Outreach tab no longer renders the queue; loadUnifiedOutreach and
   // loadAiOutreachLogs are its own tracking reads, wired to their own buttons.
   if (id === 'outreach') { setTimeout(loadUnifiedOutreach, 60); setTimeout(loadAiOutreachLogs, 80); }
@@ -19815,6 +19830,40 @@ async function saveAutoSend(on) {
   }
 }
 
+// ── My cards (services/agentPrefs) ───────────────────────────────────────────────
+async function loadCardPrefs() {
+  try {
+    var r = await fetch(API_BASE + '/api/agent/settings/cards', { credentials: 'include' });
+    if (!r.ok) return;
+    var d = await r.json();
+    var sel = document.getElementById('cards-floor');
+    if (sel) {
+      sel.innerHTML = '<option value="">No minimum ($250 or $500 by business)</option>' + (d.floors || []).map(function (f) {
+        return '<option value="' + f + '"' + (d.offerFloor === f ? ' selected' : '') + '>$' + Number(f).toLocaleString('en-US') + '</option>'; }).join('');
+    }
+    var box = document.getElementById('cards-never');
+    if (box) box.innerHTML = (d.kinds || []).map(function (k) {
+      return '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="cards-never-k" value="' + _scriptEsc(k.key) + '"'
+        + ((d.never || []).indexOf(k.key) >= 0 ? ' checked' : '') + ' style="width:16px;height:16px"> ' + _scriptEsc(k.label) + '</label>'; }).join('');
+  } catch (_) { /* the card stays empty */ }
+}
+async function saveCardPrefs() {
+  var st = document.getElementById('cards-status');
+  var sel = document.getElementById('cards-floor');
+  var never = Array.prototype.slice.call(document.querySelectorAll('.cards-never-k:checked')).map(function (x) { return x.value; });
+  if (st) { st.style.color = 'var(--muted)'; st.textContent = 'Saving...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/settings/cards', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ offerFloor: sel && sel.value ? Number(sel.value) : null, never: never }) });
+    var d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    var bits = ['Saved.'];
+    if (d.skipped) bits.push(d.skipped + ' waiting card' + (d.skipped === 1 ? '' : 's') + ' removed.');
+    if (d.lifted) bits.push(d.lifted + ' card' + (d.lifted === 1 ? '' : 's') + ' raised to your starting price.');
+    if (st) { st.style.color = 'var(--accent)'; st.textContent = bits.join(' '); }
+  } catch (e) { if (st) { st.style.color = '#ef4444'; st.textContent = 'Could not save: ' + e.message; } }
+}
+
 // ── My pitch script (services/agentScript) ──────────────────────────────────────
 function _scriptEsc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function _scriptStatus(msg, color) { var st = document.getElementById('script-status'); if (st) { st.style.color = color || 'var(--muted)'; st.textContent = msg || ''; } }
@@ -23136,6 +23185,8 @@ function hqRenderCard(c, i) {
         + ' <span class="role">&middot; ' + hqEscape(c.role) + '</span></p>' : '')
     + (c.why ? '<p class="hq-why">' + hqEscape(c.why) + '</p>' : '')
     + (c.sponsorNote ? '<p class="hq-why"><b>' + hqEscape(c.sponsorNote) + '</b></p>' : '')
+    // Their website, one tap, to check the fit before approving.
+    + (c.website && /^https:\/\/[a-z0-9.-]+$/i.test(c.website) ? '<p class="hq-why">Website: <a href="' + hqEscape(c.website) + '" target="_blank" rel="noopener">' + hqEscape(c.website.replace(/^https:\/\//, '')) + '</a></p>' : '')
     + hqOfferHtml(c, i)
     + hqAskHtml(c, i)
     // A thin row says so: it reached a slot because nothing with

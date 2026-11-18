@@ -1349,6 +1349,7 @@ HARD RULES FOR THE MESSAGE:
 - Never open with "I hope this finds you well", "I wanted to reach out", or "my name is".
 - No corporate words. Nothing leverages, nothing is seamless, nobody circles back, nothing is a game-changer.
 - Use contractions. Write how a person talks.
+- ONE ATHLETE IS ONE PERSON. Refer to the athlete by first name, never as "they", "them" or "their", and never as he or she: a business reads "their" as more than one person. If a sentence needs a pronoun, rewrite it or repeat the first name.
 - NEVER put a dollar amount, a rate, a fee or a budget in the message. Not a range, not "starting at", not "around". Money comes up after they reply, and the agent handles it from there. A number in a cold message turns a conversation into a negotiation before there is anything to negotiate about.
 - The last line before your sign-off is the ask: one question, one sentence, on its own line after a blank line.
 - Sign off with the agent's first name on its own line.

@@ -47,6 +47,7 @@ const WriterEvidence = require('../services/writerEvidence');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const OFFER = require('../services/offerSuggest');
+const AgentPrefs = require('../services/agentPrefs');
 const BI = require('../services/brandIdentity');
 const AR = require('../services/athleteRecord');
 const Scout = require('../services/scout');
@@ -2245,6 +2246,19 @@ async function _fillAthlete(pool, ctx, nightFaults) {
           continue;
         }
       }
+      // ── THE AGENT'S NEVER-THESE (services/agentPrefs) ───────────────────
+      // A kind of business this agent said their athletes will not partner
+      // with ("no real estate"). Refused here, before any credit is spent.
+      {
+        const _ap = await AgentPrefs.get(pool, agentId);
+        const nk = AgentPrefs.blockedBy(_ap, { name: cand.brand_name, category: (place && (place.primaryType || place.category)) || cand.category || null,
+          types: (place && place.types) || null });
+        if (nk) {
+          say(`${cand.brand_name}: not a card, the agent does not want ${nk.label.toLowerCase()}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', reason: 'agent never-list: ' + nk.key, places: facts, risk: 'normal' });
+          continue;
+        }
+      }
       // ── THE SEND GATE'S OWN CHECK, BEFORE ANY HUNTER CREDIT ─────────────
       // compliance.screenCandidate runs the send gate's evaluate() (the
       // sponsor rule, the .edu rule, the athlete's state and school rules,
@@ -2690,8 +2704,9 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // THE SUGGESTED OFFER (services/offerSuggest, OFFER_ON): $250 or $500
       // from what Google says about the business, and a menu item for a
       // restaurant. The writer may name it once; the card shows it.
-      const _offer = OFFER.ON() ? OFFER.forBusiness({ name: cand.brand_name, place, athleteName,
-        franchise: !!(out && out.siteEmail && out.siteEmail.corporate) }) : null;
+      // Below the agent's own starting price, it starts there (services/agentPrefs).
+      const _offer = AgentPrefs.applyFloor(OFFER.ON() ? OFFER.forBusiness({ name: cand.brand_name, place, athleteName,
+        franchise: !!(out && out.siteEmail && out.siteEmail.corporate) }) : null, (await AgentPrefs.get(pool, agentId)).offerFloor);
       let pitch = null;
       try {
         pitch = await PW.writePitch({

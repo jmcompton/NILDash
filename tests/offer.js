@@ -156,7 +156,7 @@ const withOffAsync = async (fn) => { delete process.env.OFFER_ON; try { return a
   ok('writePitch hands the card\'s offer to the check', /offer: \(ctx\.offer && ctx\.offer\.label\) \|\| null,/.test(read('server/services/pitchWriter.js')));
   const job = read('server/jobs/outreachQueue.js');
   ok('the night: the offer from the Places record, into the writer, onto the card and its draft',
-    /const _offer = OFFER\.ON\(\) \? OFFER\.forBusiness\(\{ name: cand\.brand_name, place, athleteName/.test(job)
+    /const _offer = AgentPrefs\.applyFloor\(OFFER\.ON\(\) \? OFFER\.forBusiness\(\{ name: cand\.brand_name, place, athleteName/.test(job)
     && /offer: _offer/.test(job) && /if \(_offer\) card\.offer = _offer;/.test(job)
     && /await OFFER\.record\(pool, \{ queueId: ins\.rows\[0\]\.id, logId: logId \|\| null, offer: card\.offer \}\)/.test(job));
 

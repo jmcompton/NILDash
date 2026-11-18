@@ -106,6 +106,13 @@ const MAX_LEN = 220;         // longer than this is not a three-second read
 // is one of these the next one is taken instead.
 const FILLER_RE = /^(hi|hey|hello|dear|good (morning|afternoon|evening))\b|^i hope\b|^hope (you|this)\b|^my name is\b|^i'?m reaching out\b|^just reaching out\b|^i wanted to reach\b/i;
 
+function websiteOf(email) {
+  const m = /@([a-z0-9.-]+\.[a-z]{2,})$/i.exec(String(email || '').trim());
+  if (!m) return null;
+  try { if (require('./emailTier').isFreeMail(email)) return null; } catch (_) { return null; }
+  return 'https://' + m[1].toLowerCase().replace(/^www\./, '');
+}
+
 function stripHtml(html) {
   return String(html || '')
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
@@ -673,6 +680,10 @@ async function buildHome(pool, agentId, opts = {}) {
         // THE SUGGESTED OFFER (services/offerSuggest, OFFER_ON): "$250", the
         // agent's to change, and a restaurant's menu item.
         offer: require('./offerSuggest').ON() ? (c.offer || null) : null,
+        // THE BUSINESS'S WEBSITE, one tap to check the fit: the domain of the
+        // address the pitch goes to, never a free mailbox (gmail.com is not
+        // their website). Null when we hold no business domain.
+        website: websiteOf(c.toEmail),
       };
 
       if (c.channel === 'email') {
