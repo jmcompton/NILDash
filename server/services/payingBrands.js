@@ -42,7 +42,7 @@
 
 const DAY = 86400000;
 const REFRESH_DAYS = 30;
-const DAILY_SCHOOLS = 8;
+const DAILY_SCHOOLS = Math.max(1, Math.min(200, parseInt(process.env.PAYING_BRANDS_DAILY, 10) || 40));
 const MAX_LINES = 24;
 
 const OFF = () => String(process.env.PAYING_BRANDS_OFF || '').trim() === '1';
@@ -92,7 +92,7 @@ function sportOf(s) {
 }
 
 // ── WHAT IS NOT A PAYING BRAND ──────────────────────────────────────────────
-const NOT_A_BRAND = /\b(collective|athletics?|athletic department|conference|ncaa|naia|njcaa|opendorse|inflcr|teamworks|learfield|playfly|nil club|nilclub|marketpryce|dreamfield|icon source|nil store|basepath|influxer|espn|on3|247sports|rivals|sports illustrated|the athletic|instagram|tiktok|youtube|facebook|twitter|linkedin)\b/i;
+const NOT_A_BRAND = /\b(pliable|marketing agency|sports agency|nil agency|sports management|talent management|collective|athletics?|athletic department|conference|ncaa|naia|njcaa|opendorse|inflcr|teamworks|learfield|playfly|nil club|nilclub|marketpryce|dreamfield|icon source|nil store|basepath|influxer|espn|on3|247sports|rivals|sports illustrated|the athletic|instagram|tiktok|youtube|facebook|twitter|linkedin)\b/i;
 function refused(brand, school) {
   const k = keyOf(brand);
   if (!k || k.length < 2) return 'empty';
@@ -110,7 +110,7 @@ function refused(brand, school) {
 async function saveProof(pool, p) {
   const bk = keyOf(p.brand);
   await pool.query(`INSERT INTO paying_brands (brand_key, brand, handle) VALUES ($1,$2,$3)
-    ON CONFLICT (brand_key) DO UPDATE SET last_seen = NOW(), handle = COALESCE(paying_brands.handle, EXCLUDED.handle)`, [bk, String(p.brand).trim().slice(0, 120), p.handle || null]);
+    ON CONFLICT (brand_key) DO UPDATE SET last_seen = NOW(), handle = COALESCE(paying_brands.handle, EXCLUDED.handle)`, [bk, String(p.brand).trim().slice(0, 120), p.handle || (/^@[A-Za-z0-9._]{2,30}$/.test(String(p.brand).trim()) ? String(p.brand).trim().slice(1).toLowerCase() : null)]);
   const r = await pool.query(`INSERT INTO paying_brand_proof (brand_key, school, school_key, school_state, athlete, sport, kind, source_url, title)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (brand_key, source_url) DO NOTHING RETURNING id`,
   [bk, p.school || null, p.school ? keyOf(p.school) : null, p.state || null, p.athlete || null, p.sport || null, p.kind, p.url, p.title ? String(p.title).slice(0, 300) : null]);
@@ -141,7 +141,7 @@ function linesFrom(rows, school) {
   return out.slice(0, MAX_LINES);
 }
 
-const SYSTEM = 'You read search results about college athletes. For each numbered line that shows a business or brand PAYING or PARTNERING WITH a named athlete or the athletes of a team (an NIL deal, a paid or sponsored post, an ambassador signing), return the brand and, if named, the athlete and the sport. Never return the school, its athletics department, its conference, a collective, an NIL platform or marketplace, a media outlet, or a line that only mentions NIL in general. Copy the brand and athlete exactly as written in that line. Answer with JSON: {"deals": [{"line": 1, "brand": "", "athlete": "", "sport": ""}]}.';
+const SYSTEM = 'You read search results about college athletes. For each numbered line that shows a business or brand PAYING or PARTNERING WITH a named athlete or the athletes of a team (an NIL deal, a paid or sponsored post, an ambassador signing), return the brand and, if named, the athlete and the sport. Never return the school, its athletics department, its conference, a collective, an NIL platform or marketplace, a sports or NIL marketing agency or management firm, a media outlet, or a line that only mentions NIL in general. Copy the brand and athlete exactly as written in that line. Answer with JSON: {"deals": [{"line": 1, "brand": "", "athlete": "", "sport": ""}]}.';
 
 async function pickDeals(school, lines, chat) {
   const res = await chat({ system: SYSTEM, jsonMode: true, maxTokens: 1500, temperature: 0,
@@ -276,6 +276,34 @@ async function forSchool(pool, school, { limit = 25 } = {}) {
   return { school, state, brands };
 }
 
+// ── INTO THE SOCIAL LANE (services/scout socialCandidates) ──────────────────
+// The brands that paid athletes like this one, as slate candidates: nearby
+// (same state) first, then the same sport anywhere. Each carries the one
+// public fact the writer may use, and signingEvidence turns its proof into the
+// card's note. A brand known only by its handle is pitched by that handle.
+async function candidatesFor(pool, athlete, { limit = 6 } = {}) {
+  if (String(process.env.PAYING_BRANDS_LANE || '').trim() === '0') return [];
+  const a = athlete || {};
+  if (!a.school && !a.sport) return [];
+  const m = await forAthlete(pool, { school: a.school, sport: a.sport }, { limit });
+  const out = [];
+  for (const b of m.nearby.concat(m.elsewhere)) {
+    const p = (b.proof || [])[0] || {};
+    const name = String(b.brand || '').replace(/^@/, '').trim();
+    if (!name) continue;
+    const where = [p.school, p.sport].filter(Boolean).join(' ');
+    out.push({
+      brand_key: keyOf(b.brand), brand_name: name, lane: 'social', pool: 'paying-proof',
+      instagram: b.handle || null,
+      why: `Paid ${b.athletes === 1 ? 'a college athlete' : b.athletes + ' college athletes'}${where ? ' (' + where + ')' : ''}`,
+      // What the writer may say about them: a public fact, no names.
+      evidence_text: `Has partnered with ${where ? 'a ' + where + ' athlete' : 'college athletes'} on social`,
+      paidProofUrl: p.url || null,
+    });
+  }
+  return out.slice(0, limit);
+}
+
 // ── THE DAILY JOB ───────────────────────────────────────────────────────────
 // Schools where an active agent has an athlete, and every university account's school, stalest first.
 async function dueSchools(pool, { limit = DAILY_SCHOOLS } = {}) {
@@ -291,7 +319,36 @@ async function dueSchools(pool, { limit = DAILY_SCHOOLS } = {}) {
        LEFT JOIN paying_brand_runs x ON x.school_key = LOWER(TRIM(regexp_replace(replace(s.school, '&', ' and '), '[^a-zA-Z0-9]+', ' ', 'g')))
       WHERE x.ran_at IS NULL OR x.ran_at < NOW() - ($1::int || ' days')::interval
       ORDER BY x.ran_at NULLS FIRST, s.school LIMIT $2`, [REFRESH_DAYS, limit]).catch((e) => { console.warn('[paying-brands] due:', e.message); return { rows: [] }; });
-  return r.rows.map((x) => x.school);
+  const due = r.rows.map((x) => x.school);
+  if (due.length >= limit) return due;
+  // ── AND THE SCHOOLS AROUND THEM ──────────────────────────────────────────
+  // A brand that paid an athlete at the school down the road is the lead for
+  // our athlete, so the rest of the day's reads go to other athletic programs
+  // (program_source, every athletics site we read) in the states our athletes
+  // and universities are in, never read or read longest ago.
+  try {
+    const states = new Set();
+    for (const s of (await pool.query(
+      `SELECT DISTINCT TRIM(a.data->>'school') AS school FROM athletes a JOIN users u ON u.id = a.agent_id AND u.role = 'agent' AND COALESCE(u.archived, false) = false
+        WHERE COALESCE(TRIM(a.data->>'school'), '') <> ''
+       UNION SELECT DISTINCT TRIM(name) FROM universities WHERE COALESCE(TRIM(name), '') <> ''`).catch(() => ({ rows: [] }))).rows) {
+      const st = stateOf(s.school); if (st) states.add(st);
+    }
+    if (!states.size) return due;
+    const have = new Set(due.map(keyOf));
+    const read = new Map((await pool.query(`SELECT school_key, ran_at FROM paying_brand_runs`)).rows.map((x) => [x.school_key, new Date(x.ran_at).getTime()]));
+    const near = [];
+    for (const x of (await pool.query(`SELECT DISTINCT TRIM(school) AS school FROM program_source WHERE COALESCE(TRIM(school), '') <> ''`).catch(() => ({ rows: [] }))).rows) {
+      const k = keyOf(x.school);
+      if (have.has(k)) continue;
+      const at = read.get(k);
+      if (at && Date.now() - at < REFRESH_DAYS * DAY) continue;
+      if (!states.has(stateOf(x.school))) continue;
+      near.push({ school: x.school, at: at || 0 });
+    }
+    near.sort((a, b) => a.at - b.at || a.school.localeCompare(b.school));
+    return due.concat(near.slice(0, limit - due.length).map((x) => x.school));
+  } catch (e) { console.warn('[paying-brands] nearby schools:', e.message); return due; }
 }
 
 let _busy = false;
@@ -337,4 +394,4 @@ function renderHtml(ov) {
 ${brands}<h2>Schools read</h2>${runs || '<p class="m">None yet.</p>'}</div></body></html>`;
 }
 
-module.exports = { ensureTables, refresh, linesFrom, pickDeals, refused, brandsInCaption, fromConnected, forAthlete, forSchool, dueSchools, tick, start, overview, renderHtml, keyOf, sportOf, stateOf, queriesFor, REFRESH_DAYS, DAILY_SCHOOLS };
+module.exports = { candidatesFor, ensureTables, refresh, linesFrom, pickDeals, refused, brandsInCaption, fromConnected, forAthlete, forSchool, dueSchools, tick, start, overview, renderHtml, keyOf, sportOf, stateOf, queriesFor, REFRESH_DAYS, DAILY_SCHOOLS };

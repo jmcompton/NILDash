@@ -93,7 +93,7 @@ function reachOf(a) {
 async function forBrand(pool, brand, athlete) {
   const reach = reachOf(athlete);
   const sport = fold(athlete && athlete.sport) || null;
-  const out = { ok: false, evidence: [], program: false, sameSport: false, band: null, deals: 0 };
+  const out = { ok: false, evidence: [], program: false, paid: false, sameSport: false, band: null, deals: 0 };
   try {
     // Every logged deal for the brand, for the size band.
     const tot = (await pool.query(`SELECT COUNT(*)::int n FROM deal_comps WHERE LOWER(btrim(brand)) = LOWER(btrim($1))`, [brand])).rows[0];
@@ -117,6 +117,25 @@ async function forBrand(pool, brand, athlete) {
       out.evidence.push({ kind: 'deal', athlete: d.athlete_name || null, followers: d.followers, sport: d.sport || null,
         school: d.school || null, source: d.source, date: d.created_at, sameSport: same });
     }
+    // PUBLIC PROOF IT PAID A COLLEGE ATHLETE (services/payingBrands): a deal
+    // announcement or a paid post, with its link, in the last 12 months. The
+    // strongest evidence there is: not "takes applications", but "paid one".
+    // Same sport first, then the newest.
+    try {
+      const PB = require('./payingBrands');
+      const paid = (await pool.query(`
+        SELECT p.athlete, p.sport, p.school, p.kind, p.source_url, p.found_at
+          FROM paying_brand_proof p
+         WHERE p.brand_key = $1 AND p.found_at > NOW() - ($2 || ' months')::interval
+         ORDER BY (p.sport = $3::text) DESC NULLS LAST, p.found_at DESC LIMIT 3`, [PB.keyOf(brand), String(MONTHS), PB.sportOf(sport) || ''])).rows;
+      for (const d of paid) {
+        const same = !!(sport && d.sport && PB.sportOf(sport) === d.sport);
+        if (same) out.sameSport = true;
+        out.paid = true;
+        out.evidence.push({ kind: 'paid', athlete: d.athlete || null, sport: d.sport || null, school: d.school || null,
+          how: d.kind, source: d.source_url, date: d.found_at, sameSport: same });
+      }
+    } catch (_) { /* no paying-brand table yet: nothing to add */ }
     // A VERIFIED PROGRAM whose stated range takes this athlete.
     const prog = (await pool.query(`
       SELECT brand, proof_url, proof_date, proof_snippet, offer_summary, tier_min, tier_max, sports, brand_size, website
@@ -161,14 +180,19 @@ function bandOf({ brand, size, deals, program }) {
 // growth over national, then the athlete's own sport.
 function score(ev) {
   if (!ev || !ev.ok) return -1;
-  return (ev.program ? 3 : 0) + (ev.band === 'growth' || ev.band === 'small' ? 2 : 0) + (ev.sameSport ? 1 : 0);
+  return (ev.paid ? 4 : 0) + (ev.program ? 3 : 0) + (ev.band === 'growth' || ev.band === 'small' ? 2 : 0) + (ev.sameSport ? 1 : 0);
 }
 
 // One line for the card and the run row.
 function sentence(ev) {
   if (!ev || !ev.ok) return null;
-  const e = ev.evidence[0];
+  // Proof it paid an athlete leads the card whenever we hold it.
+  const e = ev.evidence.find((x) => x.kind === 'paid') || ev.evidence[0];
   const d = e.date ? new Date(e.date).toISOString().slice(0, 7) : '';
+  if (e.kind === 'paid') {
+    const who = [e.athlete, [e.school, e.sport].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    return `paid ${who || 'a college athlete'} (${e.how === 'announcement' ? 'announced deal' : 'paid post'}), found ${d}: ${e.source}`;
+  }
   if (e.kind === 'program') return `runs an athlete program for athletes your size (${e.range[0].toLocaleString()}-${e.range[1].toLocaleString()} followers), verified ${d}: ${e.source}`;
   return `signed ${e.athlete || 'an athlete'}${e.sport ? ` (${e.sport}` : ''}${e.followers ? `${e.sport ? ', ' : ' ('}${Number(e.followers).toLocaleString()} followers` : ''}${e.sport || e.followers ? ')' : ''}, logged ${d}: ${e.source}`;
 }
@@ -189,7 +213,7 @@ async function filterAndRank(pool, cands, athlete, opts = {}) {
     // BAR OFF: kept as before, in its own order, with whatever evidence and
     // band we found recorded on the card for measurement.
     if (!bar) {
-      kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.ok ? ev.evidence : null, evidenceNote: ev.ok ? sentence(ev) : null, evidenceScore: 0, hasProgram: ev.program, sameSportEvidence: ev.sameSport, dealCount: ev.deals });
+      kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.ok ? ev.evidence : null, evidenceNote: ev.ok ? sentence(ev) : null, evidenceScore: 0, hasProgram: ev.program, paidProof: ev.paid, sameSportEvidence: ev.sameSport, dealCount: ev.deals });
       continue;
     }
     if (!ev.ok) {
@@ -197,7 +221,7 @@ async function filterAndRank(pool, cands, athlete, opts = {}) {
         : `no evidence it signed or partnered with an athlete of comparable reach in the last ${MONTHS} months` });
       continue;
     }
-    kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.evidence, evidenceNote: sentence(ev), evidenceScore: score(ev), hasProgram: ev.program, sameSportEvidence: ev.sameSport, dealCount: ev.deals });
+    kept.push({ ...c, sizeBand: ev.band, signingEvidence: ev.evidence, evidenceNote: sentence(ev), evidenceScore: score(ev), hasProgram: ev.program, paidProof: ev.paid, sameSportEvidence: ev.sameSport, dealCount: ev.deals });
   }
   if (bar) kept.sort((a, b) => b.evidenceScore - a.evidenceScore);
   return { kept, refused, bar };
