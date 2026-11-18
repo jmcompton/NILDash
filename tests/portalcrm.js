@@ -389,6 +389,9 @@ async function main() {
   const called = [...new Set((PG.match(/'\/api\/portal\/[a-z-]+/g) || []).map((x) => x.slice(1)))];
   ok('every endpoint the page calls exists', called.length >= 9 && called.every((p) => IX.includes(`'${p}`)), called.filter((p) => !IX.includes(`'${p}`)));
   ok('in the demo nothing is written, and it says it is a sample', /const DEMO = location\.pathname/.test(PG) && /if \(method !== 'GET' && !\['\/api\/portal\/enter-check', '\/api\/portal\/board'\]\.includes\(p\)\) throw new Error\(ro\)/.test(PG) && /This is a sample with made-up schools, people and numbers/.test(PG));
+  ok('the pipeline drags: cards are draggable, columns carry their stage, a drop saves the stage and a refused save puts it back',
+    /class="card" draggable="true"/.test(PG) && /class="col" data-stage="\$\{esc\(col\.key\)\}"/.test(PG) && /addEventListener\('drop'/.test(PG)
+    && /api\('PUT', `\/api\/portal\/targets\/\$\{encodeURIComponent\(S\.aid\)\}\/\$\{encodeURIComponent\(id\)\}`, \{ stage \}\)/.test(PG) && /catch \(err\) \{ moveLocal\(id, prev\)/.test(PG));
   ok('it says what it is not: not legal advice, and nothing is sent from here', /Not legal advice/.test(PG) && /Nothing is sent from here/.test(PG) && /You send it from your own email/.test(PG));
   ok('the page says the Protect College Sports Act is pending next to the checks built on it', /S\.ws\.pcsaStatus !== 'law'/.test(PG) && (PG.match(/class="note pcsaNote hidden"/g) || []).length === 2 && /waiting on the House/.test(PG));
   ok('no claim the page cannot back: no "Same staff", leaving is "seniors or older", a declined offer can be put back', !/Same staff/.test(PG) && /No change on file/.test(PG) && /Seniors or older/.test(PG) && !/ leaving`/.test(PG) && /data-orestore/.test(PG));

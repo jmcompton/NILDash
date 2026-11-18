@@ -69,6 +69,7 @@ h2.sec{margin:0;font-size:24px}
 .col .ch{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 4px;font-weight:600}
 .col .ch span{font-size:12px;color:var(--muted);background:#fff;border-radius:10px;padding:1px 8px;font-weight:500}
 .card{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--line2);border-radius:10px;padding:12px;cursor:pointer;font-size:13px}
+.card[draggable="true"]{cursor:grab}.card.dragging{opacity:.45}.col.over{outline:2px dashed var(--accent);outline-offset:-3px}
 .card[aria-pressed="true"]{border:2px solid var(--accent);padding:11px;box-shadow:0 2px 8px rgba(15,26,20,.08)}
 .card .t{display:flex;justify-content:space-between;gap:6px;align-items:baseline}.card .t b{font-size:15px}.card .t span{font-size:11px;color:var(--muted)}
 .meter{display:block;height:4px;background:var(--soft);border-radius:2px;margin-top:4px}.meter i{display:block;height:4px;background:var(--accent);border-radius:2px}
@@ -435,14 +436,14 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
     const cols = S.ws.stages.filter((s) => s.key !== 'passed');
     $('kan').innerHTML = cols.map((col) => {
       const cards = col.cards.filter((c) => !f || c.school.toLowerCase().includes(f));
-      return `<div class="col"><div class="ch">${esc(col.label)}<span>${cards.length}</span></div>${cards.map(card).join('') || '<div class="empty">None</div>'}</div>`;
+      return `<div class="col" data-stage="${esc(col.key)}"><div class="ch">${esc(col.label)}<span>${cards.length}</span></div>${cards.map(card).join('') || '<div class="empty">None</div>'}</div>`;
     }).join('');
     const passed = (S.ws.stages.find((s) => s.key === 'passed') || { cards: [] }).cards;
     $('passedLine').innerHTML = passed.length ? `Passed: ${passed.map((c) => `<button type="button" class="linkbtn" style="font-weight:500;text-decoration:underline" data-pick="${esc(c.id)}">${esc(c.school)}</button>`).join(', ')}` : '';
   }
   function card(c) {
     const n = c.need;
-    return `<button type="button" class="card" data-pick="${esc(c.id)}" aria-pressed="${c.id === S.sel}">
+    return `<button type="button" class="card" draggable="true" data-pick="${esc(c.id)}" aria-pressed="${c.id === S.sel}" title="Drag to another column to move it">
       <span class="t"><b>${esc(c.school)}</b><span>${esc(c.level || '')}</span></span>
       ${c.fit != null ? `<span class="l"><span>Fit</span><b>${c.fit}</b></span><span class="meter"><i style="width:${Math.max(2, Math.min(100, c.fit))}%"></i></span>` : ''}
       ${n ? `<span class="l"><span>${esc(needLabel(n))}</span><b>${n.rating === 'unknown' ? '' : `${n.leaving} of ${n.on} seniors+`}</b></span>` : ''}
@@ -454,6 +455,57 @@ pre.mail{white-space:pre-wrap;background:var(--ground);border-radius:8px;padding
   }
   document.addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (b) { pick(b.dataset.pick); } });
   $('q').addEventListener('input', () => { renderKanban(); if (S.board) renderBoard(); });
+
+  // ── DRAG A SCHOOL TO ANOTHER COLUMN ──────────────────────────────────────
+  // The card moves at once and the stage is saved (the same PUT as the Stage
+  // box, which logs "Moved to ..."). A refused save puts it back. Moving to
+  // Offer in opens the offer form, as the Stage box does. In the sample it
+  // moves and nothing is saved.
+  let dragId = null;
+  function moveLocal(id, stage) {
+    const c = S.ws.cards.find((x) => x.id === id);
+    if (!c) return null;
+    let moved = null;
+    for (const s of S.ws.stages) { const i = s.cards.findIndex((x) => x.id === id); if (i >= 0) moved = s.cards.splice(i, 1)[0]; }
+    const to = S.ws.stages.find((s) => s.key === stage);
+    c.stage = stage; c.stageLabel = to ? to.label : c.stageLabel;
+    if (moved && moved !== c) { moved.stage = stage; moved.stageLabel = c.stageLabel; }
+    if (to) to.cards.unshift(moved || c);
+    return c;
+  }
+  async function moveTo(id, stage) {
+    const c = S.ws.cards.find((x) => x.id === id);
+    if (!c || c.stage === stage) return;
+    const prev = c.stage;
+    S.sel = id; moveLocal(id, stage); renderKanban(); renderDetail();
+    if (DEMO) return;
+    try {
+      await api('PUT', `/api/portal/targets/${encodeURIComponent(S.aid)}/${encodeURIComponent(id)}`, { stage });
+      await reload();
+      if (stage === 'offer' && !S.ws.offers.offers.some((o) => o.school === c.school)) { setTab('offers'); openOfferForm(c.school); }
+    } catch (err) { moveLocal(id, prev); renderKanban(); renderDetail(); alertLine(err.message); }
+  }
+  const clearOver = () => { for (const el of document.querySelectorAll('.col.over')) el.classList.remove('over'); };
+  $('kan').addEventListener('dragstart', (e) => {
+    const c = e.target.closest('.card[data-pick]'); if (!c) return;
+    dragId = c.dataset.pick; c.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', dragId); } catch (_) {}
+  });
+  $('kan').addEventListener('dragend', (e) => { const c = e.target.closest('.card'); if (c) c.classList.remove('dragging'); clearOver(); dragId = null; });
+  $('kan').addEventListener('dragover', (e) => {
+    const col = e.target.closest('.col[data-stage]'); if (!col || !dragId) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    if (!col.classList.contains('over')) { clearOver(); col.classList.add('over'); }
+  });
+  $('kan').addEventListener('dragleave', (e) => { const col = e.target.closest('.col[data-stage]'); if (col && !col.contains(e.relatedTarget)) col.classList.remove('over'); });
+  $('kan').addEventListener('drop', (e) => {
+    const col = e.target.closest('.col[data-stage]'); if (!col) return;
+    e.preventDefault(); clearOver();
+    let id = dragId; try { id = id || e.dataTransfer.getData('text/plain'); } catch (_) {}
+    dragId = null;
+    if (id) moveTo(id, col.dataset.stage);
+  });
 
   function pick(id) {
     S.sel = id;
