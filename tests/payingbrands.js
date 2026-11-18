@@ -93,10 +93,33 @@ async function main() {
 
   const html = PB.renderHtml(await PB.overview(P));
   ok('the admin page: each brand, its proof link, and the schools read', /Bluebird Smoothies/.test(html) && /localnews\.example/.test(html) && /Troy University: 2 brands/.test(html) && !/<script/i.test(html), html.slice(-900));
+  // ── INTO THE SOCIAL LANE ───────────────────────────────────────────────
+  ok('an agency is not a paying brand', !!PB.refused('Pliable', 'Bentley University') && !!PB.refused('Elite Sports Management', 'Troy University'));
+  const cands = await PB.candidatesFor(P, { school: 'Samford University', sport: 'Softball' });
+  ok('social candidates: the paying brands, handle-only ones named by handle, with a public fact for the writer and no athlete names',
+    cands.length === 3 && cands.every((c) => c.lane === 'social' && c.pool === 'paying-proof' && c.paidProofUrl) && cands.some((c) => c.brand_name === 'peakgrip' && c.instagram === 'peakgrip')
+    && cands.every((c) => /^Has partnered with/.test(c.evidence_text) && !/Jordan|Riley/.test(c.evidence_text)), cands);
+  process.env.PAYING_BRANDS_LANE = '0';
+  ok('  PAYING_BRANDS_LANE=0 keeps them out', (await PB.candidatesFor(P, { school: 'Samford University', sport: 'Softball' })).length === 0);
+  delete process.env.PAYING_BRANDS_LANE;
+  const Scout = require(REPO + 'server/services/scout.js');
+  const sc = await Scout.socialCandidates(P, { athlete: { id: 'x', school: 'Samford University', sport: 'Softball' }, limit: 6,
+    store: { getSocialBrandPool: async () => [{ brand: 'Index Brand', brandKey: 'index brand' }, { brand: 'Bluebird Smoothies', brandKey: 'bluebird smoothies' }] } });
+  ok('  the social lane draws them first, then the index, without doubles', sc[0].pool === 'paying-proof' && sc.filter((c) => c.brand_name === 'Bluebird Smoothies').length === 1
+    && sc[sc.length - 1].brand_name === 'Index Brand', sc.map((c) => c.brand_name + ':' + c.pool));
+  const SE = require(REPO + 'server/services/signingEvidence.js');
+  const ev = await SE.forBrand(P, 'Bluebird Smoothies', { sport: 'Softball', reach: 3000 });
+  ok('signing evidence: proof it paid counts, leads the note, and scores above a program', ev.ok && ev.paid && ev.sameSport && /^paid Jordan Lake, Troy University softball \(announced deal\)/.test(SE.sentence(ev))
+    && /localnews\.example/.test(SE.sentence(ev)) && SE.score(ev) > SE.score({ ok: true, program: true, band: 'growth', sameSport: true }), { ev, s: SE.sentence(ev) });
+
+  // Nearby athletic programs fill the day's reads.
+  await P.query(`INSERT INTO program_source (school, sport, staff_url) VALUES ('Jacksonville State University','football','https://jsu.example/staff'), ('Bowdoin College','football','https://bowdoin.example/staff')`).catch(() => {});
+
   await P.query(`DELETE FROM paying_brand_runs`);
   await P.query(`INSERT INTO universities (id, name) VALUES ('u1','Georgia Southern University')`).catch(() => {});
   const due = await PB.dueSchools(P);
   ok('due: university accounts\' schools (agents\' schools need a send in 30 days)', due.includes('Georgia Southern University') && !due.includes('University of South Alabama'), due);
+  ok('  then athletic programs in our athletes\' states, not elsewhere', due.includes('Jacksonville State University') && !due.includes('Bowdoin College') && due.indexOf('Georgia Southern University') < due.indexOf('Jacksonville State University'), due);
   process.env.PAYING_BRANDS_OFF = '1';
   ok('PAYING_BRANDS_OFF=1 stops the job', (await PB.tick(P)).skipped === 'off');
   delete process.env.PAYING_BRANDS_OFF;

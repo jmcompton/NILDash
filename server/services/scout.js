@@ -653,13 +653,20 @@ function programFacts(b) {
 
 async function socialCandidates(pool, { athlete, limit, store }) {
   if (!store || typeof store.getSocialBrandPool !== 'function') return [];
+  // BRANDS THAT PAID ATHLETES LIKE THIS ONE (services/payingBrands) come first:
+  // public proof they pay is a stronger lead than a program page that says
+  // they might. Best effort: a failure here leaves the index lane as it was.
+  let paid = [];
+  try { paid = await require('./payingBrands').candidatesFor(pool, athlete, { limit: Math.max(2, Math.ceil(limit / 2)) }); }
+  catch (e) { console.warn('[scout/paying]', e.message); paid = []; }
   try {
     const rows = await store.getSocialBrandPool(athlete);
-    return (rows || []).slice(0, limit * 3).map((b) => ({
+    const seen = new Set(paid.map((p) => p.brand_key));
+    return paid.concat((rows || []).slice(0, limit * 3).filter((b) => !seen.has(b.brandKey || normBrand(b.brand))).map((b) => ({
       brand_key: b.brandKey || normBrand(b.brand), brand_name: b.brand,
       lane: 'social', pool: 'social-index', fitHint: b.fitScore || null, why: b.whyFits || null,
       ...programFacts(b),
-    }));
+    })));
   } catch (e) { console.error('[scout/social]', e.message); const r = []; r.fault = 'social pool failed: ' + e.message; return r; }
 }
 
