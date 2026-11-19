@@ -1373,7 +1373,27 @@ async function setAutoMode(pool, agentId, { scopeKind, scopeId, enabled }) {
   return { ok: true, progress };
 }
 
+// ── THE AGENT'S EDIT TO A DRAFT, BEFORE APPROVAL ─────────────────────────────
+// One function for both doors: the dashboard's Save and the one-tap page's
+// text box. Only an unapproved draft; marks edited_before_approval when the
+// text changed. -> { ok, changed, body } | { ok:false }
+async function editDraft(pool, agentId, id, body) {
+  const before = await pool.query(
+    `SELECT body_html FROM outreach_logs WHERE id = $1 AND agent_id = $2 AND status = 'draft'`, [id, agentId]);
+  if (!before.rows[0]) return { ok: false };
+  const changed = String(before.rows[0].body_html || '') !== body;
+  const r = await pool.query(
+    `UPDATE outreach_logs
+        SET body_html = $3, updated_at = NOW(),
+            edited_before_approval = edited_before_approval OR $4
+      WHERE id = $1 AND agent_id = $2 AND status = 'draft' AND approved_at IS NULL
+      RETURNING id, body_html`, [id, agentId, body, changed]);
+  if (!r.rows[0]) return { ok: false };
+  return { ok: true, changed, body: r.rows[0].body_html };
+}
+
 module.exports = {
+  editDraft,
   buildBatch, laneLabel, cityOf, recipientOf, summariseDropped, approveBatch, skipDraft, SKIP_REASON, releaseDue, scheduleNextTouch, stop,
   complianceGate, hold, failBackoffMs, CLAIM_STALE_MINUTES, MIN_GAP_MS, MAX_GAP_MS,
   autoModeProgress, autoModeFor, isAuto, setAutoMode, followUpSubject,

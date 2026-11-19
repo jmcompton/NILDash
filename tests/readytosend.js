@@ -178,7 +178,10 @@ async function main() {
   // ── EDIT AND SKIP ENDPOINTS ──────────────────────────────────────────────
   ok('the edit endpoint exists', /app\.patch\('\/api\/agent\/closer\/draft\/:id'/.test(SRC), null);
   ok('  editing flags the draft, which is what gates auto mode',
-    /edited_before_approval = edited_before_approval OR \$4/.test(SRC), null);
+    // The SQL moved into Closer.editDraft so the one-tap page's edit box saves
+    // the identical way; the route calls it.
+    /edited_before_approval = edited_before_approval OR \$4/.test(SKIP_SRC)
+      && /Closer\.editDraft\(store\.pool, agentId, req\.params\.id, body\)/.test(SRC), null);
   // The SQL moved into Closer.skipDraft so the one-tap Skip link in the digest
   // email does the identical thing rather than a second copy of it. The rule
   // being checked is the same: stop the cadence and say why, never delete.

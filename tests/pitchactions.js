@@ -268,6 +268,22 @@ async function main() {
   // "Sending to", not "Sent to": approval queues it, and it is Sent only once it has left.
   ok('the confirmation names the business', /Sending to \$\{row\.brand_name/.test(idx));
 
+  // ── THE WHOLE PITCH, EDITABLE ("I'm approving them blind") ─────────────
+  OUT.push('', '-- read it all, change it, then send --');
+  ok('Send shows the subject and the full text in a box, not the first line', /_pitchActionEditForm\(req\.params\.token, row\)/.test(getBody)
+    && /<textarea name="body"/.test(idx) && /What's in the box is what goes out/.test(idx) && !/pitchPreview\(row\.body_html\)/.test(getBody));
+  ok('  Skip shows the full text too, read only', /_pitchActionFull\(row\) \+ _pitchActionForm\(req\.params\.token, 'Skip pitch'/.test(getBody));
+  ok('  and the next pitch after a tap is editable as well', /_pitchActionEditForm\(pair\.approve, next\)/.test(idx));
+  ok('an edit is saved through the same function as the dashboard, only when changed, before approval',
+    /if \(edited && !_paSame\(edited, _paText\(row\.body_html\)\)\) await Closer\.editDraft\(store\.pool, agentId, row\.pitch_id, edited\)/.test(idx)
+    && idx.indexOf('Closer.editDraft(store.pool, agentId, row.pitch_id') < idx.indexOf('Closer.approveBatch(store.pool, agentId, { ids: [row.pitch_id] })')
+    && /Closer\.editDraft\(store\.pool, agentId, req\.params\.id, body\)/.test(idx));
+  const ed = await Closer.editDraft(pool, AG, 'pa_p2', 'Hey Sam,\n\nHydro Fit is right by where Marcus trains. Want to talk?');
+  const edRow = (await pool.query(`SELECT body_html, edited_before_approval FROM outreach_logs WHERE id = 'pa_p2'`)).rows[0];
+  ok('  editDraft saves the text and marks it edited', ed.ok && ed.changed && /right by where Marcus trains/.test(edRow.body_html) && edRow.edited_before_approval === true, edRow);
+  ok('  another agent cannot edit it', (await Closer.editDraft(pool, 'someone-else', 'pa_p2', 'x')).ok === false);
+  ok('  the form carries more than the old 4kb', /express\.urlencoded\(\{ extended: false, limit: '64kb' \}\)/.test(idx));
+
   // ── NO RAW TOKEN IS EVER LOGGED ────────────────────────────────────────
   OUT.push('', '-- nothing leaks --');
   const tok = src('server/services/pitchActionTokens.js');

@@ -2317,20 +2317,10 @@ app.patch('/api/agent/closer/draft/:id', requireAuth, async (req, res) => {
     if (typeof body !== 'string' || !body.trim()) {
       return res.status(400).json({ error: 'Nothing to save' });
     }
-    const before = await store.pool.query(
-      `SELECT body_html FROM outreach_logs
-        WHERE id = $1 AND agent_id = $2 AND status = 'draft'`, [req.params.id, agentId]);
-    if (!before.rows[0]) return res.status(404).json({ error: 'Draft not found' });
-    const changed = String(before.rows[0].body_html || '') !== body;
-
-    const r = await store.pool.query(
-      `UPDATE outreach_logs
-          SET body_html = $3, updated_at = NOW(),
-              edited_before_approval = edited_before_approval OR $4
-        WHERE id = $1 AND agent_id = $2 AND status = 'draft' AND approved_at IS NULL
-        RETURNING id, body_html`, [req.params.id, agentId, body, changed]);
-    if (!r.rows[0]) return res.status(404).json({ error: 'Draft not found' });
-    res.json({ ok: true, body: r.rows[0].body_html, changed });
+    // ONE EDIT, TWO DOORS: the one-tap page's text box saves through the same function.
+    const out = await Closer.editDraft(store.pool, agentId, req.params.id, body);
+    if (!out.ok) return res.status(404).json({ error: 'Draft not found' });
+    res.json({ ok: true, body: out.body, changed: out.changed });
   } catch (e) {
     console.error('[closer/draft]', e.message);
     res.status(500).json({ error: e.message });
@@ -12533,6 +12523,34 @@ function _pitchActionRefusal(res, reason, extra) {
   }));
 }
 
+// THE WHOLE PITCH, AND EDITABLE (an agent wrote: "I'm approving them blind").
+// The page used to show the first line. Now it shows the subject and the full
+// text, and Send carries a text box: what is in the box is what goes out. The
+// same plain-text edit the dashboard saves (PATCH /api/agent/closer/draft/:id),
+// and only when the agent actually changed something; an untouched pitch keeps
+// its original formatting.
+function _paText(html) {
+  return String(html || '')
+    .replace(/<\s*br\s*\/?>/gi, '\n').replace(/<\/\s*(p|div|li|h[1-6])\s*>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+const _paSame = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
+function _pitchActionEditForm(token, p) {
+  const text = _paText(p.body_html);
+  return `${p.subject ? `<div class="owner" style="margin-top:6px"><b style="color:#e5e7eb">Subject:</b> ${_paEsc(p.subject)}</div>` : ''}
+<form method="POST" action="/a/${encodeURIComponent(token)}">
+  <textarea name="body" rows="14" aria-label="The pitch" style="width:100%;font:inherit;font-size:14px;line-height:1.6;color:#e5e7eb;background:#0b0f17;border:1px solid #374151;border-radius:8px;padding:12px;margin:8px 0 6px;resize:vertical">${_paEsc(text)}</textarea>
+  <div class="note" style="margin:0 0 12px">Change anything you want first. What's in the box is what goes out.</div>
+  <button type="submit">Send pitch</button>
+</form>`;
+}
+function _pitchActionFull(p) {
+  return `${p.subject ? `<div class="owner" style="margin-top:6px"><b style="color:#e5e7eb">Subject:</b> ${_paEsc(p.subject)}</div>` : ''}
+${p.body_html ? `<div class="preview" style="white-space:pre-wrap">${_paEsc(_paText(p.body_html))}</div>` : ''}`;
+}
+
 // The form that does the work. One large button, method POST.
 function _pitchActionForm(token, label, { skip } = {}) {
   return `<form method="POST" action="/a/${encodeURIComponent(token)}">
@@ -12566,8 +12584,7 @@ app.get('/a/:token', pitchActionLimiter, async (req, res) => {
       sub: `For ${_paEsc(row.athlete_name || 'your athlete')}`,
       body: `<div class="brand">${_paEsc(row.brand_name || 'A local business')}</div>
         ${row.contact_name ? `<div class="owner">${_paEsc(row.contact_name)}</div>` : ''}
-        ${row.body_html ? `<div class="preview">${_paEsc(pitchPreview(row.body_html))}</div>` : ''}
-        ${_pitchActionForm(req.params.token, skip ? 'Skip pitch' : 'Send pitch', { skip })}`,
+        ${skip ? _pitchActionFull(row) + _pitchActionForm(req.params.token, 'Skip pitch', { skip }) : _pitchActionEditForm(req.params.token, row)}`,
       note: skip
         ? 'Skipping stops the follow-up sequence for this business. Nothing is sent.'
         : 'Nothing is sent until you tap the button. It then goes out from your own mailbox within a minute or two.',
@@ -12578,7 +12595,7 @@ app.get('/a/:token', pitchActionLimiter, async (req, res) => {
   }
 });
 
-app.post('/a/:token', pitchActionLimiter, express.urlencoded({ extended: false, limit: '4kb' }), async (req, res) => {
+app.post('/a/:token', pitchActionLimiter, express.urlencoded({ extended: false, limit: '64kb' }), async (req, res) => {
   try {
     const T = PitchActionTokens;
     const PA = PitchActions;
@@ -12610,6 +12627,10 @@ app.post('/a/:token', pitchActionLimiter, express.urlencoded({ extended: false, 
       title = `Skipped ${row.brand_name || 'that business'}`;
       sub = 'Nothing was sent, and the follow-up sequence for this business is stopped.';
     } else {
+      // The agent's edit, saved before approval, exactly as the dashboard
+      // saves one. Untouched text leaves the original (formatted) body alone.
+      const edited = typeof (req.body || {}).body === 'string' ? req.body.body.replace(/\r\n/g, '\n').trim().slice(0, 20000) : '';
+      if (edited && !_paSame(edited, _paText(row.body_html))) await Closer.editDraft(store.pool, agentId, row.pitch_id, edited);
       const out = await Closer.approveBatch(store.pool, agentId, { ids: [row.pitch_id] });
       if (out.scheduled) kickRelease();
       if (!out.scheduled) {
@@ -12643,8 +12664,7 @@ app.post('/a/:token', pitchActionLimiter, express.urlencoded({ extended: false, 
           <p class="sub" style="margin-bottom:10px">Next up${left > 1 ? ` — ${left} still waiting` : ''}: for ${_paEsc(next.athlete_name || 'your athlete')}</p>
           <div class="brand">${_paEsc(next.brand_name || 'A local business')}</div>
           ${next.contact_name ? `<div class="owner">${_paEsc(next.contact_name)}</div>` : ''}
-          ${next.body_html ? `<div class="preview">${_paEsc(pitchPreview(next.body_html))}</div>` : ''}
-          <form method="POST" action="/a/${encodeURIComponent(pair.approve)}"><button type="submit">Send pitch</button></form>
+          ${_pitchActionEditForm(pair.approve, next)}
           <form method="POST" action="/a/${encodeURIComponent(pair.skip)}" style="margin-top:8px"><button type="submit" class="skip">Skip pitch</button></form>
         </div>`;
     } else {
