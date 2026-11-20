@@ -6,7 +6,7 @@
 //
 // ── THE DEAL MIX, END TO END (MARKET_MIX_ON) ───────────────────────────────
 // With EMAIL_FIVE_ON on (tonight's production setting), the tier splits the
-// five slots: Local Star 4 local + 1 small social; Rising 3 local + 2 social;
+// five slots: Local Star 3 local + 2 small social; Rising 2 local + 3 social;
 // National 1 local + 2 social + 2 national. A social or national card is an
 // official application page or a named partnerships / marketing contact's
 // verified address, and the pitch states a researched reason the athlete
@@ -204,15 +204,18 @@ async function main() {
       && c.market_tier === 'rising' && c.brand_size === 'small'), [glow, peak]);
   ok('  local cards carry their fit too (the town)', c1.filter((c) => c.lane === 'local').every((c) => Array.isArray(c.fit_reasons) && /^Region: in /.test(c.fit_reasons[0]) && c.market_tier === 'rising'), c1.filter((c) => c.lane === 'local'));
   ok('no DM and no call card anywhere', !c1.some((c) => c.channel === 'dm' || c.channel === 'call'), c1.map((c) => c.channel));
-  ok('the run row carries the mix', r1.loop && r1.loop.mix && r1.loop.mix.tier === 'rising' && r1.loop.mix.placed.local === 3 && r1.loop.mix.placed.social === 2 && r1.loop.mix.short.length === 0, r1.loop && r1.loop.mix);
+  // Rising is 2 local + 3 social (Nov 2026); two social brands pass here, so
+  // the third social seat is backfilled from local and said so.
+  ok('the run row carries the mix', r1.loop && r1.loop.mix && r1.loop.mix.tier === 'rising' && r1.loop.mix.seats.social === 3 && r1.loop.mix.placed.social === 2
+    && r1.loop.mix.backfilled.length === 1 && r1.loop.mix.backfilled[0].seat === 'social', r1.loop && r1.loop.mix);
 
   // ── 3. LOCAL STAR: 4 LOCAL, 1 SMALL SOCIAL ────────────────────────────────
-  OUT.push('', '-- Local Star: 4 local + 1 small social brand, never a national brand --');
+  OUT.push('', '-- Local Star: 3 local + 2 small social brands, never a national brand --');
   calls.names.length = 0; calls.national = 0;
   const r2 = await fill('mxm-star', 'local_star', null, { instagram: 8000 });
   const c2 = await cards('mxm-star');
   const l2 = byLane(c2);
-  ok('four local and one social', r2.filled === 5 && l2.local === 4 && l2.social === 1 && !l2.national, { lanes: l2, mix: r2.loop && r2.loop.mix });
+  ok('three local and two social', r2.filled === 5 && l2.local === 3 && l2.social === 2 && !l2.national, { lanes: l2, mix: r2.loop && r2.loop.mix });
   ok('  the social one is a small brand', c2.filter((c) => c.lane === 'social').every((c) => c.brand_size === 'small'), c2.filter((c) => c.lane === 'social'));
   ok('  no national brand anywhere: not the national-size social brand, not the chain in the local pool',
     !c2.some((c) => c.brand_name === 'Mx Giant Cola' || c.brand_name === 'Chick-fil-A') && !calls.names.includes('Mx Giant Cola') && calls.national === 0, c2.map((c) => c.brand_name));

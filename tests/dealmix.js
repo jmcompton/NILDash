@@ -32,8 +32,20 @@ async function main() {
   // ── 1. THE SPLIT ──────────────────────────────────────────────────────────
   OUT.push('-- the five slots, by tier --');
   const m = (t) => DM.mixFor(t);
-  ok('Local Star: 4 local, 1 social', m('local_star').local === 4 && m('local_star').social === 1 && m('local_star').national === 0);
-  ok('Rising: 3 local, 2 social', m('rising').local === 3 && m('rising').social === 2 && m('rising').national === 0);
+  ok('Local Star: 3 local, 2 social', m('local_star').local === 3 && m('local_star').social === 2 && m('local_star').national === 0);
+  ok('Rising: 2 local, 3 social', m('rising').local === 2 && m('rising').social === 3 && m('rising').national === 0);
+  ok('every tier has at least two social seats', ['local_star', 'rising', 'regional', 'national'].every((t) => m(t).social >= 2));
+  // ON: 1 on, 0 off; unset, on only where Railway runs it.
+  const _env = { v: process.env.MARKET_MIX_ON, r: process.env.RAILWAY_GIT_COMMIT_SHA };
+  delete process.env.MARKET_MIX_ON; delete process.env.RAILWAY_GIT_COMMIT_SHA;
+  const offLocal = DM.ON();
+  process.env.RAILWAY_GIT_COMMIT_SHA = 'abc123';
+  const onRailway = DM.ON();
+  process.env.MARKET_MIX_ON = '0';
+  const offByZero = DM.ON();
+  if (_env.v === undefined) delete process.env.MARKET_MIX_ON; else process.env.MARKET_MIX_ON = _env.v;
+  if (_env.r === undefined) delete process.env.RAILWAY_GIT_COMMIT_SHA; else process.env.RAILWAY_GIT_COMMIT_SHA = _env.r;
+  ok('the mix is on in production unless MARKET_MIX_ON=0, off in tests and local runs unless set', offLocal === false && onRailway === true && offByZero === false, { offLocal, onRailway, offByZero });
   ok('Regional: 2 local, 2 social, 1 national', m('regional').local === 2 && m('regional').social === 2 && m('regional').national === 1);
   ok('National: 1 local, 2 social, 2 national', m('national').local === 1 && m('national').social === 2 && m('national').national === 2);
   ok('every tier is five', ['local_star', 'rising', 'regional', 'national'].every((t) => m(t).local + m(t).social + m(t).national === 5));
@@ -177,7 +189,7 @@ async function main() {
     result: { loop: { stop: 'ladder', mix: { short: ['social 1 of 2'] } }, tried: [{ brand: 'Mx Big', lane: 'social', result: 'rejected', reason: 'a national brand; a Rising\'s social seats take small or mid' }] },
     spend: { usd: 0.42, calls: 9, searches: 6 }, ms: 95000 });
   ok('per athlete: the score, the tier, the mix, what drove it, the cards in lane order with contact and fit, the short lanes, what was turned down, the spend',
-    /^=== Mx Jordan: 44\/100, Rising \(confidence 59%\) ===/.test(txt) && /Mix: Rising: 3 local, 2 social \(small\/mid\)/.test(txt)
+    /^=== Mx Jordan: 44\/100, Rising \(confidence 59%\) ===/.test(txt) && /Mix: Rising: 2 local, 3 social \(small\/mid\)/.test(txt)
     && /1\. \[local\]\s+Mx Corner Cafe \(small\): email to Dana Reed \(Owner\) <dana@cornercafe\.com>, verified/.test(txt)
     && /2\. \[social\]\s+Mx Glow Bars \(small\): program application https:\/\/glowbars\.com\/ambassadors/.test(txt)
     && /Why they fit: Audience/.test(txt) && /Short: social 1 of 2/.test(txt) && /social 1: 1x a national brand/.test(txt) && /Spent: \$0\.42/.test(txt), txt);

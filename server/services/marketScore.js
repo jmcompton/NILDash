@@ -35,7 +35,7 @@
 const STALE_DAYS = 7;
 const NEWS_DAYS = 90;
 const NEWS_STALE_DAYS = 7;
-const ON = () => process.env.MARKET_MIX_ON === '1';
+const ON = () => require('./dealMix').ON();
 
 const fold = (s) => String(s || '').toLowerCase().replace(/[’']/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
 const round1 = (n) => Math.round(n * 10) / 10;

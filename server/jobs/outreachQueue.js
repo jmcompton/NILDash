@@ -85,7 +85,7 @@ const FINDER = {
   // MARKET_MIX_ON too: a backfilled brand seat takes only a verified named
   // person's email, so the mailbox check must be able to run (services/dealMix).
   // SEND_GATE_ON too: a morning card's address comes only from the finder.
-  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1' || process.env.EMAIL_SMART_PICK === '1' || process.env.MARKET_MIX_ON === '1'
+  on: () => process.env.EMAIL_FINDER_ON === '1' || process.env.EMAIL_FIVE_ON === '1' || process.env.EMAIL_SMART_PICK === '1' || require('../services/dealMix').ON()
     || process.env.SEND_GATE_ON === '1',
   more: () => process.env.EMAIL_FINDER_MORE === '1',
   five: () => process.env.EMAIL_FIVE_ON === '1',

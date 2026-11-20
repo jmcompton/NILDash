@@ -4,8 +4,8 @@
 // The athlete's Market Score tier (services/marketScore) splits the five
 // nightly slots between the lanes:
 //
-//   Local Star   4 local, 1 social (a small brand)
-//   Rising       3 local, 2 social (small to mid brands)
+//   Local Star   3 local, 2 social (small brands)
+//   Rising       2 local, 3 social (small to mid brands)
 //   Regional     2 local, 2 social (small to mid), 1 national (mid to national)
 //   National     1 local, 2 social (mid to national), 2 national (mid to national)
 //
@@ -29,12 +29,23 @@
 //            valid only, never a catch-all guess, never a desk inbox)
 // Nothing else: no DM, no guessed address, no info@ / partnerships@ inbox.
 
-const ON = () => process.env.MARKET_MIX_ON === '1';
+// ON IN PRODUCTION (Nov 2026: JohnMark wants social brands for every athlete,
+// every night). On when MARKET_MIX_ON=1, off when MARKET_MIX_ON=0, and when
+// unset: on wherever Railway runs it (it sets RAILWAY_GIT_COMMIT_SHA /
+// RAILWAY_ENVIRONMENT_NAME), off in tests and local development.
+const ON = () => {
+  const v = String(process.env.MARKET_MIX_ON || '').trim();
+  if (v === '1') return true;
+  if (v === '0') return false;
+  return !!(process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT);
+};
 const LANES = ['local', 'social', 'national'];
 
+// AT LEAST TWO SOCIAL SEATS FOR EVERY TIER (Nov 2026): social media brands
+// are where most athlete deals are done. Was 4+1 and 3+2.
 const MIX = Object.freeze({
-  local_star: Object.freeze({ local: 4, social: 1, national: 0 }),
-  rising: Object.freeze({ local: 3, social: 2, national: 0 }),
+  local_star: Object.freeze({ local: 3, social: 2, national: 0 }),
+  rising: Object.freeze({ local: 2, social: 3, national: 0 }),
   regional: Object.freeze({ local: 2, social: 2, national: 1 }),
   national: Object.freeze({ local: 1, social: 2, national: 2 }),
 });

@@ -112,7 +112,7 @@ async function collect(pool, { now } = {}) {
        FROM outreach_queue WHERE state = 'queued' GROUP BY athlete_id`, [require('./outreachQueue').EXPIRE_AFTER_DAYS || 7])).rows
     .map((r) => [r.athlete_id, { verified: r.verified, other: r.other, otherExpires: r.other_expires }]));
   // MARKET_MIX_ON: an official program card holds a slot too (DM.holdsUnderMix).
-  const mixOn = process.env.MARKET_MIX_ON === '1';
+  const mixOn = require('./dealMix').ON();
   if (mixOn) {
     const DM = require('./dealMix');
     const pr = (await pool.query(`SELECT athlete_id, channel, email_verified, program_url FROM outreach_queue WHERE state = 'queued' AND channel = 'program'`)).rows;

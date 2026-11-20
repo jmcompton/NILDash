@@ -2212,6 +2212,13 @@ app.get('/api/admin/serper', async (req, res) => {
   try { res.json(await require('./services/serperGuard').balance(store.pool)); }
   catch (e) { console.error('[admin/serper]', e.message); res.status(500).json({ error: e.message }); }
 });
+// Which nightly switches are on in this process: on or off only, no values.
+app.get('/api/admin/flags', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  const on = (k) => process.env[k] === '1';
+  res.json({ marketMix: require('./services/dealMix').ON(), mix: require('./services/dealMix').MIX,
+    emailFive: on('EMAIL_FIVE_ON'), hunterPace: on('HUNTER_PACE_ON'), sendGate: on('SEND_GATE_ON'), nightlySkip: on('NIGHTLY_SKIP_ON') });
+});
 app.post('/api/admin/serper-topup', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
