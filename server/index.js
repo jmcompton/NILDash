@@ -2213,7 +2213,8 @@ app.get('/api/admin/serper', async (req, res) => {
   catch (e) { console.error('[admin/serper]', e.message); res.status(500).json({ error: e.message }); }
 });
 // Which nightly switches are on in this process: on or off only, no values.
-app.get('/api/admin/flags', async (req, res) => {
+// (/api/admin/flags is the feature-flag table's own route.)
+app.get('/api/admin/night-switches', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
   const on = (k) => process.env[k] === '1';
   res.json({ marketMix: require('./services/dealMix').ON(), mix: require('./services/dealMix').MIX,
