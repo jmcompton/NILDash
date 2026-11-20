@@ -164,14 +164,45 @@ const FINAL_NAME_TTL_MS = 24 * 3600000;
 // large: a national-lane brand or a social brand sized national -- only its
 // partnerships or marketing lead is accepted (ownerNameSearch.titleProblem),
 // and that is who is searched for.
+// KEPT IN THE DATABASE TOO (Nov 2026). The process cache died with every
+// deploy and was not shared by the nightly run, the resumes and the on-demand
+// fills, so one business was name-searched for one athlete 53 times in five
+// days. A name found is kept FINAL_NAME_DB_FOUND_DAYS (30), a confirmed miss
+// FINAL_NAME_DB_MISS_DAYS (7). A search that could not run is never kept.
+const FINAL_NAME_DB_FOUND_DAYS = parseInt(process.env.FINAL_NAME_DB_FOUND_DAYS, 10) || 30;
+const FINAL_NAME_DB_MISS_DAYS = parseInt(process.env.FINAL_NAME_DB_MISS_DAYS, 10) || 7;
+let _finalNameTable = null;
+function _finalNameDb() {
+  if (!_finalNameTable) {
+    _finalNameTable = store.pool.query(`CREATE TABLE IF NOT EXISTS owner_name_cache (
+      key TEXT PRIMARY KEY, found JSONB, at TIMESTAMPTZ NOT NULL DEFAULT NOW())`).then(() => true).catch((e) => {
+      console.error('[queue] owner_name_cache unavailable: ' + e.message); _finalNameTable = null; return false; });
+  }
+  return _finalNameTable;
+}
 async function finalNameFor(brand, city, { agentId, athleteId, say, order, large }) {
   if (large) order = ONS.LARGE_ORDER;
   const key = `${String(brand || '').trim().toLowerCase()}|${String(city || '').trim().toLowerCase()}|${Array.isArray(order) ? order.join(',') : ''}|${large ? 'L' : ''}`;
   const hit = _finalNames.get(key);
   if (hit && Date.now() - hit.at < FINAL_NAME_TTL_MS) return hit.found;
+  if (await _finalNameDb()) {
+    const row = (await store.pool.query(
+      `SELECT found FROM owner_name_cache WHERE key = $1
+          AND at > NOW() - (CASE WHEN found IS NULL THEN $2 ELSE $3 END || ' days')::interval`,
+      [key, String(FINAL_NAME_DB_MISS_DAYS), String(FINAL_NAME_DB_FOUND_DAYS)]).catch(() => ({ rows: [] }))).rows[0];
+    if (row) {
+      _finalNames.set(key, { found: row.found || null, at: Date.now() });
+      if (say) say(`${brand}: name search answered from the last ${row.found ? FINAL_NAME_DB_FOUND_DAYS : FINAL_NAME_DB_MISS_DAYS} days, nothing spent`);
+      return row.found || null;
+    }
+  }
   const found = await scanMeter.label({ site: 'contacts.finalname', agentId, athleteId, brand },
     () => ONS.findOwnerName({ brand, city, search: ai.webSearchJson, say, order, large: !!large }));
   _finalNames.set(key, { found: found || null, at: Date.now() });
+  if (await _finalNameDb()) {
+    await store.pool.query(`INSERT INTO owner_name_cache (key, found, at) VALUES ($1, $2, NOW())
+      ON CONFLICT (key) DO UPDATE SET found = EXCLUDED.found, at = NOW()`, [key, found ? JSON.stringify(found) : null]).catch(() => {});
+  }
   return found || null;
 }
 // One resolver for the job and the shared record, so a school that resolves
@@ -1710,6 +1741,22 @@ async function _fillAthlete(pool, ctx, nightFaults) {
     cands.splice(ci, 0, ...added);
     _cache.added = added.length;
   }
+  // Cache mode, drained: the social and national rungs, where the night's
+  // rules allow them (under the mix, while the lane has a seat; under FIVE
+  // without the mix, never, as in refillSlate).
+  async function cacheBrandRungs() {
+    if (_retrying) return [];
+    const out = [];
+    for (const lane of ['social', 'national']) {
+      if (_mix) { if (mixSeats()[lane] <= 0) continue; }
+      else if (FINDER.five()) continue;
+      fire(lane);
+      const got = await laneRung(lane);
+      if (got.length) say(`${athleteName}: cache mode, ${got.length} ${lane} brand(s) tried without an email lookup`);
+      out.push(...got);
+    }
+    return out;
+  }
 
   // ── FIVE, OR A REASON ────────────────────────────────────────────────────
   // Not "three attempts a slot". Each open slot keeps drawing until something
@@ -1743,6 +1790,16 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       // not be verified tonight.
       if (ci >= cands.length && HP.cacheOnly()) {
         if (!_cache) await enterCache();
+        // THE BRAND LANES NEED NO EMAIL LOOKUP TO START. A social or national
+        // brand becomes a program card (its application page) or is checked
+        // against an address already verified, so running out of Hunter
+        // credits is no reason to stop before those rungs (Nov 2026: the stop
+        // came first, and no social brand was tried on a cache night).
+        if (ci >= cands.length && !_cache.brandRungs) {
+          _cache.brandRungs = true;
+          const more = await cacheBrandRungs();
+          if (more.length) cands.push(...more);
+        }
         if (ci >= cands.length) { stop = 'cache'; break; }
       }
       // Drained: ask the ladder for more before giving up on the slot.
@@ -1774,7 +1831,10 @@ async function _fillAthlete(pool, ctx, nightFaults) {
       }
       // CACHE MODE (services/hunterPace): only a business with an address
       // verified in the last 30 days, skipped before any lookup otherwise.
-      if (HP.cacheOnly()) {
+      // A social or national brand is let through: it needs no new address to
+      // become a program card, and the email finder itself refuses a Hunter
+      // call tonight (emailFinder: hunterPace.blocked), so nothing is bought.
+      if (HP.cacheOnly() && (cand.lane !== 'social' && cand.lane !== 'national')) {
         if (!_cache) await enterCache();
         if (!_cache.brands.has(bk(cand.brand_name))) {
           _cache.skipped++;
@@ -3487,6 +3547,34 @@ function inactiveSkip(agent, now) {
   }
   return 'this agent has never signed in';
 }
+// SIGNED IN, BUT NOT WORKING THE CARDS (Nov 2026). An agent who signs in
+// and has not approved, sent or marked done a single card in UNWORKED_DAYS,
+// while cards sit waiting, gets the dormant cadence too: one fill a week, not
+// every night. Spending nightly on cards nobody opens is the waste; the cards
+// already waiting are still there when they come back, and the first card
+// they act on puts them back on the nightly fill. New accounts (under
+// UNWORKED_DAYS old) and auto-send agents are never held to it.
+const UNWORKED_DAYS = parseInt(process.env.OUTREACH_QUEUE_UNWORKED_DAYS, 10) || 14;
+const UNWORKED_MIN_WAITING = parseInt(process.env.OUTREACH_QUEUE_UNWORKED_MIN_WAITING, 10) || 5;
+async function unworkedSkip(pool, agent) {
+  if (process.env.OUTREACH_QUEUE_UNWORKED === '0') return null;
+  if (!agent || (agent.auto_send_on === true && require('../services/autoSend').ON())) return null;
+  const r = (await pool.query(
+    `SELECT (SELECT created_at FROM users WHERE id = $1) AS created_at,
+            (SELECT MAX(GREATEST(COALESCE(approved_at, 'epoch'), COALESCE(sent_at, 'epoch'))) FROM outreach_logs WHERE agent_id = $1) AS last_log,
+            (SELECT MAX(updated_at) FROM outreach_queue WHERE agent_id = $1 AND state = 'sent') AS last_done,
+            (SELECT COUNT(*)::int FROM outreach_queue WHERE agent_id = $1 AND state = 'queued' AND sent_at IS NULL) AS waiting`,
+    [agent.id])).rows[0] || {};
+  const now = Date.now(), DAY = 86400000;
+  if (r.created_at && now - new Date(r.created_at).getTime() < UNWORKED_DAYS * DAY) return null;
+  if ((r.waiting || 0) < UNWORKED_MIN_WAITING) return null;
+  const last = [r.last_log, r.last_done].map((d) => (d ? new Date(d).getTime() : 0)).filter((t) => t > 0);
+  const lastAct = last.length ? Math.max(...last) : 0;
+  if (lastAct && now - lastAct < UNWORKED_DAYS * DAY) return null;
+  return lastAct
+    ? `no card approved or sent in ${Math.floor((now - lastAct) / DAY)} days, ${r.waiting} waiting`
+    : `no card ever approved or sent, ${r.waiting} waiting`;
+}
 const _addDays = (ymd, n) => { const d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const _daysBetween = (a, b) => Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 86400000);
 // Is tonight a dormant agent's weekly fill? -> { due, lastFill, nextFill }
@@ -3582,7 +3670,8 @@ async function runAgents(opts = {}) {
     }
     let dormant = null;
     if (!opts.agentId && !opts.force) {
-      const why = inactiveSkip(a, opts.now);
+      const why = inactiveSkip(a, opts.now) || await unworkedSkip(pool, a).catch((e) => {
+        console.error(`[queue] agent=${a.id} card-activity read failed (${e.message}); filling as usual`); return null; });
       if (why) {
         const cad = await dormantCadence(pool, a.id, runDate).catch((e) => {
           console.error(`[queue] agent=${a.id} cadence read failed (${e.message}); filling tonight rather than going dark`);
@@ -3765,7 +3854,7 @@ async function status(pool) {
 module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor, applyFaultRule,
   athleteState, recordAttempt, releasePause, expireStaleCards,
-  insertCard, slotStillOpen, SLOT_TAKEN_REASON, NAME_REQUIRED, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
+  insertCard, slotStillOpen, SLOT_TAKEN_REASON, NAME_REQUIRED, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS, unworkedSkip, UNWORKED_DAYS,
   openSlotsFor, holdsUnderFive,
   DORMANT_EVERY_DAYS, dormantCadence, restartCardClock,
   loadAthletesForQueue, resumeAgent, localContextFor, athleteProfile,

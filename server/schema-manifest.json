@@ -1348,6 +1348,11 @@
       "run_date": "DATE",
       "spent_usd": "NUMERIC(10,4) DEFAULT 0"
     },
+    "owner_name_cache": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "found": "JSONB",
+      "key": "TEXT"
+    },
     "password_resets": {
       "email": "TEXT",
       "expires_at": "TIMESTAMPTZ",
@@ -2111,6 +2116,17 @@
       "route": "TEXT",
       "status": "INTEGER",
       "steps": "JSONB"
+    },
+    "serper_topups": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "credits": "INTEGER",
+      "id": "BIGSERIAL",
+      "note": "TEXT"
+    },
+    "serper_usage": {
+      "day": "DATE",
+      "n": "INTEGER DEFAULT 0",
+      "site": "TEXT"
     },
     "service_checks": {
       "checked_at": "TIMESTAMPTZ DEFAULT NOW()",

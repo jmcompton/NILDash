@@ -1781,6 +1781,11 @@
       "failed": 0,
       "total": 34,
       "fault": null
+    },
+    "spendguard.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
     }
   }
 }

@@ -28,7 +28,8 @@ const SERPER_PLACES_URL = 'https://google.serper.dev/places';
 const TIMEOUT_MS = parseInt(process.env.SERPER_PLACES_TIMEOUT_MS, 10) || 10000;
 const MAX = 20;
 
-const key = () => String(process.env.SERPER_API_KEY || '').trim();
+// No key while the breaker is open (services/serperGuard): Google answers.
+const key = () => (require('./serperGuard').usable() ? String(process.env.SERPER_API_KEY || '').trim() : '');
 function ON() {
   if (String(process.env.PLACES_PROVIDER || '').trim().toLowerCase() === 'google') return false;
   return !!key();
@@ -97,6 +98,7 @@ async function _call(url, body, opts = {}) {
   if (!k) return { ok: false, error: 'SERPER_API_KEY is not set' };
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  require('./serperGuard').count('places');
   try {
     const resp = await (opts.fetch || globalThis.fetch)(url, {
       method: 'POST', signal: ctrl.signal,
@@ -105,7 +107,13 @@ async function _call(url, body, opts = {}) {
     });
     let j = null;
     try { j = await resp.json(); } catch (_) { j = null; }
-    if (!resp.ok || !j) return { ok: false, error: `Serper HTTP ${resp.status}${j && j.message ? ': ' + String(j.message).slice(0, 160) : ''}` };
+    if (!resp.ok || !j) {
+      const error = `Serper HTTP ${resp.status}${j && j.message ? ': ' + String(j.message).slice(0, 160) : ''}`;
+      // Out of credits or a refused key: recorded, alerted, and the breaker
+      // opens so the next calls go straight to Google.
+      if (!resp.ok) { const e = new Error(error); e.status = resp.status; require('./ourFault').providerError('serper', e, 'serperPlaces'); require('./serperGuard').failed(resp.status, error); }
+      return { ok: false, error };
+    }
     return { ok: true, places: (Array.isArray(j.places) ? j.places : []).map(toGoogle).filter(Boolean) };
   } catch (e) {
     return { ok: false, error: e && e.name === 'AbortError' ? `Serper timed out after ${Math.round(TIMEOUT_MS / 1000)}s` : 'Serper call failed: ' + (e && e.message) };

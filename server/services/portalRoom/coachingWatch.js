@@ -44,12 +44,14 @@ const centralHour = (now) => parseInt(new Intl.DateTimeFormat('en-US', { timeZon
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return ''; } };
 
 async function serperNews(q) {
-  const key = String(process.env.SERPER_API_KEY || '').trim();
-  if (!key) throw new Error('SERPER_API_KEY is not set');
+  const SG = require('../serperGuard');
+  const key = SG.usable() ? String(process.env.SERPER_API_KEY || '').trim() : '';
+  if (!key) throw new Error(process.env.SERPER_API_KEY ? 'Serper is paused (out of credits or key refused)' : 'SERPER_API_KEY is not set');
+  SG.count('news');
   const r = await fetch(process.env.SERPER_NEWS_URL || 'https://google.serper.dev/news', {
     method: 'POST', headers: { 'content-type': 'application/json', 'X-API-KEY': key }, body: JSON.stringify({ q, tbs: 'qdr:w', num: 20 }),
   });
-  if (!r.ok) throw new Error('news search ' + r.status);
+  if (!r.ok) { const m = await r.text().catch(() => ''); SG.failed(r.status, m); throw new Error('news search ' + r.status); }
   const j = await r.json();
   return (j.news || []).map((n) => ({ title: n.title || '', snippet: n.snippet || '', link: n.link || '', source: n.source || '', date: n.date || '' }));
 }

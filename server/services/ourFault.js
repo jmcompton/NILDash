@@ -98,7 +98,7 @@ function classify(status, message) {
   if (status === 429 || QUOTA_TEXT.test(m)) return 'quota';
   return null;
 }
-const KIND_WORDS = { billing: 'PAYMENT FAILURE', auth: 'KEY REFUSED', quota: 'QUOTA / RATE LIMIT' };
+const KIND_WORDS = { billing: 'PAYMENT FAILURE', auth: 'KEY REFUSED', quota: 'QUOTA / RATE LIMIT', low: 'LOW BALANCE' };
 
 // Every paid provider's client calls this with what went wrong. Returns the
 // kind (or null for an ordinary failure, which the caller handles as before)
@@ -112,6 +112,9 @@ function providerError(service, err, where) {
   const reason = `${KIND_WORDS[kind]}: ${status ? 'HTTP ' + status + ': ' : ''}${String((err && err.message) || err).slice(0, 400)}`;
   console.error(`[our-fault] ${service} ${KIND_WORDS[kind]}${where ? ' (' + where + ')' : ''}: ${String((err && err.message) || err).slice(0, 300)}`);
   record(service, reason, where, kind);
+  // SERPER: stop calling it for a while; callers move to the next provider
+  // (services/serperGuard) instead of failing every call until someone pays.
+  if (service === 'serper' && (kind === 'billing' || kind === 'auth')) { try { require('./serperGuard').trip(reason); } catch (_) {} }
   if (kind === 'billing' || kind === 'auth') alertNow(service, kind, reason, where);
   return kind;
 }
@@ -122,7 +125,11 @@ const _alerted = new Map();
 async function alertNow(service, kind, reason, where, opts = {}) {
   const k = service + '|' + kind;
   const now = Date.now();
-  if (!opts.force && _alerted.has(k) && now - _alerted.get(k) < ALERT_EVERY_MS) return { sent: false, why: 'throttled' };
+  // opts.every: a Postgres interval for this alert's own window ('20 hours'
+  // for the daily low-balance warning); the default is three hours.
+  const every = /^\d{1,3} (hours|minutes)$/.test(String(opts.every || '')) ? String(opts.every) : '3 hours';
+  const everyMs = parseInt(every, 10) * (/hours/.test(every) ? 3600000 : 60000);
+  if (!opts.force && _alerted.has(k) && now - _alerted.get(k) < everyMs) return { sent: false, why: 'throttled' };
   _alerted.set(k, now);
   try {
     const { pool } = require('../store');
@@ -131,12 +138,12 @@ async function alertNow(service, kind, reason, where, opts = {}) {
     const claim = await pool.query(
       `INSERT INTO service_fault_alerts (service, kind, sent_at) VALUES ($1,$2,NOW())
        ON CONFLICT (service, kind) DO UPDATE SET sent_at = NOW()
-        WHERE service_fault_alerts.sent_at < NOW() - INTERVAL '3 hours' RETURNING sent_at`, [service, kind]);
-    if (!opts.force && !claim.rowCount) return { sent: false, why: 'sent within the last 3 hours' };
+        WHERE service_fault_alerts.sent_at < NOW() - $3::interval RETURNING sent_at`, [service, kind, every]);
+    if (!opts.force && !claim.rowCount) return { sent: false, why: 'sent within the last ' + every };
   } catch (e) { console.error('[our-fault] alert claim failed: ' + e.message); }
   const to = process.env.ADMIN_ALERT_EMAIL || process.env.ADMIN_EMAIL;
-  const subject = `NILDash ${KIND_WORDS[kind]}: ${service} -- customers are affected now`;
-  const text = [subject, '', reason, where ? 'First seen in: ' + where : '', '',
+  const subject = opts.subject || `NILDash ${KIND_WORDS[kind] || kind}: ${service} -- customers are affected now`;
+  const text = opts.text || [subject, '', reason, where ? 'First seen in: ' + where : '', '',
     kind === 'billing' ? 'Top up or fix billing with ' + service + '. Every call to it fails until then; customers see a plain "try again" message, not this one.'
       : 'The key for ' + service + ' was refused. Check the key in Railway.',
     '', 'Live status: ' + String(process.env.APP_URL || 'https://mynildash.com').replace(/\/+$/, '') + '/admin/status'].filter((x) => x !== null).join('\n');

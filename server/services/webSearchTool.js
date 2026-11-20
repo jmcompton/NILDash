@@ -57,9 +57,12 @@ const PROVIDERS = {
   },
   serper: {
     name: 'serper',
-    key: () => String(process.env.SERPER_API_KEY || '').trim(),
+    // No key while the breaker is open (services/serperGuard): out of credits
+    // or refused, every caller moves to the next provider instead of failing.
+    key: () => (require('./serperGuard').usable() ? String(process.env.SERPER_API_KEY || '').trim() : ''),
     async search(query, n) {
       const base = String(process.env.SERPER_SEARCH_URL || 'https://google.serper.dev/search');
+      require('./serperGuard').count('search');
       const j = await _getJson(base, { method: 'POST', headers: { 'content-type': 'application/json', 'X-API-KEY': this.key() }, body: JSON.stringify({ q: query, num: n }) });
       const rs = (j && Array.isArray(j.organic)) ? j.organic : [];
       return rs.map((r) => ({ title: r.title || '', url: r.link || '', snippet: r.snippet || '' }));

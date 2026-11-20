@@ -2204,6 +2204,23 @@ app.post('/api/admin/agent-card-settings', async (req, res) => {
   } catch (e) { console.error('[admin/agent-card-settings]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// SERPER CREDITS (services/serperGuard): what is left, by our own count, and
+// where the calls went this week. A top-up is recorded here so the count
+// restarts: POST { credits: 50000 }.
+app.get('/api/admin/serper', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json(await require('./services/serperGuard').balance(store.pool)); }
+  catch (e) { console.error('[admin/serper]', e.message); res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/serper-topup', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const b = req.body || {};
+    const out = await require('./services/serperGuard').recordTopup(store.pool, b.credits, b.note);
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (e) { console.error('[admin/serper-topup]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // The agent's own pitch script (services/agentScript): saved once, followed
 // by the writer for every pitch. "Improve it" returns an edit in their voice.
 app.get('/api/agent/settings/script', requireAuth, async (req, res) => {

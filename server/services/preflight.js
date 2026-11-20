@@ -167,9 +167,21 @@ function checks(deps) {
     'web-search': async () => {
       const wst = deps.wst || require('./webSearchTool');
       const sp = wst.provider();
+      const SG = require('./serperGuard');
+      if (!sp && SG.breaker().open) throw new Error(`Serper is paused (${SG.breaker().why}); web searches run on Anthropic at a higher price until it is topped up`);
       if (!sp) throw new Error('no web search provider key is set (SERPER_API_KEY, BRAVE_SEARCH_API_KEY or TAVILY_API_KEY)');
       const rs = await withTimeout(sp.search('Cypress College athletics', 1), TIMEOUT_MS, sp.name);
-      return `${sp.name} answered (${rs.length} result${rs.length === 1 ? '' : 's'})`;
+      // THE BALANCE, BEFORE IT RUNS OUT (services/serperGuard): the daily
+      // low-credit email goes from here when a week or less is left.
+      let note = '';
+      if (sp.name === 'serper' && !deps.wst) {
+        try {
+          const c = await SG.check(require('../store').pool);
+          note = c.bought == null ? '; no Serper top-up on record, so no balance to count down'
+            : `; Serper ${c.left} credits left, about ${c.daysLeft == null ? '?' : c.daysLeft} day(s) at ${c.perDay} a day`;
+        } catch (e) { note = '; Serper balance not read: ' + e.message; }
+      }
+      return `${sp.name} answered (${rs.length} result${rs.length === 1 ? '' : 's'})${note}`;
     },
 
     hunter: async () => {
