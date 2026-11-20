@@ -1786,6 +1786,11 @@
       "failed": 0,
       "total": 27,
       "fault": null
+    },
+    "v2places.js": {
+      "failed": 0,
+      "total": 9,
+      "fault": null
     }
   }
 }

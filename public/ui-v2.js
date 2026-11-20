@@ -36,10 +36,10 @@
     home: 'home', command: 'home', 'shift-detail': 'home',
     roster: 'roster', marketing: 'roster', 'add-athlete': 'roster', 'athlete-portals': 'roster',
     deals: 'deals', brands: 'deals', outreach: 'deals', programs: 'deals', rate: 'deals', negotiate: 'deals',
-    pipeline: 'pipeline', 'deal-close': 'pipeline',
+    pipeline: 'pipeline', 'deal-close': 'pipeline', nilgo: 'pipeline',
     calendar: 'calendar', contract: 'calendar',
     'email-inbox': 'email-inbox',
-    analytics: 'analytics', commission: 'analytics',
+    analytics: 'analytics', commission: 'analytics', gifts: 'analytics',
     settings: 'settings', growth: 'growth',
   };
   // the tab row each place shows: [view id, label]
@@ -47,7 +47,10 @@
     deals: [['deals', 'Search'], ['brands', 'Saved brands'], ['outreach', 'Outreach']],
     roster: [['roster', 'Athletes'], ['marketing', 'Media kits'], ['add-athlete', 'Add athlete']],
     calendar: [['calendar', 'Deliverables'], ['contract', 'Contracts']],
-    analytics: [['analytics', 'Overview'], ['commission', 'Commission']],
+    analytics: [['analytics', 'Overview'], ['commission', 'Commission'], ['gifts', 'Gifts & reports']],
+    // NIL Go and Gifts & Reports shipped after the redesign and had no place,
+    // so the new sidebar hid them (Nov 2026). Signed deals live by Pipeline.
+    pipeline: [['pipeline', 'Pipeline'], ['nilgo', 'NIL Go']],
   };
   // the sidebar, in order: [view id or 'portal', label, icon]
   var NAV = [['home', 'Today', 'today'], ['roster', 'Roster', 'roster'], ['deals', 'Find brands', 'find'],
@@ -57,7 +60,8 @@
   // Breadcrumb and page-title names for the new places.
   var CRUMB = { home: 'Today', roster: 'Roster', marketing: 'Media kits', 'add-athlete': 'Add athlete', deals: 'Find brands',
     brands: 'Saved brands', outreach: 'Outreach', pipeline: 'Pipeline', calendar: 'Deliverables', contract: 'Contracts',
-    'email-inbox': 'Inbox', analytics: 'Reports', commission: 'Commission', settings: 'Settings', command: 'Assistant' };
+    'email-inbox': 'Inbox', analytics: 'Reports', commission: 'Commission', settings: 'Settings', command: 'Assistant',
+    nilgo: 'NIL Go', gifts: 'Gifts & reports' };
   var TITLE = { 'My Roster': 'Roster', 'Deliverables Calendar': 'Deliverables', 'Email Inbox': 'Inbox', 'Add Client': 'Add athlete',
     'Media Kit': 'Media kits', 'Outreach Tracker': 'Outreach' };
   var SUB = { 'Your clients \u2014 click any card to make them active': 'Click a row to make that athlete your active client.',
