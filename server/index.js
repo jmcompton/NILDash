@@ -1233,6 +1233,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   req.session.role   = user.role;
   res.json({
     id: user.id, name: user.name, email: user.email, role: user.role,
+    displayName: displayNameOf(user),
     passwordResetRequired: _member ? false : (user.password_reset_required || false),
     athleteId: user.athlete_id || null,
     agentId: user.agent_id || null,
@@ -1358,6 +1359,13 @@ app.post('/api/team/remove', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+function displayNameOf(user) {
+  const parts = String((user && user.name) || '').trim().split(/\s+/).filter(Boolean);
+  const first = String((user && user.sign_first_name) || '').trim();
+  if (first) { if (parts.length) parts[0] = first; else parts.push(first); }
+  const cap = (w) => (w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w);
+  return parts.map(cap).join(' ') || null;
+}
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Not found' });
@@ -1365,6 +1373,12 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   if (!req.session.role) req.session.role = user.role;
   res.json({
     id: user.id, name: user.name, email: user.email, role: user.role,
+    // THE NAME ON SCREEN. users.name is whatever was typed at signup ("john
+    // compton") and there is no field to change it, so the greeting read
+    // "Good afternoon, john" in demos. The sign-off first name (Settings) is
+    // kept exactly as the agent writes it ("JohnMark"); an all-lowercase word
+    // gets a capital. Nothing is written back: users.name is untouched.
+    displayName: displayNameOf(user),
     passwordResetRequired: user.password_reset_required || false,
     athleteId: user.athlete_id || null,
     agentId: user.agent_id || null,

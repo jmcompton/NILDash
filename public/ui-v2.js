@@ -201,7 +201,7 @@
     var reps = (d.replies || []).length;
     var h = new Date().getHours();
     var hello = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-    var who = (typeof currentUser !== 'undefined' && currentUser && currentUser.name) ? String(currentUser.name).split(/\s+/)[0] : '';
+    var who = (typeof currentUser !== 'undefined' && currentUser && (currentUser.displayName || currentUser.name)) ? String(currentUser.displayName || currentUser.name).split(/\s+/)[0] : '';
     var esc = window.escHtml || function (t) { return String(t); };
     var date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
     var lede = ready ? ready + ' pitch' + (ready === 1 ? ' is' : 'es are') + ' ready across ' + withWork + ' athlete' + (withWork === 1 ? '' : 's') + '.'

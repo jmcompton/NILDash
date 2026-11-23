@@ -6565,7 +6565,7 @@ async function bootApp() {
   document.getElementById('authScreen').classList.add('hidden');
   document.getElementById('appScreen').classList.add('visible');
   document.body.classList.add('app-active'); // shows the mobile topbar (gated in CSS)
-  document.getElementById('userName').textContent = currentUser.name || (currentUser.email || '').split('@')[0] || 'Agent';
+  document.getElementById('userName').textContent = currentUser.displayName || currentUser.name || (currentUser.email || '').split('@')[0] || 'Agent';
   // THE FIRST SESSION (public/agent-setup.js, services/agentSetup;
   // AGENT_SETUP_ON). Asked before anything else is decided: when the switch is
   // on it replaces the old wizard and the assistant's takeover of Home, and an
@@ -6621,7 +6621,7 @@ async function bootApp() {
 
   // Show Growth tab for admin only
   var growthNavBtn = document.getElementById('growthNavBtn');
-  if (growthNavBtn) growthNavBtn.style.display = _isAdmin ? 'flex' : 'none';
+  if (growthNavBtn) growthNavBtn.style.display = (_isAdmin && typeof adminToolsOn === 'function' && adminToolsOn()) ? 'flex' : 'none';
   if (_isAdmin) growthModule.loadBadge();
 
   // Restore saved commission rate
@@ -21561,6 +21561,12 @@ async function loadHomeIgLine() {
     await loadIgStatus();
     var old = document.getElementById('home-ig-line'); if (old) old.remove();
     if (!igCounts || !igCounts.total) return;
+    // HOME SHOWS PROBLEMS, NOT A TALLY. "1 of 5 connected, Messiah (not
+    // connected) ..." sat at the top of Home for every agent who had not sent
+    // links yet. The count stays on Roster; Home speaks only when a connection
+    // broke and needs a new link.
+    var broken = Object.keys(igStatus).some(function (id) { var d = igStatus[id].display; return d === 'needs_new_link' || d === 'personal_account'; });
+    if (!broken) return;
     var home = document.getElementById('view-home'); if (!home) return;
     var el = document.createElement('div');
     el.id = 'home-ig-line';
@@ -22645,6 +22651,19 @@ function hqEmptyReason(d) {
 // log rather than a spinner, and the button disabled while it runs.
 var HQF = { runId: null, timer: null, athleteId: null, label: '' };
 
+// ADMIN TOOLS STAY OFF THE SCREEN UNLESS ASKED FOR. The admin account is also the
+// account demos are given from, and "Fill Marcus's queue now -- Admin, spends
+// from tonight's budget" under every athlete, plus a purple Growth tab, read as
+// unfinished to a prospect. mynildash.com/app?tools=1 turns them on for this
+// browser, ?tools=0 turns them off. The server still decides who MAY use them.
+function adminToolsOn() {
+  try {
+    var m = /[?&]tools=([01])/.exec(location.search);
+    if (m) localStorage.setItem('nildash_admin_tools', m[1]);
+    return localStorage.getItem('nildash_admin_tools') === '1';
+  } catch (e) { return false; }
+}
+
 // Back to idle: the button's OWN label restored, not a generic one, because a
 // control that renames itself after use looks like a different control. Skipped
 // after a tab switch -- the button on screen then belongs to a different athlete
@@ -22657,7 +22676,7 @@ function hqFillIdle() {
 }
 
 function hqFillPanel(d) {
-  if (!d || !d.canFill || !d.selected) return '';
+  if (!d || !d.canFill || !d.selected || !adminToolsOn()) return '';
   // A RUN SURVIVES A RE-RENDER. Home reloads for reasons that have nothing to do
   // with the fill, and a button that came back enabled mid-run invites a second
   // one -- two fillers on one athlete, both spending.
