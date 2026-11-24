@@ -6182,6 +6182,7 @@ function mkUpdatePreview() {
     _mkMounted = true;
     KitBuilder.mount({
       endpoint: function () { return '/api/athlete/media-kit/preview'; },
+      trackRecordEndpoint: function () { return '/api/athlete/media-kit/track-record'; },
       fetchOpts: function () { return { headers: { 'Authorization': 'Bearer ' + athleteToken } }; },
       body: mkFormBody,
       photos: function () { return { headshot: mkState.headshotData || null, action: mkState.actionShotData || null }; },

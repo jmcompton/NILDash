@@ -21283,6 +21283,7 @@ function mkUpdatePreview() {
     _mkMounted = true;
     KitBuilder.mount({
       endpoint: function () { return API_BASE + '/api/agent/athlete-media-kit/' + amkCurrentAthleteId + '/preview'; },
+      trackRecordEndpoint: function () { return API_BASE + '/api/agent/athlete-media-kit/' + amkCurrentAthleteId + '/track-record'; },
       fetchOpts: function () { return { credentials: 'include' }; },
       body: mkFormBody,
       photos: function () { return { headshot: mkState.headshotData || null, action: mkState.actionShotData || null }; },

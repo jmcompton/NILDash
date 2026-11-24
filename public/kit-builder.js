@@ -62,6 +62,15 @@
         '<input id="kb-ww-1" class="form-input" maxlength="80" style="' + INPUT + '">' +
         '<input id="kb-ww-2" class="form-input" maxlength="80" style="' + INPUT + '">' +
       '</div>' +
+    '</div>' +
+    // THE TRACK RECORD (services/trackRecord): built from closed deals, gifted
+    // product and delivered posts. The agent picks what shows; amounts and
+    // whether it was paid never reach the kit.
+    '<div class="card" id="kb-track-card">' +
+      '<div class="card-title" style="margin-bottom:4px">Track record</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Built from deals you marked Closed, gifts logged in Reports and deliverables marked done. A business sees the brand and the month, never the amount or whether it was paid.</div>' +
+      '<label style="display:flex;gap:8px;align-items:center;font-size:12px;font-weight:600;cursor:pointer"><input type="checkbox" id="kb-track-on" checked> Show the track record on the kit</label>' +
+      '<div id="kb-track-list" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>' +
     '</div>';
   var STORY_IDS = ['kb-deliverables', 'kb-price-mode', 'kb-price-low', 'kb-price-high', 'kb-ask', 'kb-hometown', 'kb-class-year', 'kb-major', 'kb-bio-line', 'kb-ww-0', 'kb-ww-1', 'kb-ww-2'];
   var PLATFORMS = [
@@ -69,6 +78,55 @@
     { key: 'tiktok', label: 'TikTok', input: 'mk-tt-followers' },
     { key: 'twitter', label: 'X', input: 'mk-tw-followers' },
   ];
+
+  // The track record's state in the builder: on/off and the brands left off
+  // (lowercased). Sent with every preview and save (storyBody).
+  var track = { on: true, hidden: [], list: null, loadedFor: null };
+  function trackKey(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function monthLabel(m) {
+    if (!m) return '';
+    var d = new Date(m + '-15T12:00:00Z');
+    return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+  function renderTrack() {
+    var box = $('kb-track-list'), on = $('kb-track-on');
+    if (on) on.checked = track.on;
+    if (!box) return;
+    if (!track.list) { box.textContent = 'Loading…'; return; }
+    var rows = track.list.partners || [], dv = track.list.delivered || { total: 0, onTime: 0 };
+    if (!rows.length && !dv.total) {
+      box.innerHTML = 'Nothing yet. Mark a deal Closed in Pipeline, log a gift in Reports, or check off a deliverable, and it shows up here.';
+      return;
+    }
+    var html = '';
+    if (dv.total) html += '<div style="margin-bottom:8px;color:var(--text)"><b>' + dv.total + '</b> post' + (dv.total === 1 ? '' : 's') + ' delivered, <b>' + dv.onTime + '</b> on time</div>';
+    html += rows.map(function (p) {
+      var hid = track.hidden.indexOf(p.key) >= 0;
+      var sub = [monthLabel(p.month), p.platform].filter(Boolean).join(' · ');
+      return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--border);cursor:pointer">' +
+        '<input type="checkbox" class="kb-track-brand" data-key="' + esc(p.key) + '"' + (hid ? '' : ' checked') + '>' +
+        '<span style="color:var(--text);font-weight:600">' + esc(p.brand) + '</span>' +
+        (sub ? '<span style="margin-left:auto">' + esc(sub) + '</span>' : '') + '</label>';
+    }).join('');
+    box.innerHTML = html;
+    Array.prototype.forEach.call(box.querySelectorAll('.kb-track-brand'), function (cb) {
+      cb.addEventListener('change', function () {
+        var k = cb.getAttribute('data-key');
+        track.hidden = track.hidden.filter(function (x) { return x !== k; });
+        if (!cb.checked) track.hidden.push(k);
+        KitBuilder.update();
+      });
+    });
+  }
+  function loadTrack() {
+    if (!opts || !opts.trackRecordEndpoint || (opts.ready && !opts.ready())) { renderTrack(); return; }
+    var url = opts.trackRecordEndpoint();
+    track.list = null; track.loadedFor = url; renderTrack();
+    fetch(url, opts.fetchOpts ? opts.fetchOpts() : {})
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (track.loadedFor !== url) return; track.list = j && !j.error ? j : { partners: [], delivered: { total: 0, onTime: 0 } }; renderTrack(); })
+      .catch(function () { if (track.loadedFor !== url) return; track.list = { partners: [], delivered: { total: 0, onTime: 0 } }; renderTrack(); });
+  }
 
   function syncPriceUI() {
     var mode = ($('kb-price-mode') || {}).value || '';
@@ -91,6 +149,8 @@
         var el = $(id); if (!el) return;
         el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', function () { if (id === 'kb-price-mode') syncPriceUI(); KitBuilder.update(); });
       });
+      if ($('kb-track-on')) $('kb-track-on').addEventListener('change', function () { track.on = this.checked; KitBuilder.update(); });
+      if (!opts.trackRecordEndpoint && $('kb-track-list')) $('kb-track-list').style.display = 'none';
     }
     // Under each platform's numbers: which state that number is in.
     PLATFORMS.forEach(function (p) {
@@ -198,6 +258,8 @@
         ask_line: v('kb-ask'), hometown: v('kb-hometown'), class_year: v('kb-class-year'), major: v('kb-major'),
         bio_line: v('kb-bio-line'),
         worked_with: [v('kb-ww-0'), v('kb-ww-1'), v('kb-ww-2')].filter(Boolean),
+        show_track_record: track.on,
+        track_hidden: track.hidden.slice(),
       };
     },
     fill: function (mk) {
@@ -210,7 +272,10 @@
       set('kb-major', mk.major); set('kb-bio-line', mk.bio_line);
       var ww = Array.isArray(mk.worked_with) ? mk.worked_with : [];
       for (var i = 0; i < 3; i++) set('kb-ww-' + i, ww[i] || '');
+      track.on = mk.show_track_record !== false;
+      track.hidden = Array.isArray(mk.track_hidden) ? mk.track_hidden.map(trackKey) : [];
       syncPriceUI();
+      loadTrack();
     },
   };
   window.KitBuilder = KitBuilder;
