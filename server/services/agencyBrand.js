@@ -118,7 +118,8 @@ function clampAccent(hex) {
 function brandFor(user, opts = {}) {
   const u = user || {};
   const set = !!(u.agency_name || u.agency_logo);
-  const person = cleanText(u.name, MAX_NAME);
+  // The person, as they would write their own name (services/agentName).
+  const person = cleanText(require('./agentName').displayName(u) || u.name, MAX_NAME);
   return {
     hasBrand: set,
     name: cleanText(u.agency_name, MAX_NAME) || person || '',
