@@ -637,6 +637,44 @@
       "id": "SERIAL",
       "status": "TEXT"
     },
+    "crm_activity": {
+      "at": "TIMESTAMPTZ DEFAULT NOW()",
+      "body": "TEXT",
+      "contact_id": "TEXT",
+      "id": "BIGSERIAL",
+      "outcome": "TEXT",
+      "type": "TEXT DEFAULT 'note'"
+    },
+    "crm_alerts": {
+      "key": "TEXT",
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
+    "crm_contacts": {
+      "archived": "BOOLEAN DEFAULT FALSE",
+      "channel": "TEXT",
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "due_on": "DATE",
+      "due_time": "TEXT",
+      "email": "TEXT",
+      "grp": "TEXT DEFAULT 'prospect'",
+      "id": "TEXT",
+      "last_touch_at": "TIMESTAMPTZ",
+      "link": "TEXT",
+      "linkedin": "TEXT",
+      "name": "TEXT",
+      "next_step": "TEXT",
+      "notes": "TEXT",
+      "org": "TEXT",
+      "phone": "TEXT",
+      "prio": "INTEGER DEFAULT 2",
+      "say": "TEXT",
+      "source": "TEXT",
+      "stage": "TEXT DEFAULT 'new'",
+      "state": "TEXT DEFAULT 'open'",
+      "title": "TEXT",
+      "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "value": "NUMERIC"
+    },
     "deal_comps": {
       "apg": "NUMERIC",
       "athlete_name": "TEXT",

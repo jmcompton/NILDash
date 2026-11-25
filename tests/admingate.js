@@ -130,13 +130,16 @@ async function main() {
     const leaks = { anon: [], agent: [], roleadmin: [] };
     for (const r of routes) {
       const a = await call('', r.method, r.path);
-      if (a.status !== 401) leaks.anon.push(`${r.method} ${r.src} -> ${a.status}`);
+      // The one page he opens from his phone's home screen sends a signed-out
+      // visitor to sign in. A redirect shows nothing.
+      const signIn = r.method === 'GET' && r.path === '/admin/crm' && a.status === 302 && a.location === '/app';
+      if (a.status !== 401 && !signIn) leaks.anon.push(`${r.method} ${r.src} -> ${a.status}`);
       const g = await call(cAgent, r.method, r.path);
       if (g.status !== 403) leaks.agent.push(`${r.method} ${r.src} -> ${g.status}`);
       const ro = await call(cRole, r.method, r.path);
       if (ro.status !== 403) leaks.roleadmin.push(`${r.method} ${r.src} -> ${ro.status}`);
     }
-    ok(`with no session, all ${routes.length} admin routes answer 401`, leaks.anon.length === 0, leaks.anon);
+    ok(`with no session, all ${routes.length} admin routes answer 401 (the CRM page: sign in)`, leaks.anon.length === 0, leaks.anon);
     ok(`  a signed-in agent gets 403 on every one`, leaks.agent.length === 0, leaks.agent);
     ok(`  and so does role='admin' without the admin's email`, leaks.roleadmin.length === 0, leaks.roleadmin);
 

@@ -53,6 +53,11 @@
       + 'color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit', 'Client accounts');
     b.id = 'waOpen'; b.type = 'button'; b.onclick = openList;
     anchor.parentNode.insertBefore(b, anchor);
+    // His own pipeline and follow-ups (server/pages/crm.html).
+    var c = el('a', 'display:block;box-sizing:border-box;width:100%;padding:10px 16px;margin-bottom:8px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);'
+      + 'color:var(--text);font-size:12px;font-weight:600;text-align:center;text-decoration:none;font-family:inherit', 'My CRM');
+    c.id = 'waCrm'; c.href = '/admin/crm';
+    anchor.parentNode.insertBefore(c, anchor);
   }
 
   function closeList() { var m = document.getElementById('waModal'); if (m) m.remove(); }
