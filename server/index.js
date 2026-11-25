@@ -602,6 +602,19 @@ app.get('/api/admin/clients', async (req, res) => {
     res.set('Cache-Control', 'no-store').json({ workingAs: cur, clients: list });
   } catch (e) { console.error('[admin/clients]', e.message); res.status(500).json({ error: 'Could not load the client accounts.' }); }
 });
+// Mark an agent done-for-you (or stop): their replies are then sent to the
+// admin as they come in (services/managedClients).
+app.post('/api/admin/clients/managed', async (req, res) => {
+  try {
+    const admin = await _realAdmin(req);
+    if (!admin) return res.status(403).json({ error: 'Forbidden' });
+    const b = req.body || {};
+    const out = await require('./services/managedClients').set(store.pool, b.agentId, b.on === true);
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    console.log(`[managed-clients] admin=${admin.id} set agent=${b.agentId} managed=${out.managed}`);
+    res.json(out);
+  } catch (e) { console.error('[admin/clients/managed]', e.message); res.status(500).json({ error: 'Could not save that.' }); }
+});
 app.post('/api/admin/work-as', async (req, res) => {
   try {
     const admin = await _realAdmin(req);

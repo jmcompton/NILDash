@@ -112,6 +112,8 @@ async function markReplied(outreachLogId, repliedAt, opts = {}) {
     // opts.autopilot === false: the caller is not sure which pitch this
     // answers (an ambiguous reply-domain match), so nothing is moved on a guess.
     if (RA.ON() && opts.autopilot !== false) RA.onReply(pool, outreachLogId).catch((e) => console.error('[markReplied] reply autopilot:', e.message));
+    // A done-for-you client's reply also goes to the founder, once (services/managedClients).
+    require('./managedClients').onReply(pool, outreachLogId).catch((e) => console.error('[markReplied] founder alert:', e.message));
   }
 }
 
