@@ -361,46 +361,49 @@ router.get('/oauth/outlook/admin-callback', (req, res) => {
 router.post('/connect/imap', async (req, res) => {
   try {
     if (!imap.isAvailable()) {
-      return res.status(501).json({ error: 'IMAP support not installed. Contact support.' });
+      return res.status(501).json({ error: 'Other email providers are not available on this server yet.' });
     }
-    const { emailAddress, password, imapHost, imapPort, smtpHost, smtpPort, displayName } = req.body;
-    if (!emailAddress || !password) return res.status(400).json({ error: 'Email and password required' });
+    const b = req.body || {};
+    const emailAddress = String(b.emailAddress || '').trim().toLowerCase();
+    const password = String(b.password || '');
+    if (!emailAddress || !password) return res.status(400).json({ error: 'Enter the email address and the password.' });
 
-    // Test connection before saving
-    await imap.testConnection(emailAddress, password, imapHost, imapPort, smtpHost, smtpPort);
+    // The password is proved against the provider's own server before anything
+    // is saved: a wrong one is an error on this screen, never a mailbox that
+    // looks connected and cannot send. The server is worked out from the
+    // address (services/providers/imap), or taken from Advanced.
+    const smtp = await imap.verifySmtp(emailAddress, password,
+      { smtpHost: String(b.smtpHost || '').trim() || null, smtpPort: parseInt(b.smtpPort, 10) || null });
 
     const accountId = 'ea_' + crypto.randomBytes(8).toString('hex');
-    const imapConfig = { imapHost, imapPort, smtpHost, smtpPort };
-
-    // For IMAP: store password as accessToken, imapConfig as refreshToken (both encrypted)
+    // Password as the access token, the server as the refresh token, both
+    // encrypted at rest. The password is never logged and never sent back.
     await emailStore.saveEmailAccount(
       accountId, req.session.userId, 'imap',
-      emailAddress, displayName || emailAddress,
-      password,                         // access_token_enc = password (encrypted)
-      JSON.stringify(imapConfig),       // refresh_token_enc = config JSON (encrypted)
-      null
+      emailAddress, String(b.displayName || '').trim().slice(0, 120) || emailAddress,
+      password,
+      JSON.stringify({ smtpHost: smtp.smtpHost, smtpPort: smtp.smtpPort, secure: smtp.secure, kind: smtp.kind }),
+      null, ['smtp.send'], true
     );
-
-    res.json({ ok: true, accountId });
+    console.log(`[email/connect/imap] user=${req.session.userId} connected ${emailAddress} via ${smtp.smtpHost}:${smtp.smtpPort}`);
+    res.json({ ok: true, accountId, provider: smtp.label, emailAddress });
   } catch (e) {
-    console.error('[email/connect/imap]', e.message);
-    res.status(400).json({ error: e.message || 'Connection failed' });
+    // userMessage is written for the agent; anything else is ours and is not shown raw.
+    console.error('[email/connect/imap]', e.code || '', String(e.message).slice(0, 200));
+    res.status(400).json({ error: e.userMessage || 'That mailbox could not be connected. Check the address and password and try again.', code: e.code || null });
   }
 });
 
 /**
- * GET /api/email/imap/presets
- * Returns well-known IMAP/SMTP settings for common providers (no credentials).
+ * GET /api/email/detect?email=
+ * Who hosts this address, so the connect screen can say "Zoho Mail" and how to
+ * get an app password before the agent types one. No credentials involved.
  */
-router.get('/imap/presets', (req, res) => {
-  res.json({
-    'yahoo.com':    { imap: { host: 'imap.mail.yahoo.com',  port: 993 }, smtp: { host: 'smtp.mail.yahoo.com',  port: 587 } },
-    'icloud.com':   { imap: { host: 'imap.mail.me.com',      port: 993 }, smtp: { host: 'smtp.mail.me.com',    port: 587 } },
-    'me.com':       { imap: { host: 'imap.mail.me.com',      port: 993 }, smtp: { host: 'smtp.mail.me.com',    port: 587 } },
-    'outlook.com':  { imap: { host: 'outlook.office365.com', port: 993 }, smtp: { host: 'smtp.office365.com',  port: 587 } },
-    'hotmail.com':  { imap: { host: 'outlook.office365.com', port: 993 }, smtp: { host: 'smtp.office365.com',  port: 587 } },
-    'aol.com':      { imap: { host: 'imap.aol.com',          port: 993 }, smtp: { host: 'smtp.aol.com',        port: 587 } },
-  });
+router.get('/detect', async (req, res) => {
+  try {
+    const d = await imap.detect(String(req.query.email || ''));
+    res.json({ kind: d.kind, label: d.label, help: d.help, use: d.use, known: d.servers.length > 0 });
+  } catch (e) { res.json({ kind: 'other', label: 'your mail server', help: '', use: null, known: false }); }
 });
 
 // ── Inbox / threads ──────────────────────────────────────────────────────────

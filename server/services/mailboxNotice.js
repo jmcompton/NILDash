@@ -33,11 +33,14 @@ async function consequence(pool, userId) {
 
 function reconnectUrl(provider) {
   const base = String(process.env.APP_URL || 'https://mynildash.com').replace(/\/+$/, '');
+  // A mailbox connected with an app password is reconnected in the app (Settings, Email, Other email).
+  if (provider === 'imap') return `${base}/app`;
   return `${base}/reconnect-mailbox?provider=${encodeURIComponent(provider === 'gmail' ? 'gmail' : 'outlook')}`;
 }
 
 function emailFor(agent, acct) {
   const first = String(agent.name || '').trim().split(/\s+/)[0] || 'there';
+  if (acct.provider === 'imap') return emailForPassword(first, acct);
   const which = acct.provider === 'gmail' ? 'Gmail' : 'Outlook';
   const url = reconnectUrl(acct.provider);
   const subject = `Reconnect your ${which} to NILDash`;
@@ -50,6 +53,23 @@ function emailFor(agent, acct) {
     + `This usually happens after a password change or when access is removed in your Google or Microsoft account.</p>`
     + `<p>Until you reconnect, emails you approve in NILDash will wait instead of sending.</p>`
     + `<p><a href="${esc(url)}">Reconnect ${which}</a></p><p>NILDash</p>`;
+  return { subject, text, html, url };
+}
+
+// The same notice for a mailbox connected with an app password (Zoho, Yahoo,
+// any SMTP server): the provider refused the saved password.
+function emailForPassword(first, acct) {
+  const url = reconnectUrl('imap');
+  const addr = acct.email_address || 'your mailbox';
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const subject = 'Reconnect your email to NILDash';
+  const why = 'your email provider stopped accepting the app password we have on file. This usually happens after a password change or when the app password is removed.';
+  const how = 'Create a new app password with your email provider, then open NILDash, go to Settings, Email, and choose Other email.';
+  const text = `Hi ${first},\n\nNILDash can no longer send from ${addr}: ${why}\n\n`
+    + `Until you reconnect, emails you approve in NILDash will wait instead of sending. ${how}\n\n${url}\n\nNILDash`;
+  const html = `<p>Hi ${esc(first)},</p><p>NILDash can no longer send from ${esc(addr)}: ${esc(why)}</p>`
+    + `<p>Until you reconnect, emails you approve in NILDash will wait instead of sending. ${esc(how)}</p>`
+    + `<p><a href="${esc(url)}">Open NILDash</a></p><p>NILDash</p>`;
   return { subject, text, html, url };
 }
 

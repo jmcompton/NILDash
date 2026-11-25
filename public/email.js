@@ -31,7 +31,9 @@ const INBOX_SYNC_ENABLED = false;
 // /api/email/providers says Outlook is configured (OUTLOOK_CLIENT_ID and
 // OUTLOOK_CLIENT_SECRET set), hidden otherwise.
 let OUTLOOK_ENABLED = false;
-const IMAP_ENABLED    = false;   // needs: createTransport fix, config keys, TLS verify
+// OTHER EMAIL (Zoho, Yahoo, iCloud, any SMTP server): on. Send-only, with the
+// address and an app password (services/providers/imap).
+const IMAP_ENABLED    = true;
 
 // The markup ships hidden; a live provider un-hides its own button. Hidden by
 // default means a stale cached page shows too little, never too much.
@@ -178,45 +180,49 @@ function closeImapModal() {
 async function connectImap() {
   const emailAddress = document.getElementById('imap-email')?.value?.trim();
   const password     = document.getElementById('imap-password')?.value?.trim();
-  const imapHost     = document.getElementById('imap-host')?.value?.trim();
-  const imapPort     = parseInt(document.getElementById('imap-port')?.value) || 993;
-  const smtpHost     = document.getElementById('imap-smtp-host')?.value?.trim();
-  const smtpPort     = parseInt(document.getElementById('imap-smtp-port')?.value) || 587;
+  const smtpHost     = document.getElementById('imap-smtp-host')?.value?.trim() || null;
+  const smtpPort     = parseInt(document.getElementById('imap-smtp-port')?.value) || null;
+  const errEl        = document.getElementById('imap-error');
+  const fail = (m) => { if (errEl) { errEl.textContent = m; errEl.style.display = 'block'; } else emailToast(m); };
+  if (errEl) errEl.style.display = 'none';
 
-  if (!emailAddress || !password) { emailToast('Email and password required'); return; }
+  if (!emailAddress || !password) { fail('Enter your email address and the app password.'); return; }
 
   const btn = document.getElementById('imap-connect-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Testing connection…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking with your email provider...'; }
 
   try {
-    await emailAPI.post('/connect/imap', { emailAddress, password, imapHost, imapPort, smtpHost, smtpPort });
-    emailToast('Email account connected!');
+    await emailAPI.post('/connect/imap', { emailAddress, password, smtpHost, smtpPort });
+    const p = document.getElementById('imap-password'); if (p) p.value = '';
+    emailToast('Email connected. Your pitches will send from ' + emailAddress + '.');
     closeImapModal();
     await loadEmailAccounts();
     await loadEmailInbox();
+    try { if (window.agentSetupRefresh) window.agentSetupRefresh(); } catch (_) {}
   } catch (e) {
-    emailToast('Connection failed: ' + e.message);
+    // The server's own words: which provider refused, and where to get an app password.
+    fail(e.message || 'That mailbox could not be connected.');
+    if (/Open Advanced/.test(e.message || '')) { const a = document.getElementById('imap-advanced'); if (a) a.open = true; }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Connect'; }
   }
 }
 
-// Auto-fill IMAP presets when email changes in IMAP modal
+// Who hosts the address they typed, and how to get an app password there.
 async function onImapEmailChange() {
   const emailEl = document.getElementById('imap-email');
-  if (!emailEl) return;
-  const domain = emailEl.value.split('@')[1]?.toLowerCase();
-  if (!domain) return;
+  const hint = document.getElementById('imap-hint');
+  const v = emailEl ? emailEl.value.trim() : '';
+  if (!hint || v.indexOf('@') < 1) return;
   try {
-    const presets = await emailAPI.get('/imap/presets');
-    const p = presets[domain];
-    if (p) {
-      const h = id => document.getElementById(id);
-      if (h('imap-host'))      h('imap-host').value      = p.imap.host;
-      if (h('imap-port'))      h('imap-port').value      = p.imap.port;
-      if (h('imap-smtp-host')) h('imap-smtp-host').value = p.smtp.host;
-      if (h('imap-smtp-port')) h('imap-smtp-port').value = p.smtp.port;
-    }
+    const d = await emailAPI.get('/detect?email=' + encodeURIComponent(v));
+    if (emailEl.value.trim() !== v) return;
+    hint.textContent = d.use === 'gmail' ? 'This is a Google mailbox. Close this and use the Gmail button.'
+      : d.use === 'outlook' ? 'This is a Microsoft mailbox. Close this and use the Outlook button.'
+      : d.known ? 'This is ' + d.label + '. ' + d.help
+      : 'We could not tell who hosts this mailbox. Open Advanced and enter the outgoing server from your email provider.';
+    hint.style.display = 'block';
+    if (!d.known && !d.use) { const a = document.getElementById('imap-advanced'); if (a) a.open = true; }
   } catch (e) { /* silent */ }
 }
 

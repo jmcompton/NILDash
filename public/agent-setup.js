@@ -4,7 +4,7 @@
  * only draws it. One screen per step, plain words, "2 of 3 done", and no skip
  * button, because nothing on Home works without any of the three:
  *
- *   1  Connect your email      Gmail or Outlook, back here after the provider
+ *   1  Connect your email      Gmail or Outlook (back here after the provider), or any other mailbox with an app password
  *   2  Your business address   the same save as Settings
  *   3  Add your athletes       the existing add-athlete form and roster
  *                              import, or the assistant as a helper panel
@@ -67,9 +67,26 @@
       return '<h1>Connect your email</h1>'
         + '<p>Your pitches go out from your own inbox, so replies come straight to you. Pick the one you use for work.</p>'
         + '<div class="as-err" id="as-mbx-note"' + (st.mailboxCannotSend ? '' : ' style="display:none"') + '>Your inbox is connected, but we did not get permission to send from it. Connect it again and allow sending.</div>'
+        + '<div id="as-main">'
         + '<button class="as-btn go" onclick="agentSetup.connect(\'gmail\')">Connect Gmail</button>'
         + '<button class="as-btn" onclick="agentSetup.connect(\'outlook\')">Connect Outlook</button>'
-        + '<div class="as-note">You will go to Google or Microsoft to say yes, then come straight back here. We only send what you approve.</div>';
+        + '<button class="as-btn" onclick="agentSetup.other(true)">Use another email</button>'
+        + '<div class="as-note">Zoho, Yahoo, iCloud or a company address all work under "Use another email". For Gmail and Outlook you go to Google or Microsoft to say yes, then come straight back here. We only send what you approve.</div>'
+        + '</div>'
+        // ANY OTHER MAILBOX (services/providers/imap): the address and an app
+        // password. The server finds the provider from the address.
+        + '<div id="as-other" style="display:none">'
+        + '<label for="as-oe">Your work email</label><input id="as-oe" type="email" autocomplete="email" placeholder="you@yourcompany.com" onblur="agentSetup.otherHint()">'
+        + '<div class="as-note" id="as-oh" style="margin-top:8px;display:none"></div>'
+        + '<label for="as-op">App password</label><input id="as-op" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">'
+        + '<details id="as-oadv" style="margin-top:12px"><summary style="font-size:13px;color:rgba(240,237,230,0.6);cursor:pointer">Advanced: enter the mail server yourself</summary>'
+        + '<div class="as-row"><div style="flex:2"><label for="as-os">Outgoing (SMTP) server</label><input id="as-os" placeholder="smtp.example.com" autocapitalize="off" spellcheck="false"></div>'
+        + '<div><label for="as-oport">Port</label><input id="as-oport" inputmode="numeric" placeholder="465" maxlength="4"></div></div></details>'
+        + '<div class="as-err" id="as-oerr" style="display:none"></div>'
+        + '<button class="as-btn go" style="margin-top:16px" onclick="agentSetup.connectOther(this)">Connect</button>'
+        + '<button class="as-btn" onclick="agentSetup.other(false)">Back</button>'
+        + '<div class="as-note">We check the password with your email provider before saving it, and store it encrypted. NILDash only sends from this mailbox. It never reads your inbox.</div>'
+        + '</div>';
     }
     if (k === 'address') {
       return '<h1>Your business address</h1>'
@@ -229,6 +246,49 @@
       // returnTo carries a # so the page sees the "connected" marker and comes
       // back here (email.js handleEmailOAuthRedirect -> agentSetupRefresh).
       window.location.href = '/api/email/oauth/' + (provider === 'outlook' ? 'outlook' : 'gmail') + '?returnTo=' + encodeURIComponent('/#setup');
+    },
+    other: function (on) {
+      var m = document.getElementById('as-main'), o = document.getElementById('as-other');
+      if (m) m.style.display = on ? 'none' : 'block';
+      if (o) o.style.display = on ? 'block' : 'none';
+      if (on) { var e = document.getElementById('as-oe'); if (e) e.focus(); }
+    },
+    // Who hosts the address they typed, and how to get an app password there.
+    otherHint: function () {
+      var e = document.getElementById('as-oe'), h = document.getElementById('as-oh');
+      var v = e ? e.value.trim() : '';
+      if (!h || v.indexOf('@') < 1) return;
+      fetch('/api/email/detect?email=' + encodeURIComponent(v), { credentials: 'include' }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d || (e.value.trim() !== v)) return;
+        var t = d.use === 'gmail' ? 'This is a Google mailbox. Go back and use Connect Gmail.'
+          : d.use === 'outlook' ? 'This is a Microsoft mailbox. Go back and use Connect Outlook.'
+          : d.known ? 'This is ' + d.label + '. ' + d.help
+          : 'We could not tell who hosts this mailbox. Open Advanced below and enter the outgoing server from your email provider.';
+        h.textContent = t; h.style.display = 'block';
+        if (!d.known && !d.use) { var a = document.getElementById('as-oadv'); if (a) a.open = true; }
+      }).catch(function () {});
+    },
+    connectOther: function (btn) {
+      var v = function (id) { var i = document.getElementById(id); return i ? i.value.trim() : ''; };
+      var err = document.getElementById('as-oerr');
+      var show = function (m) { if (err) { err.textContent = m; err.style.display = 'block'; } };
+      if (err) err.style.display = 'none';
+      if (!v('as-oe') || !v('as-op')) { show('Enter your email address and the app password.'); return; }
+      btn.disabled = true; btn.textContent = 'Checking with your email provider...';
+      fetch('/api/email/connect/imap', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailAddress: v('as-oe'), password: v('as-op'), smtpHost: v('as-os') || null, smtpPort: v('as-oport') || null }) })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d || {} }; }); })
+        .then(function (x) {
+          btn.disabled = false; btn.textContent = 'Connect';
+          if (!x.ok || !x.d.ok) {
+            show(x.d.error || 'That mailbox could not be connected. Check the address and password and try again.');
+            if (x.d.code === 'NEED_SERVER') { var a = document.getElementById('as-oadv'); if (a) a.open = true; }
+            return;
+          }
+          var p = document.getElementById('as-op'); if (p) p.value = '';
+          refresh();
+        })
+        .catch(function () { btn.disabled = false; btn.textContent = 'Connect'; show('We could not reach NILDash. Check your connection and try again.'); });
     },
     saveAddress: function (btn) {
       var v = function (id) { var i = document.getElementById(id); return i ? i.value.trim() : ''; };

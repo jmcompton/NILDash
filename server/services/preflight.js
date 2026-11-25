@@ -253,6 +253,22 @@ function checks(deps) {
           // The login works, so a mailbox parked in 'error' by a failed sync
           // is not disconnected: put it back in the poller now.
           await pool.query(`UPDATE email_accounts SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'error'`, [r.id]).catch(() => {});
+        } else if (r.provider === 'imap') {
+          // A mailbox on an app password (Zoho, Yahoo, any SMTP server): is the
+          // saved password still accepted? Only a REFUSED password is a bad
+          // mailbox; a server that did not answer this morning is not.
+          const smtp = deps.smtp || require('./providers/imap');
+          let cfg = {};
+          try { cfg = JSON.parse(full.refreshToken) || {}; } catch (_) { cfg = {}; }
+          try { await withTimeout(smtp.verifyStored(r.email_address, full.accessToken, cfg), TIMEOUT_MS, 'smtp'); checked++; await MN.clear(pool, r.id).catch(() => {}); }
+          catch (e) {
+            if (!smtp.isAuthError(e)) { notices.push(`${r.name || r.agent_email} (${r.email_address}): the mail server did not answer the check (${String(e.message).slice(0, 100)}); not treated as disconnected`); continue; }
+            const why = `the mail server refused the saved password: ${String(e.message).slice(0, 160)}`;
+            const n = await MN.record(pool, r, why, { send: deps.noticeSend, email: deps.noticeEmail }).catch((er) => ({ matters: true, error: er.message }));
+            const line = `${r.name || r.agent_email} (${r.email_address}): ${why}`;
+            if (n.matters) bad.push(`${line} [${n.queued || 0} card(s) waiting, ${n.approved || 0} approval(s) not sent]`);
+            else notices.push(`${line} [nothing waiting${n.emailed ? '; agent emailed a reconnect link' : ''}]`);
+          }
         } else checked++;
       }
       if (undecryptable && undecryptable === rows.length) {

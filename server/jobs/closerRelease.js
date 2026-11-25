@@ -122,6 +122,9 @@ function buildSend(pool, cache, { dry }) {
       bodyHtml: canSpam.appendHtml(log.body_html, to, { senderName: account.senderName || null,
         address: log.footerAddress || (await canSpam.senderAddress(pool, log.agent_id)).address || null }),
       attachments: [], replyTo, messageId,
+      // SMTP mailboxes (Zoho and the rest) put the agent's name on the From line
+      // themselves; Gmail and Outlook take it from the account and ignore this.
+      fromName: account.senderName || null,
     };
     const res = account.provider === 'imap'
       ? await provider.sendEmail(account.email_address, account.accessToken,

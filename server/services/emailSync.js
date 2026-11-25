@@ -76,6 +76,9 @@ async function syncAccount(account) {
   // logging here fired on every UI-triggered sync as well as every poll. The
   // disabled state is announced ONCE per process in startPoller instead.
   if (account.provider === 'gmail' && !INBOX_SYNC_ENABLED) return;
+  // A mailbox connected with an app password (Zoho, Yahoo, any SMTP server) is
+  // send-only: NILDash never reads it. Replies come back through Reply-To.
+  if (account.provider === 'imap') return;
   // An Outlook mailbox connected send-only (the default) has no permission to
   // read: nothing to sync, and asking would fail every poll. Replies to pitches
   // still arrive through the Reply-To address. Synced once Mail.Read is granted

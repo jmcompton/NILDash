@@ -4770,7 +4770,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <span style="font-size:18px">📨</span> Connect Outlook / M365
         </button>
         <button id="email-connect-imap" onclick="emailModule.showImapConnectModal()" style="display:none;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-          <span style="font-size:18px">📬</span> Other (Yahoo, iCloud, IMAP)
+          <span style="font-size:18px">📬</span> Other email (Zoho, Yahoo, iCloud)
         </button>
       </div>
       <div style="margin-top:12px;font-size:10px;color:var(--muted);line-height:1.5">
@@ -4986,47 +4986,42 @@ tbody td{padding:11px 14px;vertical-align:middle}
   </main>
 </div>
 
-<!-- ── EMAIL: IMAP CONNECT MODAL ─────────────────────────────────────────── -->
+<!-- ── EMAIL: OTHER EMAIL CONNECT MODAL (Zoho, Yahoo, iCloud, any SMTP server) ── -->
 <div id="email-imap-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:500;align-items:center;justify-content:center;padding:20px">
   <div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:28px;width:100%;max-width:440px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <div style="font-size:14px;font-weight:700;color:var(--text)">Connect IMAP / SMTP Account</div>
-      <button onclick="emailModule.closeImapModal()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">×</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Connect another email</div>
+      <button onclick="emailModule.closeImapModal()" aria-label="Close" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">×</button>
     </div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:16px">Zoho, Yahoo, iCloud or a company address. Your pitches send from this mailbox.</div>
     <div style="display:flex;flex-direction:column;gap:12px">
       <div>
-        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Email Address</label>
-        <input id="imap-email" type="email" placeholder="you@yahoo.com" onblur="emailModule.onImapEmailChange()" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;outline:none">
+        <label for="imap-email" style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Your work email</label>
+        <input id="imap-email" type="email" autocomplete="email" placeholder="you@yourcompany.com" onblur="emailModule.onImapEmailChange()" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;outline:none;box-sizing:border-box">
+        <div id="imap-hint" style="display:none;font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:6px"></div>
       </div>
       <div>
-        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Password / App Password</label>
-        <input id="imap-password" type="password" placeholder="App-specific password recommended" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;outline:none">
+        <label for="imap-password" style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">App password</label>
+        <input id="imap-password" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;outline:none;box-sizing:border-box">
       </div>
-      <details style="margin-top:4px">
-        <summary style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none">Advanced IMAP / SMTP Settings (auto-filled for common providers)</summary>
+      <details id="imap-advanced" style="margin-top:4px">
+        <summary style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none">Advanced: enter the mail server yourself</summary>
         <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;margin-top:10px">
           <div>
-            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">IMAP Host</label>
-            <input id="imap-host" placeholder="imap.mail.yahoo.com" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+            <label for="imap-smtp-host" style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Outgoing (SMTP) server</label>
+            <input id="imap-smtp-host" placeholder="smtp.example.com" autocapitalize="off" spellcheck="false" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;outline:none;box-sizing:border-box;font-size:12px;padding:7px 10px">
           </div>
           <div>
-            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Port</label>
-            <input id="imap-port" type="number" value="993" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
-          </div>
-          <div>
-            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">SMTP Host</label>
-            <input id="imap-smtp-host" placeholder="smtp.mail.yahoo.com" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
-          </div>
-          <div>
-            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Port</label>
-            <input id="imap-smtp-port" type="number" value="587" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+            <label for="imap-smtp-port" style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Port</label>
+            <input id="imap-smtp-port" inputmode="numeric" placeholder="465" maxlength="4" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;outline:none;box-sizing:border-box;font-size:12px;padding:7px 10px">
           </div>
         </div>
       </details>
+      <div id="imap-error" style="display:none;font-size:12px;color:#ef4444;line-height:1.5"></div>
       <button id="imap-connect-btn" onclick="emailModule.connectImap()" style="width:100%;padding:11px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-size:13px;font-weight:700;cursor:pointer;margin-top:4px">Connect</button>
-      <div style="font-size:10px;color:var(--muted);text-align:center;line-height:1.5">
-        Yahoo, iCloud, and Outlook (non-OAuth) require an app-specific password.<br>
-        Your password is encrypted with AES-256 and never sent to third parties.
+      <div style="font-size:10.5px;color:var(--muted);text-align:center;line-height:1.5">
+        We check the password with your email provider before saving it, and store it encrypted.<br>
+        NILDash only sends from this mailbox. It never reads your inbox.
       </div>
     </div>
   </div>
