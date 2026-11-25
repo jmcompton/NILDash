@@ -111,10 +111,10 @@ async function main() {
   // ── WIRING ────────────────────────────────────────────────────────────
   OUT.push('-- wiring --');
   const IX = fs.readFileSync(REPO + 'server/index.js', 'utf8');
-  ok('routes: get, save, improve (signed in; improve rate-limited)',
+  ok('routes: get, save, improve (signed in; improve needs a subscription and is rate-limited)',
     /app\.get\('\/api\/agent\/settings\/script', requireAuth/.test(IX)
     && /app\.post\('\/api\/agent\/settings\/script', requireAuth/.test(IX)
-    && /app\.post\('\/api\/agent\/settings\/script\/improve', requireAuth, aiLimiter/.test(IX));
+    && /app\.post\('\/api\/agent\/settings\/script\/improve', requireAuth, requireAgentSubscription, aiLimiter/.test(IX));
   const H = fs.readFileSync(REPO + 'public/index.html', 'utf8');
   ok('the Settings card and its loader', /id="script-card"/.test(H) && /setTimeout\(loadScript, 60\)/.test(H)
     && /function improveScript\(/.test(H) && /function useImprovedScript\(/.test(H));
