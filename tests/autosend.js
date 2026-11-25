@@ -297,6 +297,32 @@ async function main() {
   ok('Continue turns it on only when ticked, and goes Home either way', /if \(!box \|\| !box\.checked\) \{ go\(\); return; \}/.test(SJ)
     && /JSON\.stringify\(\{ on: true \}\)/.test(SJ) && /\.then\(go, go\)/.test(SJ));
 
+  // ── A DONE-FOR-YOU CLIENT IS NEVER SENT FOR AUTOMATICALLY ─────────────
+  // The founder reads every pitch and follow-up for them (services/managedClients).
+  OUT.push('', '-- a done-for-you client --');
+  const MC = require(REPO + 'server/services/managedClients');
+  await mk('as-man', 'Managed Agent');
+  const dm = makeDeps({ batches: { 'as-man': [{ id: 'm1', athleteId: 'a', brand: 'B' }] } });
+  ok('their switch can be on before they are marked', (await AS.set(P(), 'as-man', true, dm.deps)).on === true);
+  ok('marking them done-for-you turns it off', (await MC.set(P(), 'as-man', true)).managed === true
+    && (await P().query(`SELECT auto_send_on FROM users WHERE id = 'as-man'`)).rows[0].auto_send_on === false);
+  const tryOn = await AS.set(P(), 'as-man', true, dm.deps);
+  ok('and it cannot be turned back on while they are', tryOn.ok === true && tryOn.on === false && tryOn.managed === true
+    && (await P().query(`SELECT auto_send_on FROM users WHERE id = 'as-man'`)).rows[0].auto_send_on === false, tryOn);
+  const stm = await AS.status(P(), 'as-man', dm.deps);
+  ok('Settings and setup do not offer it to them', stm.available === false && stm.on === false && stm.managed === true, stm);
+  await P().query(`UPDATE users SET auto_send_on = TRUE WHERE id = 'as-man'`);   // a switch left on some other way
+  const tm = await AS.tick(P(), { now: CT('2026-10-29', 9, 30), deps: dm.deps });
+  ok('the morning tick ran (inside the window)', !tm.skipped && Array.isArray(tm.agents), tm);
+  ok('even with the switch on, the morning does not approve for them', !dm.calls.built.includes('as-man') && !dm.calls.approved.some((x) => x.id === 'as-man'), dm.calls);
+  ok('  and no run is claimed for them', (await P().query(`SELECT 1 FROM auto_send_runs WHERE agent_id = 'as-man'`)).rowCount === 0);
+  await MC.set(P(), 'as-man', false);
+  const back = await AS.set(P(), 'as-man', true, dm.deps);
+  ok('no longer done-for-you: the switch can be turned on again', back.ok === true && back.on === true, back);
+  const dm2 = makeDeps({ batches: { 'as-man': [{ id: 'm1', athleteId: 'a', brand: 'B' }] } });
+  await AS.tick(P(), { now: CT('2026-10-30', 9, 40), deps: dm2.deps });
+  ok('no longer done-for-you: the morning runs for them again', dm2.calls.built.includes('as-man'), dm2.calls.built);
+
   console.log(OUT.join('\n'));
   const total = OUT.filter((l) => /^(PASS|FAIL) /.test(l)).length;
   console.log(`\n${total - F}/${total} passed`);
