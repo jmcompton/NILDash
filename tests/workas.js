@@ -75,6 +75,12 @@ const ok = (n, c, g) => { N++; if (c) console.log('  PASS  ' + n); else { F++; c
   const app = express(); app.use(express.json());
   const sessions = {};
   app.use((rq, _rs, next) => { const k = rq.headers['x-sess'] || 'none'; rq.session = sessions[k] || (sessions[k] = { save(cb) { cb(); } }); next(); });
+  // The real gate that sits in front of every /api/admin route in the app. The
+  // first live open got stuck behind it: the session user was the agent, so
+  // the gate refused the way back.
+  { const AG = require(REPO + 'server/middleware/adminGate');
+    app.use(AG.PREFIXES, AG.makeAdminGate({ getUser: (id) => store.getUser(id), adminEmail: ADMIN_EMAIL, isFounderEmail: () => false })); }
+  app.get('/api/admin/users', (rq, rs) => rs.json({ users: true }));
   { const require_ = require; // the cut block requires './services/workAs' relative to server/
     // eslint-disable-next-line no-eval
     (function (require) { eval(SRC.slice(a, b)); })((m) => require_(m.startsWith('./') ? REPO + 'server/' + m.slice(2) : m)); }
@@ -95,10 +101,13 @@ const ok = (n, c, g) => { N++; if (c) console.log('  PASS  ' + n); else { F++; c
 
   let r = await call('Z', 'GET', '/api/admin/clients');
   ok('an agent cannot see the client list', r.code === 403, r);
+  sessions.Y = { userId: 'ag2', role: 'agent', adminId: 'ag2', save(cb) { cb(); } };
+  r = await call('Y', 'GET', '/api/admin/clients');
+  ok('  nor can a session that claims an admin id that is not the admin', r.code === 403, r);
   r = await call('Z', 'POST', '/api/admin/work-as', { agentId: 'ag1' });
   ok('an agent cannot open another agent\'s account', r.code === 403 && sessions.Z.userId === 'ag2' && !sessions.Z.adminId, [r, sessions.Z.userId]);
   r = await call('X', 'POST', '/api/admin/work-as', { agentId: 'ag1' });
-  ok('nobody signed in cannot either', r.code === 403 && !sessions.X.userId, r);
+  ok('nobody signed in cannot either', (r.code === 401 || r.code === 403) && !sessions.X.userId, r);
   r = await call('A', 'GET', '/api/admin/clients');
   ok('the admin sees the list, and is in nobody\'s account yet', r.code === 200 && r.body.clients.length === 2 && r.body.workingAs === null, r.body);
   r = await call('A', 'POST', '/api/admin/work-as', { agentId: 'ath1' });
@@ -112,6 +121,8 @@ const ok = (n, c, g) => { N++; if (c) console.log('  PASS  ' + n); else { F++; c
   ok('  the agent\'s password cannot be changed from there', r.code === 403 && r.body.workingAs === true, r);
   r = await call('A', 'GET', '/api/admin/clients');
   ok('  the list still loads, and says whose account he is in', r.code === 200 && r.body.workingAs && r.body.workingAs.id === 'ag1' && r.body.workingAs.mailbox === 'dana@riverbendsports.com', r.body && r.body.workingAs);
+  r = await call('A', 'GET', '/api/admin/users');
+  ok('  every other admin route is closed while he is in a client\'s account', r.code === 403, r);
   r = await call('A', 'POST', '/api/admin/work-as', { agentId: 'ag2' });
   who = (await call('A', 'GET', '/api/whoami')).body;
   ok('  switching straight to another client works', r.code === 200 && who.userId === 'ag2' && who.adminId === 'adm', who);
@@ -121,7 +132,7 @@ const ok = (n, c, g) => { N++; if (c) console.log('  PASS  ' + n); else { F++; c
   r = await call('A', 'POST', '/api/auth/change-password', { password: 'new' });
   ok('  and his own password is his again', r.code === 200 && r.body.changed === true, r);
   r = await call('Z', 'POST', '/api/admin/work-as/stop');
-  ok('an agent calling "go back" changes nothing', r.code === 200 && sessions.Z.userId === 'ag2', sessions.Z.userId);
+  ok('an agent calling "go back" is refused and changes nothing', r.code === 403 && sessions.Z.userId === 'ag2' && !sessions.Z.adminId, [r.code, sessions.Z.userId]);
   const open = (await P.query(`SELECT COUNT(*)::int n FROM work_as_log WHERE ended_at IS NULL`)).rows[0].n;
   const all = (await P.query(`SELECT COUNT(*)::int n FROM work_as_log`)).rows[0].n;
   ok('the log has every open, all closed', open === 0 && all === 4, { open, all });

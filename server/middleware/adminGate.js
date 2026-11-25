@@ -27,7 +27,15 @@ function makeAdminGate({ getUser, adminEmail, isFounderEmail }) {
   return async function adminGate(req, res, next) {
     const api = req.originalUrl.startsWith('/api/');
     const deny = (status, msg) => (api ? res.status(status).json({ error: msg }) : res.status(status).type('text').send(msg));
-    const uid = req.session && req.session.userId;
+    // The admin working in a client's account (services/workAs): the session
+    // user is the agent, so every admin route is closed to it like any agent.
+    // Three paths are the exception, and are judged on who is really signed in
+    // (session.adminId): the client list, opening another client, and going
+    // back. Without this the admin could open a client and never get out
+    // (Nov 2026: the first live open did exactly that).
+    const path = req.originalUrl.split('?')[0].replace(/\/+$/, '');
+    const real = req.session && req.session.adminId && WORK_AS_PATHS.includes(path);
+    const uid = req.session && (real ? req.session.adminId : req.session.userId);
     if (!uid) return deny(401, 'Not authenticated');
     let user = null;
     try { user = await getUser(uid); }
@@ -44,6 +52,7 @@ function makeAdminGate({ getUser, adminEmail, isFounderEmail }) {
 // express.static would otherwise hand to anyone (they are redirected to the
 // gated routes that serve them).
 const PREFIXES = ['/admin', '/api/admin'];
+const WORK_AS_PATHS = ['/api/admin/clients', '/api/admin/work-as', '/api/admin/work-as/stop'];
 const STATIC_PAGES = { '/admin.html': '/admin', '/admin-connections.html': '/admin/connections', '/admin-prospects.html': '/admin/prospects' };
 
-module.exports = { makeAdminGate, PREFIXES, STATIC_PAGES };
+module.exports = { makeAdminGate, PREFIXES, STATIC_PAGES, WORK_AS_PATHS };
