@@ -1571,6 +1571,13 @@
       "started_at": "TIMESTAMPTZ DEFAULT NOW()",
       "status": "TEXT"
     },
+    "price_offers": {
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "match": "TEXT",
+      "note": "TEXT",
+      "plan": "TEXT DEFAULT 'legacy99'",
+      "trial_days": "INTEGER DEFAULT 14"
+    },
     "program_contact": {
       "collective_email": "TEXT",
       "collective_email_source_url": "TEXT",
