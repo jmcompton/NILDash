@@ -570,6 +570,67 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ── CLIENT ACCOUNTS (services/workAs) ───────────────────────────────────────
+// The founder working inside an agent's account for the done-for-you service:
+// session.userId is the agent, session.adminId is him. The agent's password,
+// billing, team and mailbox connection stay the agent's. Anything he changes
+// there is logged with the account it was changed in.
+app.use((req, res, next) => {
+  if (!req.session || !req.session.adminId) return next();
+  const WA = require('./services/workAs');
+  if (WA.blocked(req.method, req.path)) return res.status(403).json({ error: "That stays with the account's owner. It is not available while you are working in a client's account.", workingAs: true });
+  if (req.method !== 'GET' && req.path.startsWith('/api/') && !req.path.startsWith('/api/admin/work-as')) {
+    console.log(`[work-as] admin=${req.session.adminId} in account=${req.session.userId}: ${req.method} ${req.path}`);
+  }
+  next();
+});
+// The admin account, also while it is working in a client's account.
+async function _realAdmin(req) {
+  const WA = require('./services/workAs');
+  const id = WA.realUserId(req.session);
+  if (!id) return null;
+  const u = await store.getUser(id);
+  return (u && u.email === ADMIN_EMAIL) ? u : null;
+}
+app.get('/api/admin/clients', async (req, res) => {
+  try {
+    const admin = await _realAdmin(req);
+    if (!admin) return res.status(403).json({ error: 'Forbidden' });
+    const WA = require('./services/workAs');
+    const list = await WA.clients(store.pool);
+    const cur = req.session.adminId ? (list.find((c) => c.id === req.session.userId) || { id: req.session.userId, name: 'this account' }) : null;
+    res.set('Cache-Control', 'no-store').json({ workingAs: cur, clients: list });
+  } catch (e) { console.error('[admin/clients]', e.message); res.status(500).json({ error: 'Could not load the client accounts.' }); }
+});
+app.post('/api/admin/work-as', async (req, res) => {
+  try {
+    const admin = await _realAdmin(req);
+    if (!admin) return res.status(403).json({ error: 'Forbidden' });
+    const WA = require('./services/workAs');
+    const out = await WA.open(store.pool, admin, (req.body || {}).agentId);
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    req.session.adminId = admin.id;
+    req.session.userId = out.agent.id;
+    req.session.role = out.agent.role;
+    delete req.session.memberId;
+    console.log(`[work-as] admin=${admin.id} OPENED account=${out.agent.id}`);
+    req.session.save(() => res.json({ ok: true, agent: { id: out.agent.id, name: out.agent.name } }));
+  } catch (e) { console.error('[admin/work-as]', e.message); res.status(500).json({ error: 'Could not open that account.' }); }
+});
+app.post('/api/admin/work-as/stop', async (req, res) => {
+  try {
+    if (!req.session || !req.session.adminId) return res.json({ ok: true });
+    const admin = await _realAdmin(req);
+    if (!admin) return res.status(403).json({ error: 'Forbidden' });
+    await require('./services/workAs').close(store.pool, admin.id);
+    console.log(`[work-as] admin=${admin.id} CLOSED account=${req.session.userId}`);
+    req.session.userId = admin.id;
+    req.session.role = admin.role;
+    delete req.session.adminId;
+    req.session.save(() => res.json({ ok: true }));
+  } catch (e) { console.error('[admin/work-as/stop]', e.message); res.status(500).json({ error: 'Could not go back to your account.' }); }
+});
+
 // ── Agent subscription gate ──────────────────────────────────
 // Comp/demo accounts (admin role, or beta/comp plan) always have access.
 // Everyone else must have an active subscription to use token-spending tools.

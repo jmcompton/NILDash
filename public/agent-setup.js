@@ -78,7 +78,7 @@
         + '<div id="as-other" style="display:none">'
         + '<label for="as-oe">Your work email</label><input id="as-oe" type="email" autocomplete="email" placeholder="you@yourcompany.com" onblur="agentSetup.otherHint()">'
         + '<div class="as-note" id="as-oh" style="margin-top:8px;display:none"></div>'
-        + '<label for="as-op">App password</label><input id="as-op" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">'
+        + '<label for="as-op">Email password</label><input id="as-op" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">'
         + '<details id="as-oadv" style="margin-top:12px"><summary style="font-size:13px;color:rgba(240,237,230,0.6);cursor:pointer">Advanced: enter the mail server yourself</summary>'
         + '<div class="as-row"><div style="flex:2"><label for="as-os">Outgoing (SMTP) server</label><input id="as-os" placeholder="smtp.example.com" autocapitalize="off" spellcheck="false"></div>'
         + '<div><label for="as-oport">Port</label><input id="as-oport" inputmode="numeric" placeholder="465" maxlength="4"></div></div></details>'
@@ -273,7 +273,7 @@
       var err = document.getElementById('as-oerr');
       var show = function (m) { if (err) { err.textContent = m; err.style.display = 'block'; } };
       if (err) err.style.display = 'none';
-      if (!v('as-oe') || !v('as-op')) { show('Enter your email address and the app password.'); return; }
+      if (!v('as-oe') || !v('as-op')) { show('Enter your email address and your email password.'); return; }
       btn.disabled = true; btn.textContent = 'Checking with your email provider...';
       fetch('/api/email/connect/imap', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailAddress: v('as-oe'), password: v('as-op'), smtpHost: v('as-os') || null, smtpPort: v('as-oport') || null }) })

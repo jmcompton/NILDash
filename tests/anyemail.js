@@ -74,7 +74,7 @@ function smtpServer(goodPass) {
   let d = await M.detect('dana@riverbendsports.com', mx([{ exchange: 'mx2.zoho.com', priority: 20 }, { exchange: 'mx.zoho.com', priority: 10 }]));
   ok('a company domain whose mail is at Zoho is Zoho', d.kind === 'zoho' && d.label === 'Zoho Mail', d);
   ok('  both Zoho servers are tried: the one for company domains first', d.servers.length === 2 && d.servers[0].host === 'smtppro.zoho.com' && d.servers[1].host === 'smtp.zoho.com' && d.servers.every((s) => s.port === 465 && s.secure), d.servers);
-  ok('  and the agent is told where the app password is', /App Passwords/.test(d.help));
+  ok('  and the agent is told to try the normal password first, with the app password as the fallback', /normal email password/.test(d.help) && /App Passwords/.test(d.refused), d);
   d = await M.detect('a@firm.eu', mx([{ exchange: 'mx.zoho.eu', priority: 10 }]));
   ok('Zoho in another region uses that region\'s servers', d.servers[0].host === 'smtppro.zoho.eu', d.servers);
   d = await M.detect('a@agency.com', mx([{ exchange: 'aspmx.l.google.com', priority: 1 }]));

@@ -2420,6 +2420,13 @@
       "trial_ends_at": "TIMESTAMPTZ",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
+    "work_as_log": {
+      "admin_id": "TEXT",
+      "agent_id": "TEXT",
+      "ended_at": "TIMESTAMPTZ",
+      "id": "BIGSERIAL",
+      "started_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
     "workflow_events": {
       "agent_id": "TEXT",
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",

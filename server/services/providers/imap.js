@@ -48,18 +48,19 @@ const S = (host, port) => ({ host, port, secure: port === 465 });
 // kind -> what to call it, the servers to try, and what to tell the agent.
 const KINDS = {
   zoho: { label: 'Zoho Mail', servers: (tld) => [S('smtppro.zoho.' + tld, 465), S('smtp.zoho.' + tld, 465)],
-    help: 'In Zoho, open My Account, then Security, then App Passwords, and create one for NILDash. Use that here, not your normal password.' },
+    help: 'Use your normal email password.',
+    refused: 'If you have two-step login turned on, Zoho only accepts an app password here: in Zoho, open My Account, then Security, then App Passwords, create one for NILDash and paste it in.' },
   yahoo: { label: 'Yahoo Mail', servers: () => [S('smtp.mail.yahoo.com', 465)],
-    help: 'In Yahoo, open Account Security and choose Generate app password. Use that here.' },
+    help: 'Yahoo needs an app password: in Yahoo, open Account Security and choose Generate app password. Use that here.' },
   aol: { label: 'AOL Mail', servers: () => [S('smtp.aol.com', 465)],
-    help: 'In AOL, open Account Security and choose Generate app password. Use that here.' },
+    help: 'AOL needs an app password: in AOL, open Account Security and choose Generate app password. Use that here.' },
   icloud: { label: 'iCloud Mail', servers: () => [S('smtp.mail.me.com', 587)],
-    help: 'At account.apple.com, open Sign-In and Security, then App-Specific Passwords, and create one. Use that here.' },
+    help: 'iCloud needs an app password: at account.apple.com, open Sign-In and Security, then App-Specific Passwords, and create one. Use that here.' },
   fastmail: { label: 'Fastmail', servers: () => [S('smtp.fastmail.com', 465)],
-    help: 'In Fastmail, open Settings, then Privacy and Security, then App passwords, and create one. Use that here.' },
+    help: 'Fastmail needs an app password: in Fastmail, open Settings, then Privacy and Security, then App passwords, and create one. Use that here.' },
   godaddy: { label: 'GoDaddy email', servers: () => [S('smtpout.secureserver.net', 465)],
     help: 'Use the password for this mailbox.' },
-  other: { label: 'your mail server', servers: () => [], help: 'Use an app password if your provider offers one.' },
+  other: { label: 'your mail server', servers: () => [], help: 'Use your email password.', refused: 'If your provider uses two-step login, create an app password there and use that.' },
 };
 const DOMAIN_KIND = { 'zoho.com': 'zoho', 'zohomail.com': 'zoho', 'yahoo.com': 'yahoo', 'ymail.com': 'yahoo', 'aol.com': 'aol',
   'icloud.com': 'icloud', 'me.com': 'icloud', 'mac.com': 'icloud', 'fastmail.com': 'fastmail', 'fastmail.fm': 'fastmail' };
@@ -89,7 +90,7 @@ function kindOfMx(host) {
 // agent is asked for the server.
 async function detect(email, deps = {}) {
   const d = domainOf(email);
-  const out = (kind, tld, use) => ({ kind, label: KINDS[kind].label, help: KINDS[kind].help, servers: KINDS[kind].servers(tld || 'com'), use: use || null });
+  const out = (kind, tld, use) => ({ kind, label: KINDS[kind].label, help: KINDS[kind].help, refused: KINDS[kind].refused || KINDS[kind].help, servers: KINDS[kind].servers(tld || 'com'), use: use || null });
   if (!d) return out('other');
   if (USE_BUTTON[d]) return out('other', null, USE_BUTTON[d]);
   if (DOMAIN_KIND[d]) return out(DOMAIN_KIND[d]);
@@ -162,7 +163,7 @@ async function verifySmtp(emailAddress, password, cfg = {}, deps = {}) {
     } catch (e) { last = e; if (isAuthError(e)) authRefused = e; }
     finally { try { if (t && t.close) t.close(); } catch (_) {} }
   }
-  if (authRefused) throw userError(`${found.label === 'your mail server' ? 'The mail server' : found.label} did not accept that password. ${found.help}`, 'BAD_PASSWORD');
+  if (authRefused) throw userError(`${found.label === 'your mail server' ? 'The mail server' : found.label} did not accept that password. ${found.refused}`, 'BAD_PASSWORD');
   throw userError(`NILDash could not reach ${servers.map((x) => x.host).join(' or ')} (${String((last && last.message) || 'no answer').slice(0, 120)}). Try again in a minute, or enter the server under Advanced.`, 'UNREACHABLE');
 }
 

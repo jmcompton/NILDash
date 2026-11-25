@@ -186,7 +186,7 @@ async function connectImap() {
   const fail = (m) => { if (errEl) { errEl.textContent = m; errEl.style.display = 'block'; } else emailToast(m); };
   if (errEl) errEl.style.display = 'none';
 
-  if (!emailAddress || !password) { fail('Enter your email address and the app password.'); return; }
+  if (!emailAddress || !password) { fail('Enter your email address and your email password.'); return; }
 
   const btn = document.getElementById('imap-connect-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Checking with your email provider...'; }
