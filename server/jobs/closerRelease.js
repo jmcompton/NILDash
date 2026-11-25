@@ -98,8 +98,10 @@ function buildSend(pool, cache, { dry }) {
     const to = String(log.sent_to_email || '').trim();
     if (!to) throw new Error('no address to send to');
 
+    // Ours and the agent's own mailbox: the answer lands in their inbox too
+    // (services/replyCapture.replyToWithMailbox).
     const replyTo = replyCapture.ENABLED && account.replyLocalPart
-      ? replyCapture.agentReplyAddress(account.replyLocalPart)
+      ? replyCapture.replyToWithMailbox(replyCapture.agentReplyAddress(account.replyLocalPart), account.email_address)
       : null;
     const messageId = replyCapture.ENABLED ? replyCapture.buildMessageId(log.id) : null;
 

@@ -191,6 +191,12 @@ async function fetchMessages(accessToken, _refreshToken, cursor, maxResults = 50
 // cannot be read back without a read permission, so the result says
 // messageIdUnknown: the caller stores no anchor rather than one that never
 // shipped, and a reply is matched by the Reply-To address and the sender.
+// Reply-To may name two addresses, ours and the agent's mailbox ("a, b"):
+// Graph wants one recipient object each.
+function replyToRecipients(replyTo) {
+  return String(replyTo || '').split(',').map((x) => x.trim()).filter(Boolean).map((address) => ({ emailAddress: { address } }));
+}
+
 async function sendEmail(accessToken, _refreshToken, opts = {}) {
   if (!MicrosoftGraph) throw new Error('@microsoft/microsoft-graph-client not installed');
   const { to, cc, subject, bodyHtml, threadId, replyToMessageId, attachments, replyTo, messageId } = opts;
@@ -209,7 +215,7 @@ async function sendEmail(accessToken, _refreshToken, opts = {}) {
       message: {
         ...(to ? { toRecipients: toAddressList(to) } : {}),
         ...(cc ? { ccRecipients: toAddressList(cc) } : {}),
-        ...(replyTo ? { replyTo: [{ emailAddress: { address: replyTo } }] } : {}),
+        ...(replyTo ? { replyTo: replyToRecipients(replyTo) } : {}),
         ...(fileAtts.length ? { attachments: fileAtts } : {}),
       },
       comment: bodyHtml || '',
@@ -222,7 +228,7 @@ async function sendEmail(accessToken, _refreshToken, opts = {}) {
       body: { contentType: 'HTML', content: bodyHtml || '' },
       toRecipients: toAddressList(to),
       ...(cc ? { ccRecipients: toAddressList(cc) } : {}),
-      ...(replyTo ? { replyTo: [{ emailAddress: { address: replyTo } }] } : {}),
+      ...(replyTo ? { replyTo: replyToRecipients(replyTo) } : {}),
       ...(fileAtts.length ? { attachments: fileAtts } : {}),
       ...(headers.length ? { internetMessageHeaders: headers } : {}),
     },

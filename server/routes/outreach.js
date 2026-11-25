@@ -930,8 +930,10 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   //
   // The agent's OWN named address, not a token: this is printed on a cold pitch
   // to a business owner and has to read like a person.
+  // And the mailbox it is sent from, so the answer lands in the agent's own
+  // inbox as well (services/replyCapture.replyToWithMailbox).
   const replyTo = replyCapture.ENABLED
-    ? replyCapture.agentReplyAddress(await ensureReplyLocalPart(req.principal.id))
+    ? replyCapture.replyToWithMailbox(replyCapture.agentReplyAddress(await ensureReplyLocalPart(req.principal.id)), account.email_address)
     : null;
   // Minted here, put on the wire below, and returned so the caller can store it.
   // This is the exact anchor the named address no longer provides.

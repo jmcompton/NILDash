@@ -123,6 +123,22 @@ async function processEvent(event) {
     }
     agentId = agent.id;
 
+    // THE AGENT'S OWN MAIL IS NOT A REPLY. Now that a business's answer also
+    // lands in the agent's inbox (Reply-To names both addresses), an agent who
+    // hits Reply All puts our address on their own message to the business.
+    // Without this it would be read as the business answering again.
+    const fromAddr = (String(data.from || '').match(/[^\s<>"]+@[^\s<>"]+/) || [''])[0].toLowerCase();
+    if (fromAddr) {
+      const own = fromAddr === String(agent.email || '').toLowerCase()
+        || (await pool.query(`SELECT 1 FROM email_accounts WHERE user_id = $1 AND LOWER(email_address) = $2 LIMIT 1`, [agent.id, fromAddr])
+          .then((r) => r.rowCount > 0).catch(() => false));
+      if (own) {
+        console.log(`[resend-inbound] from the agent's own address (agent=${agent.id}) — not a reply`);
+        await recordInbound(data, { matchMethod: 'own-mail', hdr, note: 'sent by the agent themselves (a Reply All), not by a business' });
+        return;
+      }
+    }
+
     // (a) header match -- exact, and immune to the two-pitches ambiguity.
     const refs = replyCapture.referencedMessageIds(headers);
     if (refs.length) {

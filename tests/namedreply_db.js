@@ -178,6 +178,31 @@ async function main() {
   ok('  but is recorded as seen', ooo.last_inbound_kind === 'auto_reply', ooo.last_inbound_kind);
   ok('  and does not notify', sentEmails.length === 0);
 
+  // ── 8. The agent's own Reply All is not the business answering ───────────
+  // Reply-To now names our address AND the agent's mailbox, so the business's
+  // answer lands in the agent's inbox; an agent who then hits Reply All puts
+  // our address on their own message.
+  sentEmails.length = 0;
+  receivingImpl = async () => ({ data: { headers: [], text: 'Thanks, call you Tuesday.', html: '' } });
+  await mkLog('out_7777777777777777', 'dana@zeta.com', '2026-08-06');
+  const agentEmail = (await pool.query(`SELECT email FROM users WHERE id='ag_1'`)).rows[0].email;
+  await post(port, inbound('johnmark@mynildash.com', 'JohnMark <' + agentEmail.toUpperCase() + '>'));
+  await new Promise((r) => setTimeout(r, 700));
+  let own = (await pool.query(`SELECT status, replied_at FROM outreach_logs WHERE id='out_7777777777777777'`)).rows[0];
+  ok("the agent's own mail to our address is NOT a reply", own.status === 'sent' && own.replied_at === null, own);
+  ok('  it does not notify', sentEmails.length === 0, sentEmails.length);
+  const rec = (await pool.query(`SELECT match_method FROM inbound_messages ORDER BY id DESC LIMIT 1`)).rows[0];
+  ok('  and it is recorded as the agent\'s own mail', rec && rec.match_method === 'own-mail', rec);
+  await pool.query(`INSERT INTO email_accounts (id, user_id, provider, email_address, status) VALUES ('ea_own', 'ag_1', 'imap', 'jm@agencymail.com', 'active')`).catch((e) => OUT.push('  (email_accounts insert: ' + e.message + ')'));
+  await post(port, inbound('johnmark@mynildash.com', 'jm@agencymail.com'));
+  await new Promise((r) => setTimeout(r, 700));
+  own = (await pool.query(`SELECT status FROM outreach_logs WHERE id='out_7777777777777777'`)).rows[0];
+  ok('  nor is mail from the mailbox they send from', own.status === 'sent' && sentEmails.length === 0, [own, sentEmails.length]);
+  await post(port, inbound('johnmark@mynildash.com', 'dana@zeta.com'));
+  await new Promise((r) => setTimeout(r, 700));
+  own = (await pool.query(`SELECT status FROM outreach_logs WHERE id='out_7777777777777777'`)).rows[0];
+  ok('  the business itself answering still is a reply', own.status === 'replied' && sentEmails.length === 1, [own, sentEmails.length]);
+
   server.close();
   OUT.push(''); OUT.push('failures: ' + FAIL);
   console.log(OUT.join('\n'));

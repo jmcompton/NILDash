@@ -75,6 +75,42 @@ function agentReplyAddress(localPart) {
   return localPart ? `${localPart}@${REPLY_DOMAIN}` : null;
 }
 
+// ── THE REPLY GOES TO THE AGENT'S OWN INBOX TOO ─────────────────────────────
+// With Reply-To set to our address alone, a business's answer came to us and
+// never to the agent: nothing sat in their inbox to hit Reply on. They got a
+// no-reply notice from NILDash and had to dig the pitch out of Sent to answer
+// in the same thread. For an agent who was told "the reply comes to your
+// email" (the done-for-you service, Nov 2026), that was not true.
+//
+// So Reply-To carries BOTH: our address and the mailbox the pitch was sent
+// from. A mail client replies to every address in Reply-To, so the answer
+// lands in the agent's inbox, in the thread, and we still get our copy (the
+// Inbox page, the agent's alert, the cadence stopping).
+//
+// OURS FIRST. A client that honors only the first address still reaches us,
+// which is exactly how it behaved before: the agent is told, nothing is lost,
+// and the follow-up cadence still stops. Mailbox-first would let such a reply
+// reach the agent while we kept sending follow-ups to a business that had
+// already answered.
+//
+// -> "ours@mynildash.com, agent@theirs.com", or ours alone when there is no
+// usable mailbox address, or null when capture is off (callers then omit
+// Reply-To and replies go to the mailbox natively). REPLY_TO_MAILBOX=off is
+// the switch back to our address alone.
+const MAILBOX_TOO = () => !/^(0|false|no|off)$/i.test(String(process.env.REPLY_TO_MAILBOX || '').trim());
+function replyToWithMailbox(captureAddress, mailboxAddress) {
+  const ours = String(captureAddress || '').trim();
+  if (!ours) return null;
+  const mb = String(mailboxAddress || '').trim().toLowerCase();
+  if (!MAILBOX_TOO() || !/^[^@\s,<>"]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(mb)) return ours;
+  if (mb === ours.toLowerCase() || mb.endsWith('@' + REPLY_DOMAIN.toLowerCase()) || mb.endsWith('@' + LEGACY_TOKEN_DOMAIN.toLowerCase())) return ours;
+  return `${ours}, ${mb}`;
+}
+// "a@x.com, b@y.com" -> ['a@x.com', 'b@y.com'], for a provider that wants a list.
+function replyToList(replyTo) {
+  return String(replyTo || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 // ── Message-ID: the only exact anchor left ───────────────────────────────────
 // Dropping the token from the address bought professionalism and cost
 // certainty. The RFC822 Message-ID buys the certainty back for every client
@@ -304,6 +340,6 @@ module.exports = {
   tokenForLogId, logIdForToken, replyToAddressFor, logIdForReplyAddress,
   localPartFrom, localPartCandidates, agentReplyAddress,
   buildMessageId, referencedMessageIds,
-  classifyRecipient, emailDomain, matchOutreach,
+  classifyRecipient, emailDomain, matchOutreach, replyToWithMailbox, replyToList,
   normalizeHeaders, classifyInbound, verifyResendSignature,
 };
