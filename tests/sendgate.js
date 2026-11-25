@@ -79,6 +79,7 @@ function guard() {
     'server/services/coldAgent.js': { n: 2, why: "NILDash's own account holders, admin-approved" },
     'server/services/mailboxProspects.js': { n: 2, why: "NILDash's own prospects, from the admin's mailbox" },
     'server/services/mailboxNotice.js': { n: 1, why: 'to the agent' },
+    'server/services/managedClients.js': { n: 1, why: 'to the admin: a business replied to a done-for-you client' },
     'server/services/morningAlert.js': { n: 1, why: 'to the admin' },
     'server/services/nightlyDigest.js': { n: 2, why: 'to the agent' },
     'server/services/autoSend.js': { n: 2, why: 'to the agent: the morning note, and the one-time invite to turn it on' },

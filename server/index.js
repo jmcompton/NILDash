@@ -30,6 +30,9 @@ const nilRules = require('./nilStateRules');
 const scanMeter = require('./scanMeter');
 const { requireUniversityMode, universityWall } = require('./middleware/modeGuard');
 
+// Before any route is registered: an async route that throws answers 500 and
+// the server stays up (middleware/asyncSafe).
+require('./middleware/asyncSafe').install();
 const app  = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
@@ -15124,7 +15127,6 @@ app.get('/admin/inbound', async (req, res) => {
         ORDER BY sent_at DESC LIMIT 10`)).rows;
   } catch (e) { sendsErr = e.message; }
 
-  if (errs.length) err = errs.join(' | ');
   const esc = (s) => String(s == null ? '' : s)
     .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const body = err
