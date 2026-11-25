@@ -1,4 +1,9 @@
 'use strict';
+// Each scenario below is its own athlete under one test agent in one market.
+// The roster rule (services/scout: a business pitched for one of an agent's
+// athletes is left alone for the others for three weeks, Nov 2026) would hand
+// later scenarios a drained pool, and it has its own suite. Off here.
+process.env.ROSTER_DEDUPE = 'off';
 // Runs against the local test Postgres. Real job, real Scout, real insert;
 // the paid lookups (Places, the name search, Hunter, the writer) are stubbed.
 //

@@ -69,7 +69,9 @@ const wStart = SRV.indexOf("app.post('/api/athlete/stripe-webhook'");
 const wEnd = SRV.indexOf('res.json({ received: true });', wStart);
 if (wStart === -1 || wEnd === -1 || wEnd < wStart) { console.log('FIXTURE BROKEN: no webhook body'); process.exit(1); }
 const bodyStart = SRV.indexOf('let event;', wStart);
-const HANDLER_SRC = SRV.slice(SRV.indexOf('if (event.type', bodyStart), wEnd);
+// From NILDash's own first handler: the Prospector block that now runs before
+// it is a try/catch of its own, and slicing into the middle of it is a syntax error.
+const HANDLER_SRC = SRV.slice(SRV.indexOf("\n  if (event.type === 'checkout.session.completed') {", bodyStart), wEnd);
 if (!/checkout\.session\.completed/.test(HANDLER_SRC) || HANDLER_SRC.length < 1500) {
   console.log('FIXTURE BROKEN: webhook body is ' + HANDLER_SRC.length + ' chars'); process.exit(1);
 }

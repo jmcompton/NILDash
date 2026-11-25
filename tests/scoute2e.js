@@ -118,6 +118,9 @@ async function main() {
   const r1 = await job.fillAthlete(P, {
     agentId: AG, agentFirstName: 'John', athleteId: A1, athleteName: 'Marcus Hall', budget,
     region: 'Auburn, AL',
+    // The athlete's record, as every caller in the app passes it: the compliance
+    // screen reads the school from it to know which state's rules apply.
+    athleteRow: { name: 'Marcus Hall', school: 'Auburn University', sport: 'Football', instagram: 24000 },
     athleteProfile: require(ROOT + 'server/services/athleteRecord')
       .resolveAthlete({ id: A1, data: { name: 'Marcus Hall', school: 'Auburn University', sport: 'Football', instagram: 24000 } },
         { schoolLocation: require(ROOT + 'server/services/schoolResolver').resolveSchool }),
@@ -147,11 +150,19 @@ async function main() {
   const r2 = await job.fillAthlete(P, {
     agentId: AG, agentFirstName: 'John', athleteId: A2, athleteName: 'No School', budget: Q.newBudget(job.CAP_USD),
     region: '',
+    athleteRow: { name: 'No School', hometown: 'Knoxville, TN', sport: 'Football', instagram: 18000 },
     athleteProfile: require(ROOT + 'server/services/athleteRecord')
       .resolveAthlete({ id: A2, data: { name: 'No School', hometown: 'Knoxville, TN', sport: 'Football', instagram: 18000 } },
         { schoolLocation: require(ROOT + 'server/services/schoolResolver').resolveSchool }),
   });
-  ok('AN ATHLETE WITH NO SCHOOL IS NO LONGER BLANKED', r2.filled > 0, r2);
+  // Since "Compliance before sourcing" (Nov 2026) an athlete whose state cannot
+  // be worked out gets no card at all: no state means no state NIL rules can be
+  // checked, and nothing is sent unchecked. The Scout still runs (the brands
+  // are tried, not skipped unseen) and each one says what the agent must do.
+  ok('AN ATHLETE WITH NO SCHOOL GETS NOTHING UNTIL THE STATE IS KNOWN, AND IS TOLD WHY',
+    r2.filled === 0 && (r2.tried || []).length > 0
+    && (r2.tried || []).every((t) => t.result !== 'rejected' || t.compliance === 'state-unknown')
+    && (r2.tried || []).some((t) => /Enter one on their profile/.test(t.reason || '')), r2);
   const rows2 = (await P.query(
     `SELECT brand_name, lane, channel, program_url FROM outreach_queue
       WHERE athlete_id=$1 AND state='queued'`, [A2])).rows;

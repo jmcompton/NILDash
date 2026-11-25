@@ -296,3 +296,9 @@ html[data-ui="v2"] .v2-set-nav button[aria-current="true"]{background:#1B1B1F;co
 html[data-ui="v2"] .v2-set-body{flex:999 1 520px;min-width:0}
 html[data-ui="v2"] .v2-set-body > div{max-width:760px!important;border-radius:14px!important;background:#111113!important;border-color:#232327!important;scroll-margin-top:80px}
 @media (max-width:768px){html[data-ui="v2"] .v2-set-nav{position:static;max-width:none;flex-direction:row;flex-wrap:wrap}}
+
+/* The old sidebar is not shown while ui-v2.js rebuilds it (it sets data-v2nav
+   when done). The animation is the fallback: if the script never runs, the
+   sidebar still appears after 3 s. */
+html[data-ui="v2"]:not([data-v2nav]) .sidebar-nav{visibility:hidden;animation:v2NavShow 0s 3s forwards}
+@keyframes v2NavShow{to{visibility:visible}}

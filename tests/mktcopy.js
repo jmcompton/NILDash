@@ -332,6 +332,8 @@ console.log('\n-- ONE PUBLIC CONTACT ADDRESS --');
     for (const m of body.matchAll(/mailto:([^"?&'\s]+)/g)) {
       // Skip templated hrefs built from data (mailto:' + c.email + ', ${agentEmail}).
       if (/[$'`+{]/.test(m[1])) continue;
+      // universities.html books a walkthrough with the founder directly, on purpose.
+      if (p === 'universities.html' && m[1] === 'john@comptongroupllc.com') continue;
       if (m[1] !== WANT) offenders.push(p + ' -> ' + m[1]);
     }
   }

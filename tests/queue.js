@@ -355,7 +355,7 @@ const CAND = (over) => Object.assign({
     ok('  and Home is told the same answer',
       /out\.canFill = canFillQueue\(/.test(IDX0), null);
     ok('  so the page never re-derives it from currentUser',
-      /if \(!d \|\| !d\.canFill \|\| !d\.selected\) return ''/.test(H), null);
+      /if \(!d \|\| !d\.canFill \|\| !d\.selected(?: \|\| !adminToolsOn\(\))?\) return ''/.test(H), null);
     ok('  covering role=admin, the founder list AND the admin address',
       /user\.role === 'admin'[\s\S]{0,120}isFounderEmail\(user\.email\)[\s\S]{0,80}ADMIN_EMAIL/
         .test(IDX0), null);

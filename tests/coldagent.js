@@ -301,8 +301,12 @@ async function main() {
   // The local lane's claim sits behind the same-night retry's branch (a
   // retried business was claimed on its first try), so the claim is matched
   // as the next claimResearch after the skipBrand check, at both sites.
-  ok('  and asks skipBrand before each research claim', (eng.match(/if \(ctx\.skipBrand && ctx\.skipBrand\(cand\.brand_name\)\) \{[\s\S]{0,300}?continue;\s*\}\s*(\/\/[^\n]*\n\s*)*(if \(cand\._verifyTry\) \{[\s\S]{0,120}?\} else )?if \(!\(await Claims\.claimResearch/g) || []).length === 2
-    && (eng.match(/Claims\.claimResearch\(/g) || []).length === 2);
+  // Both lanes: the caller's exclusion is checked, and only after it is the
+  // research claim made (the compliance screen now sits between the two).
+  const _skips = [...eng.matchAll(/if \(ctx\.skipBrand && ctx\.skipBrand\(cand\.brand_name\)\) \{/g)].map((m) => m.index);
+  const _claims = [...eng.matchAll(/await Claims\.claimResearch\(/g)].map((m) => m.index);
+  ok('  and asks skipBrand before each research claim', _skips.length === 2 && _claims.length === 2
+    && _skips[0] < _claims[0] && _claims[0] < _skips[1] && _skips[1] < _claims[1], [_skips, _claims]);
 
   // ── 9. THE SCHEDULE ──────────────────────────────────────────────────────
   OUT.push('', '-- the schedule --');
