@@ -157,6 +157,33 @@ async function list(pool) {
   return rows.map(shape);
 }
 
+// Everything at once, for the desktop view: every contact with its history.
+async function listFull(pool) {
+  const rows = await list(pool);
+  const acts = (await pool.query(`SELECT a.id, a.contact_id, a.at, a.type, a.outcome, a.body FROM crm_activity a
+    JOIN crm_contacts c ON c.id = a.contact_id AND c.archived = FALSE ORDER BY a.at DESC, a.id DESC`)).rows;
+  const by = new Map();
+  for (const a of acts) { if (!by.has(a.contact_id)) by.set(a.contact_id, []); by.get(a.contact_id).push({ id: Number(a.id), at: a.at, type: a.type, outcome: a.outcome, text: a.body }); }
+  return rows.map((r) => ({ ...r, activity: by.get(r.id) || [] }));
+}
+
+// One history entry as he typed it: {type, text, at?}. Contact with them
+// (anything but a note or a stage change) moves "last touched".
+const ACT_TYPES = ['call', 'text', 'email', 'linkedin', 'meeting', 'inbound', 'note', 'stage', 'done'];
+async function addActivity(pool, id, b, { now = new Date() } = {}) {
+  await ensureTables(pool);
+  const type = oneOf(b && b.type, ACT_TYPES, 'note');
+  const body = clean(b && b.text, 8000);
+  if (!body && type === 'note') return { ok: false, status: 400, error: 'Write the note.' };
+  let at = b && b.at ? new Date(/^\d{4}-\d\d-\d\d$/.test(String(b.at)) ? b.at + 'T17:00:00Z' : b.at) : now;
+  if (isNaN(at)) at = now;
+  const c = (await pool.query(`SELECT id FROM crm_contacts WHERE id = $1`, [String(id || '')])).rows[0];
+  if (!c) return { ok: false, status: 404, error: 'That contact was not found.' };
+  await pool.query(`INSERT INTO crm_activity (contact_id, at, type, body) VALUES ($1, $2, $3, $4)`, [c.id, at, type, body || '']);
+  if (type !== 'note' && type !== 'stage') await pool.query(`UPDATE crm_contacts SET last_touch_at = GREATEST(COALESCE(last_touch_at, $2), $2), updated_at = NOW() WHERE id = $1`, [c.id, at]);
+  return { ok: true, contact: await get(pool, c.id) };
+}
+
 async function get(pool, id) {
   await ensureTables(pool);
   const r = (await pool.query(`${LIST_SQL} WHERE c.id = $1`, [String(id || '')])).rows[0];
@@ -380,5 +407,5 @@ function ics(c, { now = new Date() } = {}) {
     'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Follow up', 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
 }
 
-module.exports = { ensureTables, list, get, create, update, log, removeActivity, today, importAll, alertsDue, tick, start, ics,
+module.exports = { ensureTables, list, listFull, addActivity, get, create, update, log, removeActivity, today, importAll, alertsDue, tick, start, ics,
   suggestFollowUp, nowLocal, addDays, morningEmail, timedEmail, GROUPS, STAGES, CHANNELS, STATES, OUTCOMES, MORNING_AT, TZ };

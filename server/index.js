@@ -635,7 +635,7 @@ app.get('/api/admin/clients', async (req, res) => {
     res.json({ groups: C.GROUPS, stages: C.STAGES, channels: C.CHANNELS, outcomes, alertTo: admin.email });
   }));
   app.get('/api/admin/crm/today', wrap(async (req, res) => { res.set('Cache-Control', 'no-store').json(await CRM().today(store.pool)); }));
-  app.get('/api/admin/crm/contacts', wrap(async (req, res) => { res.set('Cache-Control', 'no-store').json({ contacts: await CRM().list(store.pool) }); }));
+  app.get('/api/admin/crm/contacts', wrap(async (req, res) => { res.set('Cache-Control', 'no-store').json({ contacts: req.query.full ? await CRM().listFull(store.pool) : await CRM().list(store.pool) }); }));
   app.post('/api/admin/crm/contacts', wrap(async (req, res) => done(res, await CRM().create(store.pool, req.body || {}))));
   app.post('/api/admin/crm/import', express.json({ limit: '4mb' }), wrap(async (req, res) => {
     const docs = (req.body && (req.body.contacts || req.body.documents)) || req.body;
@@ -651,6 +651,7 @@ app.get('/api/admin/clients', async (req, res) => {
   }));
   app.patch('/api/admin/crm/contacts/:id', wrap(async (req, res) => done(res, await CRM().update(store.pool, req.params.id, req.body || {}))));
   app.post('/api/admin/crm/contacts/:id/log', wrap(async (req, res) => done(res, await CRM().log(store.pool, req.params.id, req.body || {}))));
+  app.post('/api/admin/crm/contacts/:id/activity', wrap(async (req, res) => done(res, await CRM().addActivity(store.pool, req.params.id, req.body || {}))));
   app.delete('/api/admin/crm/contacts/:id/activity/:aid', wrap(async (req, res) => res.json(await CRM().removeActivity(store.pool, req.params.id, req.params.aid))));
   app.get('/api/admin/crm/contacts/:id/followup.ics', wrap(async (req, res) => {
     const c = await CRM().get(store.pool, req.params.id);
