@@ -964,6 +964,33 @@ async function createAgentCheckoutSession(user, opts = {}) {
     await store.pool.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [customerId, user.id]);
   }
 
+  // A PRICE THE FOUNDER PROMISED (services/priceOffers): an agency quoted $99
+  // before tiered pricing gets the $99 plan and the offer's trial, whatever
+  // tier the homepage would sell. No $99 price configured: say so in the log
+  // and sell the tier, rather than fail the signup.
+  let offer = null;
+  try { offer = await require('./services/priceOffers').forEmail(store.pool, user.email); }
+  catch (e) { console.error('[checkout] price offer lookup failed:', e.message); }
+  if (offer && offer.plan === 'legacy99' && Pricing.ON()) {
+    if (agentPrice) {
+      const days = Math.max(Number(opts.trialDays) || 0, Number(offer.trial_days) || 0);
+      const s0 = await stripe.checkout.sessions.create({
+        customer: customerId,
+        payment_method_types: ['card'],
+        mode: 'subscription',
+        line_items: [{ price: agentPrice, quantity: 1 }],
+        payment_method_collection: 'always',
+        subscription_data: { ...(days > 0 ? { trial_period_days: days } : {}), metadata: { offer: offer.match, ...(days > 0 ? { trial_days: String(days) } : {}) } },
+        success_url: `${appUrl}/api/agent/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/?subscribe=cancelled`,
+        metadata: { user_id: user.id, offer: offer.match },
+      });
+      console.log(`[checkout] ${user.id} on the $99 offer for ${offer.match}, ${days}-day trial`);
+      return s0.url;
+    }
+    console.error(`[checkout] ${user.id} matches the $99 offer ${offer.match} but STRIPE_AGENT_PRICE_ID is not set; selling the tier instead`);
+  }
+
   if (Pricing.ON()) {
     const sp = user.signupPlan || {};
     let plan = await agentCheckoutPlan(user, { tier: opts.tier !== undefined ? opts.tier : sp.tier, period: opts.period !== undefined ? opts.period : sp.period });
@@ -1360,11 +1387,7 @@ app.post('/api/team/remove', requireAuth, async (req, res) => {
 });
 
 function displayNameOf(user) {
-  const parts = String((user && user.name) || '').trim().split(/\s+/).filter(Boolean);
-  const first = String((user && user.sign_first_name) || '').trim();
-  if (first) { if (parts.length) parts[0] = first; else parts.push(first); }
-  const cap = (w) => (w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w);
-  return parts.map(cap).join(' ') || null;
+  return require('./services/agentName').displayName(user) || (user && user.name) || null;
 }
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
@@ -2234,6 +2257,30 @@ app.get('/api/admin/night-switches', async (req, res) => {
   res.json({ marketMix: require('./services/dealMix').ON(), mix: require('./services/dealMix').MIX,
     emailFive: on('EMAIL_FIVE_ON'), hunterPace: on('HUNTER_PACE_ON'), sendGate: on('SEND_GATE_ON'), nightlySkip: on('NIGHTLY_SKIP_ON') });
 });
+// ── PRICE OFFERS (services/priceOffers): the $99 promise, by email or domain ──
+app.get('/api/admin/price-offers', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    res.json({ offers: await require('./services/priceOffers').list(store.pool),
+      // Whether the $99 plan can be sold at all. A yes or no, never the id.
+      legacyPriceReady: !!String(process.env.STRIPE_AGENT_PRICE_ID || '').trim() });
+  } catch (e) { console.error('[admin/price-offers]', e.message); res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/price-offers', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const out = await require('./services/priceOffers').add(store.pool, req.body || {});
+    res.status(out.ok ? 200 : (out.status || 400)).json(out);
+  } catch (e) { console.error('[admin/price-offers add]', e.message); res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/price-offers', async (req, res) => {
+  if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const out = await require('./services/priceOffers').remove(store.pool, (req.body || {}).match || req.query.match);
+    res.status(out.ok ? 200 : (out.status || 400)).json(out);
+  } catch (e) { console.error('[admin/price-offers remove]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/admin/serper-topup', async (req, res) => {
   if (!(await _statusAdminOk(req))) return res.status(403).json({ error: 'Forbidden' });
   try {
@@ -19081,7 +19128,7 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
       const keys = Object.keys(st);
       if (keys.length) {
         await store.pool.query(`UPDATE media_kits SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`,
-          [mk.id, ...keys.map((k) => (k === 'deliverables' || k === 'worked_with') && st[k] ? JSON.stringify(st[k]) : st[k])]);
+          [mk.id, ...keys.map((k) => MKP.JSON_COLUMNS.includes(k) && st[k] ? JSON.stringify(st[k]) : st[k])]);
       }
     }
 
@@ -19430,6 +19477,28 @@ app.get('/api/agents/media-kit-status', requireAuth, async (req, res) => {
 });
 
 // GET /api/agent/athlete-media-kit/:athleteId — agent loads an athlete's saved media kit
+// THE TRACK RECORD THE BUILDER LISTS (services/trackRecord): every brand the
+// record holds, each marked hidden or not by the saved kit, so the agent can
+// choose what the kit shows. The kit itself filters.
+async function _trackRecordList(athleteId) {
+  const MKP = require('./services/mediaKitPayload');
+  await MKP.ensureColumns(store.pool);
+  const mk = (await store.pool.query('SELECT track_hidden, show_track_record FROM media_kits WHERE athlete_id = $1', [athleteId])).rows[0] || {};
+  const rec = await require('./services/trackRecord').forAthlete(store.pool, athleteId, { hidden: mk.track_hidden || [] });
+  return { ...rec, on: mk.show_track_record !== false };
+}
+app.get('/api/agent/athlete-media-kit/:athleteId/track-record', requireAuth, async (req, res) => {
+  try {
+    const own = await store.pool.query('SELECT 1 FROM athletes WHERE id = $1 AND agent_id = $2', [req.params.athleteId, req.session.userId]);
+    if (!own.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    res.json(await _trackRecordList(req.params.athleteId));
+  } catch (e) { console.error('[agent/track-record]', e.message); res.status(500).json({ error: e.message }); }
+});
+app.get('/api/athlete/media-kit/track-record', verifyAthleteToken, async (req, res) => {
+  try { res.json(await _trackRecordList(req.athlete.id)); }
+  catch (e) { console.error('[athlete/track-record]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res) => {
   try {
     const { athleteId } = req.params;
@@ -19631,7 +19700,7 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, requireAgentSub
       const keys = Object.keys(st);
       if (keys.length) {
         await store.pool.query(`UPDATE media_kits SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`,
-          [mk.id, ...keys.map((k) => (k === 'deliverables' || k === 'worked_with') && st[k] ? JSON.stringify(st[k]) : st[k])]);
+          [mk.id, ...keys.map((k) => MKP.JSON_COLUMNS.includes(k) && st[k] ? JSON.stringify(st[k]) : st[k])]);
       }
     }
 

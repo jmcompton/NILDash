@@ -27,8 +27,11 @@ let _cols = null;
 async function ensureColumns(pool) {
   if (_cols) return _cols;
   _cols = (async () => {
-    const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '017_media_kit_story.sql'), 'utf8');
-    for (const s of sql.replace(/--[^\n]*/g, '').split(';').map((x) => x.trim()).filter(Boolean)) await pool.query(s);
+    // 017: what you get and the athlete as a person. 023: the track record.
+    for (const f of ['017_media_kit_story.sql', '023_media_kit_track_record.sql']) {
+      const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', f), 'utf8');
+      for (const s of sql.replace(/--[^\n]*/g, '').split(';').map((x) => x.trim()).filter(Boolean)) await pool.query(s);
+    }
   })().catch((e) => { _cols = null; throw e; });
   return _cols;
 }
@@ -68,9 +71,18 @@ function storyFromBody(b) {
   if ('major' in b) out.major = clip(b.major, 80);
   if ('bio_line' in b) out.bio_line = clip(b.bio_line, 200);
   if ('worked_with' in b) out.worked_with = list(b.worked_with, MAX_WORKED_WITH, 80);
+  // The track record (services/trackRecord): on unless turned off, and the
+  // brands the agent chose to leave off, lowercased.
+  if ('show_track_record' in b) out.show_track_record = !(b.show_track_record === false || b.show_track_record === 'false' || b.show_track_record === 0);
+  if ('track_hidden' in b) {
+    const h = (Array.isArray(b.track_hidden) ? b.track_hidden : []).map((x) => clip(x, 80)).filter(Boolean).map((x) => x.toLowerCase());
+    out.track_hidden = h.length ? [...new Set(h)].slice(0, 60) : null;
+  }
   return out;
 }
-const STORY_COLUMNS = ['deliverables', 'price_mode', 'price_low', 'price_high', 'ask_line', 'hometown', 'class_year', 'major', 'bio_line', 'worked_with'];
+const STORY_COLUMNS = ['deliverables', 'price_mode', 'price_low', 'price_high', 'ask_line', 'hometown', 'class_year', 'major', 'bio_line', 'worked_with', 'show_track_record', 'track_hidden'];
+// Stored as JSONB: written with JSON.stringify.
+const JSON_COLUMNS = ['deliverables', 'worked_with', 'track_hidden'];
 
 // A builder's unsaved form over the saved kit (or none): what the kit WOULD be.
 function draftKit(saved, body, athleteId) {
@@ -156,9 +168,13 @@ async function payloadFor(pool, mk, opts = {}) {
   const variant = forSlug && variants[forSlug] ? { ...variants[forSlug], slug: forSlug } : null;
   const {
     variants: _v, instagram_followers: _a, instagram_engagement: _b, tiktok_followers: _c, twitter_followers: _d,
-    photo_hash_at_build: _e, year_at_build: _f, position_at_build: _g, school_at_build: _h, built_by: _i, ...pub
+    photo_hash_at_build: _e, year_at_build: _f, position_at_build: _g, school_at_build: _h, built_by: _i,
+    track_hidden: _j, show_track_record: _k, ...pub
   } = mk;
   delete ath.data;
+  let trackRecord = null;
+  try { trackRecord = await require('./trackRecord').forKit(pool, mk); }
+  catch (e) { console.warn('[mediaKitPayload] track record unavailable:', e.message); }
   return {
     ...pub,
     athlete_name: ath.name || '', sport: ath.sport || '', school: ath.school || '', position: ath.position || '',
@@ -168,8 +184,9 @@ async function payloadFor(pool, mk, opts = {}) {
     instagram_detail: instagramDetail(ig || shot, city),
     deliverables: Array.isArray(mk.deliverables) ? mk.deliverables : null,
     worked_with: Array.isArray(mk.worked_with) ? mk.worked_with : null,
+    track_record: trackRecord,
     variant,
   };
 }
 
-module.exports = { payloadFor, draftKit, storyFromBody, audienceOf, instagramDetail, ensureColumns, STORY_COLUMNS, MAX_WORKED_WITH, MAX_DELIVERABLES };
+module.exports = { payloadFor, draftKit, storyFromBody, audienceOf, instagramDetail, ensureColumns, STORY_COLUMNS, JSON_COLUMNS, MAX_WORKED_WITH, MAX_DELIVERABLES };

@@ -33,10 +33,38 @@ function cleanName(raw, email) {
   return name;
 }
 
+// A NAME AS PEOPLE WRITE IT. users.name is whatever was typed at signup, and
+// "john compton" went out on media kits, in the app's greeting and under
+// pitches. A word typed all in lowercase gets its first letter capitalized
+// (each part of a hyphenated or apostrophe name too); a word with any capital
+// in it is left exactly as typed, so "JohnMark", "McNeill" and "DeAndre" stay.
+function properCase(name) {
+  return String(name == null ? '' : name).split(' ').map((w) => (
+    w && w === w.toLowerCase() ? w.replace(/(^|[-'])([a-z])/g, (m, p, c) => p + c.toUpperCase()) : w
+  )).join(' ');
+}
+
 // The whole name, for a signature line or a contract party.
 function agentFullName(user) {
   if (!user) return null;
-  return cleanName(user.name, user.email);
+  const n = cleanName(user.name, user.email);
+  return n ? properCase(n) : null;
+}
+
+// THE NAME ON SCREEN: the sign-off first name when the agent set one
+// ("JohnMark"), then the rest of their name, properly cased. Used by the
+// app's greeting and sidebar and by the media kit's "from" line. Nothing is
+// written back: users.name stays as typed.
+function displayName(user) {
+  if (!user) return null;
+  const full = agentFullName(user);
+  const raw = String((user.sign_first_name != null ? user.sign_first_name : user.signFirstName) || '').replace(/\s+/g, ' ').trim();
+  const first = raw && raw.length <= 40 && !/[^A-Za-z .'-]/.test(raw) ? properCase(raw) : null;
+  if (!full) return first;
+  if (!first) return full;
+  const parts = full.split(' ');
+  parts[0] = first;
+  return parts.join(' ');
 }
 
 // The first name, for the sign-off.
@@ -67,7 +95,7 @@ function pitchSignOffName(user) {
 // For a caller that holds only a string (the writer's ctx.agentFirstName).
 function firstNameOrNull(raw) {
   const n = cleanName(raw, null);
-  return n ? n.split(' ')[0] : null;
+  return n ? properCase(n).split(' ')[0] : null;
 }
 
-module.exports = { agentFullName, agentFirstName, firstNameOrNull, pitchSignOffName, signOffSetting, NO_AGENT_NAME_REASON, PLACEHOLDERS };
+module.exports = { agentFullName, agentFirstName, firstNameOrNull, pitchSignOffName, signOffSetting, displayName, properCase, NO_AGENT_NAME_REASON, PLACEHOLDERS };
