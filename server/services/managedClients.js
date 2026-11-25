@@ -67,7 +67,7 @@ function alertFor(c) {
   // Ready to paste to the agent. Plain, his voice, no question marks needed.
   const paste = `Hey ${first}! ${c.brand} just replied to the email we sent for ${ath}.`
     + (short ? ` They said: "${short}${said.replace(/\s+/g, ' ').length > 160 ? '...' : ''}"` : '')
-    + ` It is in your inbox${c.replyFrom ? ' from ' + c.replyFrom : ''}. You take it from here, let me know how it goes.`;
+    + ` NILDash emailed you the full reply.${c.replyFrom ? ' Answer them at ' + c.replyFrom + ' from your own email.' : ' Answer them from your own email.'} You take it from here, let me know how it goes.`;
   const subject = `Reply for ${c.agentName}: ${c.brand} about ${ath}`;
   const text = [
     `${c.brand} replied to a pitch you sent for ${c.agentName} (${ath}).`, '',

@@ -77,7 +77,7 @@ const ok = (n, c, g) => { N++; if (c) console.log('  PASS  ' + n); else { F++; c
   const m0 = sentTo[0] && sentTo[0].msg;
   ok('  it says whose client, which business and which athlete', m0 && /Reply for Lee Park: Taco Shop about X/.test(m0.subject), m0 && m0.subject);
   ok('  it carries what the business said, without the quoted pitch under it', m0 && /Can you call Tuesday\?/.test(m0.text) && !/Hello from the pitch/.test(m0.text), m0 && m0.text);
-  ok('  it has a text to paste to the agent, in the first person', m0 && /^Hey Lee! Taco Shop just replied to the email we sent for X\./.test(m0.paste) && /You take it from here/.test(m0.paste), m0 && m0.paste);
+  ok('  it has a text to paste to the agent, in the first person', m0 && /^Hey Lee! Taco Shop just replied to the email we sent for X\./.test(m0.paste) && /You take it from here/.test(m0.paste) && /Answer them at owner@tacoshop\.com from your own email/.test(m0.paste), m0 && m0.paste);
   ok('  it says the agent answers the business, not the founder', m0 && /Lee answers the business from here/.test(m0.text));
   o = await MC.onReply(P, 'ol-m', deps);
   ok('the same reply seen again does not email twice', o.skipped === 'already alerted' && sentTo.length === 1, o);
