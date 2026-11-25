@@ -68,7 +68,7 @@
     var x = el('button', 'background:none;border:none;color:#A1A1A6;font-size:22px;cursor:pointer', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.onclick = closeList;
     top.appendChild(x); box.appendChild(top);
     box.appendChild(el('div', 'font-size:13px;color:#A1A1A6;margin-bottom:16px;line-height:1.5',
-      'Open an account to load athletes and approve pitches for that agent. Emails send from their mailbox, under their name.'));
+      'Open an account to load athletes and approve pitches for that agent. Emails send from their mailbox, under their name. Agents marked Done for you are listed first, and you are emailed when a business replies to one of them.'));
     var err = el('div', 'display:none;color:#ef4444;font-size:13px;margin-bottom:10px'); box.appendChild(err);
     var list = el('div', 'display:flex;flex-direction:column;gap:8px'); box.appendChild(list);
     list.appendChild(el('div', 'color:#A1A1A6;font-size:13px', 'Loading...'));
@@ -84,11 +84,28 @@
         left.appendChild(el('div', 'font-size:14px;font-weight:600', c.name));
         left.appendChild(el('div', 'font-size:12px;color:#A1A1A6;margin-top:2px;overflow-wrap:anywhere', c.email));
         var facts = el('div', 'font-size:12px;margin-top:6px;color:#A1A1A6');
-        var mb = el('span', 'color:' + (c.mailbox ? '#C8F135' : '#FCA5A5'), c.mailbox ? 'Sends from ' + c.mailbox : 'No mailbox connected');
+        var mb = el('span', 'color:' + (c.mailbox ? '#C8F135' : '#FCA5A5'),
+          c.mailbox ? 'Sends from ' + c.mailbox : c.mailboxBroken ? 'Mailbox disconnected (' + c.mailboxBroken + '): they need to reconnect' : 'No mailbox connected');
         facts.appendChild(mb);
-        facts.appendChild(document.createTextNode(' · ' + c.athletes + (c.athletes === 1 ? ' athlete' : ' athletes') + ' · ' + c.waiting + ' waiting to approve · ' + c.sent + ' sent'));
+        facts.appendChild(document.createTextNode(' · ' + c.athletes + (c.athletes === 1 ? ' athlete' : ' athletes') + ' · ' + c.waiting + ' waiting to approve · ' + c.sent + ' sent · '
+          + c.replies + (c.replies === 1 ? ' reply' : ' replies')));
         left.appendChild(facts);
+        if (c.managed) left.firstChild.appendChild(el('span', 'margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(200,241,53,0.14);color:#C8F135;font-size:11px;font-weight:600;vertical-align:middle', 'Done for you'));
         row.appendChild(left);
+        // DONE FOR YOU: you run this agent's outreach. Their replies are emailed
+        // to you as they come in, and they sort to the top of this list.
+        var mg = el('button', 'padding:8px 12px;border-radius:999px;border:1px solid #2A2A30;background:transparent;color:#A1A1A6;font:600 12px Inter,system-ui,sans-serif;cursor:pointer',
+          c.managed ? 'Stop done for you' : 'Make done for you');
+        mg.type = 'button';
+        mg.title = c.managed ? 'Stop emailing me this agent\'s replies' : 'Email me when a business replies to this agent, and keep them at the top';
+        mg.onclick = function () {
+          mg.disabled = true; err.style.display = 'none';
+          post('/api/admin/clients/managed', { agentId: c.id, on: !c.managed }).then(function (x3) {
+            if (!x3.ok || !x3.d.ok) { mg.disabled = false; err.textContent = x3.d.error || 'Could not save that.'; err.style.display = 'block'; return; }
+            openList();
+          }).catch(function () { mg.disabled = false; err.textContent = 'Could not reach NILDash. Try again.'; err.style.display = 'block'; });
+        };
+        row.appendChild(mg);
         var isCur = d.workingAs && d.workingAs.id === c.id;
         var go = el('button', 'padding:9px 18px;border-radius:999px;border:0;background:' + (isCur ? '#26262B' : '#C8F135') + ';color:' + (isCur ? '#A1A1A6' : '#0A0A08')
           + ';font:700 13px Inter,system-ui,sans-serif;cursor:' + (isCur ? 'default' : 'pointer'), isCur ? 'Open now' : 'Open');

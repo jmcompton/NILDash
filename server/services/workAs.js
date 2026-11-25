@@ -68,19 +68,32 @@ async function close(pool, adminId) {
 // is the mailbox connected, how many athletes, how many pitches are waiting
 // for a yes, how many replies have come in.
 async function clients(pool) {
+  await require('./managedClients').ensureColumns(pool);
+  await require('./mailboxNotice').ensureTable(pool);
+  // mailbox: the address pitches send from, or null. mailbox_broken: one is on
+  // file but the provider is refusing it (a revoked sign-in, a changed
+  // password), so nothing sends until the agent reconnects.
   const rows = (await pool.query(`
-    SELECT u.id, u.name, u.email, u.sign_first_name, u.last_login,
+    SELECT u.id, u.name, u.email, u.sign_first_name, u.last_login, u.managed_since,
            (SELECT COUNT(*)::int FROM athletes a WHERE a.agent_id = u.id) AS athletes,
+           (SELECT e.email_address FROM email_accounts e WHERE e.user_id = u.id AND COALESCE(e.status,'active') = 'active'
+              AND e.can_send IS NOT FALSE AND NOT EXISTS (SELECT 1 FROM mailbox_notices n WHERE n.account_id = e.id)
+              ORDER BY e.updated_at DESC NULLS LAST LIMIT 1) AS mailbox,
            (SELECT e.email_address FROM email_accounts e WHERE e.user_id = u.id AND COALESCE(e.status,'active') <> 'disconnected'
-              AND e.can_send IS NOT FALSE ORDER BY e.updated_at DESC NULLS LAST LIMIT 1) AS mailbox,
+              AND (COALESCE(e.status,'active') <> 'active' OR EXISTS (SELECT 1 FROM mailbox_notices n WHERE n.account_id = e.id))
+              ORDER BY e.updated_at DESC NULLS LAST LIMIT 1) AS mailbox_broken,
            (SELECT COUNT(*)::int FROM outreach_queue q WHERE q.agent_id = u.id AND q.state = 'queued') AS waiting,
-           (SELECT COUNT(*)::int FROM outreach_logs l WHERE l.agent_id = u.id AND l.sent_at IS NOT NULL) AS sent
+           (SELECT COUNT(*)::int FROM outreach_logs l WHERE l.agent_id = u.id AND l.sent_at IS NOT NULL) AS sent,
+           (SELECT COUNT(*)::int FROM outreach_logs l WHERE l.agent_id = u.id AND l.replied_at IS NOT NULL) AS replies,
+           (SELECT MAX(l.replied_at) FROM outreach_logs l WHERE l.agent_id = u.id) AS last_reply
       FROM users u
      WHERE u.role = 'agent' AND COALESCE(u.archived, false) = false
-     ORDER BY (SELECT COUNT(*) FROM outreach_queue q WHERE q.agent_id = u.id AND q.state = 'queued') DESC, u.last_login DESC NULLS LAST, u.name`)).rows;
+     ORDER BY (u.managed_since IS NULL),
+              (SELECT COUNT(*) FROM outreach_queue q WHERE q.agent_id = u.id AND q.state = 'queued') DESC, u.last_login DESC NULLS LAST, u.name`)).rows;
   const AN = require('./agentName');
   return rows.map((r) => ({ id: r.id, name: AN.displayName(r) || r.name || r.email, email: r.email, athletes: r.athletes,
-    mailbox: r.mailbox || null, waiting: r.waiting, sent: r.sent, lastLogin: r.last_login }));
+    managed: !!r.managed_since, mailbox: r.mailbox || null, mailboxBroken: r.mailbox ? null : (r.mailbox_broken || null),
+    waiting: r.waiting, sent: r.sent, replies: r.replies, lastReply: r.last_reply, lastLogin: r.last_login }));
 }
 
 module.exports = { ensureTable, realUserId, blocked, open, close, clients, CLIENT_ROLES };
