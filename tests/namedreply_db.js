@@ -198,6 +198,8 @@ async function main() {
   await new Promise((r) => setTimeout(r, 700));
   own = (await pool.query(`SELECT status FROM outreach_logs WHERE id='out_7777777777777777'`)).rows[0];
   ok('  nor is mail from the mailbox they send from', own.status === 'sent' && sentEmails.length === 0, [own, sentEmails.length]);
+  // This suite shares its database with others: the mailbox row must not outlive it.
+  await pool.query(`DELETE FROM email_accounts WHERE id = 'ea_own'`).catch(() => {});
   await post(port, inbound('johnmark@mynildash.com', 'dana@zeta.com'));
   await new Promise((r) => setTimeout(r, 700));
   own = (await pool.query(`SELECT status FROM outreach_logs WHERE id='out_7777777777777777'`)).rows[0];
