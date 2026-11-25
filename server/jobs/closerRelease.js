@@ -121,7 +121,8 @@ function buildSend(pool, cache, { dry }) {
     // sending anyway.
     const args = {
       to: [to], subject: log.subject,
-      bodyHtml: canSpam.appendHtml(log.body_html, to, { senderName: account.senderName || null,
+      // No figure leaves in a pitch, whatever the stored body says (services/priceOut).
+      bodyHtml: canSpam.appendHtml(require('../services/priceOut').forSend(log.body_html), to, { senderName: account.senderName || null,
         address: log.footerAddress || (await canSpam.senderAddress(pool, log.agent_id)).address || null }),
       attachments: [], replyTo, messageId,
       // SMTP mailboxes (Zoho and the rest) put the agent's name on the From line

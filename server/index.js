@@ -17308,6 +17308,15 @@ try {
   console.error('[short-of-five] scheduler failed to start:', e.message);
 }
 
+// ── No price in a pitch: clean the ones written under the old rule ─────────
+// services/priceOut. Once at startup, after the schema is up. A clean body is
+// not touched, so every restart after the first finds nothing to do.
+setTimeout(() => {
+  require('./services/priceOut').backfill(store.pool)
+    .then((r) => console.log('[price-out] unsent pitches cleaned:', JSON.stringify(r)))
+    .catch((e) => console.error('[price-out] backfill failed:', e.message));
+}, 45 * 1000);
+
 // ── Hunter, on track to run out before the reset? (services/hunterPace) ────
 // HUNTER_PACE_ON only. The nightly run reads the account before it spends;
 // this reads it every hour too (free), so daytime use that puts the period on

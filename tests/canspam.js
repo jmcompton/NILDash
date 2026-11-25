@@ -108,7 +108,7 @@ const src = (p) => fs.readFileSync(REPO + p, 'utf8');
   OUT.push('', '-- every send path --');
   const outreach = src('server/routes/outreach.js');
   ok('the agent clicking Send: the footer is appended to what goes on the wire',
-    /const bodyHtml = canSpam\.appendHtml\(log\.body_html, toEmail/.test(outreach));
+    /const bodyHtml = canSpam\.appendHtml\(require\('\.\.\/services\/priceOut'\)\.forSend\(log\.body_html\), toEmail/.test(outreach));
   // Four: Gmail, Outlook, SMTP, and the test-only fake (providers/fakeSend).
   ok('  all three providers (and the test fake) send the footered body, not the stored draft',
     (outreach.match(/bodyHtml,\s*(attachments,\s*)?replyTo, messageId/g) || []).length === 4, (outreach.match(/bodyHtml,\s*(attachments,\s*)?replyTo, messageId/g) || []).length);
@@ -117,7 +117,7 @@ const src = (p) => fs.readFileSync(REPO + p, 'utf8');
 
   const closer = src('server/jobs/closerRelease.js');
   ok('the nightly release: the footer is on the body it hands the provider',
-    /bodyHtml: canSpam\.appendHtml\(log\.body_html, to/.test(closer));
+    /bodyHtml: canSpam\.appendHtml\(require\('\.\.\/services\/priceOut'\)\.forSend\(log\.body_html\), to/.test(closer));
   ok('  AND THE WHOLE TICK REFUSES when the address is unset, once, rather than failing 200 sends',
     /if \(!canSpam\.configured\(\)\)/.test(closer) && /sent: 0/.test(closer));
 

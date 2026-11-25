@@ -179,6 +179,14 @@ function fromCard(o) {
     menuItem: o.menuItem ? String(o.menuItem).slice(0, 80) : null, why: o.why ? String(o.why).slice(0, 300) : null };
 }
 
+// ── WHAT A WRITER MAY BE TOLD ───────────────────────────────────────────────
+// Nothing. The pitch is the first outreach and never names a figure: price is
+// the agent's to handle after the business replies (services/priceOut, Nov 25,
+// 2026). The offer stays on the card for the agent. OFFER_IN_PITCH=1 is the
+// switch back to a pitch that names the card's figure.
+const IN_PITCH = () => process.env.OFFER_IN_PITCH === '1';
+function forPitch(o) { return IN_PITCH() ? fromCard(o) : null; }
+
 // ── ON THE CARD AND ITS DRAFT ───────────────────────────────────────────────
 const COLS = 'offer_suggested = $2, offer_amount = $3, offer_kind = $4, offer_menu_item = $5, offer_why = $6';
 async function record(pool, { queueId = null, logId = null, offer }) {
@@ -255,4 +263,4 @@ async function setOffer(pool, agentId, cardId, input, kind) {
 }
 
 module.exports = { ON, TIERS, REVIEWS_WELL_KNOWN, REVIEWS_MID_RANGE, priceLevelOf, dishFor, menuItemFor, suggest, parseOffer, labelOf,
-  forBusiness, attachToScan, fromCard, record, payloadOf, swapIn, setOffer };
+  forBusiness, attachToScan, fromCard, forPitch, IN_PITCH, record, payloadOf, swapIn, setOffer };

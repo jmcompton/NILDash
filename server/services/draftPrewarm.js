@@ -159,7 +159,10 @@ function greetNameFor(card) {
 }
 
 // The card's suggested offer (services/offerSuggest, OFFER_ON), or null.
-function _offerOf(card) { return require('./offerSuggest').fromCard(card && card.offer); }
+// For the WRITER: nothing, unless OFFER_IN_PITCH is on (offerSuggest.forPitch).
+function _offerOf(card) { return require('./offerSuggest').forPitch(card && card.offer); }
+// For the RECORD: the card's figure, kept on the draft for the agent and the pipeline.
+function _offerOnCard(card) { return require('./offerSuggest').fromCard(card && card.offer); }
 
 function buildPrompt(athlete, card, agentName, retryBecause) {
   if (!AgentName.firstNameOrNull(agentName)) throw new Error('buildPrompt: ' + AgentName.NO_AGENT_NAME_REASON);
@@ -369,7 +372,7 @@ async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) 
   } catch (e) {
     return { failed: 'store: ' + e.message };
   }
-  { const o = _offerOf(card); if (o) await require('./offerSuggest').record(pool, { logId: id, offer: o }); }
+  { const o = _offerOnCard(card); if (o) await require('./offerSuggest').record(pool, { logId: id, offer: o }); }
   return { drafted: true, id, brandKey, retried: !!lastWhy,
     email: addr ? addr.email : null, emailKind: addr ? addr.kind : null };
 }

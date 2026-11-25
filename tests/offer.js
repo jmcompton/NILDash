@@ -27,6 +27,11 @@ delete process.env.ANTHROPIC_API_KEY;
 delete process.env.SEND_GATE_ON;
 delete process.env.EMAIL_FIVE_ON;
 process.env.OFFER_ON = '1';
+// This suite is the offer NAMED IN THE PITCH, which since Nov 25, 2026 is off
+// unless OFFER_IN_PITCH=1 (services/priceOut: the pitch names no figure). The
+// switch is on here so the old path stays tested; tests/priceout.js covers the
+// default.
+process.env.OFFER_IN_PITCH = '1';
 const TEST_INIT_WAIT_MS = parseInt(process.env.TEST_INIT_WAIT_MS, 10) || 6000;
 require('./helpers/offlineDns').install();
 
@@ -157,7 +162,7 @@ const withOffAsync = async (fn) => { delete process.env.OFFER_ON; try { return a
   const job = read('server/jobs/outreachQueue.js');
   ok('the night: the offer from the Places record, into the writer, onto the card and its draft',
     /const _offer = AgentPrefs\.applyFloor\(OFFER\.ON\(\) \? OFFER\.forBusiness\(\{ name: cand\.brand_name, place, athleteName/.test(job)
-    && /offer: _offer/.test(job) && /if \(_offer\) card\.offer = _offer;/.test(job)
+    && /offer: OFFER\.IN_PITCH\(\) \? _offer : null,/.test(job) && /if \(_offer\) card\.offer = _offer;/.test(job)
     && /await OFFER\.record\(pool, \{ queueId: ins\.rows\[0\]\.id, logId: logId \|\| null, offer: card\.offer \}\)/.test(job));
 
   console.log('\n4. THE DEAL SCAN WRITERS');

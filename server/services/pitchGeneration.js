@@ -62,7 +62,7 @@ async function generatePitch(inputs) {
   const { athlete, enrichment, matchScore, contact, dealScanData, agentName, agentEmail, agentSignOff } = inputs;
   const athleteData = extractAthleteData(athlete);
   // THE CARD'S SUGGESTED OFFER (OFFER_ON), checked again server-side. Null when off.
-  const _offer = require('./offerSuggest').fromCard(dealScanData && dealScanData.offer);
+  const _offer = require('./offerSuggest').forPitch(dealScanData && dealScanData.offer);
   // NO STAND-IN SENDER. This read agentName || 'Your Agent', and the model was
   // told to write the email "from Your Agent". Refused through the same path as
   // a price or an invented fact: no model call, no draft.

@@ -2802,7 +2802,8 @@ async function _fillAthlete(pool, ctx, nightFaults) {
             instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,
             contentThemes: contentThemesOf(ctx.athleteRow, ctx.athleteProfile) },
           deal: match,
-          offer: _offer,
+          // The writer is told no figure (offerSuggest.forPitch): the card keeps it.
+          offer: OFFER.IN_PITCH() ? _offer : null,
           agentFirstName: ctx.agentFirstName || null,
           hasSchedulingLink: !!signature.hasLink,
           // NOT HARDCODED 'dm' ANY MORE. pitchWriter branches on this -- "The
