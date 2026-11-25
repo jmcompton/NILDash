@@ -42,6 +42,10 @@ async function set(pool, agentId, on) {
     `UPDATE users SET managed_since = CASE WHEN $2 THEN COALESCE(managed_since, NOW()) ELSE NULL END
       WHERE id = $1 AND role = 'agent' RETURNING managed_since`, [String(agentId || ''), !!on]);
   if (!r.rowCount) return { ok: false, status: 404, error: 'That agent account was not found.' };
+  // The founder reads every pitch and follow-up for a done-for-you client, so
+  // nothing may go out for them unseen: their send-every-morning switch goes off
+  // (services/autoSend also refuses them while they are marked).
+  if (on) await pool.query(`UPDATE users SET auto_send_on = FALSE, auto_send_since = NULL, auto_send_token = NULL WHERE id = $1`, [String(agentId)]).catch((e) => { if (!(e && e.code === '42703')) throw e; });
   return { ok: true, managed: !!r.rows[0].managed_since };
 }
 

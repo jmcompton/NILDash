@@ -43,10 +43,24 @@ const MAX_AGE_DAYS = 14;                                     // a draft older th
 const CENTRAL = 'America/Chicago';
 const APP_URL = () => (process.env.APP_URL || 'https://mynildash.com').replace(/\/+$/, '');
 
+// ── A DONE-FOR-YOU CLIENT IS NEVER SENT FOR AUTOMATICALLY ───────────────────
+// For an agent the founder runs outreach for (users.managed_since,
+// services/managedClients), he reads every pitch and every follow-up before it
+// goes out. So this job never approves for them, whatever their switch says:
+// the switch cannot be turned on, the morning tick skips them, and the claim
+// refuses them. Marking an agent done-for-you turns their switch off.
+const NOT_MANAGED = `managed_since IS NULL`;
+async function isManaged(pool, agentId) {
+  await require('./managedClients').ensureColumns(pool);
+  const r = (await pool.query(`SELECT managed_since FROM users WHERE id = $1`, [agentId])).rows[0];
+  return !!(r && r.managed_since);
+}
+
 let _ready = null;
 function ensureTables(pool) {
   if (_ready) return _ready;
   _ready = (async () => {
+    await require('./managedClients').ensureColumns(pool);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_send_on BOOLEAN NOT NULL DEFAULT FALSE`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_send_since TIMESTAMPTZ`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_send_token TEXT`);
@@ -72,7 +86,8 @@ async function status(pool, agentId, deps = {}) {
   const u = (await pool.query(`SELECT auto_send_on, auto_send_since FROM users WHERE id = $1`, [agentId])).rows[0] || {};
   const missing = await missingFor(pool, agentId, deps);
   const last = (await pool.query(`SELECT run_date::text AS date, approved, sent, held, note FROM auto_send_runs WHERE agent_id = $1 ORDER BY run_date DESC LIMIT 1`, [agentId])).rows[0] || null;
-  return { available: ON(), on: !!u.auto_send_on, since: u.auto_send_since || null, ready: !missing.length, missing, last, sendsAt: '9:00 am Central, weekdays' };
+  const managed = await isManaged(pool, agentId).catch(() => false);
+  return { available: ON() && !managed, on: !managed && !!u.auto_send_on, since: u.auto_send_since || null, ready: !missing.length, missing, last, sendsAt: '9:00 am Central, weekdays', managed };
 }
 
 const MISSING_MAILBOX = 'connect the mailbox your pitches send from (Settings, Email)';
@@ -96,6 +111,7 @@ async function set(pool, agentId, on, deps = {}) {
   await ensureTables(pool);
   if (on) {
     if (!ON()) return { ok: false, error: 'Automatic sending is not available yet.' };
+    if (await isManaged(pool, agentId)) return { ok: true, on: false, managed: true, note: 'Your pitches are reviewed and sent for you, so there is nothing to switch on.' };
     const missing = await missingFor(pool, agentId, deps);
     if (missing.length) return { ok: false, missing, error: 'Before NILDash can send for you: ' + missing.join('; ') + '.' };
     await pool.query(`UPDATE users SET auto_send_on = TRUE, auto_send_since = COALESCE(auto_send_since, NOW()) WHERE id = $1`, [agentId]);
@@ -261,7 +277,7 @@ async function runAgent(pool, agent, { date, deps = {} } = {}) {
   // the tick picked them is not sent for.
   const claim = await pool.query(
     `INSERT INTO auto_send_runs (agent_id, run_date)
-     SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM users WHERE id = $1 AND auto_send_on = TRUE AND archived IS NOT TRUE)
+     SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM users WHERE id = $1 AND auto_send_on = TRUE AND archived IS NOT TRUE AND ${NOT_MANAGED})
      ON CONFLICT DO NOTHING`, [agent.id, date]);
   if (!claim.rowCount) return { agentId: agent.id, skipped: 'already ran today' };
   const finish = async (approved, offered, note, detail) => {
@@ -442,7 +458,7 @@ async function tick(pool, { now, force = false, deps = {} } = {}) {
     if (!force && (['Sat', 'Sun'].includes(c.weekday) || c.minutes < SEND_AT() || c.minutes >= SEND_UNTIL)) return { skipped: 'not the window', notes: noted };
     const agents = (await pool.query(
       `SELECT id, name, email, sign_first_name FROM users
-        WHERE auto_send_on = TRUE AND archived IS NOT TRUE AND role IN ('agent', 'admin')
+        WHERE auto_send_on = TRUE AND archived IS NOT TRUE AND role IN ('agent', 'admin') AND ${NOT_MANAGED}
           AND NOT EXISTS (SELECT 1 FROM auto_send_runs r WHERE r.agent_id = users.id AND r.run_date = $1)
         ORDER BY id`, [c.date])).rows;
     const out = [];
