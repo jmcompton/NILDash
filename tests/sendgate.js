@@ -63,6 +63,7 @@ function guard() {
   // Every OTHER send call, and why it is not an outside business address.
   // Counted per file: a new call in any of them fails until it is placed.
   const EXEMPT = {
+    'server/services/founderCrm.js': { n: 1, why: "the founder's own follow-up reminders, to the admin address only" },
     'server/jobs/closerRelease.js': { n: 2, why: 'the provider call releaseDue makes through opts.send, after the gate' },
     'server/routes/outreach.js': { n: 4, extra: true, why: 'sendViaEmailService: the provider call runManualSend makes through router._sendImpl, after the gate' },
     'server/routes/email.js': { n: 2, extra: true, why: 'the outlook / imap branches of the same composer send, after the same gate' },

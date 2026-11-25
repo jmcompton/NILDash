@@ -36,6 +36,9 @@ function makeAdminGate({ getUser, adminEmail, isFounderEmail }) {
     const path = req.originalUrl.split('?')[0].replace(/\/+$/, '');
     const real = req.session && req.session.adminId && WORK_AS_PATHS.includes(path);
     const uid = req.session && (real ? req.session.adminId : req.session.userId);
+    // The founder's CRM is opened from a home screen icon: signed out, it goes
+    // to the sign-in screen instead of a bare "Not authenticated".
+    if (!uid && !api && req.method === 'GET' && path === '/admin/crm') return res.redirect(302, '/app');
     if (!uid) return deny(401, 'Not authenticated');
     let user = null;
     try { user = await getUser(uid); }

@@ -345,7 +345,12 @@ app.use('/api/athlete/media-kit/preview', mkImageJson);
 // exact bytes Resend signed, which JSON parsing does not preserve.
 app.use('/api/webhooks/resend-inbound', express.raw({ type: 'application/json' }), require('./routes/resendInbound'));
 
-app.use(express.json({ limit: '50kb' }));
+// The founder's CRM import (services/founderCrm) is one file of his whole
+// pipeline, larger than an ordinary request. It
+// reads its own body after the admin gate, so nobody signed out can post 4mb.
+const CRM_IMPORT_PATH = '/api/admin' + '/crm/import';
+const _json50 = express.json({ limit: '50kb' });
+app.use((req, res, next) => (req.path === CRM_IMPORT_PATH ? next() : _json50(req, res, next)));
 
 // ── Referral first-touch capture ─────────────────────────────────────────────
 // Read a named cookie from the raw header (no cookie-parser dependency).
@@ -605,6 +610,61 @@ app.get('/api/admin/clients', async (req, res) => {
     res.set('Cache-Control', 'no-store').json({ workingAs: cur, clients: list });
   } catch (e) { console.error('[admin/clients]', e.message); res.status(500).json({ error: 'Could not load the client accounts.' }); }
 });
+// ── THE FOUNDER'S CRM (services/founderCrm) ─────────────────────────────────
+// His own sales pipeline: who to follow up with today, one-tap call logging,
+// reminders. Admin only: the gate above covers /admin and /api/admin, and
+// each route checks ADMIN_EMAIL again. Not available from inside a client's
+// account (the gate judges the session user there).
+{
+  const CRM = () => require('./services/founderCrm');
+  const crmAdmin = async (req, res) => {
+    const u = req.session && req.session.userId ? await store.getUser(req.session.userId) : null;
+    if (!u || u.email !== ADMIN_EMAIL) { res.status(403).json({ error: 'Forbidden' }); return null; }
+    return u;
+  };
+  const wrap = (fn) => async (req, res) => {
+    try { const admin = await crmAdmin(req, res); if (!admin) return; await fn(req, res, admin); }
+    catch (e) { console.error('[crm]', req.method, req.path, e.message); if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Try again.' }); }
+  };
+  const done = (res, out) => (out.ok ? res.json(out) : res.status(out.status || 400).json({ error: out.error }));
+  app.get('/admin/crm', (req, res) => { res.set('Cache-Control', 'no-store'); res.sendFile(path.join(__dirname, 'pages', 'crm.html')); });
+  app.get('/api/admin/crm/meta', wrap(async (req, res, admin) => {
+    const C = CRM();
+    const outcomes = {};
+    for (const k of Object.keys(C.OUTCOMES)) outcomes[k] = { label: C.OUTCOMES[k].label, follow: C.suggestFollowUp(k) };
+    res.json({ groups: C.GROUPS, stages: C.STAGES, channels: C.CHANNELS, outcomes, alertTo: admin.email });
+  }));
+  app.get('/api/admin/crm/today', wrap(async (req, res) => { res.set('Cache-Control', 'no-store').json(await CRM().today(store.pool)); }));
+  app.get('/api/admin/crm/contacts', wrap(async (req, res) => { res.set('Cache-Control', 'no-store').json({ contacts: await CRM().list(store.pool) }); }));
+  app.post('/api/admin/crm/contacts', wrap(async (req, res) => done(res, await CRM().create(store.pool, req.body || {}))));
+  app.post('/api/admin/crm/import', express.json({ limit: '4mb' }), wrap(async (req, res) => {
+    const docs = (req.body && (req.body.contacts || req.body.documents)) || req.body;
+    if (!Array.isArray(docs)) return res.status(400).json({ error: 'That file is not a list of contacts.' });
+    const out = await CRM().importAll(store.pool, docs.slice(0, 5000));
+    console.log('[crm] import:', JSON.stringify(out));
+    res.json({ ok: true, ...out });
+  }));
+  app.get('/api/admin/crm/contacts/:id', wrap(async (req, res) => {
+    const c = await CRM().get(store.pool, req.params.id);
+    if (!c) return res.status(404).json({ error: 'That contact was not found.' });
+    res.set('Cache-Control', 'no-store').json(c);
+  }));
+  app.patch('/api/admin/crm/contacts/:id', wrap(async (req, res) => done(res, await CRM().update(store.pool, req.params.id, req.body || {}))));
+  app.post('/api/admin/crm/contacts/:id/log', wrap(async (req, res) => done(res, await CRM().log(store.pool, req.params.id, req.body || {}))));
+  app.delete('/api/admin/crm/contacts/:id/activity/:aid', wrap(async (req, res) => res.json(await CRM().removeActivity(store.pool, req.params.id, req.params.aid))));
+  app.get('/api/admin/crm/contacts/:id/followup.ics', wrap(async (req, res) => {
+    const c = await CRM().get(store.pool, req.params.id);
+    const file = c && CRM().ics(c);
+    if (!file) return res.status(404).json({ error: 'No follow-up date on that contact.' });
+    res.set('Content-Type', 'text/calendar; charset=utf-8').set('Content-Disposition', 'attachment; filename="follow-up.ics"').send(file);
+  }));
+  // Reminders: the morning email and the timed ones, to the admin's own address.
+  setTimeout(() => {
+    try { CRM().start(store.pool, { to: process.env.CRM_ALERT_TO || ADMIN_EMAIL }); console.log('[crm] reminders on'); }
+    catch (e) { console.error('[crm] reminders failed to start:', e.message); }
+  }, 60 * 1000);
+}
+
 // Mark an agent done-for-you (or stop): their replies are then sent to the
 // admin as they come in (services/managedClients).
 app.post('/api/admin/clients/managed', async (req, res) => {
