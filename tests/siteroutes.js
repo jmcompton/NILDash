@@ -132,7 +132,10 @@ const exists = (p) => fs.existsSync(REPO + p);
   ok('agent-setup.js is loaded exactly once', tags.filter((t) => t === '/agent-setup.js').length === 1);
   // ui-v2.js is the redesigned look's sidebar (off unless ?ui=v2). Loaded once.
   ok('ui-v2.js is loaded exactly once', tags.filter((t) => t === '/ui-v2.js').length === 1);
-  ok('  and nothing else is loaded from a tag we did not count', tags.length === NINE.length + 3, tags);
+  // work-as.js is the admin's Client accounts list (services/workAs); it draws
+  // nothing unless the server says this is the admin. Loaded once.
+  ok('work-as.js is loaded exactly once', tags.filter((t) => t === '/work-as.js').length === 1);
+  ok('  and nothing else is loaded from a tag we did not count', tags.length === NINE.length + 4, tags);
   // A second <script src> is one way to run an init twice; injecting one at
   // runtime is the other. Neither happens.
   ok('NO SCRIPT IS INJECTED AT RUNTIME, so the rendered DOM cannot grow a second copy',
