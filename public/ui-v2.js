@@ -379,6 +379,7 @@
     var nav = document.querySelector('.sidebar-nav');
     if (!nav) return;
     built = true;
+    reveal();
     var keep = [];
     NAV.forEach(function (n) {
       var b = navBtn(n[0]);
@@ -474,6 +475,12 @@
     return true;
   }
 
+  // The old eighteen-entry sidebar is hidden (ui-v2.css) until this file has
+  // rebuilt it, so nobody sees the old menu for a moment on every load. reveal
+  // shows it: once built, or at once for an athlete or a university, who keep
+  // their own sidebar. The stylesheet shows it by itself after 3 s if this
+  // file never runs.
+  function reveal() { document.documentElement.setAttribute('data-v2nav', '1'); }
   function start() {
     hook();
     // the role label is filled in after sign-in; try until the app has booted
@@ -482,9 +489,9 @@
       tries++;
       hook();
       var app = document.getElementById('appScreen');
-      if (app && getComputedStyle(app).display !== 'none') build();
-      if (built || tries > 120) clearInterval(t);
-    }, 250);
+      if (app && getComputedStyle(app).display !== 'none') { build(); if (!built && !isAgent()) reveal(); }
+      if (built || tries > 600) { clearInterval(t); reveal(); }
+    }, 50);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

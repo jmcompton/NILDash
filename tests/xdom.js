@@ -18,7 +18,7 @@ const fs=require('fs');
 const src=fs.readFileSync(REPO + 'server/ai.js','utf8');
 const rankSrc=src.match(/function _contactAuthorityRank\(title\) \{[\s\S]*?\n\}/)[0];
 const rootSrc=src.match(/function _rootDomain\(url\) \{[\s\S]*?\n\}/)[0];
-const m={}; new Function('module', rankSrc+'\n'+rootSrc+'\nmodule.r=_contactAuthorityRank; module.rd=_rootDomain;')(m);
+const m={}; new Function('module', '_CR', rankSrc+'\n'+rootSrc+'\nmodule.r=_contactAuthorityRank; module.rd=_rootDomain;')(m, require(REPO + 'server/services/contactRank'));
 const { buildContactLadder, crossDomainNote } = require(REPO + 'server/services/contactLadder.js');
 console.log('-- crossDomainNote unit --');
 const cases=[['info@eskridgeandwhite.com','https://ewmotiontherapy.com','FLAG'],

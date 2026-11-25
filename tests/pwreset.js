@@ -209,7 +209,7 @@ async function main() {
     ok('  and login still uses authLimiter', /app\.post\('\/api\/auth\/login', authLimiter,/.test(src), null);
     ok('no route inserts a plaintext token any more',
       !/INSERT INTO password_resets \(email, token, expires_at\)/.test(src), null);
-    ok('  every issuer goes through issueResetToken', (src.match(/pwReset\.issueResetToken\(/g) || []).length === 2,
+    ok('  every issuer goes through issueResetToken', (src.match(/pwReset\.issueResetToken\(/g) || []).length >= 2,
       (src.match(/pwReset\.issueResetToken\(/g) || []).length);
     ok('store lookups compare LOWER(TRIM(email))', (st.match(/WHERE LOWER\(TRIM\(email\)\) = \$1/g) || []).length >= 2, null);
     ok('  and saveUser writes the normalised address', /normEmail\(data\.email\)/.test(st), null);

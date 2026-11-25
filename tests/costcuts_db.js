@@ -1,4 +1,9 @@
 'use strict';
+// Each scenario below is its own athlete under one test agent in one market.
+// The roster rule (services/scout: a business pitched for one of an agent's
+// athletes is left alone for the others for three weeks, Nov 2026) would hand
+// later scenarios a drained pool, and it has its own suite. Off here.
+process.env.ROSTER_DEDUPE = 'off';
 // Moved out of a session scratchpad, which is reclaimed when the session ends.
 // Normalised so it runs from a checkout on any machine: repo-relative paths,
 // overridable Postgres settings, an overridable Chromium, and a startup wait the
@@ -68,6 +73,10 @@ const PASSING = () => ({
 });
 const FAILING = () => ({ contacts: [], businessPhone: null, cached: false });
 
+// The athlete's record, as every caller in the app passes it to the fill: the
+// compliance screen reads the school from it to know which state's rules apply.
+const ATH_ROW = { name: 'Test Athlete', school: 'University of Arkansas', hometown: 'Fayetteville, AR' };
+
 async function reset(pool) {
   await pool.query('DELETE FROM outreach_queue');
   await pool.query('DELETE FROM outreach_queue_runs');
@@ -114,7 +123,7 @@ async function main() {
   let budget = Q.newBudget(job.CAP_USD);
   let r = await job.fillAthlete(pool, {
     agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c1', athleteName: 'T', budget,
-    region: 'Fayetteville, AR', maxSlots: Q.NIGHTLY_SLOTS,
+    region: 'Fayetteville, AR', athleteRow: ATH_ROW, maxSlots: Q.NIGHTLY_SLOTS,
   });
   ok('nightly fills all five slots when the candidates are there', r.filled === 5, r.filled);
   let n = (await pool.query(`SELECT COUNT(*)::int c FROM outreach_queue WHERE athlete_id='ath_c1' AND state='queued'`)).rows[0].c;
@@ -166,7 +175,7 @@ async function main() {
   stub.places = () => ({ businessStatus: 'CLOSED_PERMANENTLY', website: 'https://x.com' });
   stub.contacts = PASSING;
   budget = Q.newBudget(job.CAP_USD);
-  r = await job.fillAthlete(pool, { agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c3', athleteName: 'T3', budget, region: 'Fayetteville, AR' });
+  r = await job.fillAthlete(pool, { agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c3', athleteName: 'T3', budget, region: 'Fayetteville, AR', athleteRow: ATH_ROW });
   ok('every candidate closed -> nothing queued', r.filled === 0, r.filled);
   ok('  and NOT ONE paid lookup was made', stub.contactCalls.length === 0, stub.contactCalls.length);
   ok('  budget spent stays at zero', budget.spent() === 0, budget.spent());
@@ -184,7 +193,7 @@ async function main() {
     // tonight", tried nothing, and were not a verdict on the market.
     const rr = await job.fillAthlete(pool, {
       agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c4', athleteName: 'T4', budget: b,
-      region: 'Fayetteville, AR', maxSlots: Q.NIGHTLY_SLOTS, runDate: '2026-08-0' + night,
+      region: 'Fayetteville, AR', athleteRow: ATH_ROW, maxSlots: Q.NIGHTLY_SLOTS, runDate: '2026-08-0' + night,
     });
     await job.recordAttempt(pool, 'ath_c4', { filled: rr.filled, spent: b.spent(), runDate: '2026-08-0' + night });
     const st = await job.athleteState(pool, 'ath_c4');
@@ -196,7 +205,7 @@ async function main() {
   const b4 = Q.newBudget(job.CAP_USD);
   const paused = await job.fillAthlete(pool, {
     agentId: 'agent_c1', agentFirstName: 'Alex', athleteId: 'ath_c4', athleteName: 'T4', budget: b4,
-    region: 'Fayetteville, AR', maxSlots: Q.NIGHTLY_SLOTS,
+    region: 'Fayetteville, AR', athleteRow: ATH_ROW, maxSlots: Q.NIGHTLY_SLOTS,
   });
   ok('night 4 on a paused athlete: reports paused', paused.paused === true, paused);
   ok('  spends NOTHING', b4.spent() === 0 && stub.contactCalls.length === 0, { spent: b4.spent(), calls: stub.contactCalls.length });

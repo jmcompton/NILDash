@@ -68,7 +68,8 @@ async function main() {
   const storeShim = { pool: P, getUser: async () => ({ email: 'a@b.c' }) };
   const SRC = fs.readFileSync(ROOT + 'server/index.js', 'utf8');
   const a = SRC.indexOf("app.post('/api/admin/retire-stale-queue'");
-  const b = SRC.indexOf('// ── /admin/athlete-markets');
+  // The route only: up to the next route registered after it.
+  const b = SRC.indexOf('\napp.', a + 10);
   ok('the endpoint is present', a > 0 && b > a);
   { const store = storeShim; eval(SRC.slice(a, b)); }
   const srv = http.createServer(app);

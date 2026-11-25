@@ -2256,7 +2256,7 @@ app.post('/api/agent/settings/script', requireAuth, async (req, res) => {
     res.status(out.ok ? 200 : 400).json(out);
   } catch (e) { console.error('[settings/script]', e.message); res.status(500).json({ error: e.message }); }
 });
-app.post('/api/agent/settings/script/improve', requireAuth, aiLimiter, async (req, res) => {
+app.post('/api/agent/settings/script/improve', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
   try {
     let agentFirst = null;
     try {

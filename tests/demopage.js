@@ -38,7 +38,8 @@ ok('  with no-cache, so no browser, proxy or CDN serves an old copy',
 ok('  and /demo.html, which express.static answers, gets the same header',
   /\['demo\.html', 'athletics\.html'(, '[a-z]+\.html')*\]\.includes\(path\.basename\(filePath\)\)\) res\.setHeader\('Cache-Control', 'no-cache, must-revalidate'\)/.test(IDX));
 ok('no other route or static mount serves a demo page',
-  (IDX.match(/app\.(get|use)\([^)]*demo/g) || []).length === 1
+  // /portal-room/demo is the Portal Room's own public page, not a second copy of this one
+  (IDX.match(/app\.(get|use)\('\/demo/g) || []).length === 1
   && !fs.readdirSync(REPO + 'public').some((f) => /demo/i.test(f) && /\.html?$/i.test(f) && f !== 'demo.html'));
 ok('  registered before the catch-all that returns the app',
   IDX.indexOf("app.get('/demo',") > 0 && IDX.indexOf("app.get('/demo',") < IDX.indexOf("app.get('*',"));

@@ -229,7 +229,7 @@ const call = async (fn, body) => {
   ok('and is still comped and usable', mrow.comped === 't');
 
   console.log('\n-- it mirrors create-comped-agent --');
-  ok('same admin check', (SRV.match(/if \(!admin \|\| admin\.email !== ADMIN_EMAIL\) return res\.status\(403\)/g) || []).length === 2);
+  ok('same admin check', (SRV.match(/if \(!admin \|\| admin\.email !== ADMIN_EMAIL\) return res\.status\(403\)/g) || []).length >= 2);   // more admin routes share it now
   ok('same 7-day link window', pwReset.ONBOARDING_TTL_MS === 7 * 86400000 && /ttlMs: pwReset\.ONBOARDING_TTL_MS/.test(SRV)
     && (process.env.AGENT_SETUP_ON === '1' || pwReset.agentInviteTtlMs() === pwReset.ONBOARDING_TTL_MS));
   ok('same best-effort email: the link is returned even if sending fails',

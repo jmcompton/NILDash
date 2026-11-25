@@ -1,4 +1,9 @@
 'use strict';
+// Each scenario below is its own athlete under one test agent in one market.
+// The roster rule (services/scout: a business pitched for one of an agent's
+// athletes is left alone for the others for three weeks, Nov 2026) would hand
+// later scenarios a drained pool, and it has its own suite. Off here.
+process.env.ROSTER_DEDUPE = 'off';
 // Runs against the local test Postgres. Real job, real Scout, real insert;
 // the paid lookups (Places, the name search, Hunter, the writer) are stubbed.
 //
@@ -185,7 +190,8 @@ async function main() {
   SOCIAL = SOCIAL_BAD;
   const r2 = await fill('mbf-rising', 'rising', 'Baylor University', null, { instagram: 8000 });
   const c2 = await cards('mbf-rising');
-  ok('five local cards, two of them in the social seats', r2.filled === 5 && c2.every((c) => c.lane === 'local') && c2.filter((c) => c.backfill_for === 'social').length === 2, c2);
+  // A Rising athlete holds three social seats since the deal mix of Nov 20, 2026 (two before).
+  ok('five local cards, three of them in the social seats', r2.filled === 5 && c2.every((c) => c.lane === 'local') && c2.filter((c) => c.backfill_for === 'social').length === 3, c2);
   ok('  why: the founder is not a partnerships contact, the catch-all proves nothing',
     ((r2.loop.mix.backfilled || [])[0] || {}).why === 'no social brand passed the bar: 2 considered (1 contact not a partnerships or marketing lead, 1 no verified address for the named contact)',
     r2.loop.mix.backfilled);
@@ -269,13 +275,13 @@ async function main() {
                  ON CONFLICT (agent_id, run_date) DO UPDATE SET details = EXCLUDED.details, finished_at = NOW()`, [AG, day, JSON.stringify(det)]);
   const rep = await SOF.collect(P, {});
   const mine = rep.backfills.filter((b) => /^Mbf /.test(b.athlete));
-  ok('collected: each backfilled seat, by athlete', mine.length === 4 && mine.filter((b) => b.seat === 'national').length === 2 && mine.filter((b) => b.seat === 'social').length === 2, mine);
+  ok('collected: each backfilled seat, by athlete', mine.length === 5 && mine.filter((b) => b.seat === 'national').length === 2 && mine.filter((b) => b.seat === 'social').length === 3, mine);
   ok('  under MARKET_MIX_ON the official program card counts toward the five (the national athlete is not short)',
     !rep.short.some((s) => s.athleteId === 'mbf-nat'), rep.short.filter((s) => /^mbf-/.test(s.athleteId)));
   const msg = SOF.render({ ...rep, short: rep.short.filter((s) => /^mbf-/.test(s.athleteId)), backfills: mine });
-  ok('  the email lists them, with the card that filled each seat and why', /SEATS BACKFILLED FROM THE LOCAL LANE \(MARKET_MIX_ON\): 4/.test(msg.text)
+  ok('  the email lists them, with the card that filled each seat and why', /SEATS BACKFILLED FROM THE LOCAL LANE \(MARKET_MIX_ON\): 5/.test(msg.text)
     && /Mbf mbf-nat: the national seat -> Bf Waco Cafe \d, Dana Reed <dana\.reed@bfwacocafe\d\.com> \(verified email\)\. Why: no national brand passed the bar/.test(msg.text)
-    && /Mbf mbf-rising: the social seat -> /.test(msg.text) && /4 brand seats backfilled from local/.test(msg.subject), msg);
+    && /Mbf mbf-rising: the social seat -> /.test(msg.text) && /5 brand seats backfilled from local/.test(msg.subject), msg);
   let sent = null;
   await P.query(`DELETE FROM short_five_alerts WHERE alert_date = $1`, [day]).catch(() => {});
   const run = await SOF.runOnce(P, { force: true, send: async (m) => { sent = m; } });
