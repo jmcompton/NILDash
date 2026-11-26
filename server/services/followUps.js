@@ -30,9 +30,17 @@
 // WHAT IT SAYS. Never "just following up", "checking in", "circling back",
 // "bumping this" -- the cold agent's banned list, plus those. Every follow-up
 // carries something the earlier touches did not: a concrete deliverable with
-// a count, something the athlete has on record, an idea with another business
-// nearby. NO PRICES: pitchWriter's rule, the one slip that reaches a business
-// as a real number. And no sentence from an earlier touch is ever reused.
+// a count, something the athlete has on record, a smaller way to start.
+// NO PRICES: pitchWriter's rule, the one slip that reaches a business as a
+// real number. And no sentence from an earlier touch is ever reused.
+//
+// IT NAMES NO OTHER BUSINESS. The last touch used to offer "a joint night
+// with <another business> nearby", and the other business was whichever came
+// first in the alphabet in that market: an insurance company was offered a
+// joint night with a hardware store whose name starts with a digit. Nobody
+// had agreed to it and it made no sense. A follow-up now talks about the
+// business it is written to and the athlete, and nothing else
+// (checkFollowUp refuses a body that carries the old lines).
 
 const suppression = require('./suppression');
 const SIG = require('./signature');
@@ -44,6 +52,12 @@ const REST_DAYS = 90;
 const LOOKBACK_DAYS = parseInt(process.env.FOLLOWUP_LOOKBACK_DAYS, 10) || 60;
 const DAY = 86400000;
 
+// The old last-touch lines (see the header). Any draft still carrying one is
+// rewritten at start-up (retireOldDrafts) and refused here.
+const OTHER_BUSINESS = /\bjoint night with\b|\bpair with another local spot\b/i;
+// A real email has a greeting, a point and a name under it.
+const MIN_WORDS = 12;
+
 let _coldBanned = [];
 try { _coldBanned = require('./coldAgent').BANNED || []; } catch (_) { _coldBanned = []; }
 const BANNED = _coldBanned.concat([
@@ -54,20 +68,25 @@ const BANNED = _coldBanned.concat([
 ]);
 
 // ── WHAT A BUSINESS OF THIS KIND COULD GET, AS A COUNT ─────────────────────
+// Whole words only, most specific first. "bar" used to match a barbershop and
+// "shop" a bookshop; an emergency vet matched nothing sensible. A kind of
+// business with no natural fit gets the plain default.
 const DELIVERABLES = [
-  [/restaurant|food|cafe|coffee|bakery|pizza|bar|grill|brew|taco|burger|bbq|dessert|ice cream/i,
-    'two Instagram posts and one in-store meet-up'],
-  [/gym|fitness|crossfit|yoga|pilates|training|martial|boxing|climb/i,
+  [/\b(salon|barber\w*|spa|beauty|nails?|lash\w*|tattoo)\b/i,
+    'one reel filmed at the shop and two story mentions'],
+  [/\b(gym|fitness|crossfit|yoga|pilates|training|martial|boxing|climbing)\b/i,
     'four short training videos filmed at the gym over a month'],
-  [/salon|barber|spa|beauty|nail|lash|tattoo/i,
-    'one before-and-after reel and two story mentions'],
-  [/auto|car|dealer|tire|detail|motor/i,
-    'one photo shoot on the lot and two posts the dealership can reuse'],
-  [/clinic|chiro|physical therapy|dental|dentist|ortho|medical|health|wellness|massage/i,
+  [/\b(dental|dentist\w*|orthodont\w*|optometr\w*|eye care|veterinar\w*|animal|pet)\b/i,
+    'two posts and one visit to the office'],
+  [/\b(clinic|chiropract\w*|physical therapy|wellness|massage|recovery)\b/i,
     'one recovery-day video at the clinic and two story mentions'],
-  [/apparel|clothing|boutique|shop|store|retail|outfit|shoe/i,
+  [/\b(auto|cars?|dealer\w*|tires?|detailing|motors?)\b/i,
+    'one photo shoot on the lot and two posts the dealership can reuse'],
+  [/\b(restaurant|food|cafe|coffee|bakery|pizza\w*|grill|brew\w*|tacos?|burgers?|bbq|dessert|ice cream|deli|diner|kitchen|eatery|bar)\b/i,
+    'two Instagram posts and one in-store meet-up'],
+  [/\b(apparel|clothing|boutique|outfitters?|shoes?|sporting goods|sportswear)\b/i,
     'three posts wearing the product and one in-store signing'],
-  [/bank|credit union|insurance|realty|real estate|law|financial/i,
+  [/\b(bank|credit union|insurance|realty|real estate|law|financial|mortgage)\b/i,
     'one appearance at a community event and two posts'],
 ];
 const DEFAULT_DELIVERABLE = 'two Instagram posts and one appearance at the business';
@@ -124,6 +143,8 @@ function checkFollowUp({ subject, body, earlier, touch }) {
   } catch (_) { /* rules unavailable */ }
   const r = reuses(body, earlier);
   if (r) problems.push(r);
+  if (OTHER_BUSINESS.test(textOf(body))) problems.push('offers a tie-in with another business nobody agreed to');
+  if (words(textOf(body)).length < MIN_WORDS) problems.push('has almost nothing in it');
   if (Number(touch) >= MAX_TOUCHES && !/tell me and i will stop/i.test(textOf(body))) problems.push('the last touch must make no easy to say');
   return problems;
 }
@@ -139,19 +160,6 @@ async function materialFor(pool, root) {
   const a = (ath && ath.data) || {};
   const agent = (await pool.query(`SELECT name, email, signature_text, scheduling_url, sign_first_name FROM users WHERE id = $1`, [root.agent_id]).catch(() => ({ rows: [] }))).rows[0] || {};
   const category = card.business_category || card.category_key || root.category_key || null;
-  // ANOTHER BUSINESS NEARBY THAT FITS THEM: same market, a different kind of
-  // business (never a competitor), one the agent has not pitched for this
-  // athlete. Offered as an idea, never as a business that has agreed to it.
-  let nearby = null;
-  if (card.market_key) {
-    const r = await pool.query(
-      `SELECT m.brand, m.category FROM market_business_seen m
-        WHERE m.market_key = $1 AND LOWER(m.brand) <> LOWER($2)
-          AND COALESCE(m.category, '') <> COALESCE($3, '') AND m.category IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM outreach_logs o WHERE o.athlete_id = $4 AND LOWER(o.brand_name) = LOWER(m.brand))
-        ORDER BY m.brand LIMIT 1`, [card.market_key, root.brand_name || '', category, root.athlete_id]).catch(() => ({ rows: [] }));
-    nearby = r.rows[0] || null;
-  }
   const first = String(card.contact_name || '').trim().split(/\s+/)[0] || null;
   return {
     contactFirst: first && /^[A-Za-z][A-Za-z'-]+$/.test(first) ? first : null,
@@ -162,7 +170,6 @@ async function materialFor(pool, root) {
       stats: a.stats ? String(a.stats).replace(/\s+/g, ' ').trim().slice(0, 140) : null,
       knownFor: a.knownFor ? String(a.knownFor).replace(/\s+/g, ' ').trim().slice(0, 140) : null },
     deliverable: deliverableFor(category, root.brand_name),
-    nearby,
     // Their "First name for sign-offs" under AGENT_SETUP_ON when set
     // (services/agentName.signOffSetting); otherwise the first word, as before.
     agentFirst: require('./agentName').signOffSetting(agent) || String(agent.name || '').split(/\s+/)[0] || null,
@@ -183,17 +190,13 @@ function linesFor(m, touch) {
       `Here is something concrete for ${m.brand}: ${m.deliverable}, with ${whoFirst} on camera and the content yours to keep.`,
       `A specific version for ${m.brand}: ${m.deliverable}. You approve every post before it goes up.`,
     ] });
-    if (fact) out.push({ key: 'season', lines: [`On the field, ${whoFirst}'s record reads: ${fact}.`, `For context on ${whoFirst}: ${fact}.`] });
+    if (fact) out.push({ key: 'season', lines: [`A bit more on ${whoFirst}: ${fact}.`, `For context on ${whoFirst}: ${fact}.`] });
     out.push({ key: 'ask', lines: ['Would a ten-minute call this week be useful?', 'Is that worth a short call?', 'Want me to send over how that would run?'] });
   } else {
-    if (m.nearby) out.push({ key: 'nearby', lines: [
-      `One more idea: a joint night with ${m.nearby.brand} nearby, where ${whoFirst} brings customers to both.`,
-      `It could also pair with another local spot, ${m.nearby.brand}, so the same appearance works for two businesses.`,
-    ] });
-    else if (fact) out.push({ key: 'season', lines: [`Worth knowing about ${whoFirst}: ${fact}.`, `${whoFirst}'s record so far: ${fact}.`] });
-    else out.push({ key: 'smaller', lines: [
-      `It can also start smaller: a single post and a visit, to see how ${m.brand}'s customers respond.`,
-      `If a full package is too much, one post and one visit is an easy first step.`,
+    // The last note: a smaller way in, and an easy no. Nothing else.
+    out.push({ key: 'smaller', lines: [
+      `Last note from me on this. If a full partnership is more than ${m.brand} wants right now, it can start small: one post and one visit from ${whoFirst}, and you see how your customers respond.`,
+      `One last thought: this can start with a single post and one visit from ${whoFirst}, nothing longer, so ${m.brand} can judge it before doing more.`,
     ] });
     out.push({ key: 'no', lines: [`If this is not for ${m.brand}, tell me and I will stop.`, 'If this is not a fit, tell me and I will stop.'] });
   }
@@ -222,7 +225,9 @@ function compose(m, touch, earlier) {
     if (smaller) chosen.unshift({ key: 'smaller', line: smaller });
   }
   const sign = m.agentFirst ? m.agentFirst : '';
-  const paras = [greet, chosen.map((c) => c.line).join(' ')];
+  // The idea, then the question (or the easy no) on a line of its own.
+  const closeKeys = new Set(['ask', 'no']);
+  const paras = [greet, chosen.filter((c) => !closeKeys.has(c.key)).map((c) => c.line).join(' '), chosen.filter((c) => closeKeys.has(c.key)).map((c) => c.line).join(' ')].filter(Boolean);
   if (sign) paras.push(sign);
   let text = paras.join('\n\n');
   text = SIG.appendText(text, m.signature);
@@ -420,6 +425,7 @@ async function run(pool, { now, agentId, gateDeps } = {}) {
   const out = { replies: 0, bounces: 0, written: [], refused: [], stopped: [], waiting: 0, notYet: 0, done: 0 };
   try { const d = await detectMailboxReplies(pool, { agentId }); out.replies = d.replies; out.bounces = d.bounces; }
   catch (e) { console.error('[followUps] mailbox scan failed:', e.message); }
+  await retireOldDrafts(pool);
   const items = await plan(pool, { now, agentId, gateDeps });
   for (const it of items) {
     if (it.stop) {
@@ -440,9 +446,22 @@ async function run(pool, { now, agentId, gateDeps } = {}) {
   return out;
 }
 
+// Follow-ups written before this rule and not yet sent: cleared, so the next
+// pass writes them again the new way. An approved one goes back to a draft.
+// Nothing that already went out is touched.
+async function retireOldDrafts(pool) {
+  const r = await pool.query(
+    `UPDATE outreach_logs SET body_html = NULL, status = 'draft', approved_at = NULL, updated_at = NOW()
+      WHERE sent_at IS NULL AND COALESCE(touch_no, 1) > 1 AND status IN ('draft', 'approved')
+        AND body_html ~* 'joint night with|pair with another local spot'`).catch((e) => { console.error('[followUps] retire old drafts:', e.message); return { rowCount: 0 }; });
+  if (r.rowCount) console.log(`[followUps] ${r.rowCount} follow-up draft(s) written the old way were cleared to be rewritten`);
+  return r.rowCount || 0;
+}
+
 // Called at send time by closer.releaseDue for any touch above 1.
 async function stopForSend(pool, log) {
   if (Number(log.touch_no || 1) <= 1 || !log.parent_id) return null;
+  if (OTHER_BUSINESS.test(textOf(log.body_html))) return 'this follow-up was written the old way and is being rewritten';
   const root = (await pool.query(`SELECT * FROM outreach_logs WHERE id = $1`, [log.parent_id])).rows[0];
   if (!root) return 'the first email is gone';
   const chain = await chainOf(pool, root.id);
@@ -473,5 +492,5 @@ function historyOf(chain, now) {
 module.exports = {
   GAP_DAYS, MAX_TOUCHES, REST_DAYS, LOOKBACK_DAYS, BANNED,
   deliverableFor, textOf, reuses, checkFollowUp, materialFor, compose, subjectFor,
-  chainOf, stopReason, isHold, detectMailboxReplies, plan, prepare, run, stopForSend, historyOf,
+  chainOf, stopReason, isHold, retireOldDrafts, OTHER_BUSINESS, MIN_WORDS, detectMailboxReplies, plan, prepare, run, stopForSend, historyOf,
 };

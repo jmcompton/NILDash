@@ -137,7 +137,18 @@ const FIRST = '<p>Hi Pat,</p><p>Here is something concrete for FU Bakery: two In
   ok('touch 3 is written 7 days after touch 2', run3.written.some((w) => w.id === due + '-t3') && t3 && Number(t3.touch_no) === 3, run3);
   const body3 = FUP.textOf(t3 && t3.body_html);
   ok('  the last touch is the easiest to say no to', /tell me and I will stop/i.test(body3) && /\(last note\)$/.test(t3.subject), body3);
-  ok('  and adds something new again: another business nearby, as an idea', /FU Climbing Gym/.test(body3), body3);
+  ok('  and adds something new again: a smaller way to start', /one post and one visit/.test(body3), body3);
+  ok('  IT NAMES NO OTHER BUSINESS: the market holds a climbing gym, and the follow-up does not offer a night with it', !/FU Climbing Gym/.test(body3) && !/joint night|another local spot/i.test(body3), body3);
+  ok('  a body carrying the old tie-in line is refused, and so is a near-empty one', FUP.checkFollowUp({ subject: 'Re: x', body: '<p>Hi Pat,</p><p>One more idea: a joint night with 10th Street Hardware nearby, where Fay brings customers to both. If this is not for you, tell me and I will stop.</p>', earlier: [], touch: 3 }).some((p) => /another business/.test(p))
+    && FUP.checkFollowUp({ subject: 'Re: x', body: '<p>Hi,</p><p>Jo</p>', earlier: [], touch: 2 }).some((p) => /almost nothing/.test(p)));
+  ok('  the offer fits the kind of business, by whole words', /reel filmed at the shop/.test(FUP.deliverableFor('', "Floyd's Barbershop")) && FUP.deliverableFor('', 'Hakim\'s Bookstore and Gift Shop') === 'two Instagram posts and one appearance at the business'
+    && /visit to the office/.test(FUP.deliverableFor('', 'Davis Dental')) && /in-store meet-up/.test(FUP.deliverableFor('', 'Vent Coffee Roasters')));
+  // A draft written the old way and not yet sent is cleared and written again.
+  await P.query(`UPDATE outreach_logs SET body_html = '<p>Hi Pat,</p><p>One more idea: a joint night with 10th Street Hardware nearby, where Fay brings customers to both. If this is not for FU Bakery, tell me and I will stop.</p>', status = 'approved', approved_at = NOW() WHERE id = $1`, [due + '-t3']);
+  ok('  an old-style draft is refused at send', /old way/.test(await FUP.stopForSend(P, (await P.query(`SELECT * FROM outreach_logs WHERE id = $1`, [due + '-t3'])).rows[0]) || ''));
+  const rerun = await FUP.run(P, { agentId: AG });
+  const t3b = (await P.query(`SELECT * FROM outreach_logs WHERE id = $1`, [due + '-t3'])).rows[0];
+  ok('  and is rewritten the new way, back as a draft to approve', rerun.written.some((w) => w.id === due + '-t3') && t3b.status === 'draft' && !t3b.approved_at && /one post and one visit/.test(FUP.textOf(t3b.body_html)) && !/joint night/.test(t3b.body_html), [rerun.written, t3b.status]);
   ok('  reusing neither earlier touch', !FUP.reuses(t3.body_html, [FIRST, (await P.query(`SELECT body_html FROM outreach_logs WHERE id = $1`, [due + '-t2'])).rows[0].body_html]));
   await P.query(`UPDATE outreach_logs SET status = 'sent', sent_at = NOW() - INTERVAL '1 day', approved_at = NOW() - INTERVAL '1 day' WHERE id = $1`, [due + '-t3']);
   await P.query(`UPDATE outreach_logs SET sent_at = NOW() - INTERVAL '9 days' WHERE id = $1`, [due + '-t2']);
