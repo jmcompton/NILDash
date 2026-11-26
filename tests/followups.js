@@ -1,4 +1,8 @@
 'use strict';
+// This file is about when a follow-up is written and how it is sent. The writer
+// and the founder's approval have their own (tests/founderreview.js).
+process.env.FOLLOWUP_AI = 'off';
+process.env.FOUNDER_REVIEW = 'off';
 // Runs against the local test Postgres. No network.
 //
 //   node tests/run.js           every suite, against the committed baseline

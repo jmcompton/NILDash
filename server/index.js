@@ -610,14 +610,6 @@ app.get('/api/admin/clients', async (req, res) => {
     res.set('Cache-Control', 'no-store').json({ workingAs: cur, clients: list });
   } catch (e) { console.error('[admin/clients]', e.message); res.status(500).json({ error: 'Could not load the client accounts.' }); }
 });
-// Why so few replies (services/replyAudit): counts and rates only, admin only.
-app.get('/api/admin/reply-audit', requireAuth, async (req, res) => {
-  try {
-    if (!(await _realAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
-    res.set('Cache-Control', 'no-store').json(await require('./services/replyAudit').report(store.pool));
-  } catch (e) { console.error('[reply-audit]', e.message); res.status(500).json({ error: 'Could not build the report.' }); }
-});
-
 // ── THE FOUNDER'S CRM (services/founderCrm) ─────────────────────────────────
 // His own sales pipeline: who to follow up with today, one-tap call logging,
 // reminders. Admin only: the gate above covers /admin and /api/admin, and
@@ -13622,6 +13614,38 @@ app.post('/api/deals/undo', requireAuth, async (req, res) => {
 app.get('/api/deals/recent', requireAuth, async (req, res) => {
   try { res.json({ rows: await require('./services/dealLog').recentFor(store.pool, req.session.userId, req.query.limit) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── FOLLOW-UPS WAIT FOR THE FOUNDER (services/founderReview) ────────────────
+// GET  /admin/follow-ups                       the page
+// GET  /api/admin/follow-ups                   every follow-up waiting on him, with its thread
+// POST /api/admin/follow-ups/:id/approve       {body?}  his edit, held to the same rules
+// POST /api/admin/follow-ups/:id/rewrite       the writer writes it again
+// POST /api/admin/follow-ups/:id/skip          that sequence is over
+{
+  const FR = () => require('./services/founderReview');
+  const gate = (fn) => async (req, res) => {
+    try {
+      if (!(await _realAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+      await fn(req, res);
+    } catch (e) { console.error('[follow-ups]', req.method, req.path, e.message); if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Try again.' }); }
+  };
+  const out = (res, r) => (r.ok ? res.json(r) : res.status(r.status || 400).json({ error: r.error }));
+  app.get('/admin/follow-ups', requireAuth, gate(async (req, res) => { res.set('Cache-Control', 'no-store'); res.sendFile(path.join(__dirname, 'pages', 'followups.html')); }));
+  app.get('/api/admin/follow-ups', requireAuth, gate(async (req, res) => { const items = await FR().list(store.pool); res.set('Cache-Control', 'no-store').json({ items, count: items.length }); }));
+  app.post('/api/admin/follow-ups/:id/approve', requireAuth, gate(async (req, res) => out(res, await FR().approve(store.pool, req.params.id, req.body || {}))));
+  app.post('/api/admin/follow-ups/:id/rewrite', requireAuth, gate(async (req, res) => out(res, await FR().rewrite(store.pool, req.params.id))));
+  app.post('/api/admin/follow-ups/:id/skip', requireAuth, gate(async (req, res) => out(res, await FR().skip(store.pool, req.params.id))));
+  // Follow-ups written before this rule come back for him at start-up, not an hour later.
+  setTimeout(() => { FR().pullBack(store.pool).catch((e) => console.error('[follow-ups] pull back:', e.message)); }, 50000);
+}
+
+// Why so few replies (services/replyAudit): counts and rates only, admin only.
+app.get('/api/admin/reply-audit', requireAuth, async (req, res) => {
+  try {
+    if (!(await _realAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+    res.set('Cache-Control', 'no-store').json(await require('./services/replyAudit').report(store.pool));
+  } catch (e) { console.error('[reply-audit]', e.message); res.status(500).json({ error: 'Could not build the report.' }); }
 });
 
 // ── THE AGENT'S CRM (services/crm, CRM_ON) ─────────────────────────────────

@@ -354,6 +354,18 @@ async function alertsDue(pool, { now = new Date(), to } = {}) {
   if (minutes >= MORNING_AT && (t.overdue.length || t.today.length) && await claim(pool, `morning:${date}`)) {
     out.push({ kind: 'morning', to, msg: morningEmail(t) });
   }
+  // FOLLOW-UPS WAITING ON HIM (services/founderReview): nothing goes to a
+  // business until he approves, so he is told, morning and mid-afternoon.
+  try {
+    const n = await require('./founderReview').count(pool);
+    const slot = minutes >= 15 * 60 ? 'pm' : minutes >= MORNING_AT ? 'am' : null;
+    if (n > 0 && slot && await claim(pool, `followups:${date}:${slot}`)) {
+      const link = APP_URL() + '/admin/follow-ups';
+      const line = `${n} follow-up${n === 1 ? ' is' : 's are'} waiting for you to approve. Nothing goes to a business until you do.`;
+      out.push({ kind: 'followups', to, msg: { subject: `${n} follow-up${n === 1 ? '' : 's'} to approve`, text: `${line}\n\n${link}\n`,
+        html: `<p>${line}</p><p><a href="${link}">Open the follow-ups</a></p>` } });
+    }
+  } catch (e) { console.error('[crm] follow-up notice:', e.message); }
   for (const c of t.today) {
     if (!c.dueTime) continue;
     const [h, m] = c.dueTime.split(':').map(Number);

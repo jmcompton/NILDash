@@ -1,4 +1,8 @@
 'use strict';
+// This file is about when a follow-up is written and how it is sent. The writer
+// and the founder's approval have their own (tests/founderreview.js).
+process.env.FOLLOWUP_AI = 'off';
+process.env.FOUNDER_REVIEW = 'off';
 // Moved out of a session scratchpad, which is reclaimed when the session ends.
 // Normalised so it runs from a checkout on any machine: repo-relative paths,
 // overridable Postgres settings, an overridable Chromium, and a startup wait the

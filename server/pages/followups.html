@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Follow-ups to approve</title>
+<meta name="robots" content="noindex,nofollow">
+<!-- Every follow-up waits here for the founder (services/founderReview).
+     Admin only. Text reaches the page through textContent, never as HTML. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap">
+<style>
+:root { --bg:#F1F4F2; --panel:#FFFFFF; --panel-2:#F5F8F6; --line:#DCE3DE; --line-2:#C9D3CC; --fg:#14211A; --muted:#5E7066; --accent:#1F8A55; --accent-soft:#E3F3EA; --accent-ink:#FFFFFF;
+  --bar:#0F1A14; --bar-fg:#EAF2EC; --bar-accent:#4CC283; --late:#B4422B; --late-soft:#FBE7E2; --info:#2F6DB5; --info-soft:#E5EEF9; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0F1A14; --panel:#15231B; --panel-2:#1B2C22; --line:#2A3D31; --line-2:#36503F; --fg:#EAF2EC; --muted:#9AB0A2; --accent:#4CC283; --accent-soft:#1D3A2A; --accent-ink:#0F1A14;
+  --bar:#0A120D; --late:#EF7A62; --late-soft:#3D211B; --info:#7FB0EA; --info-soft:#1B2B3F; color-scheme: dark; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 'Inter', system-ui, -apple-system, sans-serif; min-height: 100vh; }
+button, textarea { font: inherit; color: inherit; }
+.pad { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.appbar { background: var(--bar); color: var(--bar-fg); display: flex; align-items: center; gap: 14px; min-height: 54px; padding-top: env(safe-area-inset-top, 0px); }
+.brand { font-family: 'Space Grotesk', 'Inter', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: .4px; }
+.brand span { color: var(--bar-accent); } .brand em { font-style: normal; font-weight: 600; opacity: .7; margin-left: 6px; font-size: 14px; }
+.appbar a { margin-left: auto; color: var(--bar-fg); opacity: .8; text-decoration: none; font-weight: 600; font-size: 13px; }
+.appbar a + a { margin-left: 0; }
+main { max-width: 860px; margin: 0 auto; padding-block: 20px 80px; }
+h1 { font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 24px; margin: 0 0 4px; }
+.lede { color: var(--muted); margin: 0 0 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+.head { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.head b { font-size: 15px; }
+.muted { color: var(--muted); }
+.pill { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 5px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+.pill.dfy { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.pill.last { background: var(--late-soft); color: var(--late); border-color: transparent; }
+.meta { padding: 8px 16px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+details { border-bottom: 1px solid var(--line); }
+summary { padding: 9px 16px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+.earlier { padding: 0 16px 12px; }
+.earlier .em { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.earlier .em small { display: block; color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+.body { padding: 12px 16px; }
+.body label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+textarea { width: 100%; min-height: 190px; border: 1px solid var(--line-2); background: var(--panel); border-radius: 8px; padding: 10px 12px; line-height: 1.55; resize: vertical; field-sizing: content; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.btn { font-weight: 600; font-size: 13px; border: 1px solid var(--line-2); background: var(--panel); color: var(--fg); border-radius: 7px; padding: 8px 14px; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn:disabled { opacity: .55; cursor: default; }
+.msg { font-size: 13px; color: var(--muted); } .msg.err { color: var(--late); } .msg.ok { color: var(--accent); font-weight: 600; }
+.empty { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 28px 16px; text-align: center; color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="appbar pad">
+  <div class="brand">NIL<span>DASH</span><em>Follow-ups</em></div>
+  <a href="/admin/crm">CRM</a><a href="/app">Back to NILDash</a>
+</div>
+<main class="pad">
+  <h1>Follow-ups to approve</h1>
+  <p class="lede" id="lede">Loading…</p>
+  <div id="list"></div>
+</main>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const day = (s) => { const d = new Date(s); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
+  async function api(method, path, body) {
+    const r = await fetch('/api/admin/follow-ups' + path, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    if (r.status === 401) { location.href = '/app'; throw new Error('signed out'); }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'That did not work. Try again.');
+    return j;
+  }
+  let left = 0;
+  function lede() {
+    $('lede').textContent = left ? left + (left === 1 ? ' follow-up is' : ' follow-ups are') + ' waiting on you. Nothing here reaches a business until you approve it.'
+      : 'Nothing is waiting on you. New follow-ups show up here as they are written.';
+    if (!left && !$('list').querySelector('.card')) { $('list').textContent = ''; $('list').appendChild(el('div', 'empty', 'All clear.')); }
+  }
+  function card(it) {
+    const c = el('section', 'card');
+    const h = el('div', 'head');
+    h.appendChild(el('b', '', it.business || 'A business'));
+    h.appendChild(el('span', 'muted', 'for ' + (it.athlete || 'an athlete')));
+    h.appendChild(el('span', 'pill' + (it.last ? ' last' : ''), it.last ? 'Last email (3 of 3)' : 'Email ' + it.touch + ' of 3'));
+    if (it.managed) h.appendChild(el('span', 'pill dfy', 'Done for you'));
+    c.appendChild(h);
+    c.appendChild(el('div', 'meta', 'From ' + (it.agent || 'the agent') + ' to ' + (it.to || 'no address') + ' · ' + it.subject + ' · written by ' + it.writtenBy));
+    const d = el('details'); d.appendChild(el('summary', '', 'What they have already been sent (' + it.earlier.length + ')'));
+    const ew = el('div', 'earlier');
+    it.earlier.forEach((e) => { const m = el('div', 'em'); m.appendChild(el('small', '', (e.touch === 1 ? 'First email' : 'Email ' + e.touch) + ', sent ' + day(e.sentAt))); m.appendChild(document.createTextNode(e.body)); ew.appendChild(m); });
+    if (!it.earlier.length) ew.appendChild(el('div', 'em', 'Nothing on file.'));
+    d.appendChild(ew); c.appendChild(d);
+    const b = el('div', 'body');
+    b.appendChild(el('label', '', 'The follow-up. Edit it if you want.'));
+    const ta = el('textarea'); ta.value = it.body; ta.setAttribute('aria-label', 'Follow-up to ' + (it.business || 'the business')); b.appendChild(ta);
+    const row = el('div', 'row');
+    const ok = el('button', 'btn primary', it.managed ? 'Approve and send' : 'Approve'); ok.type = 'button';
+    const re = el('button', 'btn', 'Write it again'); re.type = 'button';
+    const sk = el('button', 'btn ghost', 'Skip this one'); sk.type = 'button';
+    const msg = el('span', 'msg'); msg.setAttribute('role', 'status');
+    const busy = (on) => { [ok, re, sk].forEach((x) => { x.disabled = on; }); };
+    const say = (t, kind) => { msg.textContent = t; msg.className = 'msg' + (kind ? ' ' + kind : ''); };
+    const done = (t) => { c.textContent = ''; const m = el('div', 'meta'); m.textContent = (it.business || 'That one') + ': ' + t; c.appendChild(m); left = Math.max(0, left - 1); lede(); };
+    ok.onclick = async () => { busy(true); say('Saving…'); try { const r = await api('POST', '/' + encodeURIComponent(it.id) + '/approve', { body: ta.value }); done(r.next === 'approved to send' ? 'approved. It sends from ' + (it.agent || 'the agent') + "'s mailbox." : 'approved. Now ' + r.next + '.'); } catch (e) { busy(false); say(e.message, 'err'); } };
+    re.onclick = async () => { busy(true); say('Writing it again…'); try { const r = await api('POST', '/' + encodeURIComponent(it.id) + '/rewrite'); ta.value = r.body; say('Rewritten. Read it before you approve.', 'ok'); } catch (e) { say(e.message, 'err'); } busy(false); };
+    let armed = false;
+    sk.onclick = async () => { if (!armed) { armed = true; sk.textContent = 'Tap again to skip (no more emails to them)'; return; } busy(true); try { await api('POST', '/' + encodeURIComponent(it.id) + '/skip'); done('skipped. No more emails go to them.'); } catch (e) { busy(false); say(e.message, 'err'); } };
+    row.appendChild(ok); row.appendChild(re); row.appendChild(sk); row.appendChild(msg); b.appendChild(row);
+    c.appendChild(b);
+    return c;
+  }
+  (async () => {
+    try {
+      const j = await api('GET', '');
+      left = j.items.length; $('list').textContent = '';
+      j.items.forEach((it) => $('list').appendChild(card(it)));
+      lede();
+    } catch (e) { $('lede').textContent = "Can't load the follow-ups. Reload the page."; }
+  })();
+})();
+</script>
+</body>
+</html>

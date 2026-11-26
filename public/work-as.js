@@ -58,6 +58,13 @@
       + 'color:var(--text);font-size:12px;font-weight:600;text-align:center;text-decoration:none;font-family:inherit', 'My CRM');
     c.id = 'waCrm'; c.href = '/admin/crm';
     anchor.parentNode.insertBefore(c, anchor);
+    // Follow-ups wait for him before they go anywhere (services/founderReview).
+    var f = el('a', c.style.cssText, 'Follow-ups to approve');
+    f.id = 'waFu'; f.href = '/admin/follow-ups';
+    anchor.parentNode.insertBefore(f, anchor);
+    fetch('/api/admin/follow-ups', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (d && d.count) { f.textContent = 'Follow-ups to approve (' + d.count + ')'; f.style.borderColor = '#C8F135'; f.style.color = '#C8F135'; }
+    }).catch(function () {});
   }
 
   function closeList() { var m = document.getElementById('waModal'); if (m) m.remove(); }

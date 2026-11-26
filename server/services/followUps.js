@@ -381,24 +381,31 @@ async function plan(pool, { now, agentId, gateDeps } = {}) {
     const wrongStop = !!(pending && pending.cadence_stopped_at && !pending.sent_at && /address was never verified \(no check on record\)/.test(pending.cadence_stop_reason || ''));
     if (!wrongStop && pending && pending.cadence_stopped_at && pending.body_html) { out.push({ root, next, dueAt, done: 'stopped: ' + (pending.cadence_stop_reason || ''), pending }); continue; }
     // Written and waiting on the agent (or approved and on its way).
-    if (!wrongStop && pending && pending.body_html && ['draft', 'approved'].includes(pending.status)) { out.push({ root, next, dueAt, waiting: true, pending }); continue; }
+    if (!wrongStop && pending && pending.body_html && ['draft', 'approved', 'founder_review'].includes(pending.status)) { out.push({ root, next, dueAt, waiting: true, pending }); continue; }
     out.push({ root, next, dueAt, due: dueAt.getTime() <= t.getTime(), pending, chain });
   }
   return out;
 }
 
 // ── WRITE THE DUE ONES ──────────────────────────────────────────────────────
-async function prepare(pool, item, { now } = {}) {
+async function prepare(pool, item, { now, aiDeps } = {}) {
   const { root, next } = item;
   const chain = item.chain || await chainOf(pool, root.id);
   const earlier = chain.filter((c) => c.sent_at).map((c) => c.body_html);
   const m = await materialFor(pool, root);
-  const body = compose(m, next, earlier);
   const subject = subjectFor(root.subject, next);
+  // THE WRITER FIRST (services/followUpWriter): it is given the whole thread
+  // and writes for this business. Held to every rule below; the fixed wording
+  // is what goes in when it cannot clear them.
+  const W = require('./followUpWriter');
+  const ai = await W.write(m, next, earlier.map(textOf), { ...(aiDeps || {}),
+    check: (html) => checkFollowUp({ subject, body: html, earlier, touch: next }) }).catch((e) => { console.error('[followUps] writer:', e.message); return null; });
+  const body = ai || compose(m, next, earlier);
   const problems = checkFollowUp({ subject, body: body.html, earlier, touch: next });
   if (!body.material.some((k) => k !== 'ask' && k !== 'no')) problems.push('nothing new to say that the earlier emails did not');
   if (problems.length) return { ok: false, root: root.id, why: problems.join('; ') };
   const id = `${root.id}-t${next}`;
+  await require('./founderReview').ensureColumns(pool);
   // created_at is NOW, so the 7-day draft expiry counts from when the agent
   // could first see it, not from the first send.
   await pool.query(
@@ -406,25 +413,31 @@ async function prepare(pool, item, { now } = {}) {
        (id, agent_id, athlete_id, brand_name, brand_key, contact_id, enrichment_id,
         subject, body_html, status, touch_no, parent_id, sent_to_email,
         angle, angle_key, category_key, next_follow_up_at, source, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10,$11,$12,$13,$14,$15,$16,'follow-up',$17,$17)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$18,$10,$11,$12,$13,$14,$15,$16,'follow-up',$17,$17)
      ON CONFLICT (id) DO UPDATE
-       SET subject = EXCLUDED.subject, body_html = EXCLUDED.body_html, status = 'draft',
+       SET subject = EXCLUDED.subject, body_html = EXCLUDED.body_html, status = EXCLUDED.status, founder_ok_at = NULL,
+           angle_key = EXCLUDED.angle_key,
            next_follow_up_at = EXCLUDED.next_follow_up_at, source = 'follow-up',
            created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at,
            cadence_stopped_at = NULL, cadence_stop_reason = NULL, approved_at = NULL
      WHERE outreach_logs.sent_at IS NULL`,
     [id, root.agent_id, root.athlete_id, root.brand_name, root.brand_key, root.contact_id, root.enrichment_id,
       subject, body.html, next, root.id, root.sent_to_email, 'follow-up', 'follow-up-' + body.material.join('+'),
-      root.category_key, item.dueAt || new Date(), now ? new Date(now) : new Date()]);
+      root.category_key, item.dueAt || new Date(), now ? new Date(now) : new Date(),
+      // NOTHING REACHES THE AGENT'S QUEUE, AUTO-SEND OR THE SEND LOOP until the
+      // founder has approved it (services/founderReview). FOUNDER_REVIEW=off
+      // puts it back to an ordinary draft.
+      require('./founderReview').ON() ? 'founder_review' : 'draft']);
   return { ok: true, id, touch: next, material: body.material };
 }
 
 // The whole pass: match replies, then write what is due. Run by the hourly
 // poller (followUpAutomation) and on demand from admin.
-async function run(pool, { now, agentId, gateDeps } = {}) {
+async function run(pool, { now, agentId, gateDeps, aiDeps } = {}) {
   const out = { replies: 0, bounces: 0, written: [], refused: [], stopped: [], waiting: 0, notYet: 0, done: 0 };
   try { const d = await detectMailboxReplies(pool, { agentId }); out.replies = d.replies; out.bounces = d.bounces; }
   catch (e) { console.error('[followUps] mailbox scan failed:', e.message); }
+  await require('./founderReview').pullBack(pool).catch((e) => console.error('[followUps] pull back:', e.message));
   await retireOldDrafts(pool);
   const items = await plan(pool, { now, agentId, gateDeps });
   for (const it of items) {
@@ -436,7 +449,7 @@ async function run(pool, { now, agentId, gateDeps } = {}) {
     if (it.done) { out.done++; continue; }
     if (it.waiting) { out.waiting++; continue; }
     if (!it.due) { out.notYet++; continue; }
-    const r = await prepare(pool, it, { now }).catch((e) => ({ ok: false, root: it.root.id, why: 'our failure: ' + e.message }));
+    const r = await prepare(pool, it, { now, aiDeps }).catch((e) => ({ ok: false, root: it.root.id, why: 'our failure: ' + e.message }));
     if (r.ok) out.written.push({ id: r.id, brand: it.root.brand_name, touch: r.touch, material: r.material });
     else out.refused.push({ root: it.root.id, brand: it.root.brand_name, why: r.why });
   }
@@ -452,7 +465,7 @@ async function run(pool, { now, agentId, gateDeps } = {}) {
 async function retireOldDrafts(pool) {
   const r = await pool.query(
     `UPDATE outreach_logs SET body_html = NULL, status = 'draft', approved_at = NULL, updated_at = NOW()
-      WHERE sent_at IS NULL AND COALESCE(touch_no, 1) > 1 AND status IN ('draft', 'approved')
+      WHERE sent_at IS NULL AND COALESCE(touch_no, 1) > 1 AND status IN ('draft', 'approved', 'founder_review')
         AND body_html ~* 'joint night with|pair with another local spot'`).catch((e) => { console.error('[followUps] retire old drafts:', e.message); return { rowCount: 0 }; });
   if (r.rowCount) console.log(`[followUps] ${r.rowCount} follow-up draft(s) written the old way were cleared to be rewritten`);
   return r.rowCount || 0;
