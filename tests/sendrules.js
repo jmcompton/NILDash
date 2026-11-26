@@ -1,4 +1,8 @@
 'use strict';
+// This file is about the send rules. The writer and the founder's approval
+// have their own (tests/founderreview.js).
+process.env.FOLLOWUP_AI = 'off';
+process.env.FOUNDER_REVIEW = 'off';
 // Runs from a checkout on any machine against the local test Postgres.
 //
 //   node tests/run.js              every suite, against the committed baseline

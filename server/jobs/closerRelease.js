@@ -100,7 +100,7 @@ function buildSend(pool, cache, { dry }) {
     // NEVER A BLANK EMAIL. A row with no body (the old follow-up placeholder,
     // or a draft cleared to be rewritten) is not something to send.
     { const t = String(log.body_html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').trim();
-      if (t.split(/\s+/).filter(Boolean).length < 8) { const e = new Error('the email has no body, so it was not sent'); e.code = 'EMPTY_BODY'; e.permanent = true; throw e; } }
+      if (t.split(/\s+/).filter(Boolean).length < 3) { const e = new Error('the email has no body, so it was not sent'); e.code = 'EMPTY_BODY'; e.permanent = true; throw e; } }
 
     // Ours and the agent's own mailbox: the answer lands in their inbox too
     // (services/replyCapture.replyToWithMailbox).
