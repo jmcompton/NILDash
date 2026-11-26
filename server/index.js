@@ -610,6 +610,14 @@ app.get('/api/admin/clients', async (req, res) => {
     res.set('Cache-Control', 'no-store').json({ workingAs: cur, clients: list });
   } catch (e) { console.error('[admin/clients]', e.message); res.status(500).json({ error: 'Could not load the client accounts.' }); }
 });
+// Why so few replies (services/replyAudit): counts and rates only, admin only.
+app.get('/api/admin/reply-audit', requireAuth, async (req, res) => {
+  try {
+    if (!(await _realAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+    res.set('Cache-Control', 'no-store').json(await require('./services/replyAudit').report(store.pool));
+  } catch (e) { console.error('[reply-audit]', e.message); res.status(500).json({ error: 'Could not build the report.' }); }
+});
+
 // ── THE FOUNDER'S CRM (services/founderCrm) ─────────────────────────────────
 // His own sales pipeline: who to follow up with today, one-tap call logging,
 // reminders. Admin only: the gate above covers /admin and /api/admin, and
