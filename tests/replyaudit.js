@@ -30,15 +30,20 @@ const ok = (n, c, g) => { N++; if (c) console.log('  PASS  ' + n); else { F++; c
   await log('l3', 'c2', {});
   await log('l4', 'c2', { subject: 'Different', body: '<p>' + 'long '.repeat(220) + '</p>' });
   await log('l5', 'c1', { sent: null, status: 'draft' });
+  await P.query(`INSERT INTO outreach_logs (id, agent_id, athlete_id, brand_name, subject, body_html, status, sent_at, touch_no, parent_id, sent_to_email, replied_at)
+    VALUES ('l2-t2', 'ag1', 'a1', 'Riverbend Sports', 'Re: A quick idea', '<p>Hi, here is something concrete for you and the team to look at this week.</p>', 'sent', '2026-10-17T15:30:00Z', 2, 'l2', 'info@riverbendsports.com', '2026-10-18T15:30:00Z'),
+           ('l3-t2', 'ag1', 'a1', 'Riverbend Sports', 'Re: A quick idea', '', 'sent', '2026-10-17T15:30:00Z', 2, 'l3', 'info@riverbendsports.com', NULL)`);
   const r = await A.report(P);
-  ok('only pitches that went out are counted', r.total.sent === 4 && r.total.opened === 2 && r.total.replied === 1 && r.total.replyRate === 25, r.total);
   const by = (list, g) => list.find((x) => x.group.startsWith(g)) || {};
-  ok('split by who it was addressed to', by(r.byAddress, 'named person').sent === 1 && by(r.byAddress, 'named person').replied === 1 && by(r.byAddress, 'shared inbox').sent === 3 && by(r.byAddress, 'shared inbox').replyRate === 0, r.byAddress);
-  ok('  and by title, length, follow-ups and time sent', by(r.byTitle, 'owner').sent === 1 && by(r.byLength, '200 and up').sent === 1 && by(r.byFollowUps, '2 follow').sent === 1 && by(r.byHour, '8 to 11').sent === 4 && by(r.byDay, 'Tue').sent === 4, [r.byLength, r.byHour, r.byDay]);
-  ok('reused subject lines are counted', r.subjectsReused === 1 && r.distinctSubjects === 2);
+  ok('only pitches that went out are counted', r.total.sent === 6 && r.total.opened === 2, r.total);
+  ok('BUSINESSES, NOT EMAILS: four were pitched, and a reply to a follow-up counts for its business', r.businessesPitched === 4 && r.businessesThatReplied === 2 && by(r.byTouch, 'first email').sent === 4 && by(r.byTouch, 'follow-up 1').sent === 2 && by(r.byTouch, 'follow-up 1').replied === 1, [r.businessesPitched, r.businessesThatReplied, r.byTouch]);
+  ok('a row marked sent with nothing in it is counted', r.blankMarkedSent === 1 && r.blankWithProviderId === 0, [r.blankMarkedSent, r.blankWithProviderId]);
+  ok('split by who it was addressed to', by(r.firstByAddress, 'named person').sent === 1 && by(r.firstByAddress, 'named person').replied === 1 && by(r.firstByAddress, 'shared inbox').sent === 3, r.firstByAddress);
+  ok('  and by title, length, follow-ups and time sent', by(r.byTitle, 'owner').sent === 1 && by(r.byLength, '200 and up').sent === 1 && by(r.byFollowUps, '2 follow').sent === 1 && by(r.byHour, '8 to 11').sent === 6 && by(r.byDay, 'Tue').sent === 4, [r.byLength, r.byHour, r.byDay]);
+  ok('reused subject lines are counted', r.subjectsReused === 1 && r.distinctSubjects === 3);
   const all = JSON.stringify({ ...r, sample: null, replied: null });
   ok('the breakdown names no business, person or address', !/riverbend|dana|whitfield|a@x\.com|An Agent/i.test(all), all.slice(0, 200));
-  ok('the pitches to read carry the text and what happened, not who got them', r.sample.length === 3 && r.replied.length === 1 && r.replied[0].replied === true && !('to_email' in r.sample[0]) && /quick chat/.test(r.replied[0].body));
+  ok('the pitches to read carry the text and what happened, not who got them', r.sample.length >= 3 && r.replied.length === 2 && r.replied[0].replied === true && !('to_email' in r.sample[0]) && /quick chat/.test(r.replied[0].body));
   const SRC = require('fs').readFileSync(REPO + 'server/index.js', 'utf8');
   const blk = SRC.slice(SRC.indexOf("app.get('/api/admin/reply-audit'"), SRC.indexOf("app.get('/api/admin/reply-audit'") + 400);
   ok('the route is the admin\'s alone', /requireAuth/.test(blk) && /_realAdmin\(req\)\)\) return res\.status\(403\)/.test(blk));

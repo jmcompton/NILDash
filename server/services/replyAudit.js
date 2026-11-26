@@ -36,12 +36,21 @@ function tally(rows, keyOf) {
 async function report(pool, { tz = 'America/Chicago' } = {}) {
   const rows = (await pool.query(`
     SELECT l.id, l.agent_id, l.status, l.subject, l.body_html, l.sent_at, l.opened_at, l.replied_at, l.follow_up_count, l.deck_id,
-           c.email AS to_email, c.name AS to_name, c.title AS to_title, c.source AS contact_source, c.confidence_score, c.contact_type,
+           COALESCE(l.touch_no, 1) AS touch, l.parent_id, (l.email_message_id IS NOT NULL) AS has_message_id,
+           COALESCE(NULLIF(l.sent_to_email, ''), c.email) AS to_email,
+           COALESCE(c.name, (SELECT q.contact_name FROM outreach_queue q WHERE q.outreach_log_id = COALESCE(l.parent_id, l.id) ORDER BY q.id DESC LIMIT 1)) AS to_name,
+           c.title AS to_title, c.source AS contact_source, c.confidence_score, c.contact_type,
            EXTRACT(HOUR FROM (l.sent_at AT TIME ZONE $1))::int AS hr, EXTRACT(ISODOW FROM (l.sent_at AT TIME ZONE $1))::int AS dow
     FROM outreach_logs l LEFT JOIN brand_contacts c ON c.id = l.contact_id
     WHERE l.sent_at IS NOT NULL`, [tz])).rows;
   for (const r of rows) { r.text = text(r.body_html); r.words = words(r.text); }
   const agents = new Map((await pool.query(`SELECT id FROM users`)).rows.map((u, i) => [u.id, 'Agent ' + (i + 1)]));
+  // A reply to any email in a thread is a reply to the business, so a thread
+  // (the first email and its follow-ups) is what gets counted as answered.
+  const rootOf = (r) => r.parent_id || r.id;
+  const answered = new Set(rows.filter((r) => r.replied_at || r.status === 'replied').map(rootOf));
+  const firsts = rows.filter((r) => Number(r.touch) === 1 && !r.parent_id);
+  const blank = rows.filter((r) => r.words < 8);
   const total = tally(rows, () => 'all')[0] || { sent: 0, opened: 0, replied: 0, openRate: 0, replyRate: 0 };
   const band = (n, edges, labels) => { for (let i = 0; i < edges.length; i++) if (n < edges[i]) return labels[i]; return labels[labels.length - 1]; };
   // The same subject line reused many times reads as a mail merge.
@@ -50,6 +59,15 @@ async function report(pool, { tz = 'America/Chicago' } = {}) {
     .map((r) => ({ subject: r.subject, words: r.words, opened: !!r.opened_at, replied: !!(r.replied_at || r.status === 'replied'), to: addressKind(r.to_email), toTitle: r.to_title || null, followUps: r.follow_up_count || 0, body: r.text.slice(0, 2500) }));
   return {
     total,
+    businessesPitched: firsts.length,
+    businessesThatReplied: firsts.filter((r) => answered.has(r.id)).length,
+    byTouch: tally(rows, (r) => (Number(r.touch) === 1 ? 'first email' : 'follow-up ' + (Number(r.touch) - 1))),
+    // Rows marked sent with nothing in them, and how many of those a mail
+    // provider actually accepted (a message id came back).
+    blankMarkedSent: blank.length,
+    blankWithProviderId: blank.filter((r) => r.has_message_id).length,
+    firstByAddress: tally(firsts, (r) => addressKind(r.to_email)),
+    firstByHasName: tally(firsts, (r) => (String(r.to_name || '').trim() ? 'addressed to a person by name' : 'no name')),
     firstSent: rows.reduce((m, r) => (!m || r.sent_at < m ? r.sent_at : m), null),
     lastSent: rows.reduce((m, r) => (!m || r.sent_at > m ? r.sent_at : m), null),
     byAddress: tally(rows, (r) => addressKind(r.to_email)),
