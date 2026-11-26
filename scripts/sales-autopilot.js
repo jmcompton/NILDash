@@ -12,6 +12,7 @@
 //     10 schools) with verified addresses, each email in full, and what would
 //     send on day 1. NOTHING IS SENT, whatever the switches say.
 //   /api/admin/scripts/sales-autopilot?text=1&plan=1     the next sending day's plan
+//   /api/admin/scripts/sales-autopilot?text=1&pause=1    stop it now: nothing sends until resumed
 //   /api/admin/scripts/sales-autopilot?text=1&resume=1   turn it back on after a stop
 //   /api/admin/scripts/sales-autopilot?text=1&samples=1  build the pending samples now
 //     (services/salesSample; SALES_SAMPLE_ON), and list every sample with its page
@@ -176,6 +177,13 @@ async function main() {
   const pool = store.pool;
   const SA = require(ROOT + 'server/services/salesAutopilot');
   await SA.ensureTables(pool);
+  // STOP IT NOW: nothing more sends until it is resumed. A stop made here is
+  // his, so it holds until he resumes it (only a bounce stop lifts on its own).
+  if (argv.includes('--pause')) {
+    const r = await SA.pause(pool, 'paused by JohnMark');
+    console.log(r.already ? 'Already stopped. Nothing is sending.' : 'Stopped: the sales autopilot sends nothing until it is resumed.');
+    console.log('');
+  }
   if (argv.includes('--resume')) {
     await SA.resume(pool);
     console.log('Resumed: the sales autopilot is no longer stopped.' + (SA.SEND_ON() ? ' It sends from the next planned time.' : ' SALES_AUTOSEND_ON is off, so it still sends nothing.'));

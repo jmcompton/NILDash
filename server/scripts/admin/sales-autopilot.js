@@ -6,6 +6,7 @@
 //   /api/admin/scripts/sales-autopilot?text=1&from=YYYY-MM-DD&to=YYYY-MM-DD
 //   /api/admin/scripts/sales-autopilot?text=1&dry=1     find and draft now, send nothing, show day 1
 //   /api/admin/scripts/sales-autopilot?text=1&plan=1    the next sending day's plan
+//   /api/admin/scripts/sales-autopilot?text=1&pause=1   stop it now
 //   /api/admin/scripts/sales-autopilot?text=1&resume=1  turn it back on after a hard stop
 const d = (x) => (/^\d{4}-\d{2}-\d{2}$/.test(String(x || '')) ? String(x) : null);
 const def = {
@@ -13,6 +14,7 @@ const def = {
   args: (q) => {
     if ((q.from && !d(q.from)) || (q.to && !d(q.to))) { const e = new Error('from and to are dates: YYYY-MM-DD'); e.status = 400; throw e; }
     return [].concat(
+      q.pause === '1' ? ['--pause'] : [],
       q.resume === '1' ? ['--resume'] : [],
       q.dry === '1' ? ['--dry'] : [],
       q.plan === '1' ? ['--plan'] : [],
