@@ -1463,6 +1463,19 @@
       "match_score_id": "TEXT REFERENCES brand_match_scores(id) ON DELETE SET NULL",
       "version": "INT DEFAULT 1"
     },
+    "placement_tests": {
+      "agent_id": "TEXT",
+      "checked_at": "TIMESTAMPTZ",
+      "detail": "TEXT",
+      "from_email": "TEXT",
+      "id": "BIGSERIAL",
+      "message_id": "TEXT",
+      "result": "TEXT",
+      "seed_email": "TEXT",
+      "seed_kind": "TEXT",
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "subject": "TEXT"
+    },
     "places_market_builds": {
       "at": "TIMESTAMPTZ DEFAULT NOW()",
       "failed_calls": "INT DEFAULT 0",
@@ -2161,6 +2174,14 @@
       "route": "TEXT",
       "status": "INTEGER",
       "steps": "JSONB"
+    },
+    "sending_health": {
+      "agent_id": "TEXT",
+      "checked_at": "TIMESTAMPTZ DEFAULT NOW()",
+      "domain": "TEXT",
+      "email": "TEXT",
+      "level": "TEXT",
+      "result": "JSONB"
     },
     "serper_topups": {
       "at": "TIMESTAMPTZ DEFAULT NOW()",

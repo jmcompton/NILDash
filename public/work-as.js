@@ -102,6 +102,9 @@
         facts.appendChild(document.createTextNode(' · ' + c.athletes + (c.athletes === 1 ? ' athlete' : ' athletes') + ' · ' + c.waiting + ' waiting to approve · ' + c.sent + ' sent · '
           + c.replies + (c.replies === 1 ? ' reply' : ' replies')));
         left.appendChild(facts);
+        // WHERE THEIR MAIL LANDS (services/sendingHealth): filled in below.
+        var sh = el('div', 'font-size:12px;margin-top:6px;line-height:1.5;display:none'); sh.setAttribute('data-sh', c.id);
+        left.appendChild(sh);
         if (c.managed) left.firstChild.appendChild(el('span', 'margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(200,241,53,0.14);color:#C8F135;font-size:11px;font-weight:600;vertical-align:middle', 'Done for you'));
         row.appendChild(left);
         // DONE FOR YOU: you run this agent's outreach. Their replies are emailed
@@ -133,6 +136,45 @@
         list.appendChild(row);
       });
     }).catch(function () { list.textContent = ''; list.appendChild(el('div', 'color:#ef4444;font-size:13px', 'Could not load the client accounts.')); });
+    loadHealth(list);
+  }
+
+  // Per agent: is their domain set up to reach the inbox, and where did the
+  // last test email land. "Test inbox" sends one email from their mailbox to
+  // our own mailboxes, never to a business.
+  var SH_COLOR = { good: '#C8F135', warn: '#FCD34D', fix: '#FCA5A5', unknown: '#A1A1A6' };
+  var SH_WORD = { inbox: 'Inbox', spam: 'SPAM', other: 'Other folder', missing: 'Never arrived', failed: 'Could not send', look: 'Check your Gmail', pending: 'Looking...', unknown: 'Could not check' };
+  function drawHealth(box, h, agentId, list) {
+    box.textContent = ''; box.style.display = 'block';
+    var head = el('div', 'color:' + (SH_COLOR[h.level] || '#A1A1A6'), 'Sending: ' + h.summary);
+    box.appendChild(head);
+    (h.fixes || []).forEach(function (f) { box.appendChild(el('div', 'color:#A1A1A6;margin-top:2px', f.what + ': ' + f.do)); });
+    (h.tests || []).forEach(function (t) {
+      var bad = t.result === 'spam' || t.result === 'missing' || t.result === 'failed';
+      box.appendChild(el('div', 'margin-top:2px;color:' + (t.result === 'inbox' ? '#C8F135' : bad ? '#FCA5A5' : '#A1A1A6'), 'Test to ' + t.to + ': ' + (SH_WORD[t.result] || t.result) + '. ' + (t.detail || '')));
+    });
+    var b = el('button', 'margin-top:6px;padding:4px 10px;border-radius:999px;border:1px solid #2A2A30;background:transparent;color:#F4F4F2;font:600 11px Inter,system-ui,sans-serif;cursor:pointer', 'Test inbox');
+    b.type = 'button';
+    b.title = 'Sends one test email from this agent\'s mailbox to our own mailboxes and reports where it landed';
+    b.onclick = function () {
+      b.disabled = true; b.textContent = 'Sending the test...';
+      post('/api/admin/sending-health/' + encodeURIComponent(agentId) + '/test').then(function (x) {
+        if (!x.ok) { b.disabled = false; b.textContent = 'Test inbox'; box.appendChild(el('div', 'color:#FCA5A5;margin-top:2px', x.d.error || 'Could not send the test.')); return; }
+        b.textContent = 'Sent. Checking where it landed...';
+        var tries = 0;
+        var t = setInterval(function () { tries++; loadHealth(list); if (tries >= 6) clearInterval(t); }, 20000);
+      }).catch(function () { b.disabled = false; b.textContent = 'Test inbox'; });
+    };
+    box.appendChild(b);
+  }
+  function loadHealth(list) {
+    fetch('/api/admin/sending-health', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d || !d.agents) return;
+      Object.keys(d.agents).forEach(function (id) {
+        var box = list.querySelector('[data-sh="' + String(id).replace(/"/g, '') + '"]');
+        if (box) drawHealth(box, d.agents[id], id, list);
+      });
+    }).catch(function () {});
   }
 
   function check() {

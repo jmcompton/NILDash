@@ -13616,6 +13616,27 @@ app.get('/api/deals/recent', requireAuth, async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── WHERE AN AGENT'S MAIL LANDS (services/sendingHealth) ────────────────────
+// GET  /api/admin/sending-health                 per agent: the domain's verdict and the last test
+// POST /api/admin/sending-health/:agentId/check  read the domain's records again now
+// POST /api/admin/sending-health/:agentId/test   one test email from their mailbox to OUR mailboxes
+{
+  const SH = () => require('./services/sendingHealth');
+  const gate = (fn) => async (req, res) => {
+    try {
+      if (!(await _realAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+      await fn(req, res);
+    } catch (e) { console.error('[sending-health]', req.method, req.path, e.message); if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Try again.' }); }
+  };
+  app.get('/api/admin/sending-health', requireAuth, gate(async (req, res) => { res.set('Cache-Control', 'no-store').json({ agents: await SH().overview(store.pool) }); }));
+  app.post('/api/admin/sending-health/:agentId/check', requireAuth, gate(async (req, res) => { res.json({ ok: true, health: await SH().domainFor(store.pool, req.params.agentId, { force: true }) }); }));
+  app.post('/api/admin/sending-health/:agentId/test', requireAuth, gate(async (req, res) => {
+    const r = await SH().startTest(store.pool, req.params.agentId);
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    res.json(r);
+  }));
+}
+
 // ── FOLLOW-UPS WAIT FOR THE FOUNDER (services/founderReview) ────────────────
 // GET  /admin/follow-ups                       the page
 // GET  /api/admin/follow-ups                   every follow-up waiting on him, with its thread
